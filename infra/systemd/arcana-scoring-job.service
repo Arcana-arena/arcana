@@ -1,0 +1,20 @@
+# arcana-scoring-job.service — runs the ARCANA Score batch once.
+# Invoked by arcana-scoring-job.timer every 5 minutes.
+# Uses the scoring engine HTTP batch endpoint (service arcana-scoring.service).
+#
+# Overlap protection: Type=oneshot + flock in ExecStartPre.
+[Unit]
+Description=ARCANA Score batch job
+After=arcana-scoring.service
+Wants=arcana-scoring.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+Environment=SCORING_URL=http://localhost:8082
+ExecStartPre=/usr/bin/flock -n /tmp/arcana-scoring.lock true
+ExecStart=/usr/bin/curl -fsS -X POST http://localhost:8082/internal/v1/scoring/batch
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,13 @@
+# arcana-scoring-job.timer — runs the Score batch every 5 minutes.
+# Cadence: every 5 minutes (demo). Frequent enough to reflect new ticks, sparse
+# enough to not hammer TimescaleDB recomputing unchanged portfolios. For
+# production use the daily batch cadence (post-market-close) per architecture.
+[Unit]
+Description=Run ARCANA Score batch every 5 minutes
+
+[Timer]
+OnCalendar=*-*-* *:00/5:00
+Persistent=false
+
+[Install]
+WantedBy=timers.target

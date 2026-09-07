@@ -1,0 +1,15 @@
+# arcana-scheduler.timer — runs the competition scheduler every minute.
+# Cadence is demo/testing: every 1 minute. For production, set a realistic
+# interval matching the competition timeframe, e.g.:
+#   OnCalendar=*-*-* *:00:00      (hourly)
+#   OnCalendar=*-*-* 00:00:00     (daily)
+# then `systemctl daemon-reload && systemctl restart arcana-scheduler.timer`.
+[Unit]
+Description=Run ARCANA competition scheduler every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+Persistent=false
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,38 @@
+# arcana-scheduler.service — advances the active human_vs_ai competition by one
+# tick per invocation (see arcana-scheduler.timer, every minute).
+#
+# COMPETITION_ID: the human_vs_ai competition currently running on the VPS
+# (3f444e70...). To schedule additional competitions add another unit instance
+# (copy this file, change COMPETITION_ID + unit name) or edit this id.
+#
+# NOTE ON INTERVAL: every 1 minute is a SHORT demo/testing cadence. For
+# production, match the cadence to the real competition timeframe (hourly/daily)
+# by editing arcana-scheduler.timer.
+#
+# Overlap protection: Type=oneshot + non-blocking flock in ExecStartPre — if the
+# previous invocation is still running, this one fails fast (exit 1, logged)
+# instead of stacking a second tick.
+[Unit]
+Description=ARCANA competition scheduler (human_vs_ai)
+After=network-online.target arcana-agent.service arcana-decision.service arcana-marketdata.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/arcana/services/decision-engine
+Environment=AGENT_SERVICE_URL=http://localhost:3001
+Environment=DECISION_ENGINE_URL=http://localhost:8081
+Environment=MARKET_DATA_URL=http://localhost:8083
+Environment=SCORING_URL=http://localhost:8082
+Environment=COMPETITION_ID=3f444e70-d131-4457-92c7-f1363e22ba6e
+# Human submission window: 4 minutes. With a 1-minute timer an open tick stays
+# open across ~4 invocations (which no-op while inside the window) before the
+# scheduler closes it.
+Environment=HUMAN_WINDOW=4m
+ExecStartPre=/usr/bin/flock -n /tmp/arcana-scheduler.lock true
+ExecStart=/home/ubuntu/arcana/scheduler-bin/scheduler -competition ${COMPETITION_ID} -human-window ${HUMAN_WINDOW}
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

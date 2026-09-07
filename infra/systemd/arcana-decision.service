@@ -1,0 +1,19 @@
+# decision-engine (Go) — records agent decisions, portfolios, executes ticks
+[Unit]
+Description=ARCANA Decision Engine
+After=network-online.target docker.service arcana-marketdata.service arcana-agent.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/arcana/services/decision-engine
+Environment=DATABASE_URL=postgres://arcana:arcana@localhost:5432/arcana?sslmode=disable
+Environment=PORT=8081
+Environment=MARKET_DATA_URL=http://localhost:8083
+ExecStart=/usr/local/go/bin/go run ./cmd/server
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

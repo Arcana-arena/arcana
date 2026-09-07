@@ -1,0 +1,23 @@
+# market-data (Go) — market snapshots in MinIO + simulator
+[Unit]
+Description=ARCANA Market Data Service
+After=network-online.target docker.service arcana-agent.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/arcana/services/market-data
+Environment=DATABASE_URL=postgres://arcana:arcana@localhost:5432/arcana?sslmode=disable
+Environment=PORT=8083
+Environment=S3_ENDPOINT=http://localhost:9000
+Environment=S3_REGION=us-east-1
+Environment=S3_ACCESS_KEY=arcana
+Environment=S3_SECRET_KEY=arcana-secret
+Environment=S3_BUCKET=arcana-market
+ExecStart=/usr/local/go/bin/go run ./cmd/server
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
