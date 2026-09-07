@@ -81,14 +81,13 @@ func (s *Store) GetOrCreatePortfolio(ctx context.Context, agentID, seasonID stri
 		`SELECT id FROM portfolios WHERE agent_id = $1 AND season_id = $2`, agentID, seasonID).Scan(&id)
 	if err == nil {
 		// Load latest snapshot if present.
-		p := &PortfolioRow{ID: id}
+		p := &PortfolioRow{ID: id, Holdings: map[string]any{}}
 		err = tx.QueryRow(ctx,
 			`SELECT cash, nav FROM portfolio_snapshots WHERE portfolio_id = $1 ORDER BY ts DESC LIMIT 1`,
 			id).Scan(&p.Cash, &p.NAV)
 		if err == pgx.ErrNoRows {
 			p.Cash = initialCapital
 			p.NAV = initialCapital
-			p.Holdings = map[string]any{}
 		} else if err != nil {
 			return nil, fmt.Errorf("load latest snapshot: %w", err)
 		}
