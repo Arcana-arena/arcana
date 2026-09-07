@@ -102,6 +102,19 @@ func (e *Engine) ExecuteManual(ctx context.Context, req ExecuteManualRequest) (i
 		return 0, fmt.Errorf("agent %s is not human-managed; manual decisions are not allowed", req.AgentID)
 	}
 
+	// Turn gating: a human may only submit while their competition tick is open
+	// and they must act on that tick's immutable snapshot.
+	tick, err := e.store.OpenTickForAgent(ctx, req.AgentID)
+	if err != nil {
+		return 0, err
+	}
+	if tick == nil {
+		return 0, fmt.Errorf("no open tick for agent %s; submit only during an open decision round", req.AgentID)
+	}
+	if tick.MarketSnapshotRef != req.MarketSnapshotRef {
+		return 0, fmt.Errorf("snapshot mismatch: open tick expects %s, got %s", tick.MarketSnapshotRef, req.MarketSnapshotRef)
+	}
+
 	portfolio, _, prices, err := e.loadState(ctx, req.AgentID, req.SeasonID, req.MarketSnapshotRef)
 	if err != nil {
 		return 0, err
