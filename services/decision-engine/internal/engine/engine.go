@@ -72,7 +72,7 @@ func (e *Engine) Execute(ctx context.Context, req ExecuteRequest) (int64, error)
 		MarketSnapshotRef:  req.MarketSnapshotRef,
 		Action:             action,
 		Symbol:             "",
-		Quantity:           "",
+		Quantity:           nil,
 		ResultingAllocation: allocation,
 		Rationale:           rationale,
 	})

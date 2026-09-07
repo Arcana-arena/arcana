@@ -143,13 +143,13 @@ func (s *Store) WriteSnapshot(ctx context.Context, portfolioID string, ts time.T
 
 // DecisionInsert is the storage shape of an append-only decision.
 type DecisionInsert struct {
-	AgentID            string
-	SeasonID           string
-	TS                 time.Time
-	MarketSnapshotRef  string
-	Action             string
-	Symbol             string
-	Quantity           string
+	AgentID             string
+	SeasonID            string
+	TS                  time.Time
+	MarketSnapshotRef   string
+	Action              string
+	Symbol              string
+	Quantity            *string
 	ResultingAllocation map[string]any
 	Rationale           string
 }
