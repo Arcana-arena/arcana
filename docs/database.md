@@ -28,7 +28,12 @@ See the [db-migrations README](../packages/db-migrations/README.md) for all targ
 
 The canonical schema definitions live in `architecture.md` §7. Migrations must
 match it exactly — do not add columns not present in that document without
-confirmation.
+confirmation. Tables added beyond §7 (each documented in its migration file):
+
+- `market_snapshots` (0012) — refs for immutable point-in-time market snapshots
+  stored in object storage (MinIO/S3).
+- `competition_ticks` (0013) — turn/session state for competitions
+  (human_vs_ai rounds), referencing an immutable snapshot per tick.
 
 ## Seed data
 
