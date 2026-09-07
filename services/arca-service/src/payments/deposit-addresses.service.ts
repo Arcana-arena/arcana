@@ -64,10 +64,12 @@ export class DepositAddressesService {
 
     const { address, path } = this.hd.derive(nextIndex);
 
+    // Store lowercase so the listener's log matching (Transfer `to` is always
+    // lowercase from the RPC) hits reliably.
     const deposit = this.deposits.create({
       userWallet,
       listingId,
-      derivedAddress: address,
+      derivedAddress: address.toLowerCase(),
       derivationPath: path,
       expectedAmount: listing.arcaGateAmount,
       status: 'pending',
@@ -81,7 +83,7 @@ export class DepositAddressesService {
     });
 
     return {
-      deposit_address: address,
+      deposit_address: address.toLowerCase(),
       expected_amount: listing.arcaGateAmount,
       expires_in: DEPOSIT_TTL_SECONDS,
     };
