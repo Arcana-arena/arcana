@@ -27,22 +27,22 @@ export class AgentsController {
   }
 
   @Get(':id')
-  findOne(@Param('id', ParseUUIDPipe({ version: 'all' })) id: string) {
+  findOne(@Param('id', new ParseUUIDPipe({ version: 'all' })) id: string) {
     return this.agents.findOne(id);
   }
 
   @Patch(':id')
-  update(@Param('id', ParseUUIDPipe({ version: 'all' })) id: string, @Body() dto: UpdateAgentDto) {
+  update(@Param('id', new ParseUUIDPipe({ version: 'all' })) id: string, @Body() dto: UpdateAgentDto) {
     return this.agents.update(id, dto);
   }
 
   @Post(':id/activate')
-  activate(@Param('id', ParseUUIDPipe({ version: 'all' })) id: string) {
+  activate(@Param('id', new ParseUUIDPipe({ version: 'all' })) id: string) {
     return this.agents.activate(id);
   }
 
   @Post(':id/evolve')
-  evolve(@Param('id', ParseUUIDPipe({ version: 'all' })) id: string, @Body() dto: EvolveAgentDto) {
+  evolve(@Param('id', new ParseUUIDPipe({ version: 'all' })) id: string, @Body() dto: EvolveAgentDto) {
     return this.agents.evolve(id, dto);
   }
 }
