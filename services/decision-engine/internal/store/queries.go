@@ -61,14 +61,15 @@ func (s *Store) GetSeasonRuleset(ctx context.Context, seasonID string) (map[stri
 
 // PortfolioRow is a portfolio with its latest snapshot values.
 type PortfolioRow struct {
-	ID      string
-	Cash    string
-	NAV     string
-	Holdings map[string]any
+	ID       string
+	Cash     string
+	NAV      string
+	Holdings map[string]any // symbol -> quantity
 }
 
 // GetOrCreatePortfolio finds the portfolio for (agent, season) or creates it
-// with the season's initial capital.
+// with the season's initial capital. On an existing portfolio the latest
+// snapshot's holdings/cash/nav are loaded as the starting state.
 func (s *Store) GetOrCreatePortfolio(ctx context.Context, agentID, seasonID string, initialCapital string) (*PortfolioRow, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -82,14 +83,20 @@ func (s *Store) GetOrCreatePortfolio(ctx context.Context, agentID, seasonID stri
 	if err == nil {
 		// Load latest snapshot if present.
 		p := &PortfolioRow{ID: id, Holdings: map[string]any{}}
+		var holdings []byte
 		err = tx.QueryRow(ctx,
-			`SELECT cash, nav FROM portfolio_snapshots WHERE portfolio_id = $1 ORDER BY ts DESC LIMIT 1`,
-			id).Scan(&p.Cash, &p.NAV)
+			`SELECT cash, nav, holdings FROM portfolio_snapshots
+			 WHERE portfolio_id = $1 ORDER BY ts DESC LIMIT 1`,
+			id).Scan(&p.Cash, &p.NAV, &holdings)
 		if err == pgx.ErrNoRows {
 			p.Cash = initialCapital
 			p.NAV = initialCapital
 		} else if err != nil {
 			return nil, fmt.Errorf("load latest snapshot: %w", err)
+		} else {
+			if err := json.Unmarshal(holdings, &p.Holdings); err != nil {
+				return nil, fmt.Errorf("parse holdings: %w", err)
+			}
 		}
 		return p, tx.Commit(ctx)
 	}

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/arcana/decision-engine/internal/engine"
+	"github.com/arcana/decision-engine/internal/marketdata"
 	"github.com/arcana/decision-engine/internal/store"
 )
 
@@ -28,6 +29,10 @@ func main() {
 	if port == "" {
 		port = "8081"
 	}
+	marketDataURL := os.Getenv("MARKET_DATA_URL")
+	if marketDataURL == "" {
+		marketDataURL = "http://localhost:8083"
+	}
 
 	pool, err := store.NewPool(ctx, databaseURL)
 	if err != nil {
@@ -35,7 +40,7 @@ func main() {
 	}
 	defer pool.Close()
 
-	srv := &server{engine: engine.New(store.New(pool))}
+	srv := &server{engine: engine.New(store.New(pool), marketdata.New(marketDataURL))}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
