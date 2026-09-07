@@ -9,7 +9,7 @@ import {
 } from 'class-validator';
 
 export class CreateAgentDto {
-  @IsUUID()
+  @IsUUID('all')
   creatorId: string;
 
   @IsString()
@@ -32,7 +32,7 @@ export class CreateAgentDto {
   assetUniverse: string;
 
   @IsOptional()
-  @IsUUID()
+  @IsUUID('all')
   parentAgentId?: string;
 
   @IsOptional()
