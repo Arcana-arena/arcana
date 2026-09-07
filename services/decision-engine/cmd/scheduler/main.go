@@ -112,7 +112,7 @@ func main() {
 	}
 	log.Printf("tick snapshot: %s", snapRef)
 
-	open, err = openTick(ctx, cfg, *compID, snapRef)
+	open, err = startTick(ctx, cfg, *compID, snapRef)
 	if err != nil {
 		log.Fatalf("open tick: %v", err)
 	}
@@ -177,7 +177,7 @@ func simulateMarket(ctx context.Context, cfg config, tick time.Time) (string, er
 	return out.MarketSnapshotRef, nil
 }
 
-func openTick(ctx context.Context, cfg config, compID, snapRef string) (*openTick, error) {
+func startTick(ctx context.Context, cfg config, compID, snapRef string) (*openTick, error) {
 	payload, _ := json.Marshal(map[string]string{"marketSnapshotRef": snapRef})
 	resp, err := httpPost(ctx, cfg.agentServiceURL+"/v1/competitions/"+compID+"/ticks", payload)
 	if err != nil {
