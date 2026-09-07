@@ -183,3 +183,76 @@ func (s *Store) LatestScore(ctx context.Context, agentID string) (*ScoreRow, err
 	}
 	return &srow, nil
 }
+
+// LeaderboardEntry is one agent row on the leaderboard (its latest score).
+type LeaderboardEntry struct {
+	Rank            int        `json:"rank"`
+	AgentID         string     `json:"agent_id"`
+	AgentName       string     `json:"agent_name"`
+	ArcanaScore     *float64   `json:"arcana_score"`
+	PerformanceScore *float64  `json:"performance_score"`
+	RiskScore       *float64   `json:"risk_score"`
+	ConsistencyScore *float64  `json:"consistency_score"`
+	LongevityScore  *float64   `json:"longevity_score"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+}
+
+// LeaderboardSortColumn maps a leaderboard category to a score column.
+// Only columns present in score_snapshots are supported.
+var LeaderboardSortColumn = map[string]string{
+	"arcana":      "arcana_score",
+	"performance": "performance_score",
+	"consistency": "consistency_score",
+	"risk":        "risk_score",
+	"longevity":   "longevity_score",
+}
+
+// Leaderboard returns the latest score per agent, sorted by the given column.
+func (s *Store) Leaderboard(ctx context.Context, sortColumn string, limit, offset int) ([]LeaderboardEntry, error) {
+	// Validate sort column against allow-list to avoid SQL injection.
+	if _, ok := LeaderboardSortColumn[sortColumn]; !ok {
+		return nil, fmt.Errorf("unsupported leaderboard category: %s", sortColumn)
+	}
+	col := LeaderboardSortColumn[sortColumn]
+
+	q := fmt.Sprintf(`
+		WITH latest AS (
+			SELECT DISTINCT ON (agent_id) agent_id, ts,
+			       arcana_score, performance_score, risk_score,
+			       consistency_score, longevity_score
+			FROM score_snapshots
+			ORDER BY agent_id, ts DESC
+		)
+		SELECT l.agent_id, COALESCE(a.name, ''), l.arcana_score,
+		       l.performance_score, l.risk_score, l.consistency_score,
+		       l.longevity_score, l.ts
+		FROM latest l
+		LEFT JOIN agents a ON a.id = l.agent_id
+		WHERE l.%s IS NOT NULL
+		ORDER BY l.%s DESC
+		LIMIT $1 OFFSET $2`, col, col)
+
+	rows, err := s.pool.Query(ctx, q, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("leaderboard query: %w", err)
+	}
+	defer rows.Close()
+
+	var out []LeaderboardEntry
+	for rows.Next() {
+		var e LeaderboardEntry
+		if err := rows.Scan(&e.AgentID, &e.AgentName, &e.ArcanaScore,
+			&e.PerformanceScore, &e.RiskScore, &e.ConsistencyScore,
+			&e.LongevityScore, &e.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].Rank = offset + i + 1
+	}
+	return out, nil
+}

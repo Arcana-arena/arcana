@@ -57,6 +57,11 @@ func (e *Engine) LatestScore(ctx context.Context, agentID string) (*store.ScoreR
 	return e.store.LatestScore(ctx, agentID)
 }
 
+// Leaderboard returns the latest score per agent sorted by a category column.
+func (e *Engine) Leaderboard(ctx context.Context, category string, page, pageSize int) ([]store.LeaderboardEntry, error) {
+	return e.store.Leaderboard(ctx, category, pageSize, (page-1)*pageSize)
+}
+
 func (e *Engine) scoreAgent(ctx context.Context, ap store.AgentPortfolio) error {
 	points, err := e.store.PortfolioNAVSeries(ctx, ap.PortfolioID)
 	if err != nil {

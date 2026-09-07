@@ -43,6 +43,7 @@ func main() {
 	})
 	mux.HandleFunc("POST /internal/v1/scoring/batch", srv.handleBatch)
 	mux.HandleFunc("GET /v1/agents/{id}/score", srv.handleScore)
+	mux.HandleFunc("GET /v1/leaderboard", srv.handleLeaderboard)
 
 	log.Printf("scoring-engine listening on :%s", port)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
@@ -72,6 +73,55 @@ func (s *server) handleScore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, snap)
+}
+
+// handleLeaderboard returns the leaderboard for a category with pagination.
+// Query params: category (default arcana), page (default 1), page_size (default 20).
+func (s *server) handleLeaderboard(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	q := r.URL.Query()
+
+	category := q.Get("category")
+	if category == "" {
+		category = "arcana"
+	}
+	page := atoiDefault(q.Get("page"), 1)
+	pageSize := atoiDefault(q.Get("page_size"), 20)
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
+	entries, err := s.engine.Leaderboard(ctx, category, page, pageSize)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_category", err.Error())
+		return
+	}
+	if entries == nil {
+		entries = []store.LeaderboardEntry{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"category":  category,
+		"page":      page,
+		"page_size": pageSize,
+		"entries":   entries,
+	})
+}
+
+func atoiDefault(s string, def int) int {
+	if s == "" {
+		return def
+	}
+	n := 0
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return def
+		}
+		n = n*10 + int(c-'0')
+	}
+	return n
 }
 
 func writeJSON(w http.ResponseWriter, code int, body any) {
