@@ -3,6 +3,9 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { HealthController } from './health.controller';
 import { AgentsModule } from './agents/agents.module';
+import { CompetitionsModule } from './competitions/competitions.module';
+import { CreatorsModule } from './creators/creators.module';
+import { SeasonsModule } from './seasons/seasons.module';
 
 @Module({
   imports: [
@@ -17,6 +20,9 @@ import { AgentsModule } from './agents/agents.module';
       }),
     }),
     AgentsModule,
+    CreatorsModule,
+    SeasonsModule,
+    CompetitionsModule,
   ],
   controllers: [HealthController],
 })
