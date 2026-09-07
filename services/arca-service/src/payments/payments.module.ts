@@ -13,6 +13,7 @@ import { DepositAddressesService } from './deposit-addresses.service';
 import { SubscriptionsService } from './subscriptions.service';
 import { PaymentListenerService } from './payment-listener.service';
 import { PayoutBatchService } from './payout-batch.service';
+import { PushService, ReminderService } from './reminder.service';
 import { ArcaController } from './arca.controller';
 
 @Module({
@@ -35,6 +36,8 @@ import { ArcaController } from './arca.controller';
     SubscriptionsService,
     PaymentListenerService,
     PayoutBatchService,
+    PushService,
+    ReminderService,
   ],
   exports: [
     HdWalletService,

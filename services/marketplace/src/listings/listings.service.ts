@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MarketplaceListing } from './listing.entity';
@@ -6,10 +7,15 @@ import { CreateListingDto, UpdateListingDto } from './dto/listing.dto';
 
 @Injectable()
 export class ListingsService {
+  private readonly arcaUrl: string;
+
   constructor(
     @InjectRepository(MarketplaceListing)
     private readonly listings: Repository<MarketplaceListing>,
-  ) {}
+    config: ConfigService,
+  ) {
+    this.arcaUrl = config.get<string>('ARCA_SERVICE_URL') ?? 'http://localhost:3003';
+  }
 
   create(dto: CreateListingDto): Promise<MarketplaceListing> {
     const listing = this.listings.create({
@@ -45,6 +51,49 @@ export class ListingsService {
       listing.arcaGateAmount = dto.arcaGateAmount.toFixed(8);
     if (dto.active !== undefined) listing.active = dto.active;
     return this.listings.save(listing);
+  }
+
+  /**
+   * Subscribe to a listing: delegates to arca-service to generate a unique
+   * HD deposit address. Access is granted only after the on-chain payment is
+   * confirmed by the arca payment listener — NOT here.
+   */
+  async subscribe(listingId: string, userWallet: string) {
+    const listing = await this.findOne(listingId);
+    if (!listing.active) {
+      throw new NotFoundException(`Listing ${listingId} is inactive`);
+    }
+
+    const res = await fetch(`${this.arcaUrl}/v1/arca/deposit-address`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userWallet, listingId }),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`arca-service subscribe failed (${res.status}): ${body}`);
+    }
+    return res.json();
+  }
+
+  /**
+   * Check whether a user currently has access to a listing (asks arca-service
+   * for an active subscription).
+   */
+  async hasAccess(listingId: string, userWallet: string): Promise<boolean> {
+    const res = await fetch(`${this.arcaUrl}/v1/subscriptions/${userWallet}`);
+    if (!res.ok) return false;
+    const subs = (await res.json()) as Array<{
+      listingId: string;
+      status: string;
+      expiresAt: string;
+    }>;
+    return subs.some(
+      (s) =>
+        s.listingId === listingId &&
+        s.status === 'active' &&
+        new Date(s.expiresAt) > new Date(),
+    );
   }
 
   /**
