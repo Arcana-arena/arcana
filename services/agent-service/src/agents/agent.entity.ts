@@ -13,7 +13,7 @@ export class Agent {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column('uuid')
+  @Column({ name: 'creator_id', type: 'uuid' })
   @Index('idx_agents_creator')
   creatorId: string;
 
