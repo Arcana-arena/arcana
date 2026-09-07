@@ -3,9 +3,13 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import {
+  createPublicClient,
   createWalletClient,
   http,
+  type Account,
   type Address,
+  type Chain,
+  type PublicClient,
   type WalletClient,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -32,9 +36,10 @@ import { ArcaTokenService } from './arca-token.service';
 @Injectable()
 export class PayoutBatchService {
   private readonly logger = new Logger(PayoutBatchService.name);
-  private readonly treasuryWallet: WalletClient | null;
-  private readonly treasuryAddress: Address | null;
   private readonly rpc: string | null;
+  private readonly treasuryAccount: Account | null;
+  private readonly treasuryAddress: Address | null;
+  private readonly chain: Chain;
 
   constructor(
     @InjectRepository(PaymentEvent)
@@ -49,27 +54,46 @@ export class PayoutBatchService {
     config: ConfigService,
   ) {
     this.rpc = config.get<string>('ARCA_RPC_URL') ?? null;
+    // Permissioned chain id — default 31337 (anvil) for dev; set ARCA_CHAIN_ID
+    // to the real Robinhood Chain id in production.
+    const chainId = parseInt(config.get<string>('ARCA_CHAIN_ID') ?? '31337', 10);
+    this.chain = {
+      id: Number.isFinite(chainId) ? chainId : 31337,
+      name: config.get<string>('ARCA_CHAIN_NAME') ?? 'robinhood',
+      nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+      rpcUrls: { default: { http: [this.rpc ?? 'http://localhost:8545'] } },
+    };
+
     const treasuryKey = config.get<string>('ARCA_TREASURY_PRIVATE_KEY');
     if (treasuryKey && this.rpc && this.token.tokenAddress) {
-      const account = privateKeyToAccount(
-        (treasuryKey.startsWith('0x') ? treasuryKey : `0x${treasuryKey}`) as Address,
-      );
-      this.treasuryAddress = account.address;
-      this.treasuryWallet = createWalletClient({
-        account,
-        transport: http(this.rpc),
-      });
+      const hex = (treasuryKey.startsWith('0x') ? treasuryKey : `0x${treasuryKey}`) as Address;
+      this.treasuryAccount = privateKeyToAccount(hex);
+      this.treasuryAddress = this.treasuryAccount.address;
     } else {
       this.logger.warn(
         'Payout batch disabled: set ARCA_TREASURY_PRIVATE_KEY, ARCA_RPC_URL and ARCA_TOKEN_ADDRESS',
       );
-      this.treasuryWallet = null;
+      this.treasuryAccount = null;
       this.treasuryAddress = null;
     }
   }
 
   get enabled(): boolean {
-    return this.treasuryWallet != null && this.token.tokenAddress != null;
+    return this.treasuryAccount != null && this.token.tokenAddress != null;
+  }
+
+  private publicClient(): PublicClient {
+    if (!this.rpc) throw new Error('ARCA_RPC_URL not configured');
+    return createPublicClient({ chain: this.chain, transport: http(this.rpc) });
+  }
+
+  private walletClient(): WalletClient {
+    if (!this.rpc || !this.treasuryAccount) throw new Error('treasury not configured');
+    return createWalletClient({
+      account: this.treasuryAccount,
+      chain: this.chain,
+      transport: http(this.rpc),
+    });
   }
 
   /** Run one payout cycle. Returns a summary. */
@@ -170,18 +194,21 @@ export class PayoutBatchService {
   }
 
   private async transferToCreator(creatorId: string, amountWei: bigint): Promise<string> {
-    if (!this.treasuryWallet || !this.treasuryAddress || !this.token.tokenAddress) {
+    if (!this.treasuryAccount || !this.treasuryAddress || !this.token.tokenAddress) {
       throw new Error('treasury not configured');
     }
-    const from = this.treasuryWallet.account.address;
+    const publicClient = this.publicClient();
+    const walletClient = this.walletClient();
+    const from = this.treasuryAddress;
 
-    const ethBalance = await this.treasuryWallet.getBalance({ address: from });
-    const gas = await this.treasuryWallet.estimateGas({
-      account: this.treasuryAddress,
+    const ethBalance = await publicClient.getBalance({ address: from });
+    const data = this.transferData(creatorId, amountWei);
+    const gas = await publicClient.estimateGas({
+      account: this.treasuryAccount,
       to: this.token.tokenAddress,
-      data: this.transferData(creatorId, amountWei),
+      data,
     });
-    const gasPrice = await this.treasuryWallet.getGasPrice();
+    const gasPrice = await publicClient.getGasPrice();
     const gasCost = gas * gasPrice;
 
     if (ethBalance < gasCost) {
@@ -190,9 +217,9 @@ export class PayoutBatchService {
       );
     }
 
-    const hash = await this.treasuryWallet.sendTransaction({
+    const hash = await walletClient.sendTransaction({
       to: this.token.tokenAddress,
-      data: this.transferData(creatorId, amountWei),
+      data,
     });
     this.logger.log(
       `payout sent: ${this.fromWei(amountWei)} $ARCA to creator ${creatorId} (tx ${hash})`,
