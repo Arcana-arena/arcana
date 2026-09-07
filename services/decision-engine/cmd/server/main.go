@@ -48,6 +48,7 @@ func main() {
 		w.Write([]byte("ok"))
 	})
 	mux.HandleFunc("POST /internal/v1/decisions/execute", srv.handleExecute)
+	mux.HandleFunc("POST /internal/v1/decisions/manual", srv.handleManual)
 
 	log.Printf("decision-engine listening on :%s", port)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
@@ -67,6 +68,29 @@ func (s *server) handleExecute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	decisionID, err := s.engine.Execute(ctx, req)
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "execute_failed", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"decision_id": decisionID,
+		"status":      "recorded",
+	})
+}
+
+// handleManual records a human-submitted trade for a human_vs_ai session.
+func (s *server) handleManual(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	var req engine.ExecuteManualRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+
+	decisionID, err := s.engine.ExecuteManual(ctx, req)
 	if err != nil {
 		writeError(w, http.StatusUnprocessableEntity, "execute_failed", err.Error())
 		return
