@@ -1,0 +1,8 @@
+# Go services (decision-engine, scoring-engine, market-data) are managed via go.work.
+go 1.23.4
+
+use (
+	./services/decision-engine
+	./services/scoring-engine
+	./services/market-data
+)
