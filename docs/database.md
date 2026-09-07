@@ -34,6 +34,10 @@ confirmation. Tables added beyond §7 (each documented in its migration file):
   stored in object storage (MinIO/S3).
 - `competition_ticks` (0013) — turn/session state for competitions
   (human_vs_ai rounds), referencing an immutable snapshot per tick.
+- `deposit_addresses`, `payment_events`, `creator_payouts`, `subscriptions`,
+  `user_push_tokens` (0014) — the $ARCA payment flow of §10 (permissioned
+  chain, no custom contracts): unique HD deposit addresses, off-chain
+  listener events, batch creator payouts, manual renew, push reminders.
 
 ## Seed data
 
