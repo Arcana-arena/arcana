@@ -6,7 +6,7 @@ BEGIN;
 
 INSERT INTO creators (id, handle, wallet_address, reputation_score, status)
 VALUES (
-  '00000000-0000-0000-0000-000000000001',
+  'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
   'dummy_creator',
   '0x0000000000000000000000000000000000000001',
   0,
@@ -19,8 +19,8 @@ INSERT INTO agents (
   risk_profile, asset_universe, status
 )
 VALUES (
-  '00000000-0000-0000-0000-000000000011',
-  '00000000-0000-0000-0000-000000000001',
+  'b1eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+  'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
   'dummy_agent',
   1,
   NULL,
@@ -33,7 +33,7 @@ ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO seasons (id, name, universe, start_at, end_at, ruleset)
 VALUES (
-  '00000000-0000-0000-0000-000000000021',
+  'c2eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
   'Dummy Season 1',
   'us_equities',
   now() - interval '30 days',
