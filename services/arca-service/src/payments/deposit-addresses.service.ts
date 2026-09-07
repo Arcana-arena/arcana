@@ -1,13 +1,14 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsUUID } from 'class-validator';
+import { IsString, IsUUID, Matches } from 'class-validator';
 import { Repository } from 'typeorm';
 import { DepositAddress } from './deposit-address.entity';
 import { ListingRef } from './listing-ref.entity';
 import { HdWalletService } from './hd-wallet.service';
 
 export class CreateDepositDto {
-  @IsUUID('all')
+  @IsString()
+  @Matches(/^0x[a-fA-F0-9]{40}$/, { message: 'userWallet must be an EVM address (0x + 40 hex)' })
   userWallet!: string;
 
   @IsUUID('all')
