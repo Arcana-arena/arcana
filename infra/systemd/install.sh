@@ -24,7 +24,7 @@ sudo cp "$REPO"/infra/systemd/*.service "$REPO"/infra/systemd/*.timer "$UNIT_DIR
 sudo systemctl daemon-reload
 
 echo "==> enabling long-running services"
-for u in arcana-agent arcana-marketdata arcana-decision arcana-scoring; do
+for u in arcana-agent arcana-marketdata arcana-decision arcana-scoring arcana-marketplace; do
   sudo systemctl enable --now "$u.service"
 done
 

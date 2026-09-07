@@ -1,0 +1,18 @@
+# marketplace-service (NestJS) — listings + agent discovery (reads real scores)
+[Unit]
+Description=ARCANA Marketplace Service
+After=network-online.target docker.service arcana-scoring.service arcana-agent.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/arcana/services/marketplace
+Environment=DATABASE_URL=postgres://arcana:arcana@localhost:5432/arcana?sslmode=disable
+Environment=PORT=3002
+ExecStart=/usr/bin/node dist/main.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
