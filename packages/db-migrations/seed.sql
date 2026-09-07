@@ -8,7 +8,7 @@ INSERT INTO creators (id, handle, wallet_address, reputation_score, status)
 VALUES (
   'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
   'dummy_creator',
-  '0x0000000000000000000000000000000000000001',
+  '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC',
   0,
   'active'
 )

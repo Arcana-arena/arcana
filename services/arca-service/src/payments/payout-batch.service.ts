@@ -112,7 +112,7 @@ export class PayoutBatchService {
     }
 
     // Resolve each payment: deposit -> listing (revenue share) -> creator.
-    const byCreator = new Map<string, { amount: bigint; events: PaymentEvent[] }>();
+    const byCreator = new Map<string, { amount: bigint; events: PaymentEvent[]; wallet: string }>();
     for (const ev of pending) {
       const deposit = await this.deposits.findOne({
         where: { id: ev.depositAddressId },
@@ -128,9 +128,9 @@ export class PayoutBatchService {
         skipped.push(`payment ${ev.txHash}: listing ${deposit.listingId} not found`);
         continue;
       }
-      // listing -> agent -> creator
-      const creatorId = await this.creatorForListing(listing.id);
-      if (!creatorId) {
+      // listing -> agent -> creator (resolve wallet address for the transfer)
+      const creator = await this.creatorForListing(listing.id);
+      if (!creator) {
         skipped.push(`payment ${ev.txHash}: no creator for listing ${listing.id}`);
         continue;
       }
@@ -146,18 +146,18 @@ export class PayoutBatchService {
       ev.payoutStatus = 'paid';
       await this.payments.save(ev);
 
-      const acc = byCreator.get(creatorId) ?? { amount: 0n, events: [] };
+      const acc = byCreator.get(creator.creatorId) ?? { amount: 0n, events: [], wallet: creator.walletAddress };
       acc.amount += creatorShareWei;
       acc.events.push(ev);
-      byCreator.set(creatorId, acc);
+      byCreator.set(creator.creatorId, acc);
     }
 
     // Send one transfer per creator.
     let paidOut = 0;
-    for (const [creatorId, { amount }] of byCreator) {
+    for (const [creatorId, { amount, wallet }] of byCreator) {
       if (amount <= 0n) continue;
       try {
-        const txHash = await this.transferToCreator(creatorId, amount);
+        const txHash = await this.transferToCreator(wallet, amount);
         const payout = this.payouts.create({
           creatorId,
           periodStart: new Date(),
@@ -181,28 +181,34 @@ export class PayoutBatchService {
     return { processed: pending.length, paid_out: paidOut, skipped };
   }
 
-  private async creatorForListing(listingId: string): Promise<string | null> {
-    // marketplace_listings -> agents -> creators
-    const row = await this.payments.manager.query(
-      `SELECT c.id FROM agents a
+  private async creatorForListing(listingId: string): Promise<{ creatorId: string; walletAddress: string } | null> {
+    // marketplace_listings -> agents -> creators (use the creator's EVM wallet)
+    const rows = await this.payments.manager.query(
+      `SELECT c.id, c.wallet_address FROM agents a
        JOIN marketplace_listings l ON l.agent_id = a.id
        JOIN creators c ON c.id = a.creator_id
        WHERE l.id = $1 LIMIT 1`,
       [listingId],
     );
-    return row?.[0]?.id ?? null;
+    const row = rows?.[0];
+    if (!row) return null;
+    if (!row.wallet_address || !/^0x[a-fA-F0-9]{40}$/.test(row.wallet_address)) {
+      throw new Error(`creator ${row.id} has no valid wallet_address for payout`);
+    }
+    return { creatorId: row.id, walletAddress: row.wallet_address };
   }
 
-  private async transferToCreator(creatorId: string, amountWei: bigint): Promise<string> {
+  private async transferToCreator(wallet: string, amountWei: bigint): Promise<string> {
     if (!this.treasuryAccount || !this.treasuryAddress || !this.token.tokenAddress) {
       throw new Error('treasury not configured');
     }
     const publicClient = this.publicClient();
     const walletClient = this.walletClient();
     const from = this.treasuryAddress;
+    const to = wallet.toLowerCase() as Address;
 
     const ethBalance = await publicClient.getBalance({ address: from });
-    const data = this.transferData(creatorId, amountWei);
+    const data = this.transferData(to, amountWei);
     const gas = await publicClient.estimateGas({
       account: this.treasuryAccount,
       to: this.token.tokenAddress,
@@ -224,14 +230,14 @@ export class PayoutBatchService {
       data,
     });
     this.logger.log(
-      `payout sent: ${this.fromWei(amountWei)} $ARCA to creator ${creatorId} (tx ${hash})`,
+      `payout sent: ${this.fromWei(amountWei)} $ARCA to creator wallet ${to} (tx ${hash})`,
     );
     return hash;
   }
 
   private transferData(to: string, amountWei: bigint): `0x${string}` {
     // erc20 transfer(address,uint256) selector
-    return `0xa9059cbb${to.slice(2).toLowerCase().padStart(64, '0')}${amountWei.toString(16).padStart(64, '0')}` as `0x${string}`;
+    return `0xa9059cbb${to.slice(2).padStart(64, '0')}${amountWei.toString(16).padStart(64, '0')}` as `0x${string}`;
   }
 
   private toWei(amount: string): bigint {
