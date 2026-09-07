@@ -218,6 +218,7 @@ export class PayoutBatchService {
     }
 
     const hash = await walletClient.sendTransaction({
+      account: this.treasuryAccount,
       to: this.token.tokenAddress,
       data,
     });
