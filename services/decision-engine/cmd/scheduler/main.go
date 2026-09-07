@@ -1,14 +1,15 @@
 // Command scheduler advances one competition by one tick.
 //
-// It is designed to be invoked once per tick (externally by cron/Argo). For a
-// human_vs_ai competition it:
-//  1. simulates the next market snapshot (calls market-data simulate endpoint)
-//  2. opens the tick on the agent-service (records phase=open + snapshot ref)
-//  3. executes every AI participant (auto-decision) against that snapshot
-//  4. closes the tick — the human window is [open..close]; in production the
-//     close happens after the configured human window elapses
+// It is designed to be invoked periodically (cron/Argo). Two modes:
 //
-// Usage: scheduler -competition <id> [-interval-mins 5]
+//	Phase 1 (no open tick): simulate next market snapshot -> open tick ->
+//	  run every AI participant. If the competition has human participants and
+//	  -human-window > 0 the tick is LEFT OPEN so humans can submit via the API;
+//	  otherwise it is closed immediately.
+//	Phase 2 (open tick exists): once window_start + human-window has elapsed,
+//	  close the tick; if still inside the window, exit without doing anything.
+//
+// Usage: scheduler -competition <id> [-human-window 5m]
 package main
 
 import (
@@ -24,10 +25,10 @@ import (
 )
 
 type config struct {
-	agentServiceURL  string
+	agentServiceURL   string
 	decisionEngineURL string
-	marketDataURL    string
-	scoringURL       string
+	marketDataURL     string
+	scoringURL        string
 }
 
 type competition struct {
@@ -38,15 +39,18 @@ type competition struct {
 	Status         string   `json:"status"`
 }
 
-type snapshot struct {
-	Symbols []struct {
-		Symbol string  `json:"symbol"`
-		Price  float64 `json:"price"`
-	} `json:"symbols"`
+type openTick struct {
+	ID             string     `json:"id"`
+	TickIndex      int        `json:"tickIndex"`
+	Phase          string     `json:"phase"`
+	MarketSnapshotRef string   `json:"marketSnapshotRef"`
+	WindowStart    *time.Time `json:"windowStart"`
+	WindowEnd      *time.Time `json:"windowEnd"`
 }
 
 func main() {
 	compID := flag.String("competition", "", "competition id to advance")
+	humanWindow := flag.Duration("human-window", 0, "how long an open tick waits for human submissions before closing (e.g. 5m, 1h)")
 	flag.Parse()
 	if *compID == "" {
 		log.Fatal("-competition is required")
@@ -60,8 +64,8 @@ func main() {
 	}
 
 	ctx := context.Background()
+	now := time.Now().UTC()
 
-	// Load competition participants.
 	comp, err := getCompetition(ctx, cfg, *compID)
 	if err != nil {
 		log.Fatalf("load competition: %v", err)
@@ -71,21 +75,50 @@ func main() {
 		return
 	}
 
-	// 1. Simulate next market snapshot.
-	tickTime := time.Now().UTC().Truncate(time.Second)
+	hasHuman := false
+	for _, pid := range comp.ParticipantIDs {
+		if isHuman, err := agentIsHuman(ctx, cfg, pid); err == nil && isHuman {
+			hasHuman = true
+			break
+		}
+	}
+
+	open, err := getOpenTick(ctx, cfg, *compID)
+	if err != nil {
+		log.Fatalf("get open tick: %v", err)
+	}
+
+	if open != nil && open.ID != "" {
+		// Phase 2: an open tick exists — close it once the human window elapsed.
+		if open.WindowStart != nil && *humanWindow > 0 {
+			deadline := open.WindowStart.Add(*humanWindow)
+			if now.Before(deadline) {
+				log.Printf("tick %d still in human window until %s; nothing to do", open.TickIndex, deadline.Format(time.RFC3339))
+				return
+			}
+		}
+		if err := closeTick(ctx, cfg, *compID); err != nil {
+			log.Fatalf("close tick: %v", err)
+		}
+		log.Printf("tick %d closed for %s", open.TickIndex, *compID)
+		return
+	}
+
+	// Phase 1: no open tick — start the next round.
+	tickTime := now
 	snapRef, err := simulateMarket(ctx, cfg, tickTime)
 	if err != nil {
 		log.Fatalf("simulate market: %v", err)
 	}
 	log.Printf("tick snapshot: %s", snapRef)
 
-	// 2. Open tick.
-	if err := openTick(ctx, cfg, *compID, snapRef); err != nil {
+	open, err = openTick(ctx, cfg, *compID, snapRef)
+	if err != nil {
 		log.Fatalf("open tick: %v", err)
 	}
-	log.Printf("tick opened for %s", *compID)
+	log.Printf("tick %d opened for %s", open.TickIndex, *compID)
 
-	// 3. Run AI participants (skip humans - they submit via API).
+	// Run AI participants (humans submit via the API during the window).
 	for _, pid := range comp.ParticipantIDs {
 		if isHuman, _ := agentIsHuman(ctx, cfg, pid); isHuman {
 			continue
@@ -97,12 +130,16 @@ func main() {
 		}
 	}
 
-	// 4. Close the tick (human window elapses in real deployments via a later
-	//    scheduler invocation; single-shot mode closes immediately after AI run).
-	if err := closeTick(ctx, cfg, *compID); err != nil {
-		log.Fatalf("close tick: %v", err)
+	// Close immediately when there is no human window to respect.
+	if !hasHuman || *humanWindow <= 0 {
+		if err := closeTick(ctx, cfg, *compID); err != nil {
+			log.Fatalf("close tick: %v", err)
+		}
+		log.Printf("tick %d closed for %s (no human window)", open.TickIndex, *compID)
+		return
 	}
-	log.Printf("tick closed for %s", *compID)
+
+	log.Printf("tick %d left open for human submissions (window %s)", open.TickIndex, humanWindow.String())
 }
 
 func getCompetition(ctx context.Context, cfg config, id string) (*competition, error) {
@@ -140,10 +177,38 @@ func simulateMarket(ctx context.Context, cfg config, tick time.Time) (string, er
 	return out.MarketSnapshotRef, nil
 }
 
-func openTick(ctx context.Context, cfg config, compID, snapRef string) error {
+func openTick(ctx context.Context, cfg config, compID, snapRef string) (*openTick, error) {
 	payload, _ := json.Marshal(map[string]string{"marketSnapshotRef": snapRef})
-	_, err := httpPost(ctx, cfg.agentServiceURL+"/v1/competitions/"+compID+"/ticks", payload)
-	return err
+	resp, err := httpPost(ctx, cfg.agentServiceURL+"/v1/competitions/"+compID+"/ticks", payload)
+	if err != nil {
+		return nil, err
+	}
+	return decodeOpenTick(resp)
+}
+
+func getOpenTick(ctx context.Context, cfg config, compID string) (*openTick, error) {
+	resp, err := httpGet(ctx, cfg.agentServiceURL+"/v1/competitions/"+compID+"/tick/open")
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Tick *openTick `json:"tick"`
+	}
+	if err := json.Unmarshal(resp, &out); err != nil {
+		return nil, fmt.Errorf("decode open tick response: %w", err)
+	}
+	if out.Tick == nil {
+		return &openTick{}, nil
+	}
+	return out.Tick, nil
+}
+
+func decodeOpenTick(resp []byte) (*openTick, error) {
+	var t openTick
+	if err := json.Unmarshal(resp, &t); err != nil {
+		return nil, fmt.Errorf("decode tick response: %w", err)
+	}
+	return &t, nil
 }
 
 func closeTick(ctx context.Context, cfg config, compID string) error {

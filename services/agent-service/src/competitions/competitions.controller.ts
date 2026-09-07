@@ -55,4 +55,10 @@ export class CompetitionsController {
   listTicks(@Param('id', ParseUuidAllPipe) id: string) {
     return this.competitions.listTicks(id);
   }
+
+  @Get(':id/tick/open')
+  async getOpenTick(@Param('id', ParseUuidAllPipe) id: string) {
+    const tick = await this.competitions.getOpenTick(id);
+    return { tick: tick ?? null };
+  }
 }

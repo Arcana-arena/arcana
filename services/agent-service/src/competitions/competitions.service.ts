@@ -112,4 +112,12 @@ export class CompetitionsService {
       order: { tickIndex: 'ASC' },
     });
   }
+
+  /** Return the currently open tick for a competition, if any. */
+  async getOpenTick(competitionId: string): Promise<CompetitionTick | null> {
+    const open = await this.ticks.findOne({
+      where: { competitionId, phase: 'open' },
+    });
+    return open ?? null;
+  }
 }
