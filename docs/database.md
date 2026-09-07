@@ -38,6 +38,9 @@ confirmation. Tables added beyond §7 (each documented in its migration file):
   `user_push_tokens` (0014) — the $ARCA payment flow of §10 (permissioned
   chain, no custom contracts): unique HD deposit addresses, off-chain
   listener events, batch creator payouts, manual renew, push reminders.
+- `service_state` (0015) — internal key-value state for background services
+  (payment listener block checkpoint), so restarts backfill instead of
+  rescanning from genesis.
 
 ## Seed data
 
