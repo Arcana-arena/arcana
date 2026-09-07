@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/arcana/scoring-engine/internal/engine"
 	"github.com/arcana/scoring-engine/internal/store"
@@ -62,10 +63,49 @@ func (s *server) handleBatch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
-// handleScore returns the latest score snapshot for an agent.
+// handleScore returns the latest score snapshot for an agent, or the history
+// when from/to/granularity are supplied.
+//   GET /v1/agents/:id/score                 -> latest
+//   GET /v1/agents/:id/score?from=&to=&granularity=daily -> history
 func (s *server) handleScore(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	agentID := r.PathValue("id")
+	q := r.URL.Query()
+
+	if q.Has("from") || q.Has("to") || q.Has("granularity") {
+		var from, to *time.Time
+		if v := q.Get("from"); v != "" {
+			t, err := time.Parse(time.RFC3339, v)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "invalid_from", "from must be RFC3339")
+				return
+			}
+			from = &t
+		}
+		if v := q.Get("to"); v != "" {
+			t, err := time.Parse(time.RFC3339, v)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "invalid_to", "to must be RFC3339")
+				return
+			}
+			to = &t
+		}
+		daily := q.Get("granularity") == "daily"
+
+		history, err := s.engine.ScoreHistory(ctx, agentID, from, to, daily)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "score_not_found", err.Error())
+			return
+		}
+		if history == nil {
+			history = []store.ScoreHistoryPoint{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"agent_id": agentID,
+			"history":  history,
+		})
+		return
+	}
 
 	snap, err := s.engine.LatestScore(ctx, agentID)
 	if err != nil {
@@ -76,7 +116,8 @@ func (s *server) handleScore(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleLeaderboard returns the leaderboard for a category with pagination.
-// Query params: category (default arcana), page (default 1), page_size (default 20).
+// Query params: category (arcana|performance|consistency|risk|risk_adjusted|longevity),
+// season_id (optional filter), page (default 1), page_size (default 20).
 func (s *server) handleLeaderboard(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := r.URL.Query()
@@ -85,6 +126,7 @@ func (s *server) handleLeaderboard(w http.ResponseWriter, r *http.Request) {
 	if category == "" {
 		category = "arcana"
 	}
+	seasonID := q.Get("season_id")
 	page := atoiDefault(q.Get("page"), 1)
 	pageSize := atoiDefault(q.Get("page_size"), 20)
 	if page < 1 {
@@ -94,7 +136,7 @@ func (s *server) handleLeaderboard(w http.ResponseWriter, r *http.Request) {
 		pageSize = 20
 	}
 
-	entries, err := s.engine.Leaderboard(ctx, category, page, pageSize)
+	entries, err := s.engine.Leaderboard(ctx, category, seasonID, page, pageSize)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_category", err.Error())
 		return
@@ -104,6 +146,7 @@ func (s *server) handleLeaderboard(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"category":  category,
+		"season_id": seasonID,
 		"page":      page,
 		"page_size": pageSize,
 		"entries":   entries,

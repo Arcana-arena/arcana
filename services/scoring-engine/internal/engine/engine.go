@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/arcana/scoring-engine/internal/store"
@@ -24,7 +25,8 @@ type BatchResult struct {
 }
 
 // RunBatch recomputes scores for every active agent that has a portfolio.
-// Idempotent and resumable: each agent is checkpointed by its own snapshot row.
+// Idempotent: each run appends a NEW snapshot row (append-only per §12), it
+// never mutates previous rows. Safe to run repeatedly.
 func (e *Engine) RunBatch(ctx context.Context) (*BatchResult, error) {
 	agents, err := e.store.ActiveScorableAgents(ctx)
 	if err != nil {
@@ -57,11 +59,18 @@ func (e *Engine) LatestScore(ctx context.Context, agentID string) (*store.ScoreR
 	return e.store.LatestScore(ctx, agentID)
 }
 
-// Leaderboard returns the latest score per agent sorted by a category column.
-func (e *Engine) Leaderboard(ctx context.Context, category string, page, pageSize int) ([]store.LeaderboardEntry, error) {
-	return e.store.Leaderboard(ctx, category, pageSize, (page-1)*pageSize)
+// ScoreHistory returns the agent's score series (see store.ScoreHistory).
+func (e *Engine) ScoreHistory(ctx context.Context, agentID string, from, to *time.Time, daily bool) ([]store.ScoreHistoryPoint, error) {
+	return e.store.ScoreHistory(ctx, agentID, from, to, daily)
 }
 
+// Leaderboard returns the latest score per agent sorted by a category column.
+// seasonID filters to agents with a portfolio in that season ("" = all).
+func (e *Engine) Leaderboard(ctx context.Context, category, seasonID string, page, pageSize int) ([]store.LeaderboardEntry, error) {
+	return e.store.Leaderboard(ctx, category, seasonID, pageSize, (page-1)*pageSize)
+}
+
+// scoreAgent loads one agent's full context, computes factors, appends a row.
 func (e *Engine) scoreAgent(ctx context.Context, ap store.AgentPortfolio) error {
 	points, err := e.store.PortfolioNAVSeries(ctx, ap.PortfolioID)
 	if err != nil {
@@ -80,10 +89,37 @@ func (e *Engine) scoreAgent(ctx context.Context, ap store.AgentPortfolio) error 
 	for _, p := range points {
 		navs = append(navs, mustParse(p.NAV))
 	}
-	creatorRep := mustParse(meta.CreatorRepScore)
 
-	f := ComputeFactors(navs, meta.AgeDays, creatorRep, decisions)
+	// creator_score: mean of the creator's other scored agents' performance.
+	var peerMean *float64
+	peers, err := e.store.CreatorPeerScores(ctx, meta.CreatorID, ap.AgentID)
+	if err != nil {
+		return err
+	}
+	if len(peers) > 0 {
+		sum := 0.0
+		for _, v := range peers {
+			sum += v
+		}
+		m := sum / float64(len(peers))
+		peerMean = &m
+	}
+
+	f := ComputeFactors(AgentContext{
+		NAVs:                   navs,
+		DecisionCount:          decisions,
+		StrategyType:           meta.StrategyType,
+		CreatorPeerPerformance: peerMean,
+	})
 	ts := time.Now().UTC().Truncate(time.Second)
 
 	return e.store.WriteScoreSnapshot(ctx, ap.AgentID, ts, f.toMap())
+}
+
+// mustParse converts a NUMERIC string to float64, ignoring parse errors (0).
+func mustParse(s string) float64 {
+	if v, err := strconv.ParseFloat(s, 64); err == nil {
+		return v
+	}
+	return 0
 }

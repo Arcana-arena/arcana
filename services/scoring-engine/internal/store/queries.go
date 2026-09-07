@@ -94,22 +94,25 @@ func (s *Store) PortfolioNAVSeries(ctx context.Context, portfolioID string) ([]S
 	return out, rows.Err()
 }
 
-// AgentLongevityDays returns the agent age in days (from created_at) and its
-// creator reputation.
+// AgentMeta describes an agent for scoring.
 type AgentMeta struct {
 	AgeDays         float64
 	CreatorRepScore string
+	CreatorID       string
+	StrategyType    string
 }
 
-// LoadAgentMeta reads agent age and linked creator reputation.
+// LoadAgentMeta reads agent age, linked creator, and strategy type.
 func (s *Store) LoadAgentMeta(ctx context.Context, agentID string) (*AgentMeta, error) {
 	var m AgentMeta
 	err := s.pool.QueryRow(ctx, `
 		SELECT EXTRACT(EPOCH FROM (now() - a.created_at)) / 86400.0,
-		       COALESCE(c.reputation_score, 0)
+		       COALESCE(c.reputation_score, 0),
+		       COALESCE(c.id::text, ''),
+		       COALESCE(a.strategy_type, '')
 		FROM agents a
 		LEFT JOIN creators c ON c.id = a.creator_id
-		WHERE a.id = $1`, agentID).Scan(&m.AgeDays, &m.CreatorRepScore)
+		WHERE a.id = $1`, agentID).Scan(&m.AgeDays, &m.CreatorRepScore, &m.CreatorID, &m.StrategyType)
 	if err != nil {
 		return nil, fmt.Errorf("load agent meta %s: %w", agentID, err)
 	}
@@ -200,20 +203,30 @@ type LeaderboardEntry struct {
 // LeaderboardSortColumn maps a leaderboard category to a score column.
 // Only columns present in score_snapshots are supported.
 var LeaderboardSortColumn = map[string]string{
-	"arcana":      "arcana_score",
-	"performance": "performance_score",
-	"consistency": "consistency_score",
-	"risk":        "risk_score",
-	"longevity":   "longevity_score",
+	"arcana":        "arcana_score",
+	"performance":   "performance_score",
+	"consistency":   "consistency_score",
+	"risk":          "risk_score",
+	"risk_adjusted": "risk_score",
+	"longevity":     "longevity_score",
 }
 
 // Leaderboard returns the latest score per agent, sorted by the given column.
-func (s *Store) Leaderboard(ctx context.Context, sortColumn string, limit, offset int) ([]LeaderboardEntry, error) {
+// When seasonID is non-empty only agents with a portfolio in that season rank.
+func (s *Store) Leaderboard(ctx context.Context, sortColumn, seasonID string, limit, offset int) ([]LeaderboardEntry, error) {
 	// Validate sort column against allow-list to avoid SQL injection.
 	if _, ok := LeaderboardSortColumn[sortColumn]; !ok {
 		return nil, fmt.Errorf("unsupported leaderboard category: %s", sortColumn)
 	}
 	col := LeaderboardSortColumn[sortColumn]
+
+	seasonFilter := ""
+	args := []any{limit, offset}
+	if seasonID != "" {
+		seasonFilter = `
+			JOIN portfolios p ON p.agent_id = l.agent_id AND p.season_id = $3`
+		args = append(args, seasonID)
+	}
 
 	q := fmt.Sprintf(`
 		WITH latest AS (
@@ -228,11 +241,12 @@ func (s *Store) Leaderboard(ctx context.Context, sortColumn string, limit, offse
 		       l.longevity_score, l.ts
 		FROM latest l
 		LEFT JOIN agents a ON a.id = l.agent_id
+		%s
 		WHERE l.%s IS NOT NULL
 		ORDER BY l.%s DESC
-		LIMIT $1 OFFSET $2`, col, col)
+		LIMIT $1 OFFSET $2`, seasonFilter, col, col)
 
-	rows, err := s.pool.Query(ctx, q, limit, offset)
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("leaderboard query: %w", err)
 	}
@@ -255,4 +269,109 @@ func (s *Store) Leaderboard(ctx context.Context, sortColumn string, limit, offse
 		out[i].Rank = offset + i + 1
 	}
 	return out, nil
+}
+
+// ScoreHistory is one point of an agent's score series (for GET score?from=&to=).
+type ScoreHistoryPoint struct {
+	TS              time.Time `json:"ts"`
+	ArcanaScore     *float64  `json:"arcana_score"`
+	PerformanceScore *float64 `json:"performance_score"`
+	RiskScore       *float64  `json:"risk_score"`
+	ConsistencyScore *float64 `json:"consistency_score"`
+}
+
+// ScoreHistory returns an agent's score snapshots within [from,to], optionally
+// bucketed by day (granularity=daily takes the last snapshot of each day).
+func (s *Store) ScoreHistory(ctx context.Context, agentID string, from, to *time.Time, daily bool) ([]ScoreHistoryPoint, error) {
+	args := []any{agentID}
+	where := `WHERE agent_id = $1`
+	if from != nil {
+		args = append(args, *from)
+		where += fmt.Sprintf(" AND ts >= $%d", len(args))
+	}
+	if to != nil {
+		args = append(args, *to)
+		where += fmt.Sprintf(" AND ts <= $%d", len(args))
+	}
+
+	q := `SELECT ts, arcana_score, performance_score, risk_score, consistency_score
+	      FROM score_snapshots ` + where + ` ORDER BY ts ASC`
+	if daily {
+		// Bucket by day: DISTINCT ON (ts::date) keeps the first row per day
+		// after ordering by date asc, ts desc → the day's latest snapshot.
+		q = `SELECT ts, arcana_score, performance_score, risk_score, consistency_score FROM (
+		       SELECT DISTINCT ON (ts::date) ts, arcana_score, performance_score,
+		              risk_score, consistency_score
+		       FROM score_snapshots ` + where + `
+		       ORDER BY ts::date ASC, ts DESC
+		     ) sub ORDER BY ts ASC`
+	}
+
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("score history for %s: %w", agentID, err)
+	}
+	defer rows.Close()
+
+	var out []ScoreHistoryPoint
+	for rows.Next() {
+		var p ScoreHistoryPoint
+		if err := rows.Scan(&p.TS, &p.ArcanaScore, &p.PerformanceScore,
+			&p.RiskScore, &p.ConsistencyScore); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// CreatorPeerScores returns the latest performance_score of every OTHER active
+// agent that belongs to the same creator (used for creator_score).
+func (s *Store) CreatorPeerScores(ctx context.Context, creatorID, excludeAgentID string) ([]float64, error) {
+	if creatorID == "" {
+		return nil, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT s.performance_score
+		FROM score_snapshots s
+		JOIN agents a ON a.id = s.agent_id
+		WHERE a.creator_id = $1 AND a.id <> $2 AND a.status = 'active'
+		ORDER BY s.ts DESC`, creatorID, excludeAgentID)
+	if err != nil {
+		return nil, fmt.Errorf("creator peer scores for %s: %w", creatorID, err)
+	}
+	defer rows.Close()
+
+	var out []float64
+	for rows.Next() {
+		var v *float64
+		if err := rows.Scan(&v); err != nil {
+			return nil, err
+		}
+		if v != nil {
+			out = append(out, *v)
+		}
+	}
+	return out, rows.Err()
+}
+
+// AgentPortfoliosInSeason lists every (agent, portfolio) participating in a
+// season, used to filter the leaderboard by season.
+func (s *Store) AgentPortfoliosInSeason(ctx context.Context, seasonID string) ([]AgentPortfolio, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT agent_id, season_id, id FROM portfolios WHERE season_id = $1`, seasonID)
+	if err != nil {
+		return nil, fmt.Errorf("portfolios in season %s: %w", seasonID, err)
+	}
+	defer rows.Close()
+
+	var out []AgentPortfolio
+	for rows.Next() {
+		var ap AgentPortfolio
+		if err := rows.Scan(&ap.AgentID, &ap.SeasonID, &ap.PortfolioID); err != nil {
+			return nil, err
+		}
+		out = append(out, ap)
+	}
+	return out, rows.Err()
 }
