@@ -10,6 +10,9 @@ User=ubuntu
 WorkingDirectory=/home/ubuntu/arcana/services/marketplace
 Environment=DATABASE_URL=postgres://arcana:arcana@localhost:5432/arcana?sslmode=disable
 Environment=PORT=3002
+# arca-service runs on 3004 here (3003 is taken on this host) — the code
+# default is 3003, so this override is required. See arcana-arca.service.
+Environment=ARCA_SERVICE_URL=http://localhost:3004
 ExecStart=/usr/bin/node dist/main.js
 Restart=on-failure
 RestartSec=5

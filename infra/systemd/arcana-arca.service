@@ -1,0 +1,30 @@
+# arca-service (NestJS) — $ARCA entitlements, deposit addresses, payments (§10)
+#
+# PORT: 3004, not the 3003 of services/arca-service/.env.example. Port 3003 on
+# this host is held by an unrelated workload, so the deployment overrides the
+# code default here. A clean host may use 3003 — keep this in sync with
+# ARCA_SERVICE_URL in arcana-marketplace.service.
+#
+# SECRETS: ARCA_MASTER_PRIVATE_KEY / ARCA_TREASURY_PRIVATE_KEY and the rest of
+# the ARCA_* config live in /home/ubuntu/arcana/services/arca-service/.env
+# (mode 600), read by ConfigModule from WorkingDirectory — deliberately NOT
+# Environment= lines here, since unit files are world-readable and secrets
+# would leak through `systemctl show`. Production loads them from KMS/HSM
+# (architecture.md §10.6).
+[Unit]
+Description=ARCANA $ARCA Service
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/arcana/services/arca-service
+Environment=DATABASE_URL=postgres://arcana:arcana@localhost:5432/arcana?sslmode=disable
+Environment=PORT=3004
+ExecStart=/usr/bin/node dist/main.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -26,6 +26,7 @@ Units live in [`infra/systemd/`](../infra/systemd/):
 | `arcana-decision.service` | long-running | always | decision engine (port 8081) |
 | `arcana-scoring.service` | long-running | always | score API + batch endpoint (port 8082) |
 | `arcana-marketplace.service` | long-running | always | marketplace API (port 3002) |
+| `arcana-arca.service` | long-running | always | $ARCA entitlements, deposits, payments (port **3004** — 3003 is taken on this host) |
 | `arcana-scheduler.timer` → `arcana-scheduler.service` | oneshot | **every 1 min** | advance the competition one tick |
 | `arcana-scoring-job.timer` → `arcana-scoring-job.service` | oneshot | **every 5 min** | run the ARCANA Score batch |
 

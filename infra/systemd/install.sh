@@ -7,8 +7,14 @@
 # What it does:
 #   1. copies *.service / *.timer into /etc/systemd/system/
 #   2. builds the scheduler binary into ~/arcana/scheduler-bin/
-#   3. daemon-reload, enables and starts the four long-running services
-#      (agent, market-data, decision, scoring) and the two timers.
+#   3. daemon-reload, enables and starts the long-running services
+#      (agent, market-data, decision, scoring, marketplace, arca) and the two
+#      timers.
+#
+# NOTE: arca-service reads its ARCA_* config (incl. secrets) from
+# services/arca-service/.env — create it from .env.example before starting,
+# otherwise the service boots healthy but deposits/listener/payouts stay
+# disabled by design.
 set -euo pipefail
 
 REPO=/home/ubuntu/arcana
@@ -24,7 +30,7 @@ sudo cp "$REPO"/infra/systemd/*.service "$REPO"/infra/systemd/*.timer "$UNIT_DIR
 sudo systemctl daemon-reload
 
 echo "==> enabling long-running services"
-for u in arcana-agent arcana-marketdata arcana-decision arcana-scoring arcana-marketplace; do
+for u in arcana-agent arcana-marketdata arcana-decision arcana-scoring arcana-marketplace arcana-arca; do
   sudo systemctl enable --now "$u.service"
 done
 
