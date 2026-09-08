@@ -23,6 +23,11 @@ Wants=network-online.target arcana-arca.service
 [Service]
 Type=oneshot
 User=ubuntu
+# Without this every journal line would be attributed to `flock`, since flock is
+# the process systemd executes. Pinning the identifier keeps log lines readable
+# and greppable regardless of what wraps the command — it matters here because
+# these lines are the audit trail for money movement.
+SyslogIdentifier=arcana-arca-payout
 Environment=ARCA_URL=http://localhost:3004
 ExecStart=/usr/bin/flock -n /tmp/arcana-arca-payout.lock /home/ubuntu/arcana/infra/systemd/arca-job.sh payout ${ARCA_URL}/internal/v1/payments/payout/run
 # On-chain transfers, one per creator: allow for a slow RPC before giving up.
