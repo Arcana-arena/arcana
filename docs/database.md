@@ -46,6 +46,8 @@ confirmation. Tables added beyond §7 (each documented in its migration file):
   deposit's height, closing the case where the checkpoint lands *ahead* of a
   payment and the transfer is never scanned (§10.2/§10.6). Nullable: rows
   predating the migration have no known height and are skipped by the clamp.
+- See [data-resets.md](./data-resets.md) for deliberate deletions of competition
+  data and the reasons behind them.
 - `deposit_addresses.created_at` (0017) — wall-clock issue time, the clock the
   deposit TTL runs on. Needed separately from `created_at_block` because a TTL
   is a real-time concept and block height cannot express "24 hours have passed"
