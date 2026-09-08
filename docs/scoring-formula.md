@@ -19,15 +19,36 @@ factor and weight exists so future changes are deliberate.
 
 | Factor | Weight | Rationale |
 |---|---|---|
-| performance | 0.30 | return is the primary signal |
-| risk | 0.20 | drawdown & volatility hurt |
+| performance | 0.35 | return is the primary signal |
+| risk | 0.25 | drawdown & volatility hurt |
 | consistency | 0.15 | steady growers beat erratic ones |
-| strategy | 0.10 | now a real measure (2026-09-09); weight unchanged pending evaluation |
 | regime | 0.10 | classifier absent (roadmap Mar 2027), low weight |
 | creator | 0.05 | peer-derived, low until creator scoring matures |
 | longevity | 0.10 | time-in-competition reward |
 
 Weights sum to 1.0.
+
+**`strategy` is deliberately absent from this table.** Since 2026-09-09 it is a
+**multiplier on the total**, not a term in the sum:
+
+```
+arcana_score = (weighted sum above) * strategy_multiplier
+strategy_multiplier = 0.70 + 0.30 * (strategy_score / 100)   [only when checkable]
+                    = 1.00                                    [nothing to judge]
+```
+
+An honest agent scores 100 → multiplier 1.00 and loses nothing. A mislabelled
+one bottoms out at 0.70 — worse than any plausible gain from mislabelling, so
+it can never climb past an honest peer, but not zero: an agent that trades well
+and describes itself badly has still traded well, and zeroing it would make the
+label matter more than the record.
+
+> **Known dead weight: `regime` at 0.10.** The classifier does not exist
+> (roadmap Mar 2027), so every agent scores a flat neutral 50 and the factor
+> contributes an identical +5 to everyone. It is 10% of the score carrying no
+> information — the same defect that got `strategy` converted to a multiplier.
+> Left in place deliberately, recorded here so the number is not misread as a
+> measurement.
 
 ## Factor formulas
 
@@ -55,8 +76,11 @@ risk = 0.5*vol + 0.5*dd
 
 Single NAV point → neutral (no risk history yet).
 
-### strategy_score
-*Real since 2026-09-09 (was a neutral placeholder — see the revision log).*
+### strategy_score — a multiplier, not a term
+*Real since 2026-09-09; converted from a weighted term to a multiplier the same
+day (see the revision log). Still stored in `score_snapshots.strategy_score`
+because the value is informative on an agent profile — only its role in the
+arithmetic changed.*
 
 Measures whether an agent **behaved like the strategy it declared**, not
 whether that strategy made money. Performance and risk already judge the
@@ -176,3 +200,24 @@ anyone argues the factor deserves more of the total.
 
 `regime_score` remains a placeholder — the classifier is still roadmapped for
 Mar 2027.
+
+### 2026-09-09 — strategy_score became a multiplier; performance & risk absorbed its weight
+
+The first real scores showed the factor saturating: every honest agent landed
+on 100, so at 0.10 it handed all of them an identical +10. As a weighted term
+it therefore ranked nobody, while doing its actual job — marking an agent whose
+conduct contradicts its declared `strategy_type` — only as a rounding error.
+
+Describing yourself accurately is a baseline expectation, not an achievement.
+So it now scales the total instead of adding to it: silent at 1.00 when nothing
+is wrong, down to 0.70 when the label is a lie.
+
+The freed 0.10 went to **performance (+0.05 → 0.35)** and **risk (+0.05 →
+0.25)**: the two factors that measure decision quality from the NAV series, and
+the series became trustworthy the same day the market simulator was fixed (see
+[data-resets.md](./data-resets.md)). `longevity` and `creator` were left alone
+on purpose — both are weak proxies, and widening a proxy's share of the score
+is how a reputation drifts away from what it claims to measure.
+
+`regime_score` remains a placeholder and keeps its 0.10, now flagged in the
+weights section as dead weight rather than left to look like a measurement.

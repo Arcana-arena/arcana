@@ -16,22 +16,34 @@ import (
 // Weights are top-level constants so they can be tuned in one place.
 // Weights sum to 1.0:
 //
-//	performance 0.30  — return is the primary signal
-//	risk        0.20  — drawdown & volatility hurt
+//	performance 0.35  — return is the primary signal
+//	risk        0.25  — drawdown & volatility hurt
 //	consistency 0.15  — steady growers beat erratic ones
-//	strategy    0.10  — proxy is weak in V1, kept low
 //	regime      0.10  — classifier absent (Mar 2027 roadmap), low weight
 //	creator     0.05  — peer-derived, low until creator scoring matures
 //	longevity   0.10  — time-in-competition reward
+//
+// strategy is NOT here: since 2026-09-09 it is a multiplier on the total, not
+// a term in the sum. Its old 0.10 went to performance and risk, the two
+// factors that actually measure decision quality from the NAV series.
 const (
-	wPerformance = 0.30
-	wRisk        = 0.20
+	wPerformance = 0.35
+	wRisk        = 0.25
 	wConsistency = 0.15
-	wStrategy    = 0.10
 	wRegime      = 0.10
 	wCreator     = 0.05
 	wLongevity   = 0.10
 )
+
+// strategyFloor is the worst multiplier a mislabelled agent can suffer: it
+// keeps 70% of what it earned.
+//
+// Not 0. An agent that trades well but describes itself wrongly has still
+// traded well, and zeroing it would make the label matter more than the
+// record. 0.70 is chosen to be worse than any plausible gain from
+// mislabelling — a mislabelled agent cannot climb past an honest peer by
+// being slightly better — while leaving the outcome recognisable.
+const strategyFloor = 0.70
 
 // Neutral score used when a factor cannot be computed yet (placeholder).
 const neutral = 50.0
@@ -108,28 +120,44 @@ type Factors struct {
 	Consistency float64
 	Creator     float64
 	Longevity   float64
+	// StrategyMultiplier scales the weighted sum (see Arcana). 1.0 means no
+	// penalty — either the agent behaved as declared, or it made no checkable
+	// claim at all.
+	StrategyMultiplier float64
 }
 
-// Arcana returns the weighted composite score (0-100).
+// Arcana returns the weighted composite score (0-100), scaled by how honestly
+// the agent described itself.
+//
+// strategy is a multiplier rather than a term because describing yourself
+// accurately is a baseline expectation, not an achievement: as a weighted term
+// it handed every honest agent the same +10 and so ranked nobody, while doing
+// its real job — marking the dishonest — only as a rounding error. As a
+// multiplier it stays silent when there is nothing wrong and bites when there
+// is.
 func (f *Factors) Arcana() float64 {
-	return round1(
-		wPerformance*f.Performance +
-			wRisk*f.Risk +
-			wStrategy*f.Strategy +
-			wRegime*f.Regime +
-			wConsistency*f.Consistency +
-			wCreator*f.Creator +
-			wLongevity*f.Longevity,
-	)
+	weighted := wPerformance*f.Performance +
+		wRisk*f.Risk +
+		wRegime*f.Regime +
+		wConsistency*f.Consistency +
+		wCreator*f.Creator +
+		wLongevity*f.Longevity
+	return round1(weighted * f.StrategyMultiplier)
 }
 
 // ComputeFactors derives the seven sub-scores from an agent's context.
 func ComputeFactors(ctx AgentContext) Factors {
+	// strategy_score is still recorded in its column — it is informative on an
+	// agent profile — but it no longer adds to the total. It scales it.
+	strategy, checkable := strategyScore(ctx)
+	multiplier := 1.0
+	if checkable {
+		multiplier = strategyFloor + (1-strategyFloor)*(strategy/100)
+	}
+
 	f := Factors{
-		// strategy_score: real as of 2026-09-09 — agents now run genuinely
-		// different strategies, so behaviour can be checked against the
-		// declared strategy_type. See strategyScore below.
-		Strategy: strategyScore(ctx),
+		Strategy:           strategy,
+		StrategyMultiplier: multiplier,
 		// regime_score: PLACEHOLDER — the market-regime classifier is not
 		// implemented (roadmap Mar 2027). Kept neutral & low-weight until then.
 		Regime: neutral,
@@ -220,18 +248,21 @@ func ComputeFactors(ctx AgentContext) Factors {
 // that rebalances every tick scores near zero: the claim and the conduct do
 // not match, and the reputation should say so.
 //
-// Neutral (50) is returned when there is nothing to judge — an unrecognised or
-// human strategy_type, or too few decisions to separate intent from noise.
+// The second return value says whether the score is a verdict at all. When it
+// is false the score is a neutral 50 placeholder and the caller must NOT apply
+// the multiplier: there was nothing to judge — an unrecognised or human
+// strategy_type, or too few decisions to separate intent from noise — and an
+// unjudged agent must not be penalised as though it were half-dishonest.
 // Neutral is never used to paper over a mismatch we could have measured.
-func strategyScore(ctx AgentContext) float64 {
+func strategyScore(ctx AgentContext) (float64, bool) {
 	profile, known := strategyProfiles[ctx.StrategyType]
 	if !known {
 		// Includes 'human': a person is under no obligation to trade to a
 		// declared pattern, so there is no claim to check.
-		return neutral
+		return neutral, false
 	}
 	if ctx.DecisionCount < strategyMinDecisions {
-		return neutral
+		return neutral, false
 	}
 
 	trades := ctx.Buys + ctx.Sells
@@ -247,7 +278,7 @@ func strategyScore(ctx AgentContext) float64 {
 	}
 
 	turnoverFit := bandFit(turnover, profile.turnoverLo, profile.turnoverHi)
-	return round1((wStratTurnover*turnoverFit + wStratSellShare*sellFit) * 100)
+	return round1((wStratTurnover*turnoverFit + wStratSellShare*sellFit) * 100), true
 }
 
 // bandFit is 1.0 inside [lo,hi] and decays linearly to 0 over
