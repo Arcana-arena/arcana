@@ -7,9 +7,11 @@ factor and weight exists so future changes are deliberate.
 ## Design principles
 
 - Every factor is normalized to **0–100** (higher is better).
-- `arcana_score` = weighted sum of the **seven** factors that have columns in
-  `score_snapshots` (§7). "Competition History" and "Agent DNA" are **excluded
-  in V1** (no dedicated columns; DNA not implemented).
+- `arcana_score` = weighted sum of **six** factors, scaled by the `strategy`
+  multiplier — all seven have columns in `score_snapshots` (§7), but `strategy`
+  scales the total rather than contributing a term. "Competition History" and
+  "Agent DNA" are **excluded in V1** (no dedicated columns; DNA not
+  implemented).
 - Scores are **append-only**: each batch run inserts a new `score_snapshots`
   row with the current timestamp; prior rows are never mutated (§12).
 - Unknown/unavailable data → factor is `neutral` (50) and documented below,
