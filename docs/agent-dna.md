@@ -36,7 +36,7 @@ market prices from the Market Data service.
 | 2 | `sellShare` | sells / trades | direction bias: adding vs reducing |
 | 3 | `exposure` | mean(1 − cash/nav) | how much of the book is at stake |
 | 4 | `concentration` | normalised Herfindahl over position **values** | concentrated vs spread |
-| 5 | `tradeSizePct` | mean(trade notional / NAV) | typical bet size |
+| 5 | `tradeSizePct` | mean(**buy** notional / NAV) | typical entry size |
 | 6 | `trendAlignment` | mean(sign(market move) × sign(buy=+1, sell=−1)) | trend-following (+) vs contrarian (−) |
 | 7 | `volPerExposure` | stdev(NAV returns) / exposure | volatility for the risk taken |
 | 8 | `drawdownPerExposure` | max drawdown / exposure | loss tolerance for the risk taken |
@@ -97,7 +97,9 @@ Measured risk character, human-readable:
 
 `risk_budget_utilisation` is the one that needs explaining: the ratio of the
 agent's *actual* average trade size to the limit its own `risk_profile` grants
-it. Near 1.0 means it trades right at its declared limit; well under means it is
+it. Both sides count entries only: a sell exits the whole position, so
+averaging buys and sells together produced a ratio above 1.0 against a limit the
+agent had not breached. Near 1.0 means it trades right at its declared limit; well under means it is
 more cautious than it is allowed to be. It answers "how boldly does this agent
 use its own allowance" — a question neither the score nor the config alone can.
 

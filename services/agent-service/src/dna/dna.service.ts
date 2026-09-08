@@ -217,14 +217,14 @@ export class DnaService {
         }
       }
 
-      // Trade size, as a fraction of the book at the moment of the trade.
-      if (
-        (t.action === 'buy' || t.action === 'sell') &&
-        t.quantity != null &&
-        t.symbol &&
-        prices &&
-        t.nav > 0
-      ) {
+      // Entry size, as a fraction of the book at the moment of the trade.
+      //
+      // BUYS ONLY. A sell exits the whole position, so averaging the two
+      // conflates entry sizing with exit sizing and produces a number larger
+      // than any limit the agent was configured with — risk_budget_utilisation
+      // read 1.4x against a limit the agent had not actually breached. Exit
+      // behaviour is already carried by sellShare.
+      if (t.action === 'buy' && t.quantity != null && t.symbol && prices && t.nav > 0) {
         const price = prices[t.symbol];
         if (price > 0) {
           tradeSizeSum += (t.quantity * price) / t.nav;
