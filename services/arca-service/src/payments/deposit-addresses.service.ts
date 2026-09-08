@@ -1,7 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsString, IsUUID, Matches } from 'class-validator';
-import { Repository } from 'typeorm';
+import { MoreThan, Repository } from 'typeorm';
 import { DepositAddress } from './deposit-address.entity';
 import { ListingRef } from './listing-ref.entity';
 import { HdWalletService } from './hd-wallet.service';
@@ -22,10 +23,16 @@ export interface GeneratedDeposit {
   expires_in: number; // seconds before the pending address is considered expired
 }
 
-const DEPOSIT_TTL_SECONDS = 24 * 3600; // pending addresses expire after 24h
-
 @Injectable()
 export class DepositAddressesService {
+  /**
+   * How long a pending deposit address stays valid. One value, because two
+   * would drift: it is both the `expires_in` promised to the user and the age
+   * at which the audit may retire an unpaid address. Retiring one earlier than
+   * promised would strand a payment the user made in good time.
+   */
+  readonly ttlSeconds: number;
+
   constructor(
     @InjectRepository(DepositAddress)
     private readonly deposits: Repository<DepositAddress>,
@@ -33,7 +40,11 @@ export class DepositAddressesService {
     private readonly listings: Repository<ListingRef>,
     private readonly hd: HdWalletService,
     private readonly token: ArcaTokenService,
-  ) {}
+    config: ConfigService,
+  ) {
+    const hours = parseInt(config.get<string>('ARCA_DEPOSIT_TTL_HOURS') ?? '24', 10);
+    this.ttlSeconds = (Number.isFinite(hours) && hours > 0 ? hours : 24) * 3600;
+  }
 
   /** POST /v1/arca/deposit-address — generate a unique derived address for (user, listing). */
   async generate(userWallet: string, listingId: string): Promise<GeneratedDeposit> {
@@ -102,7 +113,7 @@ export class DepositAddressesService {
     return {
       deposit_address: address.toLowerCase(),
       expected_amount: listing.arcaGateAmount,
-      expires_in: DEPOSIT_TTL_SECONDS,
+      expires_in: this.ttlSeconds,
     };
   }
 
@@ -115,6 +126,12 @@ export class DepositAddressesService {
    * Lowest chain height among still-pending deposits, or null when there is
    * nothing outstanding. The listener clamps its scan start to this so an
    * address issued while the listener was behind can never be scanned past.
+   *
+   * Only 'pending' counts. Addresses retired as 'expired_unpaid' by the audit
+   * are proven empty and no longer worth watching — without that exit the
+   * floor would stay pinned at the oldest never-paid address forever and the
+   * scan range would widen indefinitely.
+   *
    * Rows predating migration 0016 have a NULL height and are ignored — they
    * would otherwise force a rescan from genesis on every poll.
    */
@@ -131,6 +148,37 @@ export class DepositAddressesService {
   /** All still-pending deposits (used by the audit pass). */
   findPending(): Promise<DepositAddress[]> {
     return this.deposits.find({ where: { status: 'pending' } });
+  }
+
+  /**
+   * Rows the audit must look at: everything pending, plus recently retired
+   * addresses.
+   *
+   * Retiring an address releases the scan floor, so a payment sent to it after
+   * that point would never be scanned — the exact silent loss this design
+   * refuses to allow. Keeping retired rows in the audit for a bounded window
+   * means such a late payment still raises an alarm instead of vanishing. The
+   * window is bounded (2x TTL) so the audit set cannot grow without limit.
+   */
+  findAuditable(): Promise<DepositAddress[]> {
+    const window = new Date(Date.now() - 2 * this.ttlSeconds * 1000);
+    return this.deposits.find({
+      where: [
+        { status: 'pending' },
+        { status: 'expired_unpaid', createdAt: MoreThan(window) },
+      ],
+      order: { createdAt: 'ASC' },
+    });
+  }
+
+  /**
+   * Retire an unpaid address so it stops holding the listener's scan floor.
+   * Callers MUST confirm the on-chain balance is zero first — see the audit
+   * pass. Retiring an address that holds funds would drop it out of the scan
+   * range and lose the payment for good.
+   */
+  async markExpiredUnpaid(id: string): Promise<void> {
+    await this.deposits.update({ id }, { status: 'expired_unpaid' });
   }
 
   /** Mark a deposit received (called by the listener after confirmation). */

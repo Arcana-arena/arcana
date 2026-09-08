@@ -31,4 +31,12 @@ export class DepositAddress {
    */
   @Column({ name: 'created_at_block', type: 'bigint', nullable: true })
   createdAtBlock: string | null;
+
+  /**
+   * Wall-clock issue time (migration 0017), the clock the TTL runs on.
+   * Separate from createdAtBlock on purpose: block height cannot express
+   * "24 hours have passed" without assuming a block time.
+   */
+  @Column({ name: 'created_at', type: 'timestamptz', default: () => 'now()' })
+  createdAt: Date;
 }

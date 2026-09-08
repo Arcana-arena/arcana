@@ -92,35 +92,63 @@ export class PaymentListenerService implements OnModuleInit, OnModuleDestroy {
    * an ERROR, not a warning: it is a user who paid and got nothing, and it must
    * never again sit in the database unnoticed.
    */
-  async auditPendingDeposits(): Promise<{ checked: number; stranded: number }> {
-    if (!this.token.enabled) return { checked: 0, stranded: 0 };
+  async auditPendingDeposits(): Promise<{ checked: number; stranded: number; retired: number }> {
+    if (!this.token.enabled) return { checked: 0, stranded: 0, retired: 0 };
 
     const head = await this.token.getBlockNumber();
-    const pending = await this.depositSvc.findPending();
+    const deposits = await this.depositSvc.findAuditable();
+    const ttlCutoff = new Date(Date.now() - this.depositSvc.ttlSeconds * 1000);
 
     let checked = 0;
     let stranded = 0;
-    for (const deposit of pending) {
+    let retired = 0;
+    for (const deposit of deposits) {
       // Too young to judge: a payment may simply not have confirmed yet.
-      if (deposit.createdAtBlock == null) continue;
-      if (head - BigInt(deposit.createdAtBlock) <= this.confirmations) continue;
+      // A row with no recorded height (pre-0016) never held the floor anyway,
+      // so it is judged on balance and age alone.
+      if (
+        deposit.createdAtBlock != null &&
+        head - BigInt(deposit.createdAtBlock) <= this.confirmations
+      ) {
+        continue;
+      }
 
       checked++;
+
+      // BALANCE FIRST, ALWAYS. Age alone cannot tell an abandoned address from
+      // one that was paid but never credited, and the two demand opposite
+      // actions. Retiring an address that holds funds would release the scan
+      // floor and lose that payment permanently — so the balance decides, and
+      // the TTL only ever gets a say once the balance is proven zero.
       const balance = await this.token.balanceOf(deposit.derivedAddress);
       if (balance > 0n) {
         stranded++;
         this.logger.error(
           `STRANDED PAYMENT: deposit ${deposit.derivedAddress} (user ${deposit.userWallet}, ` +
-            `listing ${deposit.listingId}) holds ${this.toDecimalString(balance)} $ARCA but is still ` +
-            `pending — funds arrived and access was NOT granted. Issued at block ` +
+            `listing ${deposit.listingId}) holds ${this.toDecimalString(balance)} $ARCA but is ` +
+            `${deposit.status} — funds arrived and access was NOT granted. Issued at block ` +
             `${deposit.createdAtBlock}, head ${head}. Investigate the listener scan range.`,
+        );
+        continue; // status untouched: pending keeps holding the scan floor
+      }
+
+      // Empty and past its promised lifetime: retire it so it stops pinning the
+      // scan floor at its block and widening every getLogs call.
+      if (deposit.status === 'pending' && deposit.createdAt <= ttlCutoff) {
+        await this.depositSvc.markExpiredUnpaid(deposit.id);
+        retired++;
+        this.logger.log(
+          `deposit ${deposit.derivedAddress} retired as expired_unpaid ` +
+            `(issued ${deposit.createdAt.toISOString()}, never funded) — scan floor released`,
         );
       }
     }
     if (stranded === 0 && checked > 0) {
-      this.logger.log(`deposit audit: ${checked} pending deposit(s) checked, none stranded`);
+      this.logger.log(
+        `deposit audit: ${checked} deposit(s) checked, none stranded, ${retired} retired`,
+      );
     }
-    return { checked, stranded };
+    return { checked, stranded, retired };
   }
 
   /** One poll cycle — returns number of payments processed. */

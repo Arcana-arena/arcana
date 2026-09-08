@@ -46,6 +46,12 @@ confirmation. Tables added beyond §7 (each documented in its migration file):
   deposit's height, closing the case where the checkpoint lands *ahead* of a
   payment and the transfer is never scanned (§10.2/§10.6). Nullable: rows
   predating the migration have no known height and are skipped by the clamp.
+- `deposit_addresses.created_at` (0017) — wall-clock issue time, the clock the
+  deposit TTL runs on. Needed separately from `created_at_block` because a TTL
+  is a real-time concept and block height cannot express "24 hours have passed"
+  without assuming a block time. Lets the audit retire an unfunded address to
+  `expired_unpaid` so it stops holding the listener's scan floor (§10.2) — only
+  ever after its on-chain balance is proven zero.
 
 ## Seed data
 

@@ -418,7 +418,23 @@ scan_start = min(checkpoint + 1, oldest pending deposit's created_at_block)
 
 With nothing pending there is no address a payment could have landed on, so the head is a safe start. A deposit address is never issued while the chain is unreadable, since its issue height could not be recorded and the payment would be invisible to every later scan.
 
+An address that is issued and never paid would otherwise pin that floor at its block forever, widening every `getLogs` call for the life of the system — a degradation that surfaces as "the RPC is slow", nowhere near its actual cause. So an unfunded address is retired after its TTL (`deposit_addresses.created_at`, the same lifetime as the `expires_in` promised at subscribe) and stops counting toward the floor. Retiring is the *only* way out: an address that holds funds is never retired, however old it is.
+
 **Deposit audit (backstop).** A log scan only finds what it looked at, so a periodic pass asks the chain directly: for every pending deposit past confirmation depth, does the address hold a balance? A hit means funds arrived and access was never granted — logged at **ERROR**, never merely warned, because it is a user who paid and got nothing. This is a safety net, not part of the happy path; it firing at all means the scan floor above has a hole.
+
+The same pass retires unfunded addresses, and the order of its two checks is load-bearing:
+
+```
+1. read the on-chain balance
+2. balance > 0  → STRANDED PAYMENT (ERROR); status untouched, so a pending
+                  address keeps holding the scan floor and the payment can
+                  still be found
+3. balance == 0 AND older than the TTL → status = 'expired_unpaid'
+```
+
+Reversed, the TTL would retire addresses on age alone — including one whose payment simply had not been credited yet. That releases the scan floor and loses the payment permanently: the same silent failure the scan floor exists to prevent, reintroduced by its own cleanup. Age can never overrule a non-zero balance.
+
+Retired addresses stay in the audit for a bounded window afterwards, so a payment sent to an address after it expired still raises the ERROR rather than disappearing quietly.
 
 ### 10.3 Split & Payout (Off-Chain, Batch)
 ```
