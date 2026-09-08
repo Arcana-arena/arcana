@@ -127,7 +127,11 @@ func (s *server) handleSimulateTick(w http.ResponseWriter, r *http.Request) {
 	for _, sym := range req.Symbols {
 		// Deterministic pseudo-random walk seeded by symbol+tick.
 		h := fnv(seed, sym.Symbol)
-		delta := float64(h%201-100) / 100.0 // -1.00% .. +1.00%
+		// Cast to float64 BEFORE subtracting: h%201 is uint32, so h%201-100
+		// underflows to ~4.29e9 whenever h%201 < 100, which drove simulated
+		// prices to ~4.7 billion. Dividing by 10000 (not 100) makes the result
+		// the -1.00%..+1.00% the comment always claimed.
+		delta := (float64(h%201) - 100) / 10000.0 // -1.00% .. +1.00%
 		price := sym.Price * (1 + delta)
 		quotes = append(quotes, snapshot.Quote{
 			Symbol: sym.Symbol,
