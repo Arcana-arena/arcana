@@ -111,26 +111,34 @@ competitions.
 
 ## Overlap protection
 
-Every job unit is `Type=oneshot`. The $ARCA units hold a non-blocking lock for
-the whole run by wrapping the command itself:
+Every job unit is `Type=oneshot`, and overlap is guarded by **two independent
+layers**. They cover different things, and it is worth knowing which is which:
+
+| Layer | Covers | Does not cover |
+|---|---|---|
+| **systemd** | A timer firing while the previous run of the *same unit* is still going — systemd refuses to start a second instance. | Anything that does not go through systemd. |
+| **flock** | Any concurrent run at all, including a manual invocation or another script — the lock is held for the entire command. | Nothing, provided every caller goes through the unit or takes the same lock. |
+
+All four job units wrap the command in a non-blocking lock, so the lock is held
+for the whole run:
 
 ```
 ExecStart=/usr/bin/flock -n /tmp/arcana-arca-payout.lock /home/ubuntu/arcana/infra/systemd/arca-job.sh payout ...
+ExecStart=/usr/bin/flock -n /tmp/arcana-scheduler.lock /home/ubuntu/arcana/scheduler-bin/scheduler -competition ... 
 ```
 
-If a previous invocation is still running when the timer fires, the new one
-fails immediately (exit 1, visible in the journal) instead of stacking. That
-matters most for payout, which sends money; per-`payment_event` idempotency is
-the second line of defence, not the first.
+If a run is already in progress the new one fails immediately (exit 1, visible
+in the journal) instead of stacking. That matters most for payout, which sends
+money; per-`payment_event` idempotency is the second line of defence, not the
+first.
 
-> **Known gap in the two older units.** `arcana-scheduler.service` and
-> `arcana-scoring-job.service` put the lock in `ExecStartPre`:
-> `flock -n /tmp/arcana-scheduler.lock true`. That takes the lock, runs `true`,
-> and releases it — all before `ExecStart` begins, so it guards nothing. What
-> has actually prevented overlap there is systemd itself: it will not run a
-> second instance of a unit that is still activating. The protection is real
-> but it is not the flock. Worth correcting to the wrapping form above so the
-> unit means what it says.
+> **Do not move the lock into `ExecStartPre`.** It used to live there as
+> `flock -n LOCK true`, which takes the lock, runs `true`, and releases it —
+> all before `ExecStart` begins. It guarded nothing, and systemd alone was
+> holding the line. No overlap ever slipped through, but the config claimed a
+> protection it did not have, which is its own hazard: the next person to
+> change the unit type, or to call a job from outside systemd, would have been
+> reasoning from a guarantee that was not there.
 
 ## Install / update
 

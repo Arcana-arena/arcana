@@ -2,7 +2,16 @@
 # Invoked by arcana-scoring-job.timer every 5 minutes.
 # Uses the scoring engine HTTP batch endpoint (service arcana-scoring.service).
 #
-# Overlap protection: Type=oneshot + flock in ExecStartPre.
+# Overlap protection, two independent layers:
+#   1. systemd: it will not run a second instance of this unit while the first
+#      is still activating. This is what has actually held so far.
+#   2. flock wrapping the command, so the lock is held for the whole run and
+#      also covers invocations that never go through systemd — a manual run or
+#      another script hitting the batch endpoint through this unit.
+#
+# The lock previously sat in ExecStartPre as `flock -n LOCK true`, which took
+# the lock, ran `true` and released it before ExecStart began — it guarded
+# nothing. Layer 1 was doing all the work.
 [Unit]
 Description=ARCANA Score batch job
 After=arcana-scoring.service
@@ -12,8 +21,7 @@ Wants=arcana-scoring.service
 Type=oneshot
 User=ubuntu
 Environment=SCORING_URL=http://localhost:8082
-ExecStartPre=/usr/bin/flock -n /tmp/arcana-scoring.lock true
-ExecStart=/usr/bin/curl -fsS -X POST http://localhost:8082/internal/v1/scoring/batch
+ExecStart=/usr/bin/flock -n /tmp/arcana-scoring.lock /usr/bin/curl -fsS -X POST http://localhost:8082/internal/v1/scoring/batch
 TimeoutStartSec=120
 
 [Install]
