@@ -176,3 +176,28 @@ Named so the gap is a decision rather than an oversight. All of it belongs to
   run one season each; revisit before the second.
 - **Feeding the score.** DNA describes; it does not judge. Whether behavioural
   similarity should ever affect reputation is a product question, not a V1 one.
+
+---
+
+## Dependency: features that need prices need the snapshot
+
+`tradeSizePct`, `trendAlignment`, `concentration` and every `regime_strengths`
+bucket price positions and trades against the market snapshot the decision was
+made on. If that snapshot is gone from `market_snapshots`, those features read
+as 0 for the affected decisions — not because the behaviour was absent, but
+because it cannot be seen.
+
+Observed during the first batch: `holder_v1`'s only two trades pointed at refs
+deleted during an earlier market reset, so its `tradeSizePct` came out 0 against
+a configured 0.45. The fingerprint still separated it clearly, but two of its
+eight features were blind.
+
+`regime_strengths` additionally requires **both** ends of a tick pair to be
+priced. Bucketing a NAV change whose starting point is unpriced attributes
+several ticks of movement to a single market move — first run reported a flat
+bucket at +8% while the market had gone nowhere.
+
+The broader point is not about DNA: a decision whose market snapshot no longer
+exists cannot be audited either, and §12 calls the snapshot the immutable
+evidence behind the decision. Pruning `market_snapshots` while keeping
+`decisions` breaks that pairing.

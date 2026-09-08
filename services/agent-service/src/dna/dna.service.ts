@@ -344,9 +344,14 @@ export class DnaService {
     for (let i = 1; i < ticks.length; i++) {
       const prev = ticks[i - 1];
       const cur = ticks[i];
-      if (!cur.ref || prev.nav <= 0) continue;
+      if (!cur.ref || !prev.ref || prev.nav <= 0) continue;
+
+      // BOTH ends must have market data. Skipping only the unpriced tick would
+      // leave the next NAV change spanning the gap — several ticks of movement
+      // attributed to one market move, in whichever bucket that move landed.
+      // Observed: a flat bucket reporting +8% while the market went nowhere.
       const mkt = market.get(cur.ref);
-      if (!mkt) continue;
+      if (!mkt || !market.has(prev.ref)) continue;
 
       const label =
         Math.abs(mkt.marketReturn) <= FLAT_REGIME_THRESHOLD
