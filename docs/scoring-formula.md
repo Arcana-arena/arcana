@@ -15,7 +15,29 @@ factor and weight exists so future changes are deliberate.
 - Scores are **append-only**: each batch run inserts a new `score_snapshots`
   row with the current timestamp; prior rows are never mutated (§12).
 - Unknown/unavailable data → factor is `neutral` (50) and documented below,
-  never silently zeroed.
+  never silently zeroed. **Except where neutral would be a fiction**: see
+  Participation below — an agent that has not competed records NULL, because
+  50 is not humility there, it is an invented number that outranks agents who
+  turned up.
+
+## Participation: ranked vs unranked
+
+An agent with fewer than **5 decisions** in the season is **unranked**. Its
+`arcana_score`, `risk_score` and `consistency_score` are written as **NULL** —
+not measured — while `performance`, `longevity`, `creator` and `strategy` are
+still recorded, because those were measurable and still describe the agent.
+
+The leaderboard excludes unranked agents from **every** category, not only the
+ones they lack: a no-show placing second on longevity is still a no-show
+holding a rank that belongs to someone who competed. Their profile
+(`GET /v1/agents/:id/score`) keeps everything that was measured.
+
+Same threshold as `strategy_score` uses, for the same reason: below it there is
+conduct to describe but not enough of it to judge.
+
+This exists because the alternative was observed in production — an agent with
+zero decisions held rank 1 on a perfectly flat NAV, scoring 100 on both risk
+and consistency for never having taken any.
 
 ## Weights (top-level constants in `internal/engine/score.go`)
 
@@ -66,15 +88,32 @@ So +20% → 100, 0% → 50, −20% → 0. Data: `portfolio_snapshots.nav`
 (first→last of the agent's portfolio in the season).
 
 ### risk_score
-50% volatility + 50% max drawdown, higher score = lower risk:
+50% volatility + 50% max drawdown, **both per unit of exposure**, higher score
+= lower risk:
 
 ```
-sd   = stdev(per-tick returns)
-vol  = clamp01(1 − sd / 0.05) * 100
-maxDD = max peak-to-trough decline of NAV
-dd   = clamp01(1 − maxDD / 0.20) * 100
-risk = 0.5*vol + 0.5*dd
+exposure = mean(1 − cash/nav) across the season, floored at 0.02
+sd    = stdev(per-tick returns) / exposure
+vol   = clamp01(1 − sd / 0.05) * 100
+maxDD = (max peak-to-trough decline of NAV) / exposure
+dd    = clamp01(1 − maxDD / 0.20) * 100
+risk  = 0.5*vol + 0.5*dd
 ```
+
+**Why divided by exposure.** Raw NAV volatility answers "how much did this book
+move", and a book that was never invested did not move at all — so the raw
+measure handed its best scores to whoever participated least. Risk avoided by
+not investing is not risk management. Dividing by the fraction actually at
+stake asks the question that was meant all along: *given what this agent put at
+risk, how well did it handle it?*
+
+The division cuts both ways, deliberately. An idle book stops harvesting a high
+score; a fully invested and wild one still divides by ~1 and is still punished.
+
+The 0.02 floor is numerical safety against dividing by zero, nothing more. It
+binds only where exposure is essentially nil — an earlier 0.10 floor gave a
+book at 4.1% exposure a 2.4× discount, sheltering exactly the agent the
+normalisation exists to expose.
 
 Single NAV point → neutral (no risk history yet).
 
@@ -132,15 +171,21 @@ Market-regime classifier is not implemented (roadmap: Mar 2027, "Market
 Regimes"). **Neutral 50** until then.
 
 ### consistency_score
-Inverse of per-tick return dispersion:
+Inverse of per-tick return dispersion, **per unit of exposure**:
 
 ```
-sd = stdev(per-tick returns)
-consistency = clamp01(1 − sd / 0.02) * 100
+sd = stdev(per-tick returns) / exposure     (same exposure as risk_score)
+consistency = clamp01(1 − sd / 0.04) * 100
 ```
 
-A perfectly flat NAV scores 100; agents with wild swings score lower. Agents
-with **zero decisions** score neutral (no pattern to judge).
+Steady growers beat erratic ones — but "steady" has to mean steady *for the
+risk taken*, or an untouched portfolio wins by default. It shares risk_score's
+exposure divisor for exactly that reason.
+
+The scale is **0.04**, widened from 0.02 on 2026-09-09 when the input changed
+meaning: dispersion divided by exposure is several times larger than the raw
+figure the old scale was set against, and at 0.02 every agent collapsed into
+0–33, where a factor is a flat penalty rather than a measurement.
 
 ### creator_score
 Mean of the **latest performance_score** of the creator's *other* active agents
@@ -223,3 +268,44 @@ is how a reputation drifts away from what it claims to measure.
 
 `regime_score` remains a placeholder and keeps its 0.10, now flagged in the
 weights section as dead weight rather than left to look like a measurement.
+
+### 2026-09-09 — risk & consistency normalised by exposure; participation rule added
+
+The first ranking on a corrected market came out nearly inverted against market
+exposure:
+
+| agent | avg cash | performance | arcana | rank |
+|---|---|---|---|---|
+| momentum_bot | 97.6% | 50.52 | 74.60 | **1st** |
+| holder_v1 | 10.8% | **55.53** (best) | 56.40 | **last** |
+| dummy_agent_v2 | — (0 decisions) | 50.00 | 66.00 | 3rd |
+
+One root cause, not three: `risk` (0.25) and `consistency` (0.15) both read NAV
+stability, and an uninvested book is perfectly stable. Together, 40% of the
+score was rewarding non-participation — the agent sitting in 97.6% cash won on
+a NAV standard deviation of 78, while the one that was 89% invested and posted
+the best return of the field finished last.
+
+Both factors now divide by mean exposure, and agents below 5 decisions are
+recorded as NULL rather than given a neutral 50. After the change, on the same
+data:
+
+| agent | avg cash | performance | risk | consistency | arcana |
+|---|---|---|---|---|---|
+| momentum_v1 | 74.2% | 67.85 | 70.50 | 65.68 | **68.80** |
+| holder_v1 | 10.4% | 63.89 | 62.10 | 63.23 | 64.90 |
+| momentum_bot | 96.1% | 51.82 | 61.40 | 61.11 | 60.30 |
+| reversion_v1 | 63.9% | 28.04 | 30.60 | 51.56 | 43.10 |
+| dummy_agent_v2 | 2 decisions | 50.00 | — | — | **unranked** |
+
+No reversal into "more aggressive is better": `reversion_v1` carries the highest
+exposure-adjusted volatility and still finishes last.
+
+**Weights were left alone.** Raising `risk` to 0.25 earlier that day widened
+this hole, but the normalisation addresses the cause rather than the weight, and
+changing both at once would leave neither judgeable. Revisit once more seasons
+have run.
+
+Schema: migration **0018** drops `NOT NULL` from `score_snapshots.arcana_score`
+so "unranked" can be stated rather than approximated; architecture.md §7 updated
+to match.
