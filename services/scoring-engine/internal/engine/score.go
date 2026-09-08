@@ -57,7 +57,13 @@ const (
 	// ddScale: max drawdown of ddScale => risk 0.
 	ddScale = 0.20
 	// consistencyScale: return stdev at which consistency hits 0.
-	consistencyScale = 0.02
+	//
+	// Widened from 0.02 on 2026-09-09 because its input changed meaning: the
+	// dispersion is now divided by exposure, so the numbers reaching this scale
+	// are several times larger than the raw NAV dispersion it was set against.
+	// At 0.02 every agent clustered between 0 and 33 and the factor had stopped
+	// telling them apart — a near-flat penalty is not a measurement.
+	consistencyScale = 0.04
 	// longevityTicks: tick count at which longevity saturates at 100.
 	longevityTicks = 20.0
 	// strategyMinDecisions: decisions required before an agent's behaviour is

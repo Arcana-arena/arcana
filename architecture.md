@@ -250,7 +250,7 @@ CREATE TABLE portfolio_snapshots (
 CREATE TABLE score_snapshots (
   agent_id UUID NOT NULL,
   ts TIMESTAMPTZ NOT NULL,
-  arcana_score NUMERIC(6,2) NOT NULL,
+  arcana_score NUMERIC(6,2),          -- NULL = unranked: not enough participation to measure (0018)
   performance_score NUMERIC(6,2),
   risk_score NUMERIC(6,2),
   strategy_score NUMERIC(6,2),
