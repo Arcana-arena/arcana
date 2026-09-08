@@ -29,6 +29,13 @@ Units live in [`infra/systemd/`](../infra/systemd/):
 | `arcana-arca.service` | long-running | always | $ARCA entitlements, deposits, payments (port **3004** — 3003 is taken on this host) |
 | `arcana-scheduler.timer` → `arcana-scheduler.service` | oneshot | **every 1 min** | advance the competition one tick |
 | `arcana-scoring-job.timer` → `arcana-scoring-job.service` | oneshot | **every 5 min** | run the ARCANA Score batch |
+| `arcana-arca-reminder.timer` → `arcana-arca-reminder.service` | oneshot | **daily 09:00 UTC** | $ARCA renewal pushes + `active→grace→expired` |
+| `arcana-arca-payout.timer` → `arcana-arca-payout.service` | oneshot | **daily 10:00 UTC** | $ARCA creator payout batch (80/20 split) |
+
+The $ARCA **deposit audit** (stranded-payment detection + retiring unfunded
+deposit addresses) has **no timer**: it runs inside `arcana-arca.service` on its
+own interval (`ARCA_AUDIT_INTERVAL_MS`, default 5 min). Do not add one — it
+would duplicate work already scheduled in-process.
 
 ## Schedules (demo cadence — change for production)
 
@@ -39,6 +46,49 @@ Units live in [`infra/systemd/`](../infra/systemd/):
   and is closed at T+4m.
 - **Scoring: every 5 minutes** (`OnCalendar=*-*-* *:00/5:00`). Frequent enough to
   reflect new ticks, sparse enough to avoid recomputing unchanged portfolios.
+- **$ARCA reminder: daily 09:00 UTC** (16:00 WIB). Once a day matches the
+  granularity of the stages themselves — H-3 / H-1 / H-0, each sent at most once
+  per subscription — so a tighter interval would only re-scan rows already
+  marked. The hour is an operations choice: it lands in the WIB afternoon, so a
+  failed run is seen the same working day.
+- **$ARCA payout: daily 10:00 UTC** (17:00 WIB). §10.3 permits daily or weekly.
+  Daily wins because the gas-saving batching is *per creator per run*: a creator
+  with twenty sales gets one transfer either way. Weekly would cut an already
+  small gas bill by at most 6/7 while making creators wait up to a week for
+  money already sitting in the treasury. To switch:
+  `OnCalendar=Mon *-*-* 10:00:00 UTC`. The hour is deliberate too — this moves
+  real funds, and a failure needs a person awake to see it.
+
+Both $ARCA timers use `Persistent=true`, so a run missed while the VPS was down
+fires at the next boot. A late reminder still helps a user renew, and the payout
+batch is idempotent per `payment_event`.
+
+### These two jobs are no-ops until the $ARCA token launches
+
+Production `.env` deliberately leaves `ARCA_TOKEN_ADDRESS`, `ARCA_RPC_URL`,
+`ARCA_MASTER_PRIVATE_KEY`, `ARCA_TREASURY_PRIVATE_KEY` and `ARCA_CHAIN_ID`
+empty, so anything touching funds refuses to run. Expect this in the journal
+every day, and read it as healthy:
+
+```
+payout: SKIPPED (feature disabled by configuration, expected until the $ARCA
+token launches): {"processed":0,"paid_out":0,"skipped":["payout disabled: ..."]}
+```
+
+The unit exits **0** for this. A deliberate stand-down is not a failure, and a
+unit that showed `failed` daily for a year would train everyone to ignore it.
+A real fault — arca-service down, HTTP 5xx, unparseable reply — exits non-zero
+and logs to stderr. `infra/systemd/arca-job.sh` is what tells the two apart;
+plain `curl -fsS` cannot, because both cases return 2xx and the difference is
+inside the JSON body.
+
+The **reminder** job is different and worth not confusing: it touches only the
+database — no chain, no keys — so it genuinely runs today. It simply reports
+`{"reminded":0,"grace":0,"expired":0}` while there are no subscriptions.
+
+When the token does launch, follow [arca-go-live.md](./arca-go-live.md) — which
+variables to fill, from where, and what to verify before real users can
+subscribe.
 
 For a realistic production cadence (e.g. hourly ticks, daily post-market score),
 edit the `[Timer] OnCalendar=` lines and the `HUMAN_WINDOW` in the service file,
@@ -59,16 +109,26 @@ competitions.
 
 ## Overlap protection
 
-Both job units are `Type=oneshot` and guard with a non-blocking lock in
-`ExecStartPre`:
+Every job unit is `Type=oneshot`. The $ARCA units hold a non-blocking lock for
+the whole run by wrapping the command itself:
 
 ```
-ExecStartPre=/usr/bin/flock -n /tmp/arcana-scheduler.lock true
+ExecStart=/usr/bin/flock -n /tmp/arcana-arca-payout.lock /home/ubuntu/arcana/infra/systemd/arca-job.sh payout ...
 ```
 
 If a previous invocation is still running when the timer fires, the new one
-fails immediately (exit 1, visible in the journal) instead of stacking. No
-double-open ticks / no concurrent score batches.
+fails immediately (exit 1, visible in the journal) instead of stacking. That
+matters most for payout, which sends money; per-`payment_event` idempotency is
+the second line of defence, not the first.
+
+> **Known gap in the two older units.** `arcana-scheduler.service` and
+> `arcana-scoring-job.service` put the lock in `ExecStartPre`:
+> `flock -n /tmp/arcana-scheduler.lock true`. That takes the lock, runs `true`,
+> and releases it — all before `ExecStart` begins, so it guards nothing. What
+> has actually prevented overlap there is systemd itself: it will not run a
+> second instance of a unit that is still activating. The protection is real
+> but it is not the flock. Worth correcting to the wrapping form above so the
+> unit means what it says.
 
 ## Install / update
 

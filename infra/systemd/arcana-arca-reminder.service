@@ -1,0 +1,29 @@
+# arcana-arca-reminder.service — runs the $ARCA subscription reminder cycle once.
+# Invoked by arcana-arca-reminder.timer, daily.
+#
+# What it does (§10.4): sends the H-3/H-1/H-0 renewal pushes (idempotent via
+# last_reminder_stage) and walks subscriptions active -> grace -> expired.
+#
+# NOTE: unlike the payout job, this one does real work today. It touches the
+# database only — no chain, no keys — so the empty production $ARCA env does
+# not disable it. It simply finds nothing to do while there are no
+# subscriptions.
+#
+# Overlap protection: Type=oneshot plus flock wrapping the command itself, so
+# the lock is held for the whole run. (Putting `flock -n LOCK true` in
+# ExecStartPre — as the older units do — takes and releases the lock before
+# ExecStart even begins, which protects nothing.)
+[Unit]
+Description=ARCANA $ARCA subscription reminder job
+After=network-online.target arcana-arca.service
+Wants=network-online.target arcana-arca.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+Environment=ARCA_URL=http://localhost:3004
+ExecStart=/usr/bin/flock -n /tmp/arcana-arca-reminder.lock /home/ubuntu/arcana/infra/systemd/arca-job.sh reminder ${ARCA_URL}/internal/v1/payments/reminder/run
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target

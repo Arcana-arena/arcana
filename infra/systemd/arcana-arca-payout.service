@@ -1,0 +1,32 @@
+# arcana-arca-payout.service — runs the $ARCA creator payout batch once.
+# Invoked by arcana-arca-payout.timer, daily.
+#
+# What it does (§10.3): splits each confirmed payment_event by the listing's
+# revenue_share_creator (80/20 by default), accumulates per creator, and sends
+# ONE on-chain transfer per creator per run. Idempotent per payment_event, and
+# a failed transfer rolls its events back to `pending` so the next run retries
+# instead of double-paying.
+#
+# Until the $ARCA token launches this exits 0 having done nothing, and says so
+# in the journal — see arca-job.sh for why that is not a failure.
+#
+# Overlap protection matters more here than anywhere else in this repo: this
+# unit sends money. flock wraps the command so the lock is held for the entire
+# run, and a second invocation fails immediately rather than queueing behind
+# the first. Per-payment_event idempotency is the second line of defence, not
+# the first.
+[Unit]
+Description=ARCANA $ARCA creator payout batch
+After=network-online.target arcana-arca.service
+Wants=network-online.target arcana-arca.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+Environment=ARCA_URL=http://localhost:3004
+ExecStart=/usr/bin/flock -n /tmp/arcana-arca-payout.lock /home/ubuntu/arcana/infra/systemd/arca-job.sh payout ${ARCA_URL}/internal/v1/payments/payout/run
+# On-chain transfers, one per creator: allow for a slow RPC before giving up.
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target

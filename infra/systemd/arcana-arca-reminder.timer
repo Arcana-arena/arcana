@@ -1,0 +1,22 @@
+# arcana-arca-reminder.timer — runs the $ARCA reminder cycle once a day.
+#
+# CADENCE: daily at 09:00 UTC (16:00 WIB).
+#
+# Once a day is the right granularity: the stages are H-3 / H-1 / H-0 and each
+# is sent at most once per subscription, so running more often would only
+# re-scan rows that are already marked. The hour is chosen for operations — it
+# lands in the afternoon for the team on WIB, so a failed run is seen the same
+# working day rather than sitting unnoticed overnight. It is deliberately an
+# hour before the payout job so the two never contend.
+#
+# Persistent=true: a missed run (VPS down at 09:00) fires at the next boot. A
+# late reminder still helps a user renew; a skipped one is a silent lapse.
+[Unit]
+Description=Run the ARCANA $ARCA reminder job daily
+
+[Timer]
+OnCalendar=*-*-* 09:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

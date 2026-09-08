@@ -8,8 +8,8 @@
 #   1. copies *.service / *.timer into /etc/systemd/system/
 #   2. builds the scheduler binary into ~/arcana/scheduler-bin/
 #   3. daemon-reload, enables and starts the long-running services
-#      (agent, market-data, decision, scoring, marketplace, arca) and the two
-#      timers.
+#      (agent, market-data, decision, scoring, marketplace, arca) and the four
+#      timers (scheduler, scoring batch, $ARCA reminder, $ARCA payout).
 #
 # NOTE: arca-service reads its ARCA_* config (incl. secrets) from
 # services/arca-service/.env — create it from .env.example before starting,
@@ -20,6 +20,9 @@ set -euo pipefail
 REPO=/home/ubuntu/arcana
 UNIT_DIR=/etc/systemd/system
 BIN_DIR="$REPO/scheduler-bin"
+
+echo "==> making job wrapper executable"
+chmod +x "$REPO/infra/systemd/arca-job.sh"
 
 echo "==> building scheduler binary"
 mkdir -p "$BIN_DIR"
@@ -35,7 +38,7 @@ for u in arcana-agent arcana-marketdata arcana-decision arcana-scoring arcana-ma
 done
 
 echo "==> enabling timers"
-for t in arcana-scheduler arcana-scoring-job; do
+for t in arcana-scheduler arcana-scoring-job arcana-arca-reminder arcana-arca-payout; do
   sudo systemctl enable --now "$t.timer"
 done
 
