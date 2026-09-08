@@ -20,6 +20,9 @@ Wants=arcana-scoring.service
 [Service]
 Type=oneshot
 User=ubuntu
+# Without this every journal line would be attributed to `flock` (previously
+# `curl`), since flock is now the process systemd executes.
+SyslogIdentifier=arcana-scoring-job
 Environment=SCORING_URL=http://localhost:8082
 ExecStart=/usr/bin/flock -n /tmp/arcana-scoring.lock /usr/bin/curl -fsS -X POST http://localhost:8082/internal/v1/scoring/batch
 TimeoutStartSec=120

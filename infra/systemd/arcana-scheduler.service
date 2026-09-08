@@ -29,6 +29,10 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 User=ubuntu
+# Without this every journal line would be attributed to `flock`, since flock is
+# now the process systemd executes. Pinning the identifier keeps log lines
+# readable and greppable regardless of what wraps the command.
+SyslogIdentifier=arcana-scheduler
 WorkingDirectory=/home/ubuntu/arcana/services/decision-engine
 Environment=AGENT_SERVICE_URL=http://localhost:3001
 Environment=DECISION_ENGINE_URL=http://localhost:8081
