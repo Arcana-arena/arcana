@@ -105,10 +105,18 @@ func (e *Engine) scoreAgent(ctx context.Context, ap store.AgentPortfolio) error 
 		peerMean = &m
 	}
 
+	// strategy_score needs the action mix, not just the decision count.
+	mix, err := e.store.DecisionMixFor(ctx, ap.AgentID, ap.SeasonID)
+	if err != nil {
+		return err
+	}
+
 	f := ComputeFactors(AgentContext{
 		NAVs:                   navs,
 		DecisionCount:          decisions,
 		StrategyType:           meta.StrategyType,
+		Buys:                   mix.Buys,
+		Sells:                  mix.Sells,
 		CreatorPeerPerformance: peerMean,
 	})
 	ts := time.Now().UTC().Truncate(time.Second)

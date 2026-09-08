@@ -62,6 +62,7 @@ func main() {
 	mux.HandleFunc("POST /internal/v1/market/snapshots", srv.handleCreateSnapshot)
 	mux.HandleFunc("POST /internal/v1/market/simulate/tick", srv.handleSimulateTick)
 	mux.HandleFunc("GET /v1/market/snapshots/{ref}", srv.handleGetSnapshot)
+	mux.HandleFunc("GET /v1/market/snapshots/{ref}/previous", srv.handlePreviousSnapshot)
 
 	log.Printf("market-data listening on :%s", port)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
@@ -174,6 +175,26 @@ func (s *server) handleGetSnapshot(w http.ResponseWriter, r *http.Request) {
 	payload, err := s.svc.GetSnapshot(ctx, ref)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "snapshot_not_found", err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(payload)
+}
+
+// handlePreviousSnapshot returns the snapshot immediately preceding a ref, so
+// strategies can see which way prices moved. 204 when ref is the first
+// snapshot on record — no prior tick is a normal state, not an error.
+func (s *server) handlePreviousSnapshot(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	ref := r.PathValue("ref")
+
+	payload, found, err := s.svc.PreviousSnapshot(ctx, ref)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "snapshot_not_found", err.Error())
+		return
+	}
+	if !found {
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

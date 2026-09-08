@@ -58,3 +58,29 @@ func (s *Store) LookupByRef(ctx context.Context, ref string) (*SnapshotRow, erro
 	}
 	return &row, nil
 }
+
+// PreviousRef returns the ref of the snapshot immediately preceding the given
+// one, or "" when this is the first snapshot on record.
+//
+// Strategies that react to price movement (momentum, mean reversion) need a
+// prior observation to compare against; a point-in-time snapshot alone carries
+// no direction. Ordering is by tick_time, not insertion order, so a backfilled
+// snapshot still lands in its correct place in the series.
+func (s *Store) PreviousRef(ctx context.Context, ref string) (string, error) {
+	var prev string
+	err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE((
+		  SELECT p.ref FROM market_snapshots p
+		  WHERE p.tick_time < c.tick_time
+		  ORDER BY p.tick_time DESC
+		  LIMIT 1
+		), '')
+		FROM market_snapshots c WHERE c.ref = $1`, ref).Scan(&prev)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", fmt.Errorf("snapshot %s not found", ref)
+		}
+		return "", fmt.Errorf("previous snapshot for %s: %w", ref, err)
+	}
+	return prev, nil
+}

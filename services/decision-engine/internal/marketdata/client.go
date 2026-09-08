@@ -61,3 +61,33 @@ func (c *Client) GetSnapshot(ctx context.Context, ref string) (*Snapshot, error)
 	}
 	return &snap, nil
 }
+
+// GetPreviousSnapshot fetches the snapshot immediately preceding ref.
+// Returns (nil, nil) on the first tick of a season: having no prior prices is
+// a normal state that strategies handle by standing still, not an error.
+func (c *Client) GetPreviousSnapshot(ctx context.Context, ref string) (*Snapshot, error) {
+	url := fmt.Sprintf("%s/v1/market/snapshots/%s/previous", c.baseURL, ref)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch previous snapshot for %s: %w", ref, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNoContent {
+		return nil, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("fetch previous snapshot for %s: status %d: %s", ref, resp.StatusCode, string(body))
+	}
+
+	var snap Snapshot
+	if err := json.NewDecoder(resp.Body).Decode(&snap); err != nil {
+		return nil, fmt.Errorf("decode previous snapshot for %s: %w", ref, err)
+	}
+	return &snap, nil
+}

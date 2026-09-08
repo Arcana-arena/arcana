@@ -85,3 +85,22 @@ func (s *Service) GetSnapshot(ctx context.Context, ref string) ([]byte, error) {
 	}
 	return s.objects.Get(ctx, row.ObjectKey)
 }
+
+// PreviousSnapshot returns the payload of the snapshot immediately preceding
+// ref. The second return value is false when ref is the first snapshot on
+// record — a caller on the very first tick has no prior prices, which is a
+// normal state, not an error.
+func (s *Service) PreviousSnapshot(ctx context.Context, ref string) ([]byte, bool, error) {
+	prev, err := s.store.PreviousRef(ctx, ref)
+	if err != nil {
+		return nil, false, err
+	}
+	if prev == "" {
+		return nil, false, nil
+	}
+	payload, err := s.GetSnapshot(ctx, prev)
+	if err != nil {
+		return nil, false, err
+	}
+	return payload, true, nil
+}

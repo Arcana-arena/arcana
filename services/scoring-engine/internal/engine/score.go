@@ -48,13 +48,51 @@ const (
 	consistencyScale = 0.02
 	// longevityTicks: tick count at which longevity saturates at 100.
 	longevityTicks = 20.0
+	// strategyMinDecisions: decisions required before an agent's behaviour is
+	// judged against its declared strategy. Below this, one or two ticks of
+	// noise would decide the score.
+	strategyMinDecisions = 5
+	// strategyFitTolerance: how far outside its expected band a metric may
+	// drift before the fit reaches 0.
+	strategyFitTolerance = 0.25
 )
+
+// Weights inside strategy_score. Turnover carries more because it is the
+// clearest tell: an agent declaring buy_and_hold while trading every tick is
+// misdescribing itself no matter which direction it trades.
+const (
+	wStratTurnover  = 0.60
+	wStratSellShare = 0.40
+)
+
+// strategyProfile is the behaviour a declared strategy_type implies, as bands
+// rather than points — there is no single correct turnover for a strategy,
+// only a range that is consistent with the claim.
+type strategyProfile struct {
+	turnoverLo, turnoverHi   float64
+	sellShareLo, sellShareHi float64
+}
+
+// Expected behaviour per strategy_type. See docs/scoring-formula.md §strategy
+// for how these bands were chosen.
+var strategyProfiles = map[string]strategyProfile{
+	// Buys once, then holds: trading is the exception, selling near-absent.
+	"buy_and_hold": {turnoverLo: 0.00, turnoverHi: 0.20, sellShareLo: 0.00, sellShareHi: 0.15},
+	// Chases moves and cuts losers: trades often, both directions.
+	"momentum": {turnoverLo: 0.35, turnoverHi: 1.00, sellShareLo: 0.15, sellShareHi: 0.65},
+	// Buys dips and sells strength: similar cadence, same two-sided mix.
+	"mean_reversion": {turnoverLo: 0.25, turnoverHi: 1.00, sellShareLo: 0.15, sellShareHi: 0.65},
+}
 
 // AgentContext bundles everything the factor formulas need about one agent.
 type AgentContext struct {
 	NAVs        []float64 // chronological NAV series (>=1 point)
 	DecisionCount int     // total decisions recorded in the season
 	StrategyType string   // agent.strategy_type (e.g. momentum, mean_reversion, human)
+	// Buys and Sells are counted from the append-only decisions log and drive
+	// strategy_score: what the agent actually did, versus what it declared.
+	Buys  int
+	Sells int
 	// CreatorPeerPerformance is the mean performance of the creator's OTHER
 	// scored agents from the previous scoring run; nil when not available yet
 	// (first run) — creator_score then falls back to neutral.
@@ -88,11 +126,10 @@ func (f *Factors) Arcana() float64 {
 // ComputeFactors derives the seven sub-scores from an agent's context.
 func ComputeFactors(ctx AgentContext) Factors {
 	f := Factors{
-		// strategy_score: PLACEHOLDER — a decision-mix proxy was judged too
-		// weak for V1 (every AI agent currently follows the same buy/hold
-		// stub). Revisit when real strategies differentiate (see
-		// docs/scoring-formula.md §strategy).
-		Strategy: neutral,
+		// strategy_score: real as of 2026-09-09 — agents now run genuinely
+		// different strategies, so behaviour can be checked against the
+		// declared strategy_type. See strategyScore below.
+		Strategy: strategyScore(ctx),
 		// regime_score: PLACEHOLDER — the market-regime classifier is not
 		// implemented (roadmap Mar 2027). Kept neutral & low-weight until then.
 		Regime: neutral,
@@ -169,6 +206,62 @@ func ComputeFactors(ctx AgentContext) Factors {
 	}
 
 	return f
+}
+
+// strategyScore measures whether an agent behaved like the strategy it
+// declared — not whether that strategy made money, which is what the
+// performance and risk factors are for.
+//
+//	turnover   = trades / decisions          how often it acted at all
+//	sellShare  = sells / trades              whether it trades both ways
+//
+// Each is scored against the band its declared strategy_type implies, and the
+// two are combined by the weights above. An agent registered as buy_and_hold
+// that rebalances every tick scores near zero: the claim and the conduct do
+// not match, and the reputation should say so.
+//
+// Neutral (50) is returned when there is nothing to judge — an unrecognised or
+// human strategy_type, or too few decisions to separate intent from noise.
+// Neutral is never used to paper over a mismatch we could have measured.
+func strategyScore(ctx AgentContext) float64 {
+	profile, known := strategyProfiles[ctx.StrategyType]
+	if !known {
+		// Includes 'human': a person is under no obligation to trade to a
+		// declared pattern, so there is no claim to check.
+		return neutral
+	}
+	if ctx.DecisionCount < strategyMinDecisions {
+		return neutral
+	}
+
+	trades := ctx.Buys + ctx.Sells
+	turnover := float64(trades) / float64(ctx.DecisionCount)
+
+	// With no trades at all there is no direction to judge; the turnover term
+	// already carries the verdict, so hold the sell-share term neutral rather
+	// than punishing twice for the same fact.
+	sellFit := 1.0
+	if trades > 0 {
+		sellShare := float64(ctx.Sells) / float64(trades)
+		sellFit = bandFit(sellShare, profile.sellShareLo, profile.sellShareHi)
+	}
+
+	turnoverFit := bandFit(turnover, profile.turnoverLo, profile.turnoverHi)
+	return round1((wStratTurnover*turnoverFit + wStratSellShare*sellFit) * 100)
+}
+
+// bandFit is 1.0 inside [lo,hi] and decays linearly to 0 over
+// strategyFitTolerance beyond either edge. A soft edge on purpose: a strategy
+// that lands just outside its band is a little off-pattern, not disqualified.
+func bandFit(v, lo, hi float64) float64 {
+	switch {
+	case v < lo:
+		return clamp01(1 - (lo-v)/strategyFitTolerance)
+	case v > hi:
+		return clamp01(1 - (v-hi)/strategyFitTolerance)
+	default:
+		return 1
+	}
 }
 
 func (f *Factors) toMap() map[string]*float64 {

@@ -131,6 +131,34 @@ func (s *Store) DecisionCount(ctx context.Context, agentID, seasonID string) (in
 	return n, nil
 }
 
+// DecisionMix is the shape of an agent's recorded behaviour: how often it
+// traded at all, and how much of that trading was selling. It is everything the
+// strategy_score needs, and it comes from the append-only decisions log — the
+// agent's actual conduct, never its own claims about itself.
+type DecisionMix struct {
+	Total int
+	Buys  int
+	Sells int
+}
+
+// Trades is the number of decisions that moved the portfolio.
+func (m DecisionMix) Trades() int { return m.Buys + m.Sells }
+
+// DecisionMixFor counts an agent's decisions by action within a season.
+func (s *Store) DecisionMixFor(ctx context.Context, agentID, seasonID string) (DecisionMix, error) {
+	var m DecisionMix
+	err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*),
+		       COUNT(*) FILTER (WHERE action = 'buy'),
+		       COUNT(*) FILTER (WHERE action = 'sell')
+		FROM decisions
+		WHERE agent_id = $1 AND season_id = $2`, agentID, seasonID).Scan(&m.Total, &m.Buys, &m.Sells)
+	if err != nil {
+		return m, fmt.Errorf("decision mix: %w", err)
+	}
+	return m, nil
+}
+
 // WriteScoreSnapshot inserts a score row (idempotent per agent/timestamp).
 func (s *Store) WriteScoreSnapshot(ctx context.Context, agentID string, ts time.Time, factors map[string]*float64) error {
 	_, err := s.pool.Exec(ctx, `

@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"fmt"
-	"math"
 	"strconv"
 	"time"
 
@@ -26,8 +25,10 @@ func New(st *store.Store, md *marketdata.Client) *Engine {
 // V1 pipeline (architecture.md §9):
 //  1. Verify agent (must be active).
 //  2. Load season ruleset; get-or-create the virtual portfolio.
-//  3. Fetch the immutable market snapshot for this tick.
-//  4. Run a simple strategy -> decision (buy first symbol when idle, else hold).
+//  3. Fetch the immutable market snapshot for this tick, plus the previous one
+//     so a strategy can see which way prices moved.
+//  4. Run the agent's declared strategy (agents.strategy_type) under its own
+//     risk limits (agents.risk_profile) -> decision.
 //  5. Mark portfolio to market; append decision; persist snapshot.
 func (e *Engine) Execute(ctx context.Context, req ExecuteRequest) (int64, error) {
 	if req.Timestamp.IsZero() {
@@ -53,28 +54,32 @@ func (e *Engine) Execute(ctx context.Context, req ExecuteRequest) (int64, error)
 	cash := parseMoney(portfolio.Cash)
 	holdings := portfolio.Holdings
 
-	// Strategy: when idle (no holdings) and cash available, buy the first symbol
-	// with ~50% of cash; otherwise hold.
-	action := "hold"
-	rationale := "holding existing position"
-	symbol := ""
-	var qty *float64
-
-	if len(holdings) == 0 && cash > 0 && len(snap.Symbols) > 0 {
-		first := snap.Symbols[0]
-		if first.Price > 0 {
-			buyQty := math.Floor(cash*0.5/first.Price*100) / 100
-			if buyQty >= 1 {
-				action = "buy"
-				symbol = first.Symbol
-				qty = &buyQty
-				cash -= buyQty * first.Price
-				holdings = cloneHoldings(holdings)
-				holdings[first.Symbol] = qtyFromHoldings(holdings, first.Symbol) + buyQty
-				rationale = fmt.Sprintf("buy %s x %.2f (diversify into first symbol)", symbol, buyQty)
-			}
+	// Previous tick's prices give the strategy a direction to react to. Its
+	// absence (first tick of a season) is normal, and every strategy handles a
+	// nil prev by standing still rather than guessing.
+	var prevPrices map[string]float64
+	prevSnap, err := e.md.GetPreviousSnapshot(ctx, req.MarketSnapshotRef)
+	if err != nil {
+		return 0, fmt.Errorf("previous snapshot: %w", err)
+	}
+	if prevSnap != nil {
+		prevPrices = map[string]float64{}
+		for _, q := range prevSnap.Symbols {
+			prevPrices[q.Symbol] = q.Price
 		}
 	}
+
+	// NAV before acting: the risk limits are all expressed against it.
+	nav := cash
+	for sym, q := range holdings {
+		if price, ok := prices[sym]; ok {
+			nav += toFloat(q) * price
+		}
+	}
+
+	view := marketView{symbols: snap.Symbols, prices: prices, prev: prevPrices}
+	intent := decide(agent.StrategyType, view, holdings, cash, nav, riskLimitsFrom(agent.RiskProfile))
+	action, symbol, qty, holdings, cash, rationale := applyIntent(intent, prices, holdings, cash)
 
 	decisionID, err := e.persist(ctx, req, portfolio.ID, action, symbol, qty, holdings, cash, prices, rationale)
 	if err != nil {

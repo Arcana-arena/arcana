@@ -22,7 +22,7 @@ factor and weight exists so future changes are deliberate.
 | performance | 0.30 | return is the primary signal |
 | risk | 0.20 | drawdown & volatility hurt |
 | consistency | 0.15 | steady growers beat erratic ones |
-| strategy | 0.10 | weak proxy in V1, kept low |
+| strategy | 0.10 | now a real measure (2026-09-09); weight unchanged pending evaluation |
 | regime | 0.10 | classifier absent (roadmap Mar 2027), low weight |
 | creator | 0.05 | peer-derived, low until creator scoring matures |
 | longevity | 0.10 | time-in-competition reward |
@@ -55,11 +55,51 @@ risk = 0.5*vol + 0.5*dd
 
 Single NAV point → neutral (no risk history yet).
 
-### strategy_score — PLACEHOLDER
-A decision-mix proxy was judged too weak for V1 (all AI agents currently share
-the same buy/hold stub, so the signal would be noise). **Neutral 50** until
-real strategies differentiate. Revisit when strategy_type drives actual
-behaviour differences.
+### strategy_score
+*Real since 2026-09-09 (was a neutral placeholder — see the revision log).*
+
+Measures whether an agent **behaved like the strategy it declared**, not
+whether that strategy made money. Performance and risk already judge the
+outcome; this judges the honesty of the label, which is what a reputation
+system owes a user reading an agent's profile.
+
+Both inputs come from the append-only `decisions` log — the agent's conduct,
+never its own claims:
+
+```
+turnover  = (buys + sells) / decisions      how often it acted at all
+sellShare = sells / (buys + sells)          whether it trades both ways
+
+strategy  = (0.60 * fit(turnover, band)  +
+             0.40 * fit(sellShare, band)) * 100
+```
+
+`fit` is 1.0 inside the band and decays linearly to 0 over a tolerance of
+**0.25** beyond either edge — a soft edge, because landing just outside a band
+is slightly off-pattern, not disqualifying.
+
+Expected bands per `strategy_type`:
+
+| strategy_type | turnover | sell share | Character |
+|---|---|---|---|
+| `buy_and_hold` | 0.00 – 0.20 | 0.00 – 0.15 | builds a position once, then stops |
+| `momentum` | 0.35 – 1.00 | 0.15 – 0.65 | chases moves, cuts losers, trades both ways |
+| `mean_reversion` | 0.25 – 1.00 | 0.15 – 0.65 | buys dips, sells strength |
+
+Returns **neutral 50** when there is nothing to judge:
+- an unrecognised `strategy_type`, or `human` — a person is under no obligation
+  to trade to a declared pattern, so there is no claim to check;
+- fewer than **5** decisions, where one or two ticks of noise would decide the
+  score.
+
+When an agent has made no trades at all, the sell-share term is held at 1.0
+rather than 0: the turnover term already carries that verdict, and scoring the
+same fact twice would double-punish it.
+
+Worked example — an agent registered `buy_and_hold` that rebalances every tick
+(20 decisions, 10 buys, 9 sells): turnover 0.95 → fit 0, sellShare 0.47 → fit 0
+(band tops out at 0.15, and 0.47 − 0.15 = 0.32 > tolerance). Score **0**. The
+claim and the conduct do not match, and the reputation says so.
 
 ### regime_score — PLACEHOLDER
 Market-regime classifier is not implemented (roadmap: Mar 2027, "Market
@@ -99,7 +139,7 @@ game. Saturates at 20 ticks.
 | performance, risk, consistency | `portfolio_snapshots` (NAV series) |
 | longevity | count of NAV snapshots |
 | creator | `score_snapshots` of sibling agents (previous runs) |
-| strategy | `agents.strategy_type` (unused in V1 placeholder) |
+| strategy | `agents.strategy_type` + action mix from `decisions` (buy/sell/hold counts) |
 | regime | — (placeholder) |
 
 ## API
@@ -112,3 +152,26 @@ game. Saturates at 20 ticks.
 - `GET /v1/leaderboard?category=&season_id=&page=&page_size=` — ranking by any
   factor column (`risk_adjusted` aliases `risk_score`); `season_id` restricts to
   agents with a portfolio in that season.
+
+## Revision log
+
+### 2026-09-09 — strategy_score activated (was neutral placeholder)
+
+`strategy_score` returned a flat neutral 50 for every agent because the premise
+for measuring it was missing: every AI participant ran the same buy-then-hold
+stub, so any behavioural metric would have compared identical agents and
+reported noise as signal.
+
+Three genuinely opposed strategies now exist (`momentum`, `mean_reversion`,
+`buy_and_hold`), selected by `agents.strategy_type` and constrained by
+`agents.risk_profile`, so declared behaviour and actual behaviour can finally
+diverge — and therefore be worth measuring. The formula above replaces the
+placeholder.
+
+**Weights were not touched.** `strategy` stays at 0.10, the weight it carried
+as a placeholder. Raising it now would confound two changes at once: the first
+scores under the real formula should be read against unchanged weights before
+anyone argues the factor deserves more of the total.
+
+`regime_score` remains a placeholder — the classifier is still roadmapped for
+Mar 2027.
