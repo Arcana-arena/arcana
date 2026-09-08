@@ -104,3 +104,33 @@ func (s *Service) PreviousSnapshot(ctx context.Context, ref string) ([]byte, boo
 	}
 	return payload, true, nil
 }
+
+// LastPrices returns the previous tick's closing price per symbol, plus the
+// tick index the next snapshot will occupy.
+//
+// Empty map on the first tick of a season: the caller then seeds the walk from
+// its own base prices.
+func (s *Service) LastPrices(ctx context.Context) (map[string]float64, int64, error) {
+	ref, count, err := s.store.LatestState(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	if ref == "" {
+		return map[string]float64{}, 0, nil
+	}
+
+	payload, err := s.GetSnapshot(ctx, ref)
+	if err != nil {
+		return nil, 0, err
+	}
+	var snap snapshot.Snapshot
+	if err := json.Unmarshal(payload, &snap); err != nil {
+		return nil, 0, fmt.Errorf("decode snapshot %s: %w", ref, err)
+	}
+
+	prices := make(map[string]float64, len(snap.Symbols))
+	for _, q := range snap.Symbols {
+		prices[q.Symbol] = q.Price
+	}
+	return prices, count, nil
+}

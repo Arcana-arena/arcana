@@ -96,9 +96,35 @@ func (s *server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleSimulateTick generates a deterministic next market snapshot for dev/testing.
+// Simulator calibration. Tunable in one place rather than buried in the walk.
+const (
+	// trendBlockTicks: how many ticks a drift direction holds before it can
+	// change. Eight is long enough that a trend is visible in a 30-tick season
+	// and short enough that a season contains several of them.
+	trendBlockTicks = 8
+	// maxDriftPct: per-tick bias while a trend is in force (±0.40%). Over a
+	// full block that compounds to roughly ±3.3%.
+	maxDriftPct = 0.004
+	// maxNoisePct: per-tick jitter on top of the drift (±0.60%). Larger than
+	// the drift so a trend is never a straight line — an agent has to sit
+	// through down ticks inside an uptrend.
+	maxNoisePct = 0.006
+	// priceFloor: prices never fall through this.
+	priceFloor = 1.0
+)
+
+// handleSimulateTick generates the next market snapshot for dev/testing.
+//
+// The walk is a real one: each tick moves from the PREVIOUS tick's price, so
+// prices accumulate instead of oscillating around whatever base the caller
+// happens to send. `symbols[].price` in the body seeds only the first tick of a
+// season; after that it is ignored in favour of the recorded close.
+//
+// Still fully deterministic, which fairness and replay depend on: every move is
+// a pure function of (symbol, tick index), never of wall-clock time or call
+// order, so the same history always regenerates the same market.
+//
 // Body: {"tick_time": "...", "symbols":[{"symbol":"AAPL","price":100}, ...]}
-// Prices move by a seeded random walk (0-2%) so dev seasons get realistic quotes.
 func (s *server) handleSimulateTick(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -122,21 +148,47 @@ func (s *server) handleSimulateTick(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Walk forward from the LAST tick's prices, not from the caller's base
+	// prices. Restarting from a constant every tick is what made the market
+	// oscillate around a fixed level instead of going anywhere: it was
+	// mean-reverting by construction, so a mean-reversion agent scored well for
+	// matching a defect rather than for judging the market. Base prices from
+	// the request now seed only the very first tick of a season.
+	lastPrices, tickIndex, err := s.svc.LastPrices(ctx)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "simulate_failed", err.Error())
+		return
+	}
+
 	quotes := make([]snapshot.Quote, 0, len(req.Symbols))
-	seed := req.TickTime.Unix()
 	for _, sym := range req.Symbols {
-		// Deterministic pseudo-random walk seeded by symbol+tick.
-		h := fnv(seed, sym.Symbol)
-		// Cast to float64 BEFORE subtracting: h%201 is uint32, so h%201-100
-		// underflows to ~4.29e9 whenever h%201 < 100, which drove simulated
-		// prices to ~4.7 billion. Dividing by 10000 (not 100) makes the result
-		// the -1.00%..+1.00% the comment always claimed.
-		delta := (float64(h%201) - 100) / 10000.0 // -1.00% .. +1.00%
-		price := sym.Price * (1 + delta)
+		base := sym.Price
+		if prev, ok := lastPrices[sym.Symbol]; ok && prev > 0 {
+			base = prev
+		}
+
+		// Two deterministic components. Noise alone is a martingale: it drifts
+		// nowhere and any run is an accident, which gives a trend-following
+		// agent nothing real to follow. The drift term holds its sign for a
+		// block of ticks, so the market actually goes somewhere for a while —
+		// long enough for momentum and mean reversion to be right and wrong at
+		// different times, which is the whole point of scoring them.
+		driftSeed := fnv(tickIndex/trendBlockTicks, sym.Symbol+"|drift")
+		drift := (float64(driftSeed%201) - 100) / 100.0 * maxDriftPct
+
+		noiseSeed := fnv(tickIndex, sym.Symbol)
+		noise := (float64(noiseSeed%201) - 100) / 100.0 * maxNoisePct
+
+		price := base * (1 + drift + noise)
+		// A simulated price must never reach zero: the portfolio maths divides
+		// by it, and a season that bottoms out is unrecoverable.
+		if price < priceFloor {
+			price = priceFloor
+		}
 		quotes = append(quotes, snapshot.Quote{
 			Symbol: sym.Symbol,
 			Price:  round2(price),
-			Volume: float64(1_000_000 + h%2_000_000),
+			Volume: float64(1_000_000 + noiseSeed%2_000_000),
 		})
 	}
 

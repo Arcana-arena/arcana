@@ -84,3 +84,24 @@ func (s *Store) PreviousRef(ctx context.Context, ref string) (string, error) {
 	}
 	return prev, nil
 }
+
+// LatestState returns the most recent snapshot ref and how many snapshots exist.
+//
+// The count is the simulator's tick index: it advances one per generated
+// snapshot regardless of how far apart the ticks fall in wall-clock time, so a
+// trend spans the same number of ticks whether the scheduler runs every minute
+// or a replay drives it every second. Seeding a trend off wall-clock time would
+// make the market's character depend on the cadence of the job that samples it.
+//
+// Returns ("", 0) when no snapshot exists yet — the first tick of a season.
+func (s *Store) LatestState(ctx context.Context) (string, int64, error) {
+	var ref string
+	var count int64
+	err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE((SELECT ref FROM market_snapshots ORDER BY tick_time DESC LIMIT 1), ''),
+		       (SELECT COUNT(*) FROM market_snapshots)`).Scan(&ref, &count)
+	if err != nil {
+		return "", 0, fmt.Errorf("latest snapshot state: %w", err)
+	}
+	return ref, count, nil
+}
