@@ -40,10 +40,18 @@ export class ArcaTokenService {
     return '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
   }
 
-  /** Latest block height on the chain. */
+  /**
+   * Latest block height on the chain.
+   *
+   * cacheTime 0 because viem caches getBlockNumber for its polling interval
+   * (4s by default) and this height is recorded as a deposit's scan floor. A
+   * stale value errs low, which is safe — it only widens a later scan — but it
+   * makes created_at_block wrong for addresses issued seconds apart, and the
+   * audit then judges their age against a height they never had.
+   */
   async getBlockNumber(): Promise<bigint> {
     if (!this.client) throw new Error('ARCA_RPC_URL not configured');
-    return this.client.getBlockNumber();
+    return this.client.getBlockNumber({ cacheTime: 0 });
   }
 
   /**
