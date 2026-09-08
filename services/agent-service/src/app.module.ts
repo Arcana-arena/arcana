@@ -6,6 +6,7 @@ import { AgentsModule } from './agents/agents.module';
 import { CompetitionsModule } from './competitions/competitions.module';
 import { CreatorsModule } from './creators/creators.module';
 import { SeasonsModule } from './seasons/seasons.module';
+import { DnaModule } from './dna/dna.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { SeasonsModule } from './seasons/seasons.module';
     CreatorsModule,
     SeasonsModule,
     CompetitionsModule,
+    DnaModule,
   ],
   controllers: [HealthController],
 })

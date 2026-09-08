@@ -1,8 +1,8 @@
 # ARCANA Scheduling (VPS)
 
 How the recurring ARCANA jobs run automatically on the VPS: the competition
-scheduler, the score batch, and the two $ARCA payment jobs (subscription
-reminders and creator payouts).
+scheduler, the score batch, the two $ARCA payment jobs (subscription reminders
+and creator payouts), and the Agent DNA fingerprint batch.
 
 ## Mechanism: systemd timers + service units
 
@@ -33,6 +33,7 @@ Units live in [`infra/systemd/`](../infra/systemd/):
 | `arcana-scoring-job.timer` → `arcana-scoring-job.service` | oneshot | **every 5 min** | run the ARCANA Score batch |
 | `arcana-arca-reminder.timer` → `arcana-arca-reminder.service` | oneshot | **daily 09:00 UTC** | $ARCA renewal pushes + `active→grace→expired` |
 | `arcana-arca-payout.timer` → `arcana-arca-payout.service` | oneshot | **daily 10:00 UTC** | $ARCA creator payout batch (80/20 split) |
+| `arcana-agent-dna.timer` → `arcana-agent-dna.service` | oneshot | **daily 11:00 UTC** | recompute Agent DNA fingerprints ([agent-dna.md](./agent-dna.md)) |
 
 The $ARCA **deposit audit** (stranded-payment detection + retiring unfunded
 deposit addresses) has **no timer**: it runs inside `arcana-arca.service` on its
@@ -60,6 +61,11 @@ would duplicate work already scheduled in-process.
   money already sitting in the treasury. To switch:
   `OnCalendar=Mon *-*-* 10:00:00 UTC`. The hour is deliberate too — this moves
   real funds, and a failure needs a person awake to see it.
+- **Agent DNA: daily 11:00 UTC** (18:00 WIB). The fingerprint averages an
+  agent's whole recorded history, so one more tick barely moves it; running more
+  often would re-read every market snapshot to produce nearly the same vector.
+  An hour after the payout batch so the daily jobs never overlap. See
+  [agent-dna.md](./agent-dna.md).
 
 Both $ARCA timers use `Persistent=true`, so a run missed while the VPS was down
 fires at the next boot. A late reminder still helps a user renew, and the payout
@@ -119,7 +125,7 @@ layers**. They cover different things, and it is worth knowing which is which:
 | **systemd** | A timer firing while the previous run of the *same unit* is still going — systemd refuses to start a second instance. | Anything that does not go through systemd. |
 | **flock** | Any concurrent run at all, including a manual invocation or another script — the lock is held for the entire command. | Nothing, provided every caller goes through the unit or takes the same lock. |
 
-All four job units wrap the command in a non-blocking lock, so the lock is held
+All five job units wrap the command in a non-blocking lock, so the lock is held
 for the whole run:
 
 ```

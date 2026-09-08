@@ -1,0 +1,31 @@
+# arcana-agent-dna.service — recomputes every agent's behavioural fingerprint.
+# Invoked by arcana-agent-dna.timer, daily.
+#
+# What it does (docs/agent-dna.md): derives 8 behavioural features from the
+# append-only decisions log and the portfolio snapshots, writes them as a
+# pgvector fingerprint plus risk_personality / regime_strengths into agent_dna.
+# Agents under 5 recorded decisions get no row at all — an absent DNA is
+# honest, a zero vector would look like a measurement.
+#
+# DNA is descriptive only. Nothing here feeds the ARCANA Score.
+#
+# Overlap protection: Type=oneshot plus flock wrapping the command, so the lock
+# is held for the whole run (see docs/scheduling.md).
+[Unit]
+Description=ARCANA Agent DNA fingerprint batch
+After=network-online.target arcana-agent.service arcana-marketdata.service
+Wants=network-online.target arcana-agent.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+# Without this every journal line would be attributed to `flock`, since flock
+# is the process systemd executes.
+SyslogIdentifier=arcana-agent-dna
+Environment=AGENT_SERVICE_URL=http://localhost:3001
+ExecStart=/usr/bin/flock -n /tmp/arcana-agent-dna.lock /home/ubuntu/arcana/infra/systemd/arca-job.sh agent-dna ${AGENT_SERVICE_URL}/internal/v1/agents/dna/compute
+# Walks every market snapshot once per batch to price positions; allow for it.
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target

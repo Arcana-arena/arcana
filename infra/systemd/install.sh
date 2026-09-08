@@ -38,7 +38,7 @@ for u in arcana-agent arcana-marketdata arcana-decision arcana-scoring arcana-ma
 done
 
 echo "==> enabling timers"
-for t in arcana-scheduler arcana-scoring-job arcana-arca-reminder arcana-arca-payout; do
+for t in arcana-scheduler arcana-scoring-job arcana-arca-reminder arcana-arca-payout arcana-agent-dna; do
   sudo systemctl enable --now "$t.timer"
 done
 
