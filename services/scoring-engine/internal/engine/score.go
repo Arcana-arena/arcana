@@ -72,11 +72,16 @@ const (
 	// threshold as strategy_score uses, for the same reason — below it there is
 	// conduct to describe but not enough to judge.
 	minParticipationDecisions = 5
-	// minExposure: floor on the exposure divisor. Without it an agent holding
-	// ~100% cash divides by ~0 and its normalised volatility explodes to a
-	// meaningless number. The floor keeps the penalty bounded and leaves the
-	// "did it even compete" verdict to the participation rule above.
-	minExposure = 0.10
+	// minExposure: floor on the exposure divisor, for numerical safety ONLY.
+	// Without it an agent holding ~100% cash divides by ~0 and its normalised
+	// volatility explodes to a meaningless number.
+	//
+	// Deliberately low. At 0.10 the floor sheltered exactly the agent it was
+	// meant to expose — a book at 4.1% exposure was judged as though it were at
+	// 10%, a 2.4x discount handed to the least committed competitor. The floor
+	// should bind only where exposure is essentially zero, and the "did it
+	// compete at all" verdict belongs to the participation rule above.
+	minExposure = 0.02
 )
 
 // Weights inside strategy_score. Turnover carries more because it is the
