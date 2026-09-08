@@ -115,10 +115,14 @@ const (
 	// maxDriftPct. Drawing drift uniformly from [-max,+max] left many blocks
 	// near zero, which is a flat market wearing a trend's clothing.
 	minDriftFraction = 0.4
-	// maxNoisePct: per-tick jitter on top of the drift (±0.60%). Comparable to
-	// the drift on purpose, so a trend is never a straight line — an agent has
-	// to sit through down ticks inside an uptrend.
-	maxNoisePct = 0.006
+	// maxNoisePct: per-tick jitter on top of the drift (±1.00%). Deliberately
+	// LARGER than maxDriftPct: at ±0.60% the noise could never outvote a
+	// full-strength drift, so strong trends ran monotonically and a
+	// trend-follower was never once wrong inside one. That is as unfair as the
+	// mean-reverting market it replaced, just tilted the other way. Noise that
+	// can overcome the drift restores the pullbacks that make momentum and mean
+	// reversion each pay a price for being early.
+	maxNoisePct = 0.010
 	// priceFloor: prices never fall through this.
 	priceFloor = 1.0
 )
