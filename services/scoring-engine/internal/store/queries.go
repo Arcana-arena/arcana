@@ -237,7 +237,13 @@ var LeaderboardSortColumn = map[string]string{
 	"risk":          "risk_score",
 	"risk_adjusted": "risk_score",
 	"longevity":     "longevity_score",
+	// Rankable since strategy_score became a real measure (2026-09-09); it was
+	// omitted while every agent scored an identical placeholder 50.
+	"strategy": "strategy_score",
 }
+
+// NOTE: `creator` is real too but still absent here — a pre-existing gap, left
+// alone rather than folded into an unrelated change.
 
 // Leaderboard returns the latest score per agent, sorted by the given column.
 // When seasonID is non-empty only agents with a portfolio in that season rank.

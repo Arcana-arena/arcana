@@ -150,7 +150,8 @@ game. Saturates at 20 ticks.
 - `GET /v1/agents/:id/score?from=&to=&granularity=daily` — history (optionally
   bucketed to one point per day).
 - `GET /v1/leaderboard?category=&season_id=&page=&page_size=` — ranking by any
-  factor column (`risk_adjusted` aliases `risk_score`); `season_id` restricts to
+  factor column (`arcana`, `performance`, `risk`/`risk_adjusted`, `consistency`,
+  `strategy`, `longevity`); `season_id` restricts to
   agents with a portfolio in that season.
 
 ## Revision log
