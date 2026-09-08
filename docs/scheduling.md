@@ -1,6 +1,8 @@
 # ARCANA Scheduling (VPS)
 
-How the competition scheduler and the score batch run automatically on the VPS.
+How the recurring ARCANA jobs run automatically on the VPS: the competition
+scheduler, the score batch, and the two $ARCA payment jobs (subscription
+reminders and creator payouts).
 
 ## Mechanism: systemd timers + service units
 
