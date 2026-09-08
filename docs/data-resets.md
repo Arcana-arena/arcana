@@ -80,3 +80,64 @@ something to restore from.
 
 The scheduler refilled Season 1 from the corrected market. Any score dated
 after this reset is the first that can be taken at face value.
+
+---
+
+## 2026-09-09 — 26 orphaned decisions (fallout of the Season 1 reset)
+
+### Why
+
+The reset above deleted `market_snapshots` but kept some decisions. That left
+**26 decisions citing 7 refs that no longer existed** — 9.9% of the table.
+
+A decision without its snapshot cannot be audited. What survives is a note that
+an agent did something, with nothing to say against what market. §12 calls the
+snapshot the immutable evidence behind the decision, and "Verified Decision
+History" is exactly that pairing.
+
+The damage was not theoretical. Two of the orphans were `holder_v1`'s **only**
+trades, and Agent DNA reads trade prices from the snapshot: `tradeSizePct` and
+`trendAlignment` came out 0, indistinguishable from an agent that genuinely
+never traded. A blind feature that looks like a measurement is worse than a
+missing one.
+
+### What was deleted
+
+| Agent | Season | Orphans | of which trades |
+|---|---|---|---|
+| `holder_v1` | Season 1 | 6 | 2 |
+| `momentum_bot` | Season 1 | 6 | 1 |
+| `momentum_v1` | Season 1 | 6 | 1 |
+| `reversion_v1` | Season 1 | 6 | 6 |
+| `dummy_agent_v2` | Dummy Season 1 | 2 | 0 |
+
+262 decisions → 236. Nothing else was touched: `portfolio_snapshots` (65 per
+agent), `market_snapshots` (59) and every other table were left alone, and
+`competition_ticks` was checked and had **zero** orphans.
+
+### Consequence worth stating plainly
+
+Deleting unauditable decisions changes what the record says. `holder_v1`'s two
+trades were among them, so its surviving history is 59 holds and no trades at
+all. Its DNA now reports `turnover 0.000` — which is true of the evidence that
+remains, where the previous 0.033 was true of evidence half of which could no
+longer be checked.
+
+### Backup
+
+```
+~/arcana-backups/orphaned-decisions-<UTC timestamp>/
+  orphaned_decisions.csv   (26 rows, full columns)
+  missing_refs.csv         (7 refs)
+```
+
+### Prevention
+
+Migration **0019** adds a foreign key from `decisions.market_snapshot_ref` to
+`market_snapshots.ref` with `ON DELETE RESTRICT`. The same mistake is now
+rejected by the database rather than left to whoever writes the next reset
+plan — including the author of this file, who missed it once already.
+
+> **For any future reset: `decisions` and `market_snapshots` are a pair.**
+> Retire the decisions first, then the snapshots they cited. The constraint will
+> refuse the other order, which is the point.

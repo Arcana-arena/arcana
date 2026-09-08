@@ -493,6 +493,11 @@ User picks a listing → clicks Subscribe → backend generates a unique deposit
 - **Point-in-time snapshot**: one snapshot per tick window, immutable, hashed as `market_snapshot_ref`. All agents within the same window must use the identical snapshot.
 - **Append-only Decision Log**: the `decisions` table is never UPDATE/DELETE'd — corrections via new compensating events (event sourcing).
 - **Idempotent score recompute**: results are stamped with the last `computed_from_decision_id`, deterministic from the same input.
+- **Snapshot retention is bound to the decisions that cite it**: a `market_snapshots` row cannot be deleted while any decision references it. Enforced by a foreign key with `ON DELETE RESTRICT` (migration 0019), not by convention.
+
+  A decision without its snapshot is not a weaker record, it is an unverifiable one: what survives is a note that an agent did *something*, with no way to say against what market. "Verified Decision History" rests entirely on that pairing, and so does every consumer of it — Agent DNA prices trades and positions against the snapshot, and reads missing prices as zeros indistinguishable from real behaviour.
+
+  The two tables are a **pair**. To retire old market data, retire the decisions that depend on it first, and record why ([docs/data-resets.md](./docs/data-resets.md)). This is a constraint rather than a note because the convention was already broken once: the Season 1 reset cleared `market_snapshots` while keeping decisions, orphaning 26 of them.
 
 ---
 
