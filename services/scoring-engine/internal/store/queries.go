@@ -224,6 +224,7 @@ type LeaderboardEntry struct {
 	PerformanceScore *float64  `json:"performance_score"`
 	RiskScore       *float64   `json:"risk_score"`
 	ConsistencyScore *float64  `json:"consistency_score"`
+	StrategyScore   *float64   `json:"strategy_score"`
 	LongevityScore  *float64   `json:"longevity_score"`
 	UpdatedAt       time.Time  `json:"updated_at"`
 }
@@ -266,13 +267,13 @@ func (s *Store) Leaderboard(ctx context.Context, sortColumn, seasonID string, li
 		WITH latest AS (
 			SELECT DISTINCT ON (agent_id) agent_id, ts,
 			       arcana_score, performance_score, risk_score,
-			       consistency_score, longevity_score
+			       consistency_score, strategy_score, longevity_score
 			FROM score_snapshots
 			ORDER BY agent_id, ts DESC
 		)
 		SELECT l.agent_id, COALESCE(a.name, ''), l.arcana_score,
 		       l.performance_score, l.risk_score, l.consistency_score,
-		       l.longevity_score, l.ts
+		       l.strategy_score, l.longevity_score, l.ts
 		FROM latest l
 		LEFT JOIN agents a ON a.id = l.agent_id
 		%s
@@ -291,7 +292,7 @@ func (s *Store) Leaderboard(ctx context.Context, sortColumn, seasonID string, li
 		var e LeaderboardEntry
 		if err := rows.Scan(&e.AgentID, &e.AgentName, &e.ArcanaScore,
 			&e.PerformanceScore, &e.RiskScore, &e.ConsistencyScore,
-			&e.LongevityScore, &e.UpdatedAt); err != nil {
+			&e.StrategyScore, &e.LongevityScore, &e.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, e)
