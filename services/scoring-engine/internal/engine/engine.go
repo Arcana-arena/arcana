@@ -86,8 +86,25 @@ func (e *Engine) scoreAgent(ctx context.Context, ap store.AgentPortfolio) error 
 	}
 
 	navs := make([]float64, 0, len(points))
+	// Mean fraction of the book actually held in positions. Ticks with a
+	// non-positive NAV are skipped rather than counted as zero exposure, which
+	// would quietly drag the average down on bad data.
+	exposureSum, exposureTicks := 0.0, 0
 	for _, p := range points {
-		navs = append(navs, mustParse(p.NAV))
+		nav := mustParse(p.NAV)
+		navs = append(navs, nav)
+		if nav > 0 {
+			invested := (nav - mustParse(p.Cash)) / nav
+			if invested < 0 {
+				invested = 0
+			}
+			exposureSum += invested
+			exposureTicks++
+		}
+	}
+	exposure := 0.0
+	if exposureTicks > 0 {
+		exposure = exposureSum / float64(exposureTicks)
 	}
 
 	// creator_score: mean of the creator's other scored agents' performance.
@@ -114,6 +131,7 @@ func (e *Engine) scoreAgent(ctx context.Context, ap store.AgentPortfolio) error 
 	f := ComputeFactors(AgentContext{
 		NAVs:                   navs,
 		DecisionCount:          decisions,
+		Exposure:               exposure,
 		StrategyType:           meta.StrategyType,
 		Buys:                   mix.Buys,
 		Sells:                  mix.Sells,

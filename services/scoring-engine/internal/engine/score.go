@@ -67,6 +67,16 @@ const (
 	// strategyFitTolerance: how far outside its expected band a metric may
 	// drift before the fit reaches 0.
 	strategyFitTolerance = 0.25
+	// minParticipationDecisions: an agent below this has not competed, and
+	// risk/consistency/arcana are recorded as NULL rather than guessed. Same
+	// threshold as strategy_score uses, for the same reason — below it there is
+	// conduct to describe but not enough to judge.
+	minParticipationDecisions = 5
+	// minExposure: floor on the exposure divisor. Without it an agent holding
+	// ~100% cash divides by ~0 and its normalised volatility explodes to a
+	// meaningless number. The floor keeps the penalty bounded and leaves the
+	// "did it even compete" verdict to the participation rule above.
+	minExposure = 0.10
 )
 
 // Weights inside strategy_score. Turnover carries more because it is the
@@ -100,6 +110,11 @@ var strategyProfiles = map[string]strategyProfile{
 type AgentContext struct {
 	NAVs        []float64 // chronological NAV series (>=1 point)
 	DecisionCount int     // total decisions recorded in the season
+	// Exposure is the mean fraction of NAV actually held in positions across
+	// the season, i.e. 1 - mean(cash/nav). It is what makes risk a measure of
+	// judgement rather than of abstention: an idle book is perfectly stable,
+	// and stability bought by not participating is not risk management.
+	Exposure float64
 	StrategyType string   // agent.strategy_type (e.g. momentum, mean_reversion, human)
 	// Buys and Sells are counted from the append-only decisions log and drive
 	// strategy_score: what the agent actually did, versus what it declared.
@@ -124,6 +139,11 @@ type Factors struct {
 	// penalty — either the agent behaved as declared, or it made no checkable
 	// claim at all.
 	StrategyMultiplier float64
+	// Ranked is false for an agent that has not competed enough to be measured.
+	// Its risk, consistency and arcana scores are then recorded as NULL — not
+	// as neutral 50, which would let a no-show place among real competitors —
+	// and the leaderboard leaves it out.
+	Ranked bool
 }
 
 // Arcana returns the weighted composite score (0-100), scaled by how honestly
@@ -155,7 +175,13 @@ func ComputeFactors(ctx AgentContext) Factors {
 		multiplier = strategyFloor + (1-strategyFloor)*(strategy/100)
 	}
 
+	// An agent that has barely acted cannot be measured on how it handled risk,
+	// and a neutral 50 is not a humble answer here — it is a made-up one that
+	// still outranks agents who actually competed. Say "not measured" instead.
+	ranked := ctx.DecisionCount >= minParticipationDecisions
+
 	f := Factors{
+		Ranked:             ranked,
 		Strategy:           strategy,
 		StrategyMultiplier: multiplier,
 		// regime_score: PLACEHOLDER — the market-regime classifier is not
@@ -204,12 +230,28 @@ func ComputeFactors(ctx AgentContext) Factors {
 		f.Performance = neutral
 	}
 
+	// Everything below measures risk PER UNIT OF EXPOSURE.
+	//
+	// NAV volatility on its own answers "how much did this book move", and a
+	// book that was never invested did not move at all — so the raw measure
+	// handed its best scores to whoever participated least. Dividing by the
+	// fraction actually at stake asks the question that was meant all along:
+	// given what this agent put at risk, how well did it handle it?
+	//
+	// The division cuts both ways, which is the point. An agent that stayed in
+	// cash no longer harvests a high score for an idle book, and an agent that
+	// was fully invested and wild still divides by ~1 and is still punished.
+	exposure := ctx.Exposure
+	if exposure < minExposure {
+		exposure = minExposure
+	}
+
 	// ---- risk: volatility + max drawdown (higher score = lower risk) ----
 	if len(returns) >= 1 {
-		sd := stddev(returns, mean(returns))
+		sd := stddev(returns, mean(returns)) / exposure
 		volScore := clamp01(1-sd/volScale) * 100
 
-		maxDD := maxDrawdown(navs)
+		maxDD := maxDrawdown(navs) / exposure
 		ddScore := clamp01(1-maxDD/ddScale) * 100
 
 		f.Risk = round1(0.5*volScore + 0.5*ddScore)
@@ -218,18 +260,13 @@ func ComputeFactors(ctx AgentContext) Factors {
 		f.Risk = neutral
 	}
 
-	// ---- consistency: inverse of return dispersion ----
-	// Stable agents (low per-tick return stdev) score higher than wild
-	// up/down swings. A perfectly flat NAV scores 100.
+	// ---- consistency: inverse of return dispersion, per unit of exposure ----
+	// Steady growers beat erratic ones — but "steady" has to mean steady for
+	// the risk taken, or an untouched portfolio wins by default.
 	if len(returns) >= 1 {
-		sd := stddev(returns, mean(returns))
+		sd := stddev(returns, mean(returns)) / exposure
 		f.Consistency = clamp01(1-sd/consistencyScale) * 100
 	} else {
-		f.Consistency = neutral
-	}
-
-	// An agent that never acted (no decisions) has no meaningful pattern.
-	if ctx.DecisionCount == 0 {
 		f.Consistency = neutral
 	}
 
@@ -299,7 +336,7 @@ func (f *Factors) toMap() map[string]*float64 {
 	arc := f.Arcana()
 	p, r, st := f.Performance, f.Risk, f.Strategy
 	re, c, cr, l := f.Regime, f.Consistency, f.Creator, f.Longevity
-	return map[string]*float64{
+	out := map[string]*float64{
 		"arcana":      &arc,
 		"performance": &p,
 		"risk":        &r,
@@ -309,6 +346,17 @@ func (f *Factors) toMap() map[string]*float64 {
 		"creator":     &cr,
 		"longevity":   &l,
 	}
+	if !f.Ranked {
+		// NULL, not a number. These three are the ones that require having
+		// competed; the rest (performance, longevity, creator, strategy) still
+		// describe the agent and stay on its profile. The leaderboard filters
+		// NULL, so an agent that has not competed simply does not appear —
+		// rather than placing above those who did.
+		out["arcana"] = nil
+		out["risk"] = nil
+		out["consistency"] = nil
+	}
+	return out
 }
 
 // --- math helpers ---

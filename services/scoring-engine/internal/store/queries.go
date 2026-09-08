@@ -67,15 +67,20 @@ func (s *Store) PortfolioForAgent(ctx context.Context, agentID, seasonID string)
 }
 
 // SnapshotPoint is one NAV observation for a portfolio.
+//
+// Cash comes along with NAV because risk is meaningless without it: NAV
+// movement alone cannot tell a well-managed book from an idle one, and the
+// difference between them is how much of the book was actually at stake.
 type SnapshotPoint struct {
-	TS  time.Time
-	NAV string
+	TS   time.Time
+	NAV  string
+	Cash string
 }
 
 // PortfolioNAVSeries returns all NAV snapshots for a portfolio ordered by time.
 func (s *Store) PortfolioNAVSeries(ctx context.Context, portfolioID string) ([]SnapshotPoint, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT ts, nav FROM portfolio_snapshots
+		SELECT ts, nav, cash FROM portfolio_snapshots
 		WHERE portfolio_id = $1
 		ORDER BY ts ASC`, portfolioID)
 	if err != nil {
@@ -86,7 +91,7 @@ func (s *Store) PortfolioNAVSeries(ctx context.Context, portfolioID string) ([]S
 	var out []SnapshotPoint
 	for rows.Next() {
 		var p SnapshotPoint
-		if err := rows.Scan(&p.TS, &p.NAV); err != nil {
+		if err := rows.Scan(&p.TS, &p.NAV, &p.Cash); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -278,6 +283,12 @@ func (s *Store) Leaderboard(ctx context.Context, sortColumn, seasonID string, li
 		LEFT JOIN agents a ON a.id = l.agent_id
 		%s
 		WHERE l.%s IS NOT NULL
+		  -- A NULL arcana_score marks an agent that has not competed enough to
+		  -- be measured (see engine.minParticipationDecisions). It is excluded
+		  -- from EVERY category, not just the ones it lacks: a no-show placing
+		  -- second on longevity would still be a no-show holding a rank that
+		  -- belongs to someone who turned up.
+		  AND l.arcana_score IS NOT NULL
 		ORDER BY l.%s DESC
 		LIMIT $1 OFFSET $2`, seasonFilter, col, col)
 
