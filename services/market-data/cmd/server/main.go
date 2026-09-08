@@ -99,15 +99,25 @@ func (s *server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 // Simulator calibration. Tunable in one place rather than buried in the walk.
 const (
 	// trendBlockTicks: how many ticks a drift direction holds before it can
-	// change. Eight is long enough that a trend is visible in a 30-tick season
-	// and short enough that a season contains several of them.
-	trendBlockTicks = 8
-	// maxDriftPct: per-tick bias while a trend is in force (±0.40%). Over a
-	// full block that compounds to roughly ±3.3%.
-	maxDriftPct = 0.004
-	// maxNoisePct: per-tick jitter on top of the drift (±0.60%). Larger than
-	// the drift so a trend is never a straight line — an agent has to sit
-	// through down ticks inside an uptrend.
+	// change. Ten is long enough for a trend to be worth following and short
+	// enough that a 30-tick season contains about three of them, so momentum
+	// and mean reversion each get their turn at being right.
+	trendBlockTicks = 10
+	// maxDriftPct: per-tick bias while a trend is in force (0.80% at full
+	// strength). Over a block that compounds to roughly 8%.
+	//
+	// Calibrated against the scoring formula, not picked for realism: with
+	// performance_score mapping ±20% return to 0..100, a market that moves ±1%
+	// per season scores every agent at ~50 and measures nothing. A season has
+	// to be able to produce real dispersion for the score to mean anything.
+	maxDriftPct = 0.008
+	// minDriftFraction: a trend block always commits to at least this share of
+	// maxDriftPct. Drawing drift uniformly from [-max,+max] left many blocks
+	// near zero, which is a flat market wearing a trend's clothing.
+	minDriftFraction = 0.4
+	// maxNoisePct: per-tick jitter on top of the drift (±0.60%). Comparable to
+	// the drift on purpose, so a trend is never a straight line — an agent has
+	// to sit through down ticks inside an uptrend.
 	maxNoisePct = 0.006
 	// priceFloor: prices never fall through this.
 	priceFloor = 1.0
@@ -174,7 +184,12 @@ func (s *server) handleSimulateTick(w http.ResponseWriter, r *http.Request) {
 		// long enough for momentum and mean reversion to be right and wrong at
 		// different times, which is the whole point of scoring them.
 		driftSeed := fnv(tickIndex/trendBlockTicks, sym.Symbol+"|drift")
-		drift := (float64(driftSeed%201) - 100) / 100.0 * maxDriftPct
+		driftDir := 1.0
+		if driftSeed&1 == 0 {
+			driftDir = -1.0
+		}
+		driftMag := minDriftFraction + (1-minDriftFraction)*float64(driftSeed>>1%101)/100.0
+		drift := driftDir * driftMag * maxDriftPct
 
 		noiseSeed := fnv(tickIndex, sym.Symbol)
 		noise := (float64(noiseSeed%201) - 100) / 100.0 * maxNoisePct
