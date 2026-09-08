@@ -74,6 +74,22 @@ export class ArcaTokenService {
   }
 
   /**
+   * Token balance of an address. Used by the deposit audit pass to answer the
+   * question a log scan cannot: did money actually arrive at this address,
+   * regardless of whether any scan ever covered its block?
+   */
+  async balanceOf(address: string): Promise<bigint> {
+    if (!this.client) throw new Error('ARCA_RPC_URL not configured');
+    if (!this.tokenAddress) throw new Error('ARCA_TOKEN_ADDRESS not configured');
+    return this.client.readContract({
+      address: this.tokenAddress,
+      abi: [parseAbiItem('function balanceOf(address) view returns (uint256)')],
+      functionName: 'balanceOf',
+      args: [address as `0x${string}`],
+    }) as Promise<bigint>;
+  }
+
+  /**
    * Estimate ETH needed for a token transfer (gas estimation), so callers can
    * warn users about gas before they move funds. Uses a static call against the
    * token's transfer().

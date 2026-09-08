@@ -28,7 +28,9 @@ export class PaymentListenerService implements OnModuleInit, OnModuleDestroy {
   private readonly pollIntervalMs: number;
   private readonly stateService = 'payment-listener';
   private readonly decimals: number;
+  private readonly auditIntervalMs: number;
   private timer: NodeJS.Timeout | null = null;
+  private auditTimer: NodeJS.Timeout | null = null;
   private running = false;
 
   constructor(
@@ -51,6 +53,10 @@ export class PaymentListenerService implements OnModuleInit, OnModuleDestroy {
     // Override via ARCA_TOKEN_DECIMALS once the real $ARCA token is known.
     const dec = parseInt(config.get<string>('ARCA_TOKEN_DECIMALS') ?? '18', 10);
     this.decimals = Number.isFinite(dec) && dec >= 0 ? dec : 18;
+    // Audit runs far less often than the poll: it is a backstop for money that
+    // slipped past every scan, not part of the happy path.
+    const audit = parseInt(config.get<string>('ARCA_AUDIT_INTERVAL_MS') ?? '300000', 10);
+    this.auditIntervalMs = Number.isFinite(audit) && audit > 0 ? audit : 300000;
   }
 
   onModuleInit() {
@@ -63,13 +69,58 @@ export class PaymentListenerService implements OnModuleInit, OnModuleDestroy {
     this.timer = setInterval(() => {
       void this.pollOnce().catch((e) => this.logger.error(`poll failed: ${e}`));
     }, this.pollIntervalMs);
+    this.auditTimer = setInterval(() => {
+      void this.auditPendingDeposits().catch((e) => this.logger.error(`audit failed: ${e}`));
+    }, this.auditIntervalMs);
     this.logger.log(
-      `payment listener started (poll ${this.pollIntervalMs}ms, confirmations=${this.confirmations})`,
+      `payment listener started (poll ${this.pollIntervalMs}ms, confirmations=${this.confirmations}, audit ${this.auditIntervalMs}ms)`,
     );
   }
 
   onModuleDestroy() {
     if (this.timer) clearInterval(this.timer);
+    if (this.auditTimer) clearInterval(this.auditTimer);
+  }
+
+  /**
+   * Safety net for the failure this whole mechanism exists to prevent: money
+   * sitting at a deposit address that was never credited.
+   *
+   * A log scan can only find what it looked at. This asks the chain directly —
+   * for every pending deposit past confirmation depth, does the address hold a
+   * balance? A hit means funds arrived and access was never granted, which is
+   * an ERROR, not a warning: it is a user who paid and got nothing, and it must
+   * never again sit in the database unnoticed.
+   */
+  async auditPendingDeposits(): Promise<{ checked: number; stranded: number }> {
+    if (!this.token.enabled) return { checked: 0, stranded: 0 };
+
+    const head = await this.token.getBlockNumber();
+    const pending = await this.depositSvc.findPending();
+
+    let checked = 0;
+    let stranded = 0;
+    for (const deposit of pending) {
+      // Too young to judge: a payment may simply not have confirmed yet.
+      if (deposit.createdAtBlock == null) continue;
+      if (head - BigInt(deposit.createdAtBlock) <= this.confirmations) continue;
+
+      checked++;
+      const balance = await this.token.balanceOf(deposit.derivedAddress);
+      if (balance > 0n) {
+        stranded++;
+        this.logger.error(
+          `STRANDED PAYMENT: deposit ${deposit.derivedAddress} (user ${deposit.userWallet}, ` +
+            `listing ${deposit.listingId}) holds ${this.toDecimalString(balance)} $ARCA but is still ` +
+            `pending — funds arrived and access was NOT granted. Issued at block ` +
+            `${deposit.createdAtBlock}, head ${head}. Investigate the listener scan range.`,
+        );
+      }
+    }
+    if (stranded === 0 && checked > 0) {
+      this.logger.log(`deposit audit: ${checked} pending deposit(s) checked, none stranded`);
+    }
+    return { checked, stranded };
   }
 
   /** One poll cycle — returns number of payments processed. */
@@ -77,11 +128,11 @@ export class PaymentListenerService implements OnModuleInit, OnModuleDestroy {
     if (this.running) return 0; // no overlap within this process
     this.running = true;
     try {
-      const from = await this.loadCheckpoint();
       const head = await this.token.getBlockNumber();
+      const from = await this.resolveScanStart(head);
 
-      // Nothing new (head == checkpoint) or nothing confirmed yet.
-      if (head - from < this.confirmations) return 0;
+      // Nothing confirmed yet above the scan start.
+      if (head < this.confirmations) return 0;
       const confirmedTo = head - this.confirmations;
       if (from > confirmedTo) return 0;
 
@@ -141,14 +192,38 @@ export class PaymentListenerService implements OnModuleInit, OnModuleDestroy {
     return true;
   }
 
-  private async loadCheckpoint(): Promise<bigint> {
+  /**
+   * First block the next scan must cover.
+   *
+   * The checkpoint alone is not safe. It records where scanning got to, but a
+   * deposit address issued while the listener was behind — or before it ever
+   * ran — can sit below that point, and its payment would never be scanned:
+   * funds arrive, access is never granted, nothing warns (§10.6).
+   *
+   * So the checkpoint is only ever an upper bound. The floor is the oldest
+   * still-pending deposit: while any address is outstanding, scanning starts no
+   * later than the block it was issued at. Once every deposit is resolved the
+   * checkpoint takes over again and the window collapses back to one block.
+   */
+  private async resolveScanStart(head: bigint): Promise<bigint> {
     const row = await this.state.findOne({
       where: { service: this.stateService, key: 'last_block' },
     });
-    if (row?.value) return BigInt(row.value);
-    // No checkpoint: start from the current head (no genesis rescan).
-    const head = await this.token.getBlockNumber();
-    return head > this.confirmations ? head - this.confirmations : 0n;
+    // Resume AFTER the last scanned block — rescanning it every poll costs a
+    // getLogs round trip and yields only rows the tx_hash guard discards.
+    const checkpoint = row?.value != null ? BigInt(row.value) + 1n : null;
+    const oldestPending = await this.depositSvc.oldestPendingBlock();
+
+    if (checkpoint == null) {
+      // First run (or the checkpoint was lost). Anything outstanding decides
+      // where to start; only with nothing pending is head safe, because then
+      // there is no address a payment could already have landed on.
+      return oldestPending ?? head;
+    }
+    if (oldestPending != null && oldestPending < checkpoint) {
+      return oldestPending;
+    }
+    return checkpoint;
   }
 
   private async saveCheckpoint(block: bigint): Promise<void> {

@@ -22,4 +22,13 @@ export class DepositAddress {
 
   @Column({ type: 'varchar', length: 20, default: 'pending' })
   status: string; // pending, received, swept, expired_unpaid
+
+  /**
+   * Chain height when this address was handed to the user (migration 0016).
+   * The listener never starts a scan above the oldest pending row's height, so
+   * a transfer made right after issuance can never fall below the scan floor.
+   * NULL for rows created before 0016 — those are skipped by the clamp.
+   */
+  @Column({ name: 'created_at_block', type: 'bigint', nullable: true })
+  createdAtBlock: string | null;
 }

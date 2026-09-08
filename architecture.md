@@ -410,6 +410,16 @@ Native transfers have no memo field, so the backend needs a reliable way to matc
 - Filters `to` = deposit addresses currently awaiting payment; can use the internal RPC gateway (your project RPC gateway) as the data source.
 - Incoming event → wait for the confirmation threshold (anti-reorg) → match against pending `(user, listing)` → record in `payment_events`.
 
+**Scan floor.** The block checkpoint says where scanning *got to*; on its own it cannot say where scanning must *begin*. A deposit address issued while the listener is behind — or before it has ever run — can sit below the checkpoint, and its payment is then never scanned at all. So every deposit address records the chain height at which it was issued (`deposit_addresses.created_at_block`), and the listener starts no later than the oldest still-pending deposit:
+
+```
+scan_start = min(checkpoint + 1, oldest pending deposit's created_at_block)
+```
+
+With nothing pending there is no address a payment could have landed on, so the head is a safe start. A deposit address is never issued while the chain is unreadable, since its issue height could not be recorded and the payment would be invisible to every later scan.
+
+**Deposit audit (backstop).** A log scan only finds what it looked at, so a periodic pass asks the chain directly: for every pending deposit past confirmation depth, does the address hold a balance? A hit means funds arrived and access was never granted — logged at **ERROR**, never merely warned, because it is a user who paid and got nothing. This is a safety net, not part of the happy path; it firing at all means the scan floor above has a hole.
+
 ### 10.3 Split & Payout (Off-Chain, Batch)
 ```
 1. Funds arrive at the deposit address → validated by the listener → recorded (status: received)
@@ -422,7 +432,8 @@ Split correctness relies entirely on the ARCANA backend (not guaranteed by the b
 
 ### 10.4 Reminder Service (manual renew, in-app push)
 - Daily cron scans `subscriptions` whose `expires_at` is within N days (D-3, D-1, D-0) → in-app push notification with a deep link to the renew flow.
-- Grace period of 24–48 hours after expiry before access is revoked.
+- Grace period of 24–48 hours after expiry before access is revoked. The lifecycle is `active` → `grace` (at `expires_at`) → `expired` (at `expires_at + grace`), and the entitlement check honours the same clock: during `grace` the user **keeps access**. A grace period that only relabels an already locked-out subscription is not a grace period.
+- The entitlement rule (status + grace window) lives in the $ARCA service alone; other services ask it rather than re-deriving it from subscription rows, so the two cannot drift apart.
 - Push token registry (`user_push_tokens`), delivery via FCM/Web Push; the reminder job publishes to the event bus → a separate Notification Service, with idempotency via `last_reminder_stage`.
 
 ### 10.5 End-to-End Flow
@@ -443,6 +454,8 @@ User picks a listing → clicks Subscribe → backend generates a unique deposit
 | User transfers wrong amount | Less: do not grant access. More: record the difference as manual credit/refund |
 | Deposit address reused (bug) | Prevented by design — `UNIQUE derived_address`, a new one is generated per request |
 | Listener processes events late | Backfill from the last block checkpoint |
+| **Checkpoint sits ahead of a payment** | The original design assumed the checkpoint is always *behind* the payment, so "backfill from the checkpoint" was enough. It is not: a deposit address issued while the listener was behind (or before its first run) can sit below the checkpoint, and its transfer is then never scanned — funds arrive, access is never granted, and nothing warns. Handled by the scan floor in §10.2: the listener starts no later than the oldest still-pending deposit's `created_at_block`, and refuses to issue an address it could not record a height for. |
+| **Payment stranded despite the scan floor** | Deposit audit (§10.2) reads the on-chain balance of every pending deposit past confirmation depth and logs an **ERROR** naming the address, user and listing. Silent loss of user funds is the one failure mode this design will not tolerate — if it cannot be prevented, it must at least be loud. |
 | Sweep/payout job fails midway | Idempotent per `payment_event`/`creator_payout` (checkpoint by ID) |
 | HD wallet deposit key management leaks | Derivation private keys stored in KMS/HSM — the most critical security point in the entire design |
 | Payment tx fails after access was briefly granted (race) | Saga pattern: automatic reversal (revoke access) if `payment_events` is never confirmed within a given window |

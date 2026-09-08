@@ -41,6 +41,11 @@ confirmation. Tables added beyond §7 (each documented in its migration file):
 - `service_state` (0015) — internal key-value state for background services
   (payment listener block checkpoint), so restarts backfill instead of
   rescanning from genesis.
+- `deposit_addresses.created_at_block` (0016) — chain height when the address
+  was issued. The listener's scan never starts above the oldest pending
+  deposit's height, closing the case where the checkpoint lands *ahead* of a
+  payment and the transfer is never scanned (§10.2/§10.6). Nullable: rows
+  predating the migration have no known height and are skipped by the clamp.
 
 ## Seed data
 

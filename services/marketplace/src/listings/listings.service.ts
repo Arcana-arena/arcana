@@ -1,4 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  HttpException,
+  HttpStatus,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -7,6 +14,7 @@ import { CreateListingDto, UpdateListingDto } from './dto/listing.dto';
 
 @Injectable()
 export class ListingsService {
+  private readonly logger = new Logger(ListingsService.name);
   private readonly arcaUrl: string;
 
   constructor(
@@ -70,30 +78,56 @@ export class ListingsService {
       body: JSON.stringify({ userWallet, listingId }),
     });
     if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`arca-service subscribe failed (${res.status}): ${body}`);
+      throw await this.upstreamError(res, 'subscribe');
     }
     return res.json();
   }
 
   /**
-   * Check whether a user currently has access to a listing (asks arca-service
-   * for an active subscription).
+   * Turn a failed arca-service call into the §8 error shape with the upstream
+   * status intact. Swallowing it into a generic 500 hid the real cause — a
+   * deliberate "deposit generation disabled" refusal read to the caller as an
+   * ARCANA crash.
+   */
+  private async upstreamError(res: Response, op: string): Promise<HttpException> {
+    const traceId = randomUUID();
+    let message = await res.text();
+    try {
+      const parsed = JSON.parse(message) as { message?: string | string[] };
+      if (parsed?.message) {
+        message = Array.isArray(parsed.message) ? parsed.message.join('; ') : parsed.message;
+      }
+    } catch {
+      // Upstream returned plain text — keep it as-is.
+    }
+    // Only client errors carry a meaningful upstream status; anything else is
+    // an ARCANA-side fault and must not be blamed on the caller's request.
+    const status = res.status >= 400 && res.status < 500 ? res.status : HttpStatus.BAD_GATEWAY;
+    this.logger.error(`arca-service ${op} failed (${res.status}) [trace ${traceId}]: ${message}`);
+    return new HttpException(
+      { error: { code: `arca_${op}_failed`, message, trace_id: traceId } },
+      status,
+    );
+  }
+
+  /**
+   * Check whether a user currently has access to a listing.
+   *
+   * The rule itself lives in arca-service (§2.7) and is asked for, not
+   * reimplemented: this used to re-derive it from the subscription list with
+   * `status === 'active' && expiresAt > now`, which silently denied access for
+   * the whole grace window that arca-service was still honouring.
    */
   async hasAccess(listingId: string, userWallet: string): Promise<boolean> {
-    const res = await fetch(`${this.arcaUrl}/v1/subscriptions/${userWallet}`);
-    if (!res.ok) return false;
-    const subs = (await res.json()) as Array<{
-      listingId: string;
-      status: string;
-      expiresAt: string;
-    }>;
-    return subs.some(
-      (s) =>
-        s.listingId === listingId &&
-        s.status === 'active' &&
-        new Date(s.expiresAt) > new Date(),
-    );
+    const url =
+      `${this.arcaUrl}/v1/arca/access` +
+      `?userWallet=${encodeURIComponent(userWallet)}&listingId=${encodeURIComponent(listingId)}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw await this.upstreamError(res, 'access_check');
+    }
+    const body = (await res.json()) as { access?: boolean };
+    return body.access === true;
   }
 
   /**

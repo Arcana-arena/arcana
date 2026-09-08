@@ -5,6 +5,7 @@ import { Repository } from 'typeorm';
 import { DepositAddress } from './deposit-address.entity';
 import { ListingRef } from './listing-ref.entity';
 import { HdWalletService } from './hd-wallet.service';
+import { ArcaTokenService } from './arca-token.service';
 
 export class CreateDepositDto {
   @IsString()
@@ -31,6 +32,7 @@ export class DepositAddressesService {
     @InjectRepository(ListingRef)
     private readonly listings: Repository<ListingRef>,
     private readonly hd: HdWalletService,
+    private readonly token: ArcaTokenService,
   ) {}
 
   /** POST /v1/arca/deposit-address — generate a unique derived address for (user, listing). */
@@ -38,6 +40,16 @@ export class DepositAddressesService {
     if (!this.hd.enabled) {
       throw new BadRequestException(
         'Deposit generation disabled: ARCA_MASTER_PRIVATE_KEY is not configured',
+      );
+    }
+    // Never hand out an address the listener cannot watch: without a chain
+    // connection we cannot record created_at_block, and a transfer to that
+    // address would be invisible to every future scan (the payment-loss hole
+    // of §10.6). Refusing here is the loud failure; issuing is the silent one.
+    if (!this.token.enabled) {
+      throw new BadRequestException(
+        'Deposit generation disabled: ARCA_RPC_URL / ARCA_TOKEN_ADDRESS not configured, ' +
+          'so an incoming payment could not be detected',
       );
     }
 
@@ -64,6 +76,10 @@ export class DepositAddressesService {
 
     const { address, path } = this.hd.derive(nextIndex);
 
+    // Height BEFORE the address reaches the user, so the recorded floor is
+    // never above the block of a transfer the user makes against it.
+    const createdAtBlock = (await this.token.getBlockNumber()).toString();
+
     // Store lowercase so the listener's log matching (Transfer `to` is always
     // lowercase from the RPC) hits reliably.
     const deposit = this.deposits.create({
@@ -73,6 +89,7 @@ export class DepositAddressesService {
       derivationPath: path,
       expectedAmount: listing.arcaGateAmount,
       status: 'pending',
+      createdAtBlock,
     });
     await this.deposits.save(deposit).catch((err) => {
       // UNIQUE violation => address already used; surface a clear error.
@@ -92,6 +109,28 @@ export class DepositAddressesService {
   /** Find a pending deposit by its derived address (used by the listener). */
   findByDerivedAddress(address: string): Promise<DepositAddress | null> {
     return this.deposits.findOne({ where: { derivedAddress: address, status: 'pending' } });
+  }
+
+  /**
+   * Lowest chain height among still-pending deposits, or null when there is
+   * nothing outstanding. The listener clamps its scan start to this so an
+   * address issued while the listener was behind can never be scanned past.
+   * Rows predating migration 0016 have a NULL height and are ignored — they
+   * would otherwise force a rescan from genesis on every poll.
+   */
+  async oldestPendingBlock(): Promise<bigint | null> {
+    const row = await this.deposits
+      .createQueryBuilder('d')
+      .select('MIN(d.createdAtBlock)', 'minBlock')
+      .where('d.status = :status', { status: 'pending' })
+      .andWhere('d.createdAtBlock IS NOT NULL')
+      .getRawOne<{ minBlock: string | null }>();
+    return row?.minBlock != null ? BigInt(row.minBlock) : null;
+  }
+
+  /** All still-pending deposits (used by the audit pass). */
+  findPending(): Promise<DepositAddress[]> {
+    return this.deposits.find({ where: { status: 'pending' } });
   }
 
   /** Mark a deposit received (called by the listener after confirmation). */
