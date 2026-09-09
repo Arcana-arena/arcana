@@ -60,11 +60,21 @@ been decided:
 | `access` | `ARCA_GATE_ACCESS` | — | check exists, no call site yet |
 | `marketplace` | `ARCA_GATE_MARKETPLACE` | — | check exists, no call site yet |
 | `passport` | `ARCA_GATE_PASSPORT` | — | check exists, no call site yet |
-| `premium_arena` | `ARCA_GATE_PREMIUM_ARENA` | — | Premium Arena is unbuilt |
+| `premium_arena` | `ARCA_GATE_PREMIUM_ARENA` | `POST /v1/competitions` (per participant, premium seasons only) | ✅ |
 
-The last four are answerable but nothing calls them. Listed as unwired rather
-than quietly omitted — that is the distinction this whole document exists to
-preserve.
+`access`, `marketplace` and `passport` are answerable but nothing calls them.
+Listed as unwired rather than quietly omitted — that is the distinction this
+whole document exists to preserve.
+
+### Why a premium arena checks BOTH compete and premium_arena
+
+They answer different questions: COMPETE is a platform-wide floor, PREMIUM_ARENA
+a door behind it. Letting the premium gate replace COMPETE would only be safe if
+the premium threshold were always the larger number, and nothing enforces that —
+`ARCA_GATE_PREMIUM_ARENA=10` against `ARCA_GATE_COMPETE=100` would make a
+premium arena the *cheapest* way into a competition. Requiring both makes the
+effective requirement `max(compete, premium)` with no invariant to maintain.
+See [premium-arena.md](./premium-arena.md).
 
 ### Why COMPETE is checked at registration, not per tick
 
@@ -139,6 +149,15 @@ Against a local chain with `ARCA_GATE_CREATE=100`, `ARCA_GATE_EVOLVE=500`:
 | `compete` (no threshold set) | `allowed`, `gating_inactive_no_threshold_configured` |
 | arca-service stopped | caller returns `502 entitlement_check_unavailable` |
 
+With `ARCA_GATE_COMPETE=100` and `ARCA_GATE_PREMIUM_ARENA=5000`, registering
+into a premium season (see [premium-arena.md](./premium-arena.md)):
+
+| Case | Result |
+|---|---|
+| wallet holding 1,000,000 | admitted, both gates `balance_checked: true` |
+| wallet holding 500 | passes `compete`, **denied** by `premium_arena` — `403 entitlement_denied_premium_arena` |
+| wallet holding 500, standard season | admitted — the premium threshold does not apply |
+
 ---
 
 ## What is deliberately not here
@@ -147,9 +166,8 @@ Against a local chain with `ARCA_GATE_CREATE=100`, `ARCA_GATE_EVOLVE=500`:
   gating on is a go-live step: see [arca-go-live.md](./arca-go-live.md).
 - **Staking.** §2.7 mentions balance; staking would need state the chain cannot
   answer, and a table to hold it.
-- **The remaining four call sites.** `access`, `marketplace` and `passport`
-  answer correctly but nothing asks them; `premium_arena` has no feature to
-  gate.
+- **The remaining three call sites.** `access`, `marketplace` and `passport`
+  answer correctly but nothing asks them.
 - **Caching.** Every check is a live read. Fine at current volume; a gate on a
   hot path would need a cache with a deliberately short TTL and the same
   honesty about staleness.

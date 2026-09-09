@@ -70,6 +70,13 @@ func (e *Engine) Leaderboard(ctx context.Context, category, seasonID string, pag
 	return e.store.Leaderboard(ctx, category, seasonID, pageSize, (page-1)*pageSize)
 }
 
+// Season returns the arena a leaderboard page is filtered to, or nil when the
+// id names no season. Identity and access tier only -- see store.SeasonRow on
+// why reading a tier here does not cross the §2.7 scoring boundary.
+func (e *Engine) Season(ctx context.Context, seasonID string) (*store.SeasonRow, error) {
+	return e.store.Season(ctx, seasonID)
+}
+
 // scoreAgent loads one agent's full context, computes factors, appends a row.
 func (e *Engine) scoreAgent(ctx context.Context, ap store.AgentPortfolio) error {
 	points, err := e.store.PortfolioNAVSeries(ctx, ap.PortfolioID)

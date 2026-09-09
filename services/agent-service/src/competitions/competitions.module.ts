@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Competition } from './competition.entity';
 import { CompetitionTick } from './competition-tick.entity';
 import { EntitlementsModule } from '../entitlements/entitlements.module';
+import { SeasonsModule } from '../seasons/seasons.module';
 import { CompetitionsController } from './competitions.controller';
 import { CompetitionsService } from './competitions.service';
 
@@ -10,6 +11,7 @@ import { CompetitionsService } from './competitions.service';
   imports: [
     TypeOrmModule.forFeature([Competition, CompetitionTick]),
     EntitlementsModule,
+    SeasonsModule,
   ],
   controllers: [CompetitionsController],
   providers: [CompetitionsService],

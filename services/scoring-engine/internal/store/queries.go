@@ -421,3 +421,32 @@ func (s *Store) AgentPortfoliosInSeason(ctx context.Context, seasonID string) ([
 	}
 	return out, rows.Err()
 }
+
+// SeasonRow is the arena a leaderboard page is filtered to. Display metadata
+// only: the Scoring Engine reads a season's tier so a leaderboard can label the
+// arena, and reads nothing about anyone's $ARCA balance. The §2.7 boundary --
+// "token gives access, performance earns reputation" -- is untouched: no score,
+// rank or filter here depends on a token holding.
+type SeasonRow struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	AccessTier string `json:"access_tier"`
+}
+
+// Season returns the season's identity and access tier, or nil when no such
+// season exists. A missing season is not an error for the leaderboard: the
+// season filter already returns an empty page, and failing the whole request
+// over an unknown id would turn a display label into a hard dependency.
+func (s *Store) Season(ctx context.Context, seasonID string) (*SeasonRow, error) {
+	var row SeasonRow
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, name, access_tier FROM seasons WHERE id = $1`, seasonID,
+	).Scan(&row.ID, &row.Name, &row.AccessTier)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("season %s: %w", seasonID, err)
+	}
+	return &row, nil
+}

@@ -9,6 +9,23 @@ import { Competition } from './competition.entity';
 import { CompetitionTick } from './competition-tick.entity';
 import { CreateCompetitionDto } from './dto/create-competition.dto';
 import { EntitlementClient } from '../entitlements/entitlement.client';
+import { PREMIUM_ARENA_ACTION, SeasonsService } from '../seasons/seasons.service';
+
+/**
+ * A saved competition plus how its participants got in.
+ *
+ * `balance_checked` carries the same meaning it has on an entitlement decision:
+ * whether an actual $ARCA balance was read. A registration that succeeded
+ * because nothing was checked must not look like one that passed a gate.
+ */
+export type CompetitionRegistration = Competition & {
+  access: {
+    tier: string;
+    gates_applied: string[];
+    balance_checked: boolean;
+    note: string;
+  };
+};
 
 @Injectable()
 export class CompetitionsService {
@@ -18,28 +35,65 @@ export class CompetitionsService {
     @InjectRepository(CompetitionTick)
     private readonly ticks: Repository<CompetitionTick>,
     private readonly entitlements: EntitlementClient,
+    private readonly seasons: SeasonsService,
   ) {}
 
   /**
-   * Gated on the $ARCA COMPETE entitlement (§2.7), once per participant.
+   * Register participants into a competition.
+   *
+   * Gated on the $ARCA COMPETE entitlement (§2.7), once per participant — and,
+   * when the season is a **Premium Arena**, on the PREMIUM_ARENA entitlement as
+   * well. See docs/premium-arena.md.
+   *
+   * BOTH gates, not one replacing the other. They answer different questions:
+   * COMPETE is "may this actor compete on ARCANA at all", a platform-wide
+   * floor; PREMIUM_ARENA is "may it enter this restricted environment". Letting
+   * the premium gate stand in for COMPETE would only be safe if the premium
+   * threshold were always the larger number, and nothing enforces that — with
+   * ARCA_GATE_PREMIUM_ARENA=10 against ARCA_GATE_COMPETE=100 a premium arena
+   * would become the CHEAPEST way in, a hole opened by configuration alone.
+   * Requiring both makes the effective requirement max(compete, premium)
+   * without needing that invariant to hold, and keeps the two refusals
+   * distinguishable: "you may not enter this arena" is not "you may not
+   * compete", and the two have different remedies.
    *
    * Checked at registration, NOT per tick. A tick is the platform running an
    * agent it already admitted; re-checking every minute would put an external
    * HTTP call in the competition loop and let an arca-service outage halt a
-   * running season.
+   * running season. That holds for the premium gate too — an arena does not
+   * eject an agent mid-season because a balance moved.
    *
    * Today every check passes without reading a balance, because the token has
-   * not launched. After launch this becomes a real gate on entry only --
-   * agents already competing are unaffected.
+   * not launched. The returned `access` block says so rather than letting a
+   * successful registration imply a verified entitlement.
    */
-  async create(dto: CreateCompetitionDto): Promise<Competition> {
+  async create(dto: CreateCompetitionDto): Promise<CompetitionRegistration> {
+    // Read the arena first: its tier decides which gates apply, so a season
+    // that does not exist fails here rather than at the foreign key.
+    const season = await this.seasons.findEntity(dto.seasonId);
+    const premium = season.accessTier === 'premium';
+
+    // Starts true and is falsified by any check that admitted without reading
+    // a balance. "Every gate verified" is the claim that needs evidence; one
+    // unverified pass is enough to withdraw it.
+    let allVerified = true;
     for (const participantId of dto.participantIds ?? []) {
       const wallet = await this.entitlements.walletForAgent(participantId);
-      await this.entitlements.require(
+      const compete = await this.entitlements.require(
         'compete',
         wallet,
         `register agent ${participantId} into a competition`,
       );
+      if (!compete.balance_checked) allVerified = false;
+
+      if (premium) {
+        const arena = await this.entitlements.require(
+          PREMIUM_ARENA_ACTION,
+          wallet,
+          `register agent ${participantId} into the premium arena "${season.name}"`,
+        );
+        if (!arena.balance_checked) allVerified = false;
+      }
     }
 
     const competition = this.competitions.create({
@@ -48,7 +102,21 @@ export class CompetitionsService {
       participantIds: dto.participantIds,
       status: 'pending',
     });
-    return this.competitions.save(competition);
+    const saved = await this.competitions.save(competition);
+
+    return {
+      ...saved,
+      access: {
+        tier: season.accessTier,
+        gates_applied: premium ? ['compete', PREMIUM_ARENA_ACTION] : ['compete'],
+        balance_checked: allVerified,
+        note: allVerified
+          ? 'Every participant was admitted against a verified $ARCA balance.'
+          : 'Admitted, but at least one gate passed WITHOUT reading a balance (the ' +
+            'token is not launched, or no threshold is set for that action). This is ' +
+            'a pass by default, not a verified entitlement.',
+      },
+    };
   }
 
   findAll(): Promise<Competition[]> {

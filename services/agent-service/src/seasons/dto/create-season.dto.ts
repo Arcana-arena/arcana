@@ -1,11 +1,13 @@
-import { Type } from 'class-transformer';
 import {
   IsDateString,
+  IsIn,
   IsJSON,
   IsNotEmpty,
+  IsOptional,
   IsString,
   MaxLength,
 } from 'class-validator';
+import { ACCESS_TIERS, AccessTier } from '../season.entity';
 
 export class CreateSeasonDto {
   @IsString()
@@ -26,4 +28,12 @@ export class CreateSeasonDto {
 
   @IsJSON()
   ruleset: string;
+
+  /**
+   * Omitted means `standard`. Premium is always something a caller asked for:
+   * an arena must never become gated as a side effect of a default.
+   */
+  @IsOptional()
+  @IsIn(ACCESS_TIERS)
+  accessTier?: AccessTier;
 }

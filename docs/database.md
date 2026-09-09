@@ -52,6 +52,14 @@ confirmation. Tables added beyond §7 (each documented in its migration file):
   without assuming a block time. Lets the audit retire an unfunded address to
   `expired_unpaid` so it stops holding the listener's scan floor (§10.2) — only
   ever after its on-chain balance is proven zero.
+- `seasons.access_tier` (0020) — `standard` or `premium`. A Premium Arena is a
+  season whose registration additionally requires the $ARCA `premium_arena`
+  entitlement (§2.7). On the season rather than the competition because a season
+  *is* the competitive environment: putting the tier on competitions would allow
+  an ungated competition inside a premium arena. No amount column — the
+  threshold stays in `ARCA_GATE_PREMIUM_ARENA` alongside every other one.
+  Defaults to `standard`, so no existing season changes tier. See
+  [premium-arena.md](./premium-arena.md).
 
 ## Data resets
 

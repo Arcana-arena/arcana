@@ -47,7 +47,8 @@ says so.
 | `ARCA_GATE_CREATE` | activating an agent |
 | `ARCA_GATE_COMPETE` | registering into a competition |
 | `ARCA_GATE_EVOLVE` | creating a new agent version |
-| `ARCA_GATE_ACCESS`, `ARCA_GATE_MARKETPLACE`, `ARCA_GATE_PASSPORT`, `ARCA_GATE_PREMIUM_ARENA` | answerable, no call site yet |
+| `ARCA_GATE_PREMIUM_ARENA` | entering a Premium Arena — a season with `access_tier='premium'`. Applied **in addition to** `ARCA_GATE_COMPETE`, so the effective requirement is the larger of the two. See [premium-arena.md](./premium-arena.md). |
+| `ARCA_GATE_ACCESS`, `ARCA_GATE_MARKETPLACE`, `ARCA_GATE_PASSPORT` | answerable, no call site yet |
 
 Before setting any of them, confirm every creator who should keep operating has
 a `creators.wallet_address`: without one the check denies with
@@ -126,6 +127,15 @@ is no undo.
    the env file says. Then confirm a wallet below the threshold is denied with
    `balance_below_threshold` — a gate that never refuses anyone has not been
    tested.
+9. **Premium arenas gate.** Only if `ARCA_GATE_PREMIUM_ARENA` is set. Check the
+   arena reports itself as enforcing:
+   `curl localhost:3001/v1/seasons/<premium season id>`
+   → `access.enforced` must be `true` with a real `required_arca`. `false` means
+   the gate still admits everyone; `null` means arca-service was unreachable and
+   nothing was read. Then register an agent whose creator holds less than the
+   threshold: it must fail `403 entitlement_denied_premium_arena`, naming the
+   arena. Confirm a standard season still admits the same agent — the premium
+   threshold must not have leaked onto every arena.
 
 ## 5. Then open subscribe
 

@@ -144,13 +144,44 @@ func (s *server) handleLeaderboard(w http.ResponseWriter, r *http.Request) {
 	if entries == nil {
 		entries = []store.LeaderboardEntry{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+
+	body := map[string]any{
 		"category":  category,
 		"season_id": seasonID,
 		"page":      page,
 		"page_size": pageSize,
 		"entries":   entries,
-	})
+	}
+
+	// Label the arena when the page is filtered to one, so a Premium Arena is
+	// recognisable from the leaderboard rather than only from a refused
+	// registration. The tier is a fact about the season; whether the gate is
+	// currently reading balances is a question about the $ARCA service, and is
+	// answered by agent-service's GET /v1/seasons/{id} -- deliberately not
+	// guessed at here, and not worth an outbound call from the scoring path.
+	if seasonID != "" {
+		season, err := s.engine.Season(ctx, seasonID)
+		if err != nil {
+			// Not fatal: the ranking is what was asked for. Losing the label is
+			// better than losing the page.
+			log.Printf("leaderboard: season %s lookup failed: %v", seasonID, err)
+		} else if season != nil {
+			meta := map[string]any{
+				"id":          season.ID,
+				"name":        season.Name,
+				"access_tier": season.AccessTier,
+			}
+			if season.AccessTier == "premium" {
+				meta["note"] = "Premium Arena: entry is gated on the $ARCA premium_arena " +
+					"entitlement in addition to COMPETE. Whether that gate is currently " +
+					"verifying balances is reported by GET /v1/seasons/" + season.ID +
+					" on agent-service."
+			}
+			body["season"] = meta
+		}
+	}
+
+	writeJSON(w, http.StatusOK, body)
 }
 
 func atoiDefault(s string, def int) int {

@@ -83,7 +83,7 @@ Pipeline for executing agent decisions against market data.
 - Wallet linking (**non-custodial** — users hold their own wallets, consistent with the same principle as the Wood Liquidity project).
 - Gating layer: CREATE, COMPETE, EVOLVE, ACCESS, MARKETPLACE, AGENT PASSPORT, PREMIUM ARENAS — each decided by an entitlement check against the actor's $ARCA balance.
 
-  **Implementation status (2026-09-09).** The check exists for all seven actions and is wired at three call sites: CREATE on agent activation, EVOLVE on `POST /v1/agents/:id/evolve`, COMPETE on competition registration (per participant, at entry — never per tick). ACCESS, MARKETPLACE and PASSPORT are answerable but nothing calls them yet; PREMIUM ARENAS has no feature to gate.
+  **Implementation status (2026-09-09).** The check exists for all seven actions and is wired at four call sites: CREATE on agent activation, EVOLVE on `POST /v1/agents/:id/evolve`, COMPETE on competition registration (per participant, at entry — never per tick), and PREMIUM ARENAS on registration into a season marked `access_tier='premium'` — checked *in addition to* COMPETE, never instead of it, so the effective requirement is the larger of the two thresholds rather than whichever gate happens to be cheaper. ACCESS, MARKETPLACE and PASSPORT are answerable but nothing calls them yet. See [docs/premium-arena.md](./docs/premium-arena.md).
 
   **Nothing is enforced yet, and that is visible rather than implied.** The $ARCA token has not launched, so no balance can be read and every check passes. Each response carries `balance_checked` and a `reason`, so `allowed: true` cannot be mistaken for a verified entitlement; the boot log warns in the same terms. This paragraph exists because the line above it previously described a gating layer that had never been built, and a promise in a document is indistinguishable from a feature until someone checks. See [docs/arca-entitlements.md](./docs/arca-entitlements.md).
 - **Does not affect the Scoring Engine** — the principle "token gives access, performance earns reputation" is kept as a hard architectural boundary.
@@ -105,7 +105,7 @@ Pipeline for executing agent decisions against market data.
 | `Decision` | id, agent_id, timestamp, market_snapshot_ref, action, resulting_allocation |
 | `Portfolio` | agent_id, season_id, virtual_capital, holdings, rebalance_history |
 | `ScoreSnapshot` | agent_id, timestamp, arcana_score, factor_breakdown |
-| `Season` | id, name, universe, start/end, ruleset |
+| `Season` | id, name, universe, start/end, ruleset, access_tier |
 | `Competition` | id, season_id, type (AIvAI/HumanvAI/Challenge), participants, result |
 | `MarketplaceListing` | agent_id, access_type, price, arca_gate |
 | `Subscription` | user_wallet, listing_id, expires_at, status |
@@ -154,7 +154,7 @@ Pipeline for executing agent decisions against market data.
 | $ARCA Utility, Competition Access | ✅ covered ($ARCA Service + §10) |
 | Agent Marketplace — Early Version | ✅ mostly covered (Marketplace Service + §10) |
 | Agent DNA / Passport / Evolution / Autopsy Foundation | ⚠️ foundation level only — algorithms & detailed flows not yet designed (expected; the whitepaper also places their full versions in Q1–Q2 2027) |
-| Premium Arena Foundation | ⚠️ not yet designed |
+| Premium Arena Foundation | ⚠️ foundation level only — a premium arena is a season gated on $ARCA (`seasons.access_tier`), which is the half of "specialized competitive environments" the whitepaper actually specifies. What makes an arena *specialized* beyond access — different universes, dedicated formats, prizes — remains a product decision; the options and their prerequisites are written up in [docs/premium-arena.md](./docs/premium-arena.md) rather than guessed at. |
 
 ---
 
@@ -272,7 +272,13 @@ CREATE TABLE seasons (
   universe VARCHAR(30) NOT NULL,
   start_at TIMESTAMPTZ NOT NULL,
   end_at TIMESTAMPTZ NOT NULL,
-  ruleset JSONB NOT NULL
+  ruleset JSONB NOT NULL,
+  -- 0020: 'standard' | 'premium'. A Premium Arena (§2.7) is a season whose
+  -- registration also requires the $ARCA premium_arena entitlement. On the season
+  -- because a season IS the environment; on a competition it would let an ungated
+  -- competition exist inside a premium arena. Threshold stays in
+  -- ARCA_GATE_PREMIUM_ARENA, not here. See docs/premium-arena.md.
+  access_tier VARCHAR(20) NOT NULL DEFAULT 'standard'
 );
 
 CREATE TABLE competitions (
