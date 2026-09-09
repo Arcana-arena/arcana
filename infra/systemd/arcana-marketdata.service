@@ -6,11 +6,19 @@
 # outage pauses the competition instead of inventing a market
 # (docs/market-data.md).
 #
-# THE API KEY IS NOT IN THIS FILE. Unit files are world-readable. The key lives
-# in services/market-data/.env at mode 600, the same pattern arca-service uses
-# for its chain secrets — only the PATH appears here. Without the key the
-# service still boots and serves /healthz; it just refuses to fetch, and says so
-# loudly at boot.
+# NO SECRETS IN THIS FILE. Unit files are world-readable (mode 644) and
+# `systemctl show` prints Environment= to any user, so every credential lives in
+# services/market-data/.env at mode 600 and only the PATH appears here.
+#
+# This comment used to say exactly that while S3_ACCESS_KEY and S3_SECRET_KEY
+# sat inline three lines below it — a docstring describing a protection that was
+# not in place. Both have been moved into the .env alongside
+# MARKET_VENDOR_API_KEY. Because they were readable by every user on the host
+# for as long as they were here, treat them as exposed and rotate the MinIO
+# credentials.
+#
+# Without the vendor key the service still boots and serves /healthz; it just
+# refuses to fetch, and says so loudly at boot.
 [Unit]
 Description=ARCANA Market Data Service
 After=network-online.target docker.service arcana-agent.service
@@ -24,12 +32,12 @@ Environment=DATABASE_URL=postgres://arcana:arcana@localhost:5432/arcana?sslmode=
 Environment=PORT=8083
 Environment=S3_ENDPOINT=http://localhost:9000
 Environment=S3_REGION=us-east-1
-Environment=S3_ACCESS_KEY=arcana
-Environment=S3_SECRET_KEY=arcana-secret
 Environment=S3_BUCKET=arcana-market
 Environment=MARKET_UNIVERSE_FILE=/home/ubuntu/arcana/services/market-data/universe/us-large-cap-50.json
-# Secrets only (MARKET_VENDOR_API_KEY). Leading '-' so a missing file is not a
-# boot failure: the service is designed to run un-configured and warn.
+# Secrets only (MARKET_VENDOR_API_KEY, S3_ACCESS_KEY, S3_SECRET_KEY,
+# INTERNAL_API_KEY). Leading '-' so a missing file is not a boot failure: the
+# service is designed to run un-configured and warn.
+EnvironmentFile=-/home/ubuntu/arcana/.env.auth
 EnvironmentFile=-/home/ubuntu/arcana/services/market-data/.env
 ExecStart=/usr/local/go/bin/go run ./cmd/server
 Restart=on-failure

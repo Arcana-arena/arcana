@@ -1,4 +1,5 @@
-import { Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { InternalKeyGuard } from '@arcana/auth';
 import { ParseUuidAllPipe } from '../common/parse-uuid-all.pipe';
 import { DnaService } from './dna.service';
 
@@ -26,7 +27,8 @@ export class DnaController {
     return this.dna.similar(id, Number.isFinite(n) && n > 0 && n <= 50 ? n : 5);
   }
 
-  /** Run one DNA batch cycle (driven by arcana-agent-dna.timer). */
+  /** ⚙️ Run one DNA batch cycle (driven by arcana-agent-dna.timer). */
+  @UseGuards(InternalKeyGuard)
   @Post('internal/v1/agents/dna/compute')
   compute() {
     return this.dna.computeAll();

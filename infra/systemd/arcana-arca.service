@@ -22,6 +22,10 @@ User=ubuntu
 WorkingDirectory=/home/ubuntu/arcana/services/arca-service
 Environment=DATABASE_URL=postgres://arcana:arcana@localhost:5432/arcana?sslmode=disable
 Environment=PORT=3004
+# Secrets (AUTH_JWT_SIGNING_KEY, INTERNAL_API_KEY) come from this file at
+# mode 600. They are NEVER inline here: unit files are world-readable and
+# systemctl show prints Environment= to any user.
+EnvironmentFile=-/home/ubuntu/arcana/.env.auth
 ExecStart=/usr/bin/node dist/main.js
 Restart=on-failure
 RestartSec=5

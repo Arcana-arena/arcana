@@ -23,6 +23,10 @@ User=ubuntu
 # is the process systemd executes.
 SyslogIdentifier=arcana-agent-dna
 Environment=AGENT_SERVICE_URL=http://localhost:3001
+# Secrets (AUTH_JWT_SIGNING_KEY, INTERNAL_API_KEY) come from this file at
+# mode 600. They are NEVER inline here: unit files are world-readable and
+# systemctl show prints Environment= to any user.
+EnvironmentFile=-/home/ubuntu/arcana/.env.auth
 ExecStart=/usr/bin/flock -n /tmp/arcana-agent-dna.lock /home/ubuntu/arcana/infra/systemd/arca-job.sh agent-dna ${AGENT_SERVICE_URL}/internal/v1/agents/dna/compute
 # Walks every market snapshot once per batch to price positions; allow for it.
 TimeoutStartSec=600

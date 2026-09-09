@@ -4,8 +4,8 @@
   "private": true,
   "description": "AI trading agent competition & reputation platform",
   "workspaces": [
-    "services/*",
-    "packages/*"
+    "packages/*",
+    "services/*"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",

@@ -12,7 +12,10 @@ async function bootstrap() {
     }),
   );
   const port = process.env.PORT ?? 3003;
-  await app.listen(port);
+  // Bind to loopback only. This is the first of the two layers protecting the
+  // machine tier: even a leaked X-Internal-Key is useless from off-box, and a
+  // service that is never exposed cannot be reached by a firewall mistake.
+  await app.listen(port, '127.0.0.1');
   console.log(`arca-service listening on :${port}`);
 }
 void bootstrap();

@@ -10,6 +10,28 @@ User=ubuntu
 WorkingDirectory=/home/ubuntu/arcana/services/agent-service
 Environment=DATABASE_URL=postgres://arcana:arcana@localhost:5432/arcana?sslmode=disable
 Environment=PORT=3001
+# Non-secret auth configuration. These are public facts (a domain, chain ids,
+# operator addresses) and belong in the unit where they are visible; the two
+# secrets live in .env.auth below.
+#
+# AUTH_SIWE_DOMAIN/URI are matched EXACTLY against the signed message, so a
+# signature produced for any other origin cannot be replayed here.
+# AUTH_ALLOWED_CHAIN_IDS pins Robinhood Chain (4663 mainnet, 46630 testnet):
+# an EIP-191 signature is not chain-bound, so the Chain ID line is a claim that
+# must be checked rather than trusted.
+Environment=AUTH_SIWE_DOMAIN=arcana.local
+Environment=AUTH_SIWE_URI=https://arcana.local
+Environment=AUTH_ALLOWED_CHAIN_IDS=4663,46630
+Environment=AUTH_ACCESS_TTL_SECONDS=900
+Environment=AUTH_REFRESH_TTL_SECONDS=2592000
+# Operator wallets for the admin tier (seasons, competitions). Empty means
+# nobody can perform admin actions — it never means everybody can.
+Environment=AUTH_ADMIN_WALLETS=
+Environment=DECISION_ENGINE_URL=http://127.0.0.1:8081
+# Secrets (AUTH_JWT_SIGNING_KEY, INTERNAL_API_KEY) come from this file at
+# mode 600. They are NEVER inline here: unit files are world-readable and
+# systemctl show prints Environment= to any user.
+EnvironmentFile=-/home/ubuntu/arcana/.env.auth
 ExecStart=/usr/bin/node dist/main.js
 Restart=on-failure
 RestartSec=5

@@ -26,6 +26,10 @@ User=ubuntu
 # and greppable regardless of what wraps the command.
 SyslogIdentifier=arcana-arca-reminder
 Environment=ARCA_URL=http://localhost:3004
+# Secrets (AUTH_JWT_SIGNING_KEY, INTERNAL_API_KEY) come from this file at
+# mode 600. They are NEVER inline here: unit files are world-readable and
+# systemctl show prints Environment= to any user.
+EnvironmentFile=-/home/ubuntu/arcana/.env.auth
 ExecStart=/usr/bin/flock -n /tmp/arcana-arca-reminder.lock /home/ubuntu/arcana/infra/systemd/arca-job.sh reminder ${ARCA_URL}/internal/v1/payments/reminder/run
 TimeoutStartSec=180
 

@@ -33,6 +33,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"os"
 	"time"
 )
@@ -249,7 +250,7 @@ func tickExistsForRef(ctx context.Context, cfg config, compID, ref string) (bool
 
 func startTick(ctx context.Context, cfg config, compID, snapRef string) (*openTick, error) {
 	payload, _ := json.Marshal(map[string]string{"marketSnapshotRef": snapRef})
-	resp, err := httpPost(ctx, cfg.agentServiceURL+"/v1/competitions/"+compID+"/ticks", payload)
+	resp, err := httpPost(ctx, cfg.agentServiceURL+"/internal/v1/competitions/"+compID+"/ticks", payload)
 	if err != nil {
 		return nil, err
 	}
@@ -282,7 +283,7 @@ func decodeOpenTick(resp []byte) (*openTick, error) {
 }
 
 func closeTick(ctx context.Context, cfg config, compID string) error {
-	_, err := httpPost(ctx, cfg.agentServiceURL+"/v1/competitions/"+compID+"/ticks/close", nil)
+	_, err := httpPost(ctx, cfg.agentServiceURL+"/internal/v1/competitions/"+compID+"/ticks/close", nil)
 	return err
 }
 
@@ -317,11 +318,27 @@ func envOr(k, def string) string {
 	return def
 }
 
+
+// internalKey is the machine-tier credential every /internal/* call must carry.
+//
+// Read once at start. An empty value is NOT treated as "no header needed": the
+// services answer 503 without it, so the scheduler would fail loudly on its
+// first call rather than quietly opening an unauthenticated tick.
+var internalKey = os.Getenv("INTERNAL_API_KEY")
+
+// applyInternalKey adds the header to any request aimed at an /internal/ path.
+// Public reads (a competition, an agent) are left untouched.
+func applyInternalKey(req *http.Request) {
+	if internalKey != "" && strings.Contains(req.URL.Path, "/internal/") {
+		req.Header.Set("X-Internal-Key", internalKey)
+	}
+}
 func httpGet(ctx context.Context, url string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
+	applyInternalKey(req)
 	return do(req)
 }
 
@@ -348,6 +365,7 @@ func httpPostStatus(ctx context.Context, url string, payload []byte) (int, []byt
 		return 0, nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	applyInternalKey(req)
 
 	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(req)

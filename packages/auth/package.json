@@ -1,0 +1,21 @@
+{
+  "name": "@arcana/auth",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared ARCANA auth primitives: HS256 access tokens, request guards, §8 error shapes",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "jest --passWithNoTests"
+  },
+  "peerDependencies": {
+    "@nestjs/common": "^10.4.15"
+  },
+  "devDependencies": {
+    "@nestjs/common": "^10.4.15",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}

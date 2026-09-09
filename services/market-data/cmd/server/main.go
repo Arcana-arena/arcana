@@ -27,6 +27,7 @@ import (
 	"github.com/arcana/market-data/internal/session"
 	"github.com/arcana/market-data/internal/snapshot"
 	"github.com/arcana/market-data/internal/store"
+	"github.com/arcana/internalauth"
 	"github.com/arcana/market-data/internal/universe"
 	"github.com/arcana/market-data/internal/vendor"
 )
@@ -104,19 +105,24 @@ func main() {
 			"(%d symbols) and waiting.", uni.Name, uni.Size())
 	}
 
+	guard := internalauth.New("market-data")
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
 	mux.HandleFunc("GET /v1/market/universe", srv.handleUniverse)
-	mux.HandleFunc("POST /internal/v1/market/sessions/daily", srv.handleDailySession)
-	mux.HandleFunc("POST /internal/v1/market/sessions/backfill", srv.handleBackfill)
+	mux.HandleFunc("POST /internal/v1/market/sessions/daily", guard.Wrap(srv.handleDailySession))
+	mux.HandleFunc("POST /internal/v1/market/sessions/backfill", guard.Wrap(srv.handleBackfill))
 	mux.HandleFunc("GET /v1/market/snapshots/{ref}", srv.handleGetSnapshot)
 	mux.HandleFunc("GET /v1/market/snapshots/{ref}/previous", srv.handlePreviousSnapshot)
 
 	log.Printf("market-data listening on :%s", port)
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
+	// Loopback only: layer one of the two protecting the machine tier (the
+	// other is the X-Internal-Key check). Nothing here is meant to face the
+	// internet directly.
+	if err := http.ListenAndServe("127.0.0.1:"+port, mux); err != nil {
 		log.Fatal(err)
 	}
 }

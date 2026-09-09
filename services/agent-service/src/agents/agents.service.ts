@@ -10,6 +10,7 @@ import { CreateAgentDto } from './dto/create-agent.dto';
 import { EvolveAgentDto } from './dto/evolve-agent.dto';
 import { UpdateAgentDto } from './dto/update-agent.dto';
 import { EntitlementClient } from '../entitlements/entitlement.client';
+import { OwnershipService } from '../auth/ownership.service';
 
 @Injectable()
 export class AgentsService {
@@ -17,24 +18,34 @@ export class AgentsService {
     @InjectRepository(Agent)
     private readonly agents: Repository<Agent>,
     private readonly entitlements: EntitlementClient,
+    private readonly ownership: OwnershipService,
   ) {}
 
-  async create(dto: CreateAgentDto): Promise<Agent> {
+  /**
+   * Create a draft agent for a creator.
+   *
+   * `creatorId` is a parameter, never a body field: it is resolved from the
+   * caller's verified session by the controller. Accepting it from the request
+   * was how anyone could create agents under anyone else's name.
+   *
+   * A new agent is ALWAYS 'draft'. Status is not settable here — see activate().
+   */
+  async create(dto: CreateAgentDto, creatorId: string): Promise<Agent> {
     const latest = await this.agents.findOne({
-      where: { creatorId: dto.creatorId, name: dto.name },
+      where: { creatorId, name: dto.name },
       order: { version: 'DESC' },
     });
     const version = latest ? latest.version + 1 : 1;
 
     const agent = this.agents.create({
-      creatorId: dto.creatorId,
+      creatorId,
       name: dto.name,
       version,
       parentAgentId: dto.parentAgentId ?? null,
       strategyType: dto.strategyType ?? null,
       riskProfile: dto.riskProfile ? JSON.parse(dto.riskProfile) : {},
       assetUniverse: dto.assetUniverse,
-      status: dto.status ?? 'draft',
+      status: 'draft',
     });
     return this.agents.save(agent);
   }
@@ -51,19 +62,45 @@ export class AgentsService {
     return agent;
   }
 
+  /**
+   * PATCH /agents/:id — edit an agent's descriptive fields.
+   *
+   * Status is NOT among them, and that is the fix for a real hole rather than a
+   * stylistic choice. `UpdateAgentDto` used to accept `status`, and this method
+   * used to `Object.assign` it straight onto the row. A caller could therefore
+   * PATCH `{"status":"active"}` and get an active agent while skipping BOTH
+   * invariants that activate() exists to hold: the $ARCA entitlement check, and
+   * the retirement of the parent version. One request, two invariants gone.
+   *
+   * Activation now has exactly one door — activate(). Retirement has exactly
+   * one — retire().
+   */
   async update(id: string, dto: UpdateAgentDto): Promise<Agent> {
     const agent = await this.findOne(id);
-    Object.assign(agent, dto);
+    if (dto.name !== undefined) agent.name = dto.name;
+    if (dto.strategyType !== undefined) agent.strategyType = dto.strategyType;
     return this.agents.save(agent);
   }
 
   /**
    * POST /agents/:id/activate — transition to active.
    *
-   * Gated on the $ARCA CREATE entitlement (§2.7). The check is real, but note
-   * what "allowed" means today: the token has not launched, so arca-service
-   * passes every check WITHOUT reading a balance and says so in its response.
-   * The gate is wired, not yet enforcing. See docs/arca-entitlements.md.
+   * Two separate checks run before this succeeds, in this order, and they
+   * answer different questions:
+   *
+   *   1. ownership (the controller) — is the caller this agent's owner? 403 if not.
+   *   2. entitlement (here)         — does that owner hold enough $ARCA? 403 if not.
+   *
+   * Because check 1 has already passed, the wallet the entitlement is charged
+   * against is now provably the caller's own. Before auth existed it was merely
+   * the agent's owner's wallet, which meant a stranger evolving someone else's
+   * agent spent the victim's entitlement. That is now correct by construction,
+   * not by luck.
+   *
+   * On the entitlement itself: the check is real, but the token has not
+   * launched, so arca-service passes every check WITHOUT reading a balance and
+   * says so in its response. The gate is wired, not yet enforcing. See
+   * docs/arca-entitlements.md.
    *
    * Activating a version RETIRES its parent (see retireParent).
    */
@@ -81,6 +118,35 @@ export class AgentsService {
     if (agent.parentAgentId) {
       await this.retireParent(agent.parentAgentId, agent.id);
     }
+    return saved;
+  }
+
+  /**
+   * POST /agents/:id/retire — the owner stands their agent down.
+   *
+   * This exists because closing the PATCH hole removed the only way to retire
+   * an agent, and retirement is a real product action rather than an accident
+   * of a writable column. No $ARCA entitlement applies: withdrawing from
+   * competition is not a privilege anyone needs to hold tokens to exercise.
+   *
+   * Like retireParent, this hands back the agent's seat in any running
+   * competition so the scheduler stops calling it every tick.
+   */
+  async retire(id: string): Promise<Agent> {
+    const agent = await this.findOne(id);
+    if (agent.status === 'retired') return agent;
+
+    agent.status = 'retired';
+    const saved = await this.agents.save(agent);
+
+    await this.agents.manager.query(
+      `UPDATE competitions
+          SET participant_ids = array_remove(participant_ids, $1::uuid)
+        WHERE status <> 'completed'
+          AND $1::uuid = ANY(participant_ids)`,
+      [id],
+    );
+
     return saved;
   }
 
@@ -138,6 +204,9 @@ export class AgentsService {
    * rather than at activation: evolving is the act the entitlement covers, and
    * a creator should learn they lack the right before building a version, not
    * after.
+   *
+   * Ownership was already established by the controller, so the child inherits
+   * the parent's creator — which is the caller's own creator.
    */
   async evolve(id: string, overrides: EvolveAgentDto): Promise<Agent> {
     const agent = await this.findOne(id);
@@ -145,15 +214,15 @@ export class AgentsService {
     const wallet = await this.entitlements.walletForCreator(agent.creatorId);
     await this.entitlements.require('evolve', wallet, `evolve agent ${agent.id}`);
 
-    const child = await this.create({
-      creatorId: agent.creatorId,
-      name: agent.name,
-      strategyType: overrides.strategyType ?? agent.strategyType ?? undefined,
-      riskProfile: overrides.riskProfile ?? JSON.stringify(agent.riskProfile),
-      assetUniverse: overrides.assetUniverse ?? agent.assetUniverse,
-      parentAgentId: agent.id,
-      status: 'draft',
-    });
-    return child;
+    return this.create(
+      {
+        name: agent.name,
+        strategyType: overrides.strategyType ?? agent.strategyType ?? undefined,
+        riskProfile: overrides.riskProfile ?? JSON.stringify(agent.riskProfile),
+        assetUniverse: overrides.assetUniverse ?? agent.assetUniverse,
+        parentAgentId: agent.id,
+      },
+      agent.creatorId,
+    );
   }
 }

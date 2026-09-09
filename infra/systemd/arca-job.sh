@@ -21,7 +21,16 @@ set -uo pipefail
 JOB="${1:?job name required}"
 URL="${2:?url required}"
 
-response=$(curl -sS --max-time 120 -X POST -w $'\n%{http_code}' "$URL" 2>&1)
+# Every /internal/ endpoint is machine-tier and requires this header. A missing
+# key is reported here rather than left to surface as an opaque 503 body: the
+# services answer 503 auth_unavailable without it, which is deliberately NOT a
+# permission error, and the operator needs to read it as configuration.
+if [ -z "${INTERNAL_API_KEY:-}" ]; then
+  echo "$JOB: INTERNAL_API_KEY is not set — the machine tier cannot be called. Set it in /home/ubuntu/arcana/.env.auth (mode 600)." >&2
+  exit 1
+fi
+
+response=$(curl -sS --max-time 120 -X POST -H "X-Internal-Key: $INTERNAL_API_KEY" -w $'\n%{http_code}' "$URL" 2>&1)
 curl_status=$?
 
 http_code=$(printf '%s' "$response" | tail -n 1)

@@ -7,6 +7,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 import { InjectDataSource } from '@nestjs/typeorm';
+import { Inject } from '@nestjs/common';
+import { AUTH_CONFIG, authUnavailable, type AuthConfig } from '@arcana/auth';
 import { DataSource } from 'typeorm';
 
 /**
@@ -46,6 +48,7 @@ export class EntitlementClient {
   constructor(
     @InjectDataSource() private readonly db: DataSource,
     config: ConfigService,
+    @Inject(AUTH_CONFIG) private readonly authCfg: AuthConfig,
   ) {
     this.arcaUrl = config.get<string>('ARCA_SERVICE_URL') ?? 'http://localhost:3004';
   }
@@ -61,9 +64,15 @@ export class EntitlementClient {
       `?action=${encodeURIComponent(action)}` +
       (wallet ? `&user_id=${encodeURIComponent(wallet)}` : '');
 
+    if (!this.authCfg.internalKey) {
+      throw authUnavailable(
+        'INTERNAL_API_KEY is not set, so the entitlement check cannot be made',
+      );
+    }
+
     let res: Response;
     try {
-      res = await fetch(url);
+      res = await fetch(url, { headers: this.internalHeaders() });
     } catch (e) {
       throw this.upstreamError(action, `arca-service unreachable: ${e}`, null);
     }
@@ -122,7 +131,8 @@ export class EntitlementClient {
     const url =
       `${this.arcaUrl}/v1/arca/entitlements/check?action=${encodeURIComponent(action)}`;
     try {
-      const res = await fetch(url);
+      if (!this.authCfg.internalKey) throw new Error('INTERNAL_API_KEY is not set');
+      const res = await fetch(url, { headers: this.internalHeaders() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const decision = (await res.json()) as {
         reason: string;
@@ -163,6 +173,11 @@ export class EntitlementClient {
       [agentId],
     );
     return rows[0]?.wallet_address ?? null;
+  }
+
+  /** arca-service treats the entitlement check as a machine endpoint. */
+  private internalHeaders(): Record<string, string> {
+    return { 'X-Internal-Key': this.authCfg.internalKey as string };
   }
 
   private upstreamError(action: string, message: string, status: number | null) {

@@ -50,6 +50,10 @@ Environment=COMPETITION_ID=d0653071-67e5-4302-ac78-afe2e1130d89
 # 01:00 run. Four minutes made sense against a 1-minute timer; against a daily
 # tick it would have shut the window before any human in any timezone saw it.
 Environment=HUMAN_WINDOW=1h
+# Secrets (AUTH_JWT_SIGNING_KEY, INTERNAL_API_KEY) come from this file at
+# mode 600. They are NEVER inline here: unit files are world-readable and
+# systemctl show prints Environment= to any user.
+EnvironmentFile=-/home/ubuntu/arcana/.env.auth
 ExecStart=/usr/bin/flock -n /tmp/arcana-scheduler.lock /home/ubuntu/arcana/scheduler-bin/scheduler -competition ${COMPETITION_ID} -human-window ${HUMAN_WINDOW}
 TimeoutStartSec=120
 

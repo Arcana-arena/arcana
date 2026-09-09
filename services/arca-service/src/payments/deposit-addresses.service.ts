@@ -8,11 +8,13 @@ import { ListingRef } from './listing-ref.entity';
 import { HdWalletService } from './hd-wallet.service';
 import { ArcaTokenService } from './arca-token.service';
 
+/**
+ * The wallet is NOT a field here: it comes from the caller's verified session.
+ * Accepting it from the body let anyone mint a deposit address in another
+ * user's name. With `forbidNonWhitelisted` on the global pipe, sending
+ * `userWallet` is now a 400 rather than a silently ignored key.
+ */
 export class CreateDepositDto {
-  @IsString()
-  @Matches(/^0x[a-fA-F0-9]{40}$/, { message: 'userWallet must be an EVM address (0x + 40 hex)' })
-  userWallet!: string;
-
   @IsUUID('all')
   listingId!: string;
 }

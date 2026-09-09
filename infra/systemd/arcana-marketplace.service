@@ -13,6 +13,10 @@ Environment=PORT=3002
 # arca-service runs on 3004 here (3003 is taken on this host) — the code
 # default is 3003, so this override is required. See arcana-arca.service.
 Environment=ARCA_SERVICE_URL=http://localhost:3004
+# Secrets (AUTH_JWT_SIGNING_KEY, INTERNAL_API_KEY) come from this file at
+# mode 600. They are NEVER inline here: unit files are world-readable and
+# systemctl show prints Environment= to any user.
+EnvironmentFile=-/home/ubuntu/arcana/.env.auth
 ExecStart=/usr/bin/node dist/main.js
 Restart=on-failure
 RestartSec=5

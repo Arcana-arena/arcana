@@ -1,6 +1,7 @@
 go 1.23.4
 
 use (
+	./packages/go-internalauth
 	./services/decision-engine
 	./services/scoring-engine
 	./services/market-data

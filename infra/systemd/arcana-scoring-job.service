@@ -24,7 +24,11 @@ User=ubuntu
 # `curl`), since flock is now the process systemd executes.
 SyslogIdentifier=arcana-scoring-job
 Environment=SCORING_URL=http://localhost:8082
-ExecStart=/usr/bin/flock -n /tmp/arcana-scoring.lock /usr/bin/curl -fsS -X POST http://localhost:8082/internal/v1/scoring/batch
+# Secrets (AUTH_JWT_SIGNING_KEY, INTERNAL_API_KEY) come from this file at
+# mode 600. They are NEVER inline here: unit files are world-readable and
+# systemctl show prints Environment= to any user.
+EnvironmentFile=-/home/ubuntu/arcana/.env.auth
+ExecStart=/usr/bin/flock -n /tmp/arcana-scoring.lock /home/ubuntu/arcana/infra/systemd/arca-job.sh scoring-batch ${SCORING_URL}/internal/v1/scoring/batch
 TimeoutStartSec=120
 
 [Install]

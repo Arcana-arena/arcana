@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/arcana/decision-engine/internal/engine"
+	"github.com/arcana/internalauth"
 	"github.com/arcana/decision-engine/internal/marketdata"
 	"github.com/arcana/decision-engine/internal/store"
 )
@@ -42,16 +43,21 @@ func main() {
 
 	srv := &server{engine: engine.New(store.New(pool), marketdata.New(marketDataURL))}
 
+	guard := internalauth.New("decision-engine")
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
-	mux.HandleFunc("POST /internal/v1/decisions/execute", srv.handleExecute)
-	mux.HandleFunc("POST /internal/v1/decisions/manual", srv.handleManual)
+	mux.HandleFunc("POST /internal/v1/decisions/execute", guard.Wrap(srv.handleExecute))
+	mux.HandleFunc("POST /internal/v1/decisions/manual", guard.Wrap(srv.handleManual))
 
 	log.Printf("decision-engine listening on :%s", port)
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
+	// Loopback only: layer one of the two protecting the machine tier (the
+	// other is the X-Internal-Key check). Nothing here is meant to face the
+	// internet directly.
+	if err := http.ListenAndServe("127.0.0.1:"+port, mux); err != nil {
 		log.Fatal(err)
 	}
 }

@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ArcanaAuthModule } from '@arcana/auth';
 import { HealthController } from './health.controller';
+import { AuthModule } from './auth/auth.module';
 import { AgentsModule } from './agents/agents.module';
 import { CompetitionsModule } from './competitions/competitions.module';
 import { CreatorsModule } from './creators/creators.module';
@@ -14,6 +16,7 @@ import { AutopsyModule } from './autopsy/autopsy.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ArcanaAuthModule.forRoot('agent-service'),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
@@ -23,6 +26,7 @@ import { AutopsyModule } from './autopsy/autopsy.module';
         synchronize: false, // schema is managed by golang-migrate, never sync
       }),
     }),
+    AuthModule,
     AgentsModule,
     CreatorsModule,
     SeasonsModule,

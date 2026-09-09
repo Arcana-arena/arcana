@@ -1,5 +1,4 @@
 import {
-  IsIn,
   IsJSON,
   IsNotEmpty,
   IsOptional,
@@ -8,10 +7,19 @@ import {
   MaxLength,
 } from 'class-validator';
 
+/**
+ * Note what is absent.
+ *
+ * `creatorId` is gone: the owner is resolved from the caller's verified session,
+ * so an agent can only ever be created under the wallet that asked. Sending it
+ * is now a 400 rather than a silent override, because the global ValidationPipe
+ * runs with `forbidNonWhitelisted`.
+ *
+ * `status` is gone: a new agent is always 'draft'. Setting it to 'active' here
+ * used to skip the $ARCA entitlement check and the parent-retirement that
+ * activate() performs. Activation has one door now.
+ */
 export class CreateAgentDto {
-  @IsUUID('all')
-  creatorId: string;
-
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
@@ -34,8 +42,4 @@ export class CreateAgentDto {
   @IsOptional()
   @IsUUID('all')
   parentAgentId?: string;
-
-  @IsOptional()
-  @IsIn(['draft', 'active', 'retired'])
-  status?: string;
 }

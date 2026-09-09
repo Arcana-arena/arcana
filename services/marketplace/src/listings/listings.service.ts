@@ -11,6 +11,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MarketplaceListing } from './listing.entity';
 import { CreateListingDto, UpdateListingDto } from './dto/listing.dto';
+ import { AUTH_CONFIG, authUnavailable, type AuthConfig } from '@arcana/auth';
+ import { Inject } from '@nestjs/common';
 
 @Injectable()
 export class ListingsService {
@@ -21,6 +23,7 @@ export class ListingsService {
     @InjectRepository(MarketplaceListing)
     private readonly listings: Repository<MarketplaceListing>,
     config: ConfigService,
+    @Inject(AUTH_CONFIG) private readonly authCfg: AuthConfig,
   ) {
     this.arcaUrl = config.get<string>('ARCA_SERVICE_URL') ?? 'http://localhost:3003';
   }
@@ -66,16 +69,22 @@ export class ListingsService {
    * HD deposit address. Access is granted only after the on-chain payment is
    * confirmed by the arca payment listener — NOT here.
    */
-  async subscribe(listingId: string, userWallet: string) {
+  async subscribe(listingId: string, authorization: string) {
     const listing = await this.findOne(listingId);
     if (!listing.active) {
       throw new NotFoundException(`Listing ${listingId} is inactive`);
     }
 
+    // The caller's own token goes through, so arca-service derives the
+    // subscriber from a signature it verifies itself. We do not tell it an
+    // address and ask it to believe us.
     const res = await fetch(`${this.arcaUrl}/v1/arca/deposit-address`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userWallet, listingId }),
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: authorization,
+      },
+      body: JSON.stringify({ listingId }),
     });
     if (!res.ok) {
       throw await this.upstreamError(res, 'subscribe');
@@ -117,12 +126,24 @@ export class ListingsService {
    * reimplemented: this used to re-derive it from the subscription list with
    * `status === 'active' && expiresAt > now`, which silently denied access for
    * the whole grace window that arca-service was still honouring.
+   *
+   * The wallet passed here has already been established as the caller's own by
+   * the controller; arca's /v1/arca/access is a machine endpoint and trusts
+   * that, which is why this call carries the internal key rather than a user
+   * token.
    */
   async hasAccess(listingId: string, userWallet: string): Promise<boolean> {
+    if (!this.authCfg.internalKey) {
+      throw authUnavailable(
+        'INTERNAL_API_KEY is not set, so marketplace cannot reach the access check',
+      );
+    }
     const url =
       `${this.arcaUrl}/v1/arca/access` +
       `?userWallet=${encodeURIComponent(userWallet)}&listingId=${encodeURIComponent(listingId)}`;
-    const res = await fetch(url);
+    const res = await fetch(url, {
+      headers: { 'X-Internal-Key': this.authCfg.internalKey },
+    });
     if (!res.ok) {
       throw await this.upstreamError(res, 'access_check');
     }

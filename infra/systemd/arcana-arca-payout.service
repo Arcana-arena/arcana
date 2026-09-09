@@ -29,6 +29,10 @@ User=ubuntu
 # these lines are the audit trail for money movement.
 SyslogIdentifier=arcana-arca-payout
 Environment=ARCA_URL=http://localhost:3004
+# Secrets (AUTH_JWT_SIGNING_KEY, INTERNAL_API_KEY) come from this file at
+# mode 600. They are NEVER inline here: unit files are world-readable and
+# systemctl show prints Environment= to any user.
+EnvironmentFile=-/home/ubuntu/arcana/.env.auth
 ExecStart=/usr/bin/flock -n /tmp/arcana-arca-payout.lock /home/ubuntu/arcana/infra/systemd/arca-job.sh payout ${ARCA_URL}/internal/v1/payments/payout/run
 # On-chain transfers, one per creator: allow for a slow RPC before giving up.
 TimeoutStartSec=600

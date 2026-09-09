@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Creator } from './creator.entity';
@@ -12,10 +12,31 @@ export class CreatorsService {
     private readonly creators: Repository<Creator>,
   ) {}
 
-  create(dto: CreateCreatorDto): Promise<Creator> {
+  /**
+   * Register a creator profile for a wallet that has just proven itself.
+   *
+   * `wallet` is a parameter, not a body field — see CreateCreatorDto. The row
+   * is stamped `origin='siwe'` and `wallet_verified_at=now()`, which is what
+   * separates it from the frozen pre-auth rows: every ownership check requires
+   * a non-NULL `wallet_verified_at`.
+   */
+  async create(dto: CreateCreatorDto, wallet: string): Promise<Creator> {
+    const address = wallet.toLowerCase();
+
+    const existing = await this.creators.findOne({
+      where: { walletAddress: address },
+    });
+    if (existing) {
+      throw new ConflictException(
+        `This wallet already has the creator profile '${existing.handle}'.`,
+      );
+    }
+
     const creator = this.creators.create({
       handle: dto.handle,
-      walletAddress: dto.walletAddress ?? null,
+      walletAddress: address,
+      walletVerifiedAt: new Date(),
+      origin: 'siwe',
     });
     return this.creators.save(creator);
   }
@@ -32,9 +53,10 @@ export class CreatorsService {
     return creator;
   }
 
+  /** Rename only. Ownership and moderation are not editable here — see the DTO. */
   async update(id: string, dto: UpdateCreatorDto): Promise<Creator> {
     const creator = await this.findOne(id);
-    Object.assign(creator, dto);
+    if (dto.handle !== undefined) creator.handle = dto.handle;
     return this.creators.save(creator);
   }
 }

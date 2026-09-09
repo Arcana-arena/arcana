@@ -13,8 +13,9 @@
 └───────────────────────────────┬───────────────────────────────────--┘
                                  │ REST/GraphQL + WebSocket
 ┌───────────────────────────────▼───────────────────────────────────--┐
-│                          API GATEWAY                                 │
-│         Auth, Rate Limiting, Routing, Request Aggregation            │
+│                    API GATEWAY  (NOT DEPLOYED)                       │
+│      planned: Rate Limiting, Routing, Request Aggregation            │
+│      AUTH IS NOT HERE — each service verifies its own tokens         │
 └───────────────────────────────┬───────────────────────────────────--┘
                                  │
         ┌────────────┬──────────┼──────────┬────────────┬────────────┐
@@ -37,6 +38,33 @@
                    │ TimeSeries DB    │
                    └─────────────────┘
 ```
+
+### Where authentication actually lives
+
+The gateway box above is a plan, not a deployment. For a long time this diagram
+said the gateway handled Auth while no gateway existed and no service checked
+anything — every endpoint was open, and the only thing keeping the platform
+private was the provider firewall in front of it.
+
+That is fixed, and the fix is not a gateway. Authentication runs **inside each
+service**, so a request is checked by whatever answers it, with no component
+that must be deployed for the checks to exist:
+
+- **Sign-in** — Sign-In with Ethereum (EIP-4361). agent-service owns it,
+  because it owns `creators`, the table a wallet proves control of. It is the
+  only service that mints tokens.
+- **Verification** — arca-service and marketplace verify the same HS256 access
+  tokens using the shared `@arcana/auth` package. No hop through a gateway.
+- **Machine tier** — `/internal/*` endpoints take a shared `X-Internal-Key`,
+  and every service binds to `127.0.0.1`. Two layers, neither sufficient alone.
+
+If a gateway is introduced later it should take over rate limiting and routing.
+Auth should stay where it is: a gateway that authenticates leaves each service
+trusting a header it cannot verify, which is the arrangement this codebase just
+spent a migration getting out of.
+
+Full detail, including the public/protected endpoint table and the 401 / 403 /
+502 / 503 distinctions, is in **docs/auth.md**.
 
 ---
 

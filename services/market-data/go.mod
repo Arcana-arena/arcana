@@ -9,3 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.68.0
 	github.com/jackc/pgx/v5 v5.7.1
 )
+
+require github.com/arcana/internalauth v0.0.0
+
+replace github.com/arcana/internalauth => ../../packages/go-internalauth
