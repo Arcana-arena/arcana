@@ -8,27 +8,47 @@ import { EntitlementClient, GateStatus } from '../entitlements/entitlement.clien
 
 /** The $ARCA action a Premium Arena's entry is gated on (§2.7). */
 export const PREMIUM_ARENA_ACTION = 'premium_arena';
+/** The platform-wide entry gate, applied to every arena regardless of tier. */
+export const COMPETE_ACTION = 'compete';
+
+/** One $ARCA gate standing between an agent and this arena. */
+export interface SeasonGate {
+  action: string;
+  /** `active` reads a live balance, `inactive` admits everyone, `unknown` was unreadable. */
+  status: GateStatus['status'];
+  /** Threshold in $ARCA, non-null only when the gate is active. */
+  required_arca: string | null;
+}
 
 /**
  * What a season costs to enter, as told to anyone browsing arenas.
  *
- * The point of this block is that a user learns an arena needs $ARCA BEFORE
- * registering, not from a 403 afterwards — and, just as importantly, cannot
- * read "premium" as "guarded". `enforced` is the field that carries that: an
- * arena can be marked premium while the gate reads no balance at all, which is
- * exactly the state the platform is in until the token launches. It is the
- * season-listing counterpart of `balance_checked` on an entitlement decision.
+ * Two things this block exists to prevent. First, learning that an arena needs
+ * $ARCA from a 403 rather than before registering. Second — and this is the one
+ * with teeth — reading "premium" as "guarded". An arena can be marked premium
+ * while its gate reads no balance at all, which is exactly the state the
+ * platform is in until the token launches.
+ *
+ * `enforced` carries that, and it is the season-listing counterpart of
+ * `balance_checked` on an entitlement decision. It answers one question only:
+ * **is entry verified against a real balance right now?** `gates` shows which
+ * door is live when the summary is not enough, rather than making the caller
+ * infer it from the tier.
  */
 export interface SeasonAccess {
   tier: string;
-  /** Every $ARCA gate a registration into this arena must pass, in order. */
-  gates: string[];
-  /** $ARCA required for the premium gate, or null when unset/unread. */
+  /** Every $ARCA gate a registration must pass, in the order they are checked. */
+  gates: SeasonGate[];
+  /**
+   * The balance an entrant actually needs — the largest active threshold, since
+   * every gate must pass. Null when no gate is currently reading balances.
+   */
   required_arca: string | null;
   /**
-   * Whether entry is ACTUALLY being verified right now. `false` means the gate
-   * is wired but passes everyone; `null` means arca-service could not be asked,
-   * so this is unknown rather than off.
+   * `true` — entry is verified against a live balance.
+   * `false` — every gate is wired but admits everyone. Marked, not guarded.
+   * `null`  — arca-service could not be reached, so this is UNKNOWN rather
+   *           than off. Never collapse the two.
    */
   enforced: boolean | null;
   note: string;
@@ -58,21 +78,17 @@ export class SeasonsService {
 
   async findAll(): Promise<SeasonView[]> {
     const seasons = await this.seasons.find({ order: { startAt: 'DESC' } });
-    // One gate lookup for the whole page, not one per season: the threshold is
-    // per action, not per arena, so asking once is both cheaper and impossible
-    // to render inconsistently across rows.
-    const gate = seasons.some((s) => s.accessTier === 'premium')
-      ? await this.entitlements.describe(PREMIUM_ARENA_ACTION)
-      : null;
-    return seasons.map((s) => this.withAccess(s, gate));
+    // One lookup per ACTION for the whole page, not one per season: a threshold
+    // belongs to an action, not to an arena, so asking once is both cheaper and
+    // impossible to render inconsistently across rows.
+    const statuses = await this.gateStatuses(
+      seasons.some((s) => s.accessTier === 'premium'),
+    );
+    return seasons.map((s) => this.withAccess(s, statuses));
   }
 
   async findOne(id: string): Promise<SeasonView> {
-    const season = await this.seasons.findOne({ where: { id } });
-    if (!season) {
-      throw new NotFoundException(`Season ${id} not found`);
-    }
-    return this.withAccessAsync(season);
+    return this.withAccessAsync(await this.findEntity(id));
   }
 
   /** The raw row, for callers that need the tier without the access block. */
@@ -90,64 +106,103 @@ export class SeasonsService {
     if (dto.startAt !== undefined) season.startAt = new Date(dto.startAt);
     if (dto.endAt !== undefined) season.endAt = new Date(dto.endAt);
     // Retiering applies to registrations from here on; agents already admitted
-    // are unaffected, the same entry-not-tick rule the COMPETE gate follows.
+    // are unaffected, the same entry-not-per-tick rule the COMPETE gate follows.
     if (dto.accessTier !== undefined) season.accessTier = dto.accessTier;
     return this.withAccessAsync(await this.seasons.save(season));
   }
 
-  private async withAccessAsync(season: Season): Promise<SeasonView> {
-    const gate =
-      season.accessTier === 'premium'
-        ? await this.entitlements.describe(PREMIUM_ARENA_ACTION)
-        : null;
-    return this.withAccess(season, gate);
+  /** Ask arca-service for each gate's live status. */
+  private async gateStatuses(
+    includePremium: boolean,
+  ): Promise<Record<string, GateStatus>> {
+    const actions = includePremium
+      ? [COMPETE_ACTION, PREMIUM_ARENA_ACTION]
+      : [COMPETE_ACTION];
+    const results = await Promise.all(
+      actions.map((a) => this.entitlements.describe(a)),
+    );
+    return Object.fromEntries(results.map((r) => [r.action, r]));
   }
 
-  /**
-   * Attach the access block. `gate` is the already-fetched status when the
-   * caller batched the lookup; when omitted it is fetched lazily via
-   * `withAccessAsync`.
-   */
-  private withAccess(season: Season, gate?: GateStatus | null): SeasonView {
-    if (season.accessTier !== 'premium') {
-      return {
-        ...season,
-        access: {
-          tier: season.accessTier,
-          // COMPETE applies to every arena, premium or not. Saying so here
-          // stops "standard" from reading as "ungated".
-          gates: ['compete'],
-          required_arca: null,
-          enforced: null,
-          note:
-            'Open arena. Entry needs the platform-wide $ARCA COMPETE entitlement, ' +
-            'the same as every other season, and nothing beyond it.',
-        },
-      };
-    }
+  private async withAccessAsync(season: Season): Promise<SeasonView> {
+    return this.withAccess(
+      season,
+      await this.gateStatuses(season.accessTier === 'premium'),
+    );
+  }
 
-    const status = gate?.status ?? 'unknown';
-    const enforced = status === 'unknown' ? null : status === 'active';
+  private withAccess(
+    season: Season,
+    statuses: Record<string, GateStatus>,
+  ): SeasonView {
+    const premium = season.accessTier === 'premium';
+    const actions = premium
+      ? [COMPETE_ACTION, PREMIUM_ARENA_ACTION]
+      : [COMPETE_ACTION];
+
+    const gates: SeasonGate[] = actions.map((action) => {
+      const s = statuses[action];
+      return {
+        action,
+        status: s?.status ?? 'unknown',
+        required_arca: s?.status === 'active' ? s.required : null,
+      };
+    });
+
+    // Every gate must pass, so what an entrant needs is the LARGEST active
+    // threshold. Reporting anything smaller would understate the price of entry.
+    const required = gates.reduce<string | null>((max, g) => {
+      if (g.required_arca == null) return max;
+      if (max == null || Number(g.required_arca) > Number(max)) {
+        return g.required_arca;
+      }
+      return max;
+    }, null);
+
+    // `enforced` answers "is entry verified", not "is every gate verified": one
+    // live gate is a real balance requirement even if the other is dormant.
+    // Unknown only when nothing was confirmed live AND something was unreadable
+    // — otherwise a confirmed live gate settles the question on its own.
+    const anyActive = gates.some((g) => g.status === 'active');
+    const anyUnknown = gates.some((g) => g.status === 'unknown');
+    const enforced = anyActive ? true : anyUnknown ? null : false;
+
     return {
       ...season,
       access: {
-        tier: 'premium',
-        // Both, in the order they are checked. A premium arena does not replace
-        // the platform-wide gate, it adds a second door behind it.
-        gates: ['compete', PREMIUM_ARENA_ACTION],
-        required_arca: gate?.required ?? null,
+        tier: season.accessTier,
+        gates,
+        required_arca: required,
         enforced,
-        note:
-          enforced === true
-            ? `Premium Arena. Entry is verified against a live $ARCA balance: ` +
-              `${gate?.required} $ARCA required, on top of the COMPETE entitlement.`
-            : enforced === false
-              ? 'Premium Arena. The $ARCA premium_arena gate is wired but currently ' +
-                'reads no balance (the token is not launched, or no threshold is set), ' +
-                'so every registration passes. Marked premium, not yet guarded.'
-              : 'Premium Arena. The $ARCA service could not be reached, so whether the ' +
-                'gate is currently verifying balances is unknown — not known to be off.',
+        note: this.note(premium, enforced, required),
       },
     };
+  }
+
+  private note(
+    premium: boolean,
+    enforced: boolean | null,
+    required: string | null,
+  ): string {
+    const arena = premium
+      ? 'Premium Arena: entry needs the $ARCA premium_arena entitlement in addition to ' +
+        'the platform-wide COMPETE entitlement.'
+      : 'Open arena: entry needs the platform-wide $ARCA COMPETE entitlement and ' +
+        'nothing beyond it.';
+
+    if (enforced === true) {
+      return `${arena} Verified against a live balance — ${required} $ARCA required.`;
+    }
+    if (enforced === false) {
+      return (
+        `${arena} Those gates are wired but currently read no balance (the token is ` +
+        'not launched, or no threshold is set), so every registration passes. ' +
+        (premium ? 'Marked premium, not yet guarded.' : '')
+      ).trim();
+    }
+    return (
+      `${arena} The $ARCA service could not be reached, so whether entry is ` +
+      'currently verified against a balance is unknown — not known to be off.'
+    );
   }
 }
