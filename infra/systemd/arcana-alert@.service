@@ -1,0 +1,29 @@
+# arcana-alert@.service — the OnFailure= handler for every monitored unit.
+#
+# A monitored unit declares:
+#     OnFailure=arcana-alert@%n.service
+# and systemd expands %n to that unit's own name, which arrives here as %i. One
+# template rather than one handler per unit: a second copy of this would drift.
+#
+# WHY A TEMPLATE AND NOT A DASHBOARD. What was missing was notification, not
+# observability. The scheduler failed for four and a half hours and nobody knew;
+# no amount of graphing would have told anyone, because nobody was looking.
+#
+# NO SECRETS HERE. The ntfy topic is the credential on ntfy.sh — anyone holding
+# it can read the alerts and publish fake ones — so it lives in .env.alerts at
+# mode 600 and only the path appears in this file.
+#
+# The leading '-' on EnvironmentFile keeps a missing file from being a unit
+# failure; the script itself fails loudly when NTFY_TOPIC is absent, which is
+# the honest signal that alerting is not configured.
+[Unit]
+Description=Send an ARCANA alert for %i
+
+[Service]
+Type=oneshot
+User=ubuntu
+SyslogIdentifier=arcana-alert
+WorkingDirectory=/home/ubuntu/arcana
+EnvironmentFile=-/home/ubuntu/arcana/.env.alerts
+ExecStart=/home/ubuntu/arcana/infra/alerting/arcana-notify.sh unit-failed %i
+TimeoutStartSec=60

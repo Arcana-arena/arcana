@@ -277,7 +277,10 @@ run if that name equals the production database.
 
 ## Known limits
 
-- **No off-site copy yet.** The one that matters. See above.
+- **No off-site copy yet.** The one that matters. See above. This now compounds
+  with a second gap: alerting cannot report a dead host either (see
+  docs/alerting.md, "What is deliberately NOT monitored"), so losing this VPS
+  today would be both silent and unrecoverable.
 - **24-hour loss window.** Point-in-time recovery would need WAL archiving;
   overkill at one tick per trading day, worth revisiting if the cadence
   increases.

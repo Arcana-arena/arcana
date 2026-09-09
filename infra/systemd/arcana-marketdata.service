@@ -24,6 +24,8 @@ Description=ARCANA Market Data Service
 After=network-online.target docker.service arcana-agent.service
 Wants=network-online.target
 
+OnFailure=arcana-alert@%n.service
+
 [Service]
 Type=simple
 User=ubuntu

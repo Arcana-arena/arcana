@@ -20,6 +20,8 @@ Description=ARCANA $ARCA creator payout batch
 After=network-online.target arcana-arca.service
 Wants=network-online.target arcana-arca.service
 
+OnFailure=arcana-alert@%n.service
+
 [Service]
 Type=oneshot
 User=ubuntu

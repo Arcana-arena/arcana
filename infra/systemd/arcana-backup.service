@@ -24,6 +24,8 @@ Description=ARCANA full backup (postgres + MinIO snapshots)
 After=docker.service
 Wants=docker.service
 
+OnFailure=arcana-alert@%n.service
+
 [Service]
 Type=oneshot
 User=ubuntu

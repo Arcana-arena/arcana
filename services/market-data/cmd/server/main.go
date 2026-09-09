@@ -113,6 +113,7 @@ func main() {
 		w.Write([]byte("ok"))
 	})
 	mux.HandleFunc("GET /v1/market/universe", srv.handleUniverse)
+	mux.HandleFunc("GET /v1/market/session/expected", srv.handleExpectedSession)
 	mux.HandleFunc("POST /internal/v1/market/sessions/daily", guard.Wrap(srv.handleDailySession))
 	mux.HandleFunc("POST /internal/v1/market/sessions/backfill", guard.Wrap(srv.handleBackfill))
 	mux.HandleFunc("GET /v1/market/snapshots/{ref}", srv.handleGetSnapshot)
@@ -343,5 +344,33 @@ func (s *server) handlePriceLookup(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"snapshots": snapshots,
 		"missing":   missing,
+	})
+}
+
+// handleExpectedSession reports which trading session SHOULD be the most
+// recent completed one, and nothing else.
+//
+// It exists so the tick watchdog does not compute that date a second time.
+// There is already one authority for it -- session.LastCompleted, the same
+// function the daily fetch uses -- and a monitor that reimplemented the rule
+// would eventually disagree with the thing it monitors, which is worse than no
+// monitor at all.
+//
+// STRICTLY READ-ONLY. The obvious alternative, calling
+// POST /internal/v1/market/sessions/daily, would FETCH from the vendor and
+// create a snapshot: a monitor must never mutate what it observes.
+//
+// Weekends are answered structurally by PreviousWeekday. HOLIDAYS ARE NOT
+// ANSWERED HERE -- they are the vendor is job, and the evidence that a date was
+// a trading day is a stored snapshot carrying that trading_date. This endpoint
+// says which date to ask about, never whether the market opened.
+func (s *server) handleExpectedSession(w http.ResponseWriter, r *http.Request) {
+	now := time.Now().UTC()
+	date := session.LastCompleted(now, s.eastern)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"trading_date":       date.Format("2006-01-02"),
+		"asked_at":           now.Format(time.RFC3339),
+		"today_is_weekend":   session.IsWeekend(now.In(s.eastern)),
+		"holidays_determined_by": "vendor",
 	})
 }

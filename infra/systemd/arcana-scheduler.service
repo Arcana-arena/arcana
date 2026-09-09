@@ -32,6 +32,8 @@ Description=ARCANA competition scheduler (human_vs_ai)
 After=network-online.target arcana-agent.service arcana-decision.service arcana-marketdata.service
 Wants=network-online.target
 
+OnFailure=arcana-alert@%n.service
+
 [Service]
 Type=oneshot
 User=ubuntu
