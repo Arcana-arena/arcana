@@ -8,6 +8,7 @@ import { Repository } from 'typeorm';
 import { Competition } from './competition.entity';
 import { CompetitionTick } from './competition-tick.entity';
 import { CreateCompetitionDto } from './dto/create-competition.dto';
+import { EntitlementClient } from '../entitlements/entitlement.client';
 
 @Injectable()
 export class CompetitionsService {
@@ -16,9 +17,31 @@ export class CompetitionsService {
     private readonly competitions: Repository<Competition>,
     @InjectRepository(CompetitionTick)
     private readonly ticks: Repository<CompetitionTick>,
+    private readonly entitlements: EntitlementClient,
   ) {}
 
-  create(dto: CreateCompetitionDto): Promise<Competition> {
+  /**
+   * Gated on the $ARCA COMPETE entitlement (§2.7), once per participant.
+   *
+   * Checked at registration, NOT per tick. A tick is the platform running an
+   * agent it already admitted; re-checking every minute would put an external
+   * HTTP call in the competition loop and let an arca-service outage halt a
+   * running season.
+   *
+   * Today every check passes without reading a balance, because the token has
+   * not launched. After launch this becomes a real gate on entry only --
+   * agents already competing are unaffected.
+   */
+  async create(dto: CreateCompetitionDto): Promise<Competition> {
+    for (const participantId of dto.participantIds ?? []) {
+      const wallet = await this.entitlements.walletForAgent(participantId);
+      await this.entitlements.require(
+        'compete',
+        wallet,
+        `register agent ${participantId} into a competition`,
+      );
+    }
+
     const competition = this.competitions.create({
       seasonId: dto.seasonId,
       type: dto.type,

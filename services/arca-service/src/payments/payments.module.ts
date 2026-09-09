@@ -43,6 +43,7 @@ import { ArcaController } from './arca.controller';
     HdWalletService,
     DepositAddressesService,
     SubscriptionsService,
+    ArcaTokenService,
   ],
 })
 export class PaymentsModule {}

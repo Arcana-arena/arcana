@@ -9,12 +9,14 @@ import { Agent } from './agent.entity';
 import { CreateAgentDto } from './dto/create-agent.dto';
 import { EvolveAgentDto } from './dto/evolve-agent.dto';
 import { UpdateAgentDto } from './dto/update-agent.dto';
+import { EntitlementClient } from '../entitlements/entitlement.client';
 
 @Injectable()
 export class AgentsService {
   constructor(
     @InjectRepository(Agent)
     private readonly agents: Repository<Agent>,
+    private readonly entitlements: EntitlementClient,
   ) {}
 
   async create(dto: CreateAgentDto): Promise<Agent> {
@@ -58,10 +60,10 @@ export class AgentsService {
   /**
    * POST /agents/:id/activate — transition to active.
    *
-   * NOTE: the $ARCA CREATE entitlement check this method is supposed to make
-   * does not exist. arca-service has no entitlement layer at all yet, so there
-   * is nothing to call. Recorded here rather than left as a comment claiming a
-   * check that never happens.
+   * Gated on the $ARCA CREATE entitlement (§2.7). The check is real, but note
+   * what "allowed" means today: the token has not launched, so arca-service
+   * passes every check WITHOUT reading a balance and says so in its response.
+   * The gate is wired, not yet enforcing. See docs/arca-entitlements.md.
    *
    * Activating a version RETIRES its parent (see retireParent).
    */
@@ -70,6 +72,10 @@ export class AgentsService {
     if (agent.status === 'retired') {
       throw new BadRequestException('Retired agents cannot be activated');
     }
+
+    const wallet = await this.entitlements.walletForCreator(agent.creatorId);
+    await this.entitlements.require('create', wallet, `activate agent ${agent.id}`);
+
     agent.status = 'active';
     const saved = await this.agents.save(agent);
     if (agent.parentAgentId) {
@@ -125,9 +131,20 @@ export class AgentsService {
     );
   }
 
-  /** POST /agents/:id/evolve — create a new version snapshotting this agent's config. */
+  /**
+   * POST /agents/:id/evolve — create a new version snapshotting this agent's config.
+   *
+   * Gated on the $ARCA EVOLVE entitlement (§2.7). Checked here, at creation,
+   * rather than at activation: evolving is the act the entitlement covers, and
+   * a creator should learn they lack the right before building a version, not
+   * after.
+   */
   async evolve(id: string, overrides: EvolveAgentDto): Promise<Agent> {
     const agent = await this.findOne(id);
+
+    const wallet = await this.entitlements.walletForCreator(agent.creatorId);
+    await this.entitlements.require('evolve', wallet, `evolve agent ${agent.id}`);
+
     const child = await this.create({
       creatorId: agent.creatorId,
       name: agent.name,
