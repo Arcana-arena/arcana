@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { EvolutionModule } from '../evolution/evolution.module';
 import { PassportController } from './passport.controller';
 import { PassportService } from './passport.service';
 
@@ -8,6 +9,7 @@ import { PassportService } from './passport.service';
  * and creators. There is no passport table, by design.
  */
 @Module({
+  imports: [EvolutionModule],
   controllers: [PassportController],
   providers: [PassportService],
 })

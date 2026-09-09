@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { MarketIndexService, MarketTick } from '../market/market-index.service';
 
 /**
  * Agent DNA — a behavioural fingerprint computed from what an agent actually
@@ -77,13 +77,6 @@ export interface DnaFeatures {
   drawdownPerExposure: number;
 }
 
-interface MarketTick {
-  ref: string;
-  prices: Record<string, number>;
-  /** Equal-weighted mean of per-symbol returns since the previous tick. */
-  marketReturn: number;
-}
-
 interface AgentTick {
   ts: Date;
   nav: number;
@@ -98,15 +91,11 @@ interface AgentTick {
 @Injectable()
 export class DnaService {
   private readonly logger = new Logger(DnaService.name);
-  private readonly marketDataUrl: string;
 
   constructor(
     @InjectDataSource() private readonly db: DataSource,
-    config: ConfigService,
-  ) {
-    this.marketDataUrl =
-      config.get<string>('MARKET_DATA_URL') ?? 'http://localhost:8083';
-  }
+    private readonly marketIndex: MarketIndexService,
+  ) {}
 
   // -------------------------------------------------------------------------
   // Batch
@@ -114,7 +103,7 @@ export class DnaService {
 
   /** Recompute DNA for every agent that has competed enough to have one. */
   async computeAll(): Promise<{ computed: number; skipped: number }> {
-    const market = await this.loadMarket();
+    const market = await this.marketIndex.load();
 
     const rows: Array<{ agent_id: string; n: string }> = await this.db.query(
       `SELECT agent_id, COUNT(*) AS n FROM decisions GROUP BY agent_id`,
@@ -380,51 +369,6 @@ export class DnaService {
   // -------------------------------------------------------------------------
   // Loaders
   // -------------------------------------------------------------------------
-
-  /**
-   * Market index per tick: the equal-weighted mean of per-symbol returns.
-   *
-   * Prices live in object storage, not the database, so this walks the
-   * market-data service once per batch and reuses the result for every agent —
-   * the alternative is one HTTP round trip per agent per tick.
-   */
-  private async loadMarket(): Promise<Map<string, MarketTick>> {
-    const refs: Array<{ ref: string }> = await this.db.query(
-      `SELECT ref FROM market_snapshots ORDER BY tick_time ASC`,
-    );
-
-    const out = new Map<string, MarketTick>();
-    let prev: Record<string, number> | null = null;
-
-    for (const { ref } of refs) {
-      let prices: Record<string, number>;
-      try {
-        const res = await fetch(`${this.marketDataUrl}/v1/market/snapshots/${ref}`);
-        if (!res.ok) continue;
-        const snap = (await res.json()) as {
-          symbols: Array<{ symbol: string; price: number }>;
-        };
-        prices = Object.fromEntries(snap.symbols.map((s) => [s.symbol, s.price]));
-      } catch (e) {
-        this.logger.warn(`market snapshot ${ref} unavailable: ${e}`);
-        continue;
-      }
-
-      let marketReturn = 0;
-      if (prev) {
-        const rets: number[] = [];
-        for (const [sym, price] of Object.entries(prices)) {
-          const before = prev[sym];
-          if (before > 0) rets.push(price / before - 1);
-        }
-        marketReturn = rets.length > 0 ? rets.reduce((a, b) => a + b, 0) / rets.length : 0;
-      }
-
-      out.set(ref, { ref, prices, marketReturn });
-      prev = prices;
-    }
-    return out;
-  }
 
   /**
    * One row per portfolio snapshot, paired with the decision that produced it.

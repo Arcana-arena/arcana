@@ -55,14 +55,74 @@ export class AgentsService {
     return this.agents.save(agent);
   }
 
-  /** POST /agents/:id/activate — check $ARCA CREATE entitlement + transition to active. */
+  /**
+   * POST /agents/:id/activate — transition to active.
+   *
+   * NOTE: the $ARCA CREATE entitlement check this method is supposed to make
+   * does not exist. arca-service has no entitlement layer at all yet, so there
+   * is nothing to call. Recorded here rather than left as a comment claiming a
+   * check that never happens.
+   *
+   * Activating a version RETIRES its parent (see retireParent).
+   */
   async activate(id: string): Promise<Agent> {
     const agent = await this.findOne(id);
     if (agent.status === 'retired') {
       throw new BadRequestException('Retired agents cannot be activated');
     }
     agent.status = 'active';
-    return this.agents.save(agent);
+    const saved = await this.agents.save(agent);
+    if (agent.parentAgentId) {
+      await this.retireParent(agent.parentAgentId, agent.id);
+    }
+    return saved;
+  }
+
+  /**
+   * Succession: when a version goes live, the version it replaces steps down.
+   *
+   * Why retire rather than let both compete: the leaderboard is the platform's
+   * reputation surface, and a creator running v1..v5 side by side would occupy
+   * five places with five variations of one idea. "V1 → V2 → V3" is a
+   * succession, not a family.
+   *
+   * Nothing is erased. The parent's row, decisions, portfolio snapshots and
+   * score history are append-only and untouched; it keeps its Passport and its
+   * badges, and its record simply closes at this point. That closure is also
+   * what makes the before/after comparison meaningful — "before" becomes a
+   * finished period rather than a moving target.
+   *
+   * The cost, stated plainly: the two versions then never trade the same ticks,
+   * so no comparison between them can fully separate the agent from its market.
+   * See docs/agent-evolution.md.
+   */
+  private async retireParent(parentId: string, childId: string): Promise<void> {
+    const parent = await this.agents.findOne({ where: { id: parentId } });
+    if (!parent || parent.status === 'retired') return;
+
+    parent.status = 'retired';
+    await this.agents.save(parent);
+
+    // Hand over the parent's seat in any competition still running. Without
+    // this the scheduler keeps calling a retired agent every tick and logs a
+    // failure every minute forever — the kind of permanent noise that teaches
+    // people to stop reading the journal.
+    await this.agents.manager.query(
+      `UPDATE competitions
+          SET participant_ids = array_replace(participant_ids, $1::uuid, $2::uuid)
+        WHERE status <> 'completed'
+          AND $1::uuid = ANY(participant_ids)
+          AND NOT ($2::uuid = ANY(participant_ids))`,
+      [parentId, childId],
+    );
+    // If the child was already a participant, just drop the parent's seat.
+    await this.agents.manager.query(
+      `UPDATE competitions
+          SET participant_ids = array_remove(participant_ids, $1::uuid)
+        WHERE status <> 'completed'
+          AND $1::uuid = ANY(participant_ids)`,
+      [parentId],
+    );
   }
 
   /** POST /agents/:id/evolve — create a new version snapshotting this agent's config. */

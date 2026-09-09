@@ -8,6 +8,7 @@ import { CreatorsModule } from './creators/creators.module';
 import { SeasonsModule } from './seasons/seasons.module';
 import { DnaModule } from './dna/dna.module';
 import { PassportModule } from './passport/passport.module';
+import { EvolutionModule } from './evolution/evolution.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { PassportModule } from './passport/passport.module';
     CompetitionsModule,
     DnaModule,
     PassportModule,
+    EvolutionModule,
   ],
   controllers: [HealthController],
 })

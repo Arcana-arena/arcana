@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { MarketModule } from '../market/market.module';
 import { DnaController } from './dna.controller';
 import { DnaService } from './dna.service';
 
@@ -8,6 +9,7 @@ import { DnaService } from './dna.service';
  * and the similarity query is expressed with pgvector's `<=>` operator.
  */
 @Module({
+  imports: [MarketModule],
   controllers: [DnaController],
   providers: [DnaService],
 })

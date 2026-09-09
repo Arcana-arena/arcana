@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { EvolutionService } from '../evolution/evolution.service';
 
 /**
  * Agent Passport — the career record: what an agent has been through.
@@ -54,7 +55,10 @@ export interface Badge {
 
 @Injectable()
 export class PassportService {
-  constructor(@InjectDataSource() private readonly db: DataSource) {}
+  constructor(
+    @InjectDataSource() private readonly db: DataSource,
+    private readonly evolution: EvolutionService,
+  ) {}
 
   async getPassport(agentId: string, fullHistory: boolean) {
     const agent = await this.loadAgent(agentId);
@@ -66,6 +70,15 @@ export class PassportService {
     const dna = await this.loadDna(agentId);
     const lineage = await this.loadLineage(agentId, agent.version);
     const badges = ranked ? await this.loadBadges(agentId, seasons, scores.series) : [];
+
+    // Only agents that actually have a lineage pay for the evolution read: it
+    // loads the market index, and most agents are a single version with nothing
+    // to compare.
+    const hasLineage =
+      lineage.ancestors.length > 0 || lineage.descendants.length > 0;
+    const evolution = hasLineage
+      ? await this.evolution.getEvolution(agentId)
+      : null;
 
     const totalTicks = seasons.reduce((a, s) => a + s.ticks, 0);
 
@@ -123,6 +136,11 @@ export class PassportService {
       },
       dna,
       lineage,
+      // Present only when there is more than one version. The full comparison
+      // also lives at GET /v1/agents/:id/evolution.
+      evolution: evolution
+        ? { versions: evolution.versions, comparisons: evolution.comparisons, caveat: evolution.caveat }
+        : null,
       badges,
     };
   }
