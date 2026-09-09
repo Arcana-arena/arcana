@@ -163,7 +163,8 @@ keep working when auth is misconfigured (§5).
 | `GET /healthz` | 🌐 |
 | `GET /v1/agents`, `GET /v1/agents/:id` | 🌐 |
 | `GET /v1/agents/:id/passport` · `/dna` · `/dna/similar` · `/evolution` · `/autopsy` | 🌐 |
-| `GET /v1/creators`, `GET /v1/creators/:id` | 🌐 |
+| `GET /v1/agents/:id/series/score` · `/series/nav` · `/decisions` | 🌐 (see docs/series-endpoints.md) |
+| `GET /v1/creators`, `GET /v1/creators/:id`, `GET /v1/creators/:id/agents` | 🌐 |
 | `GET /v1/seasons`, `/:id` | 🌐 |
 | `GET /v1/competitions`, `/:id`, `/:id/ticks`, `/:id/tick/open` | 🌐 |
 | `GET /v1/auth/nonce` · `POST /v1/auth/verify` · `/refresh` · `/logout` | 🌐 (they are how you sign in) |
@@ -210,6 +211,7 @@ keep working when auth is misconfigured (§5).
 | `GET /v1/market/universe` · `/snapshots/{ref}` · `/snapshots/{ref}/previous` | 🌐 |
 | `POST /internal/v1/scoring/batch` | ⚙️ |
 | `POST /internal/v1/market/sessions/daily` · `/backfill` | ⚙️ |
+| `POST /internal/v1/market/snapshots/prices` | ⚙️ |
 | `POST /internal/v1/decisions/execute` · `/manual` | ⚙️ |
 
 ### Two endpoints that moved

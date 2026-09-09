@@ -117,6 +117,7 @@ func main() {
 	mux.HandleFunc("POST /internal/v1/market/sessions/backfill", guard.Wrap(srv.handleBackfill))
 	mux.HandleFunc("GET /v1/market/snapshots/{ref}", srv.handleGetSnapshot)
 	mux.HandleFunc("GET /v1/market/snapshots/{ref}/previous", srv.handlePreviousSnapshot)
+	mux.HandleFunc("POST /internal/v1/market/snapshots/prices", guard.Wrap(srv.handlePriceLookup))
 
 	log.Printf("market-data listening on :%s", port)
 	// Loopback only: layer one of the two protecting the machine tier (the
@@ -308,5 +309,39 @@ func writeError(w http.ResponseWriter, code int, errCode, message string) {
 			"message":  message,
 			"trace_id": "",
 		},
+	})
+}
+
+// handlePriceLookup resolves a batch of snapshot refs to their prices.
+//
+// Machine tier: it exists so agent-service can attach the price behind every
+// decision in one upstream call instead of one call per row. Refs that cannot
+// be read come back in "missing" rather than being dropped -- a trade rendered
+// without a price, when a price was expected, is a quiet lie.
+func (s *server) handlePriceLookup(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	var req struct {
+		Refs    []string `json:"refs"`
+		Symbols []string `json:"symbols"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+
+	snapshots, missing, err := s.svc.LookupPrices(ctx, req.Refs, req.Symbols)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "price_lookup_failed", err.Error())
+		return
+	}
+	if missing == nil {
+		missing = []string{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"snapshots": snapshots,
+		"missing":   missing,
 	})
 }

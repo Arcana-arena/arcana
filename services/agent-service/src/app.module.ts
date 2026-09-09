@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ArcanaAuthModule } from '@arcana/auth';
+import { SeriesModule } from './series/series.module';
 import { HealthController } from './health.controller';
 import { AuthModule } from './auth/auth.module';
 import { AgentsModule } from './agents/agents.module';
@@ -28,6 +29,7 @@ import { AutopsyModule } from './autopsy/autopsy.module';
     }),
     AuthModule,
     AgentsModule,
+    SeriesModule,
     CreatorsModule,
     SeasonsModule,
     CompetitionsModule,
