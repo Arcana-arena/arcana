@@ -184,6 +184,10 @@ export class AutopsyService {
           'Counterfactual estimate: idle cash at each tick multiplied by the market index return ' +
           'into the next tick. It assumes the cash could have been deployed at the market rate, ' +
           'which the agent never attempted — an estimate, not a measured loss.',
+        sign:
+          'POSITIVE means the idle cash would have gained at market rate, so holding it cost that ' +
+          'much. NEGATIVE means the market fell while the cash sat out, so staying in cash ' +
+          'sheltered the book by that amount — a negative "drag" is a benefit, not a loss.',
       },
       evidence: {
         ticks_paired: ticks.length - 1,
