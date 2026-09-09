@@ -1,0 +1,30 @@
+# arcana-backup.timer — one full backup a day.
+#
+# CADENCE: 04:30 UTC, chosen to sit clear of everything that writes:
+#   23:00 UTC  tick opens          (arcana-scheduler)
+#   23:30 UTC  score batch         (arcana-scoring-job)
+#   23:45 UTC  DNA batch           (arcana-agent-dna)
+#   01:00 / 03:00 UTC  scheduler idempotent retries
+#   09:00 UTC  subscription reminder
+#   10:00 UTC  creator payout
+#
+# 04:30 is after the last scheduler retry and before the daytime jobs, so a
+# backup captures a settled day rather than one mid-write. Nothing here takes a
+# lock on the database, so a collision would not corrupt anything — it would
+# just capture a moment that is harder to reason about.
+#
+# Persistent=true: a missed run (host down at 04:30) fires at the next boot. A
+# late backup is worth strictly more than no backup.
+#
+# RandomizedDelaySec keeps the upload off the exact minute every other host on
+# the internet picked, which matters once there is an off-site destination.
+[Unit]
+Description=Run the ARCANA full backup daily
+
+[Timer]
+OnCalendar=*-*-* 04:30:00 UTC
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

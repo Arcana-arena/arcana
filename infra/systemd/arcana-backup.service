@@ -1,0 +1,46 @@
+# arcana-backup.service — one full backup of the database and the snapshot
+# bucket. Invoked by arcana-backup.timer.
+#
+# WHY THIS EXISTS. Before it, the only backups on this host were manual dumps
+# taken before risky changes, and they were partial: --data-only, two tables.
+# Neither could rebuild a database from nothing, and all of them lived on the
+# machine they were meant to protect. The code is in git; the record is not, and
+# the record is the product.
+#
+# NO SECRETS IN THIS FILE. MinIO credentials are read from infra/docker/.env
+# (mode 600) by the script, and the off-site destination's credentials live in
+# .rclone.conf (mode 600). Only paths appear here.
+#
+# Overlap protection, the same two layers the other jobs use:
+#   1. systemd will not start a second instance while the first is activating.
+#   2. flock wraps the command, so the lock also covers a manual run.
+#
+# EXIT CODES follow arca-job.sh: 0 means the backup completed, non-zero means it
+# genuinely broke and cannot be trusted. A completed backup that could not leave
+# the host still exits 0 but logs an unmissable WARN block — see the script, and
+# docs/backup-restore.md for why that is a warning rather than a failure.
+[Unit]
+Description=ARCANA full backup (postgres + MinIO snapshots)
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+# Without this every journal line is attributed to flock, since flock is the
+# process systemd executes.
+SyslogIdentifier=arcana-backup
+WorkingDirectory=/home/ubuntu/arcana
+# Off-site destination. BACKUP_REMOTE is an rclone remote such as
+# "arcana-offsite:arcana-backups"; while it is empty the backup is taken but
+# stays on this host, and says so loudly every run.
+Environment=BACKUP_ROOT=/home/ubuntu/arcana-backups/automated
+Environment=BACKUP_REMOTE=
+Environment=RCLONE_CONFIG=/home/ubuntu/arcana/.rclone.conf
+Environment=KEEP_DAILY=7
+Environment=KEEP_WEEKLY=4
+ExecStart=/usr/bin/flock -n /tmp/arcana-backup.lock /home/ubuntu/arcana/infra/backup/arcana-backup.sh
+TimeoutStartSec=1800
+
+[Install]
+WantedBy=multi-user.target

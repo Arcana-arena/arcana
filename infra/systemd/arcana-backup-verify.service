@@ -1,0 +1,33 @@
+# arcana-backup-verify.service — restore the newest backup into a throwaway
+# database and check the row counts against the manifest.
+#
+# WHY THIS IS A SCHEDULED JOB and not a one-off check. A backup that has never
+# been restored is an assumption, and an assumption decays: an extension gets
+# added, a hypertable is created, a pg_dump flag stops being right, and the
+# first time anyone finds out is during an actual recovery. This runs the real
+# restore path weekly so that discovery happens on a Sunday morning instead of
+# on the worst day of the project.
+#
+# It is deliberately the same script an operator would run by hand during a
+# recovery (infra/backup/arcana-restore-test.sh), so the rehearsed path and the
+# real path cannot drift apart.
+#
+# SAFETY: the script creates and drops ${TEST_DB} only, and refuses to run if
+# that name equals the production database. Production is never written to.
+[Unit]
+Description=ARCANA backup restore verification (throwaway database)
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+SyslogIdentifier=arcana-backup-verify
+WorkingDirectory=/home/ubuntu/arcana
+Environment=BACKUP_ROOT=/home/ubuntu/arcana-backups/automated
+Environment=TEST_DB=arcana_restore_test
+ExecStart=/usr/bin/flock -n /tmp/arcana-backup-verify.lock /home/ubuntu/arcana/infra/backup/arcana-restore-test.sh
+TimeoutStartSec=1800
+
+[Install]
+WantedBy=multi-user.target

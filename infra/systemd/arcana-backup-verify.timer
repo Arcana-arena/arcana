@@ -1,0 +1,20 @@
+# arcana-backup-verify.timer — rehearse the recovery once a week.
+#
+# CADENCE: Sundays at 05:30 UTC, an hour after that morning's backup, so it
+# verifies a fresh archive. Sunday's archive is also the one promoted into the
+# weekly retention set, which makes the copy kept longest the copy proven most
+# recently.
+#
+# Persistent=true so a missed week is caught at the next boot rather than
+# silently skipped — an unverified backup is exactly the state this job exists
+# to prevent.
+[Unit]
+Description=Verify the newest ARCANA backup restores cleanly
+
+[Timer]
+OnCalendar=Sun *-*-* 05:30:00 UTC
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target
