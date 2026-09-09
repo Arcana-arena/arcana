@@ -136,10 +136,10 @@ seasons would need the column — flagged here rather than papered over.
 Named so the gap is a decision rather than an oversight. All of it belongs to
 **Agent Passport 2.0 (June 2027)**:
 
-- **A real evolution timeline.** Lineage renders whatever `parent_agent_id`
-  chain exists, but the Agent Evolution flow that creates those links is not
-  built (roadmap Jan 2027). There is no before/after performance comparison
-  across versions, which is the point of an evolution history.
+- **A deeper evolution timeline.** The version chain and a before/after
+  comparison now exist (see [agent-evolution.md](./agent-evolution.md)), but
+  they cannot separate an agent's improvement from its market: versions never
+  trade the same ticks. A same-window A/B is Evolution 2.0 work.
 - **Cross-season achievements.** Every badge is scoped to one season or to a
   recent window. "Improved three seasons running" needs history the platform
   does not have yet.
