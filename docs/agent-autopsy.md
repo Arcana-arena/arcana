@@ -127,9 +127,11 @@ is drawn only because the data supports it.
 Returned inside the payload as `not_analysed`, not merely documented here — a
 consumer should be able to see what is missing without knowing what to expect.
 
-**`sector_rotation`** — the universe is two symbols (AAPL, MSFT) and no sector
-classification exists anywhere in the schema. Any sector analysis would be
-invented.
+**`sector_rotation`** — the *data* blocker is gone: the universe is now 50
+symbols across 11 GICS sectors and every snapshot quote carries its sector
+(`services/market-data/universe/`). What is missing is the analysis itself, which
+is Autopsy 2.0 work rather than a schema gap. It also needs enough real-market
+history for a rotation to be distinguishable from a few coincidental trades.
 
 **`thesis_failure`** — `decisions.rationale` is populated for **every** row
 (324 buys, 110 sells, 478 holds, none empty), which makes this the tempting one.
@@ -139,15 +141,39 @@ the future to test against the outcome, so testing one would mean inventing the
 thesis first. Analysing "thesis failure" here would be analysing a thesis nobody
 made.
 
-## The caveat every response carries
+## The caveat is derived from the data, not hardcoded
 
-> The market these decisions were made in is a simulator whose trend behaviour
-> ARCANA calibrated itself. Findings describe conduct in that market and do not
-> carry to a real one.
+Autopsy no longer carries a fixed caveat. It reports `market_provenance` — the
+sources of the snapshots the analysis actually read — and writes the caveat from
+that:
 
-That is not boilerplate. The drift strength, the trend block length and the noise
-band were all chosen by this project (see [data-resets.md](./data-resets.md)),
-so a timing result partly measures the simulator.
+| Sources read | Caveat |
+|---|---|
+| `["polygon"]` | *"Prices came from polygon — real market data. Findings describe conduct in the real market, within the limits listed under not_analysed."* |
+| `["simulator"]` | The full simulator caveat below. |
+| both | The simulator caveat, because a mixture is only as trustworthy as its worst part. |
+
+The simulator text, which still applies to **Season 1 and only Season 1**:
+
+> Some or all of the decisions analysed were made against a SIMULATOR whose
+> trend behaviour ARCANA calibrated itself. Findings describe conduct in that
+> market and do not carry to a real one.
+
+That was never boilerplate: the drift strength, trend block length and noise band
+were all chosen by this project (see [data-resets.md](./data-resets.md)), so a
+timing result from that era partly measures the simulator. It stays true of
+Season 1's archived data forever, and stops being true the moment an agent's
+analysis is drawn from vendor prices.
+
+**Deriving it is the point.** A hardcoded caveat is wrong the moment the data
+changes and nobody remembers to edit it — and a stale caveat is not a harmless
+leftover, it is a false statement about evidence.
+
+Autopsy also now scopes to an agent's **most recent season**. Before the vendor
+switchover it read an agent's entire history, which was right while there was
+only one market; with Season 1 on simulator prices and Season 2 on real ones, an
+unscoped analysis would average conduct in two different worlds and present the
+mean as a measurement.
 
 ---
 
@@ -155,8 +181,9 @@ so a timing result partly measures the simulator.
 
 For **Agent Autopsy 2.0 (Feb 2027)**:
 
-- **Sector rotation**, once the universe has more than two symbols and a sector
-  classification exists.
+- **Sector rotation** — no longer blocked on data (50 symbols, 11 sectors, sector
+  on every quote), only on the analysis and on enough real-market history to tell
+  a rotation from a coincidence.
 - **Thesis analysis**, once agents state a thesis distinguishable from the rule
   that fired — which is a Decision Engine change, not an analysis one.
 - **Attribution that separates trading from composition.** Today the volatility

@@ -157,10 +157,32 @@ The `/dna` response returns a readable summary plus the 8 named features, never
 
 ## Schedule
 
-`arcana-agent-dna.timer` → `arcana-agent-dna.service`, **daily at 11:00 UTC**
-(18:00 WIB). DNA is an average over an agent's whole history, so one more tick
-barely moves it; recomputing more often would re-read every market snapshot to
-produce nearly the same vector. See [scheduling.md](./scheduling.md).
+`arcana-agent-dna.timer` → `arcana-agent-dna.service`, **daily at 23:45 UTC**,
+after the day's tick (23:00) and the score batch (23:30). DNA is an average over
+an agent's recorded history, so one more tick barely moves it; recomputing more
+often would re-read every market snapshot to produce nearly the same vector.
+
+It ran at 11:00 UTC while ticks arrived every minute and any hour was as good as
+any other. With [one tick per trading day](./market-data.md#cadence-one-tick-per-trading-day)
+there is exactly one moment when new conduct exists to fingerprint, and 11:00
+would have described the market as of the previous evening for the whole day.
+See [scheduling.md](./scheduling.md).
+
+## Which market a fingerprint describes
+
+DNA is computed over the agent's **most recent season**, not its entire career.
+
+Before the vendor switchover it read everything, which was right while there was
+only ever one market. It is wrong now: Season 1 ran on simulator prices and
+Season 2 runs on real ones, so an unscoped fingerprint would average conduct in
+two different worlds and present the mean as a measurement — and the simulator
+caveat would become unremovable, because part of the number really would still
+come from the simulator.
+
+The market index that DNA reads is scoped by snapshot source for the same reason:
+a backfilled vendor snapshot dated in July and a simulator snapshot dated in
+September interleave by timestamp, and the "return" between them is not a return
+at all. See [market-data.md](./market-data.md#provenance-on-every-snapshot).
 
 ---
 

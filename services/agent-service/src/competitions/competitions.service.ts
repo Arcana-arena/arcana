@@ -164,7 +164,11 @@ export class CompetitionsService {
     }
 
     const snapshot = await this.competitions.manager.query(
-      `SELECT ingest_mode, source, trading_date
+      // trading_date is cast in SQL rather than formatted in JS: the driver
+      // hands back a Date, whose default string form carries the SERVER's
+      // timezone ("Fri Sep 04 2026 00:00:00 GMT+0700") into a message about a
+      // US market session. The session date is a calendar fact, not an instant.
+      `SELECT ingest_mode, source, to_char(trading_date, 'YYYY-MM-DD') AS trading_date
          FROM market_snapshots WHERE ref = $1`,
       [marketSnapshotRef],
     );

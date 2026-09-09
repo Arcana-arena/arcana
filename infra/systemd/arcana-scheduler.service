@@ -1,9 +1,13 @@
 # arcana-scheduler.service — advances the active human_vs_ai competition by one
 # tick per invocation (see arcana-scheduler.timer).
 #
-# COMPETITION_ID: the human_vs_ai competition currently running on the VPS
-# (3f444e70...). To schedule additional competitions add another unit instance
-# (copy this file, change COMPETITION_ID + unit name) or edit this id.
+# COMPETITION_ID: the human_vs_ai competition currently running on the VPS --
+# Season 2 (d0653071...), the first season on real vendor prices. Season 1
+# (3f444e70...) is archived and its competitions are marked completed; the
+# scheduler no-ops on a completed competition, so pointing here is what actually
+# stops the old season rather than the archive flag alone.
+# To schedule additional competitions add another unit instance (copy this file,
+# change COMPETITION_ID + unit name and the lock path) or edit this id.
 #
 # CADENCE: one tick per US trading day -- 23:00 UTC with idempotent retries at
 # 01:00 and 03:00 (see arcana-scheduler.timer). When the market was closed the
@@ -40,7 +44,7 @@ Environment=AGENT_SERVICE_URL=http://localhost:3001
 Environment=DECISION_ENGINE_URL=http://localhost:8081
 Environment=MARKET_DATA_URL=http://localhost:8083
 Environment=SCORING_URL=http://localhost:8082
-Environment=COMPETITION_ID=3f444e70-d131-4457-92c7-f1363e22ba6e
+Environment=COMPETITION_ID=d0653071-67e5-4302-ac78-afe2e1130d89
 # Human submission window: 1 hour. With ticks at 23:00 UTC and retries at 01:00
 # and 03:00, a tick opened at 23:00 stays open for humans and is closed by the
 # 01:00 run. Four minutes made sense against a 1-minute timer; against a daily

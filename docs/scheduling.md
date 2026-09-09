@@ -24,31 +24,57 @@ Units live in [`infra/systemd/`](../infra/systemd/):
 | Unit | Kind | Schedule | Purpose |
 |---|---|---|---|
 | `arcana-agent.service` | long-running | always | agent/creator/season/competition API (port 3001) |
-| `arcana-marketdata.service` | long-running | always | market snapshots + simulator (port 8083) |
+| `arcana-marketdata.service` | long-running | always | market snapshots read from the vendor (port 8083) |
 | `arcana-decision.service` | long-running | always | decision engine (port 8081) |
 | `arcana-scoring.service` | long-running | always | score API + batch endpoint (port 8082) |
 | `arcana-marketplace.service` | long-running | always | marketplace API (port 3002) |
 | `arcana-arca.service` | long-running | always | $ARCA entitlements, deposits, payments (port **3004** — 3003 is taken on this host) |
-| `arcana-scheduler.timer` → `arcana-scheduler.service` | oneshot | **every 1 min** | advance the competition one tick |
-| `arcana-scoring-job.timer` → `arcana-scoring-job.service` | oneshot | **every 5 min** | run the ARCANA Score batch |
+| `arcana-scheduler.timer` → `arcana-scheduler.service` | oneshot | **23:00, 01:00, 03:00 UTC** | advance the competition one tick per TRADING DAY (the two later runs are idempotent retries) |
+| `arcana-scoring-job.timer` → `arcana-scoring-job.service` | oneshot | **daily 23:30 UTC** | run the ARCANA Score batch, after the tick |
 | `arcana-arca-reminder.timer` → `arcana-arca-reminder.service` | oneshot | **daily 09:00 UTC** | $ARCA renewal pushes + `active→grace→expired` |
 | `arcana-arca-payout.timer` → `arcana-arca-payout.service` | oneshot | **daily 10:00 UTC** | $ARCA creator payout batch (80/20 split) |
-| `arcana-agent-dna.timer` → `arcana-agent-dna.service` | oneshot | **daily 11:00 UTC** | recompute Agent DNA fingerprints ([agent-dna.md](./agent-dna.md)) |
+| `arcana-agent-dna.timer` → `arcana-agent-dna.service` | oneshot | **daily 23:45 UTC** | recompute Agent DNA fingerprints ([agent-dna.md](./agent-dna.md)) |
 
 The $ARCA **deposit audit** (stranded-payment detection + retiring unfunded
 deposit addresses) has **no timer**: it runs inside `arcana-arca.service` on its
 own interval (`ARCA_AUDIT_INTERVAL_MS`, default 5 min). Do not add one — it
 would duplicate work already scheduled in-process.
 
-## Schedules (demo cadence — change for production)
+## Schedules
 
-- **Scheduler: every 1 minute** (`OnCalendar=*-*-* *:*:00`). Short on purpose for
-  demo/testing. Human window per tick is 4 minutes
-  (`HUMAN_WINDOW=4m` in `arcana-scheduler.service`), so a tick opened at T stays
-  open across four 1-minute invocations (which no-op while inside the window)
-  and is closed at T+4m.
-- **Scoring: every 5 minutes** (`OnCalendar=*-*-* *:00/5:00`). Frequent enough to
-  reflect new ticks, sparse enough to avoid recomputing unchanged portfolios.
+- **Scheduler: 23:00 UTC, retried at 01:00 and 03:00 UTC.** One tick per US
+  trading day. 23:00 is after the close in both DST regimes (21:00 UTC under
+  EDT, 22:00 under EST), leaving the vendor's end-of-day aggregation time to
+  settle. The two later runs are **idempotent retries**, not extra ticks: all
+  three resolve to the same trading session, the snapshot ref is derived from
+  the session date, and the scheduler checks whether that ref already carries a
+  tick — so after a successful 23:00 run they cost one no-op each. They exist
+  because a missed session is a day of the competition that cannot be recovered
+  later; a scored season only runs forward.
+
+  Human window per tick is **1 hour** (`HUMAN_WINDOW=1h`), so a tick opened at
+  23:00 is closed by the 01:00 run. Four minutes made sense against a 1-minute
+  timer; against a daily tick it would have shut the window before any human in
+  any timezone saw it.
+
+  `Persistent=false` is deliberate: a run missed because the host was down is a
+  session that has *passed*, and firing it late would open a tick against a
+  snapshot taken well after the fact — the replay this design refuses
+  ([market-data.md](./market-data.md#backfill-vs-replay--the-line)).
+
+  **Market closed → no tick at all**, and the unit exits 0. A day with no trading
+  is not a failure. A vendor fault is different: exit non-zero, no tick, and the
+  season stays paused until someone looks.
+
+  The previous cadence was **every 1 minute**, which produced 252 ticks in 17
+  hours and, against a real market, would have had agents "trading" at 03:00 on
+  a Sunday at prices that were not moving because nothing was moving them.
+
+- **Scoring: daily 23:30 UTC**, half an hour after the tick. It ran every 5
+  minutes while ticks arrived every minute; with one tick per trading day that
+  would be 288 runs a day recomputing identical inputs, each appending a score
+  row per agent and making a chart's density a function of the cron interval
+  rather than of the market.
 - **$ARCA reminder: daily 09:00 UTC** (16:00 WIB). Once a day matches the
   granularity of the stages themselves — H-3 / H-1 / H-0, each sent at most once
   per subscription — so a tighter interval would only re-scan rows already
@@ -61,11 +87,13 @@ would duplicate work already scheduled in-process.
   money already sitting in the treasury. To switch:
   `OnCalendar=Mon *-*-* 10:00:00 UTC`. The hour is deliberate too — this moves
   real funds, and a failure needs a person awake to see it.
-- **Agent DNA: daily 11:00 UTC** (18:00 WIB). The fingerprint averages an
-  agent's whole recorded history, so one more tick barely moves it; running more
-  often would re-read every market snapshot to produce nearly the same vector.
-  An hour after the payout batch so the daily jobs never overlap. See
-  [agent-dna.md](./agent-dna.md).
+- **Agent DNA: daily 23:45 UTC**, after the tick (23:00) and the score batch
+  (23:30). The fingerprint averages an agent's recorded history in its current
+  season, so one more tick barely moves it; running more often would re-read
+  every market snapshot to produce nearly the same vector. It ran at 11:00 UTC
+  when ticks arrived every minute and any hour was as good as any other; with one
+  tick per trading day there is exactly one moment when new conduct exists to
+  fingerprint. See [agent-dna.md](./agent-dna.md).
 
 Both $ARCA timers use `Persistent=true`, so a run missed while the VPS was down
 fires at the next boot. A late reminder still helps a user renew, and the payout
@@ -98,9 +126,8 @@ When the token does launch, follow [arca-go-live.md](./arca-go-live.md) — whic
 variables to fill, from where, and what to verify before real users can
 subscribe.
 
-For a realistic production cadence (e.g. hourly ticks, daily post-market score),
-edit the `[Timer] OnCalendar=` lines and the `HUMAN_WINDOW` in the service file,
-then:
+To change the cadence, edit the `[Timer] OnCalendar=` lines and the
+`HUMAN_WINDOW` in the service file, then:
 
 ```bash
 sudo systemctl daemon-reload
@@ -175,20 +202,39 @@ systemctl list-units --failed | grep arcana
 journalctl -u arcana-scheduler.service -f
 ```
 
-A healthy scheduler log shows a repeating cycle like:
+A healthy scheduler log shows one cycle per trading day:
 
 ```
-tick 5 opened for 3f444e70-...          # phase 1
-tick 5 left open for human submissions  # humans can submit
-tick 5 closed for 3f444e70-...          # after the 4m window
+session 2026-09-08: snapshot-20260908-eod (polygon, 50 symbols, live)
+tick 12 opened for d0653071-...
+AI agent ... executed
+tick 12 left open for human submissions (window 1h)
+tick 12 closed for d0653071-...          # by the 01:00 run
 ```
 
-A healthy scoring log shows `{"processed":3,"skipped":0}` every five minutes.
+On a weekend or a market holiday, the same run says so and stops:
+
+```
+market closed today; no session, no tick for d0653071-...
+```
+
+That exits **0**. A day with no trading is not a failure. What is a failure looks
+like this, exits non-zero, and opens no tick:
+
+```
+ERROR: could not obtain today.s market snapshot: ... - no tick opened, competition paused
+```
+
+A healthy scoring log shows `{"processed":N,"skipped":0}` once a day at 23:30.
 
 ## Known VPS state
 
-- `systemctl is-system-running` reports `degraded` because of an unrelated
-  failing unit (`orvix-treasury-health.service`); no ARCANA unit fails.
+- Orvix is decommissioned (2026-09-09): its units are stopped and disabled and
+  its PM2 process removed, so the host no longer reports `degraded` from
+  `orvix-treasury-health.service`. `/opt/orvix` is deliberately retained — see
+  the shutdown notes in that task's report; it holds live treasury wallet
+  addresses and Supabase credentials for a ledger that may still owe third
+  parties.
 - Marketplace discovery reads `score_snapshots` live (DISTINCT ON latest per
   agent), so its displayed score advances with every scoring run with no manual
   trigger.

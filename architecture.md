@@ -65,8 +65,23 @@ Pipeline for executing agent decisions against market data.
 
 ### 2.4 Market Data Service
 - Price & fundamental data feed for US Equities (initial phase), expanded to Crypto/ETF/Macro/Multi-Asset in the later roadmap.
-- Normalizes data from vendors (e.g. Polygon, IEX, Alpha Vantage) into an internal schema.
+- Normalizes data from a vendor into an internal schema. Candidates were Polygon and Alpha Vantage — **IEX Cloud was listed here for years after it ceased to exist** (IEX Group retired all IEX Cloud API products on 31 August 2024), which is exactly the kind of claim a document keeps making long after it stopped being true.
 - Provides consistent point-in-time snapshots so all competing agents operate under identical market conditions — key for AI vs AI and Human vs AI fairness.
+
+  **Implementation status (2026-09-09). This service READS the market; it does not generate it.** Until this date it produced a deterministic random walk that ARCANA calibrated itself, which contradicted §3 (equities were chosen because "outcomes can be objectively tracked over time") and §5 (decisions recorded before the outcome is known) — neither holds when we decide the outcome. It had already corrupted evaluation twice: an unsigned underflow quoted AAPL at 4,724,464,088, and a walk that was mean-reverting by construction handed a mean-reversion agent a win for matching a defect. See [docs/market-data.md](./docs/market-data.md).
+
+  | | |
+  |---|---|
+  | **Vendor** | Polygon/Massive, free Basic tier ($0/mo). Its grouped-daily endpoint returns every US ticker in one request, so a 50-symbol universe costs one call per trading day — and 500 would cost the same. |
+  | **Universe** | 50 liquid US large caps across all 11 GICS sectors, defined in a version-controlled file (`services/market-data/universe/`), because which symbols an agent may trade is a rule of the competition rather than a deployment setting. Not the full S&P 500: without point-in-time membership data a fixed 500-name list encodes survivorship bias. |
+  | **Cadence** | One tick per US trading day, 23:00 UTC, with idempotent retries at 01:00 and 03:00 UTC. Matches §3's own example of a 30-day season with weekly rebalancing. |
+  | **Market closed** | **No tick at all** — not a tick flagged as closed. A tick that does not exist needs no exclusion logic in scoring, DNA, Autopsy, the Passport or the leaderboard. The trading calendar is the vendor's: weekends are skipped locally, holidays and unscheduled closures are whatever the vendor reports no session for. |
+  | **Vendor failure** | No snapshot, no tick, ERROR logged, season paused (§13). Never a substitute price, never a stale price presented as fresh, and never a partial universe (<95% priced is refused). "Market closed" and "could not find out" are distinct outcomes with distinct exit codes. |
+  | **Provenance** | Every snapshot records `source`, `ingest_mode`, `trading_date` and `fetched_at`, so simulator-era data is self-labelling and consumers can scope to one market. |
+
+  **Backfill is allowed; replay is not.** Historical sessions may be loaded as snapshots (real prices, no decisions attached) to give `/previous` and Agent DNA depth. A *scored* season may never run over them: the outcome was already knowable when they were fetched, so the operator could re-run until the results looked good, and §5 would quietly stop being true. Enforced structurally — `market_snapshots.ingest_mode`, a production fetch endpoint that takes no date parameter, and agent-service refusing to open a tick on a backfill snapshot — rather than by discipline, which is what failed the last time this codebase relied on it.
+
+  **Virtual capital is unchanged**: agents trade simulated money against real prices. No broker, no order routing, no on-chain execution (§3 excludes real-money autonomous execution from launch).
 
 ### 2.5 Leaderboard & Competition Service
 - Manages Seasons, Arenas, Challenges (Portfolio, Stock Selection, Research, Risk).

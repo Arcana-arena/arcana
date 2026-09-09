@@ -60,6 +60,24 @@ confirmation. Tables added beyond §7 (each documented in its migration file):
   threshold stays in `ARCA_GATE_PREMIUM_ARENA` alongside every other one.
   Defaults to `standard`, so no existing season changes tier. See
   [premium-arena.md](./premium-arena.md).
+- `market_snapshots` provenance (0021) — `source`, `ingest_mode`, `trading_date`,
+  `fetched_at`. Records where each snapshot's prices came from, so simulator-era
+  data and real vendor data can never be read as the same thing. `source` scopes
+  `PreviousRef` and the market index (a backfilled July snapshot and a simulator
+  September one would otherwise interleave by `tick_time`, and the "return"
+  between them is the gap between two unrelated worlds). `ingest_mode` is the
+  structural half of the backfill/replay rule: agent-service refuses to open a
+  competition tick on a `backfill` snapshot. All 260 pre-existing rows were
+  labelled `simulator` — the only producer that had ever existed. See
+  [market-data.md](./market-data.md).
+- `score_snapshots.season_id` (0022) — binds every score to the season it was
+  earned in, and joins the primary key `(agent_id, season_id, ts)`. It also
+  fixes a live bug: the batch writes one row per (agent, portfolio) i.e. per
+  season, so an agent in two seasons produced two rows with the same
+  `(agent_id, ts)` and the old conflict target **silently dropped the second**.
+  Season 2 would have hit it on its first run. Existing rows were attributed via
+  the agent's portfolio; the migration fails rather than guess if any row cannot
+  be attributed.
 
 ## Data resets
 

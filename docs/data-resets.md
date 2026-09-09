@@ -141,3 +141,86 @@ plan — including the author of this file, who missed it once already.
 > **For any future reset: `decisions` and `market_snapshots` are a pair.**
 > Retire the decisions first, then the snapshots they cited. The constraint will
 > refuse the other order, which is the point.
+
+---
+
+## 2026-09-09 — Season 1 ARCHIVED (not deleted) for the vendor switchover
+
+This entry is in a file about deletions because it is the decision **not** to
+delete, and that deserves the same record.
+
+### Why the question arose
+
+Market-data switched from a price simulator to real vendor prices
+([market-data.md](./market-data.md)). Every row Season 1 ever produced was
+measured against generated prices. Letting those scores, fingerprints and
+Autopsy findings sit in one series with real-market ones would compare two
+different worlds as though they were one.
+
+### Why archive rather than reset
+
+The 2026-09-09 reset above deleted data because the numbers were **meaningless**
+— a NAV of 2.36 trillion is not a measurement to interpret carefully, it is
+nonsense that kept surfacing on the leaderboard. Season 1's data is different:
+it is **true about a simulated market**. That is a real distinction, and it calls
+for labelling rather than deletion.
+
+Two further reasons:
+
+- Deleting would mean removing 1,016 decisions and 260 snapshots in the correct
+  order under the 0019 foreign key. That sequence has already been got wrong
+  once, in the reset above, and it orphaned 26 decisions.
+- The simulator caveat on Autopsy and DNA needs its subject matter to still
+  exist. A caveat about data nobody can look at is unfalsifiable.
+
+### What changed
+
+| Table | Action |
+|---|---|
+| `seasons` | Season 1 `end_at` set to now. `start_at` corrected from `2026-10-01` (a **future** date it had been running a month ahead of — see the season-window bug below) to its first recorded tick, `2026-09-08`. |
+| `competitions` | Season 1's two competitions marked `completed`. The scheduler no-ops on a completed competition. |
+| `market_snapshots` | All 260 rows labelled `source='simulator'` by migration 0021. Nothing deleted. |
+| `score_snapshots` | All 1,132 rows attributed to their season by migration 0022. Nothing deleted. |
+| everything else | Untouched. Decisions, portfolios, portfolio snapshots, ticks and DNA all remain. |
+
+Also removed, and this **was** a deletion: two competitions
+(`e9347826…`, `fab766cc…`) created purely to verify the Premium Arena gate a few
+hours earlier. Both were `pending` with no ticks, decisions or portfolios.
+Removed while their origin was still known — this project has twice been bitten
+by test artefacts outliving the memory of why they existed.
+
+### Season 2
+
+`Season 2 - US Equities (real market)`, the same agent identities as Season 1
+(the precedent set by the reset above: history accumulates under one identity
+rather than as new agents), on the 50-symbol real universe.
+
+### Backup
+
+Taken before the migrations, on the VPS at:
+
+```
+~/arcana-backups/pre-vendor-switchover-20260909T115358Z/
+  score_snapshots.csv (1132)  market_snapshots.csv (260)  decisions.csv (1040)
+  portfolio_snapshots.csv (1066)  portfolios.csv (7)  competition_ticks.csv (260)
+  competitions.csv (4)  seasons.csv (3)
+```
+
+Unlike the reset backups, this one is a precaution rather than a quarantine: the
+data it copies is still live in the database.
+
+### The season-window bug this exposed
+
+Season 1 declared `2026-10-01 .. 2026-12-31` and had been running since
+2026-09-08 — **a month before its own declared start**. Nothing anywhere enforces
+a season's date window: the scheduler advances whatever competition it is pointed
+at, and the Passport already worked around it explicitly ("the declared window is
+a plan", "the agent's own first and last recorded tick is the evidence").
+
+Left unenforced for now, deliberately. Enforcing it would have to answer what
+happens to a tick that arrives outside the window — refuse it, and an operator
+error silently halts a season; accept and flag it, and every consumer needs the
+flag. That is a competition-rules decision, not a bug fix, and with one tick per
+trading day the window is now a meaningful constraint worth designing properly
+rather than bolting on during a data migration. Season 1's dates were corrected
+so the archived record is at least truthful about itself.
