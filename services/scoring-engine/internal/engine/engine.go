@@ -55,13 +55,15 @@ func (e *Engine) ScoreAgent(ctx context.Context, agentID, seasonID string) error
 }
 
 // LatestScore returns the most recent score snapshot for an agent.
-func (e *Engine) LatestScore(ctx context.Context, agentID string) (*store.ScoreRow, error) {
-	return e.store.LatestScore(ctx, agentID)
+// seasonID scopes it to one season ("" = whichever season scored most recently).
+func (e *Engine) LatestScore(ctx context.Context, agentID, seasonID string) (*store.ScoreRow, error) {
+	return e.store.LatestScore(ctx, agentID, seasonID)
 }
 
 // ScoreHistory returns the agent's score series (see store.ScoreHistory).
-func (e *Engine) ScoreHistory(ctx context.Context, agentID string, from, to *time.Time, daily bool) ([]store.ScoreHistoryPoint, error) {
-	return e.store.ScoreHistory(ctx, agentID, from, to, daily)
+// seasonID scopes the series to one season ("" = every season).
+func (e *Engine) ScoreHistory(ctx context.Context, agentID, seasonID string, from, to *time.Time, daily bool) ([]store.ScoreHistoryPoint, error) {
+	return e.store.ScoreHistory(ctx, agentID, seasonID, from, to, daily)
 }
 
 // Leaderboard returns the latest score per agent sorted by a category column.
@@ -146,7 +148,7 @@ func (e *Engine) scoreAgent(ctx context.Context, ap store.AgentPortfolio) error 
 	})
 	ts := time.Now().UTC().Truncate(time.Second)
 
-	return e.store.WriteScoreSnapshot(ctx, ap.AgentID, ts, f.toMap())
+	return e.store.WriteScoreSnapshot(ctx, ap.AgentID, ap.SeasonID, ts, f.toMap())
 }
 
 // mustParse converts a NUMERIC string to float64, ignoring parse errors (0).

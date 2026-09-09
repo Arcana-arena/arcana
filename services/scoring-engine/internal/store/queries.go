@@ -164,16 +164,23 @@ func (s *Store) DecisionMixFor(ctx context.Context, agentID, seasonID string) (D
 	return m, nil
 }
 
-// WriteScoreSnapshot inserts a score row (idempotent per agent/timestamp).
-func (s *Store) WriteScoreSnapshot(ctx context.Context, agentID string, ts time.Time, factors map[string]*float64) error {
+// WriteScoreSnapshot inserts a score row (idempotent per agent/season/timestamp).
+//
+// season_id is part of the conflict target, not decoration. The batch scores one
+// row per (agent, portfolio), and a portfolio belongs to a season — so an agent
+// competing in two seasons produces two rows in the same run with the same ts.
+// Under the old `ON CONFLICT (agent_id, ts)` the second was SILENTLY DROPPED:
+// the newer season would simply never score, and nothing anywhere would say so.
+// Season 2 would have hit this on its first batch run.
+func (s *Store) WriteScoreSnapshot(ctx context.Context, agentID, seasonID string, ts time.Time, factors map[string]*float64) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO score_snapshots (
-			agent_id, ts, arcana_score,
+			agent_id, season_id, ts, arcana_score,
 			performance_score, risk_score, strategy_score, regime_score,
 			consistency_score, creator_score, longevity_score
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		ON CONFLICT (agent_id, ts) DO NOTHING`,
-		agentID, ts,
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		ON CONFLICT (agent_id, season_id, ts) DO NOTHING`,
+		agentID, seasonID, ts,
 		factors["arcana"], factors["performance"], factors["risk"],
 		factors["strategy"], factors["regime"], factors["consistency"],
 		factors["creator"], factors["longevity"])
@@ -186,6 +193,7 @@ func (s *Store) WriteScoreSnapshot(ctx context.Context, agentID string, ts time.
 // ScoreRow is one persisted score snapshot.
 type ScoreRow struct {
 	AgentID         string     `json:"agent_id"`
+	SeasonID        string     `json:"season_id"`
 	TS              time.Time  `json:"ts"`
 	ArcanaScore     *float64   `json:"arcana_score"`
 	PerformanceScore *float64  `json:"performance_score"`
@@ -197,20 +205,30 @@ type ScoreRow struct {
 	LongevityScore  *float64   `json:"longevity_score"`
 }
 
-// LatestScore returns the newest score snapshot for an agent.
-// Note: score_snapshots has no season column; per-season filtering is not
-// supported yet (an agent's latest score covers its most recent season run).
-func (s *Store) LatestScore(ctx context.Context, agentID string) (*ScoreRow, error) {
+// LatestScore returns the newest score snapshot for an agent, optionally scoped
+// to one season (migration 0022 added the column this needs; the note that used
+// to sit here saying per-season filtering was unsupported is now obsolete).
+func (s *Store) LatestScore(ctx context.Context, agentID, seasonID string) (*ScoreRow, error) {
 	q := `
-		SELECT agent_id, ts, arcana_score, performance_score, risk_score,
+		SELECT agent_id, season_id, ts, arcana_score, performance_score, risk_score,
 		       strategy_score, regime_score, consistency_score, creator_score, longevity_score
 		FROM score_snapshots
 		WHERE agent_id = $1
 		ORDER BY ts DESC LIMIT 1`
+	args := []any{agentID}
+	if seasonID != "" {
+		q = `
+		SELECT agent_id, season_id, ts, arcana_score, performance_score, risk_score,
+		       strategy_score, regime_score, consistency_score, creator_score, longevity_score
+		FROM score_snapshots
+		WHERE agent_id = $1 AND season_id = $2
+		ORDER BY ts DESC LIMIT 1`
+		args = append(args, seasonID)
+	}
 
 	var srow ScoreRow
-	err := s.pool.QueryRow(ctx, q, agentID).Scan(
-		&srow.AgentID, &srow.TS, &srow.ArcanaScore, &srow.PerformanceScore,
+	err := s.pool.QueryRow(ctx, q, args...).Scan(
+		&srow.AgentID, &srow.SeasonID, &srow.TS, &srow.ArcanaScore, &srow.PerformanceScore,
 		&srow.RiskScore, &srow.StrategyScore, &srow.RegimeScore,
 		&srow.ConsistencyScore, &srow.CreatorScore, &srow.LongevityScore,
 	)
@@ -232,6 +250,10 @@ type LeaderboardEntry struct {
 	StrategyScore   *float64   `json:"strategy_score"`
 	LongevityScore  *float64   `json:"longevity_score"`
 	UpdatedAt       time.Time  `json:"updated_at"`
+	// The season this score was earned in. Present so a cross-season board
+	// cannot present two different markets as one ranking.
+	SeasonID        string     `json:"season_id"`
+	SeasonName      string     `json:"season_name"`
 }
 
 // LeaderboardSortColumn maps a leaderboard category to a score column.
@@ -252,7 +274,13 @@ var LeaderboardSortColumn = map[string]string{
 // alone rather than folded into an unrelated change.
 
 // Leaderboard returns the latest score per agent, sorted by the given column.
-// When seasonID is non-empty only agents with a portfolio in that season rank.
+// When seasonID is non-empty only scores EARNED in that season rank.
+//
+// Unfiltered, this ranks each agent by its most recent score whichever season
+// that came from. Every row therefore carries season_id and season_name: a
+// cross-season board compares agents measured in different markets -- Season 1
+// ran on simulator prices, Season 2 on real ones -- and that has to be visible
+// rather than implied by a rank.
 func (s *Store) Leaderboard(ctx context.Context, sortColumn, seasonID string, limit, offset int) ([]LeaderboardEntry, error) {
 	// Validate sort column against allow-list to avoid SQL injection.
 	if _, ok := LeaderboardSortColumn[sortColumn]; !ok {
@@ -260,28 +288,33 @@ func (s *Store) Leaderboard(ctx context.Context, sortColumn, seasonID string, li
 	}
 	col := LeaderboardSortColumn[sortColumn]
 
+	// Scoping by score_snapshots.season_id rather than by joining portfolios
+	// (migration 0022). The join answered "did this agent hold a portfolio in
+	// that season", which is not the same question as "was this score earned
+	// there" — with two seasons it would have shown an agent's Season 2 score on
+	// the Season 1 board simply because it competed in both.
 	seasonFilter := ""
 	args := []any{limit, offset}
 	if seasonID != "" {
-		seasonFilter = `
-			JOIN portfolios p ON p.agent_id = l.agent_id AND p.season_id = $3`
+		seasonFilter = ` WHERE season_id = $3`
 		args = append(args, seasonID)
 	}
 
 	q := fmt.Sprintf(`
 		WITH latest AS (
-			SELECT DISTINCT ON (agent_id) agent_id, ts,
+			SELECT DISTINCT ON (agent_id) agent_id, season_id, ts,
 			       arcana_score, performance_score, risk_score,
 			       consistency_score, strategy_score, longevity_score
-			FROM score_snapshots
+			FROM score_snapshots%s
 			ORDER BY agent_id, ts DESC
 		)
 		SELECT l.agent_id, COALESCE(a.name, ''), l.arcana_score,
 		       l.performance_score, l.risk_score, l.consistency_score,
-		       l.strategy_score, l.longevity_score, l.ts
+		       l.strategy_score, l.longevity_score, l.ts,
+		       l.season_id, COALESCE(s.name, '')
 		FROM latest l
 		LEFT JOIN agents a ON a.id = l.agent_id
-		%s
+		LEFT JOIN seasons s ON s.id = l.season_id
 		WHERE l.%s IS NOT NULL
 		  -- A NULL arcana_score marks an agent that has not competed enough to
 		  -- be measured (see engine.minParticipationDecisions). It is excluded
@@ -303,7 +336,8 @@ func (s *Store) Leaderboard(ctx context.Context, sortColumn, seasonID string, li
 		var e LeaderboardEntry
 		if err := rows.Scan(&e.AgentID, &e.AgentName, &e.ArcanaScore,
 			&e.PerformanceScore, &e.RiskScore, &e.ConsistencyScore,
-			&e.StrategyScore, &e.LongevityScore, &e.UpdatedAt); err != nil {
+			&e.StrategyScore, &e.LongevityScore, &e.UpdatedAt,
+			&e.SeasonID, &e.SeasonName); err != nil {
 			return nil, err
 		}
 		out = append(out, e)
@@ -328,9 +362,17 @@ type ScoreHistoryPoint struct {
 
 // ScoreHistory returns an agent's score snapshots within [from,to], optionally
 // bucketed by day (granularity=daily takes the last snapshot of each day).
-func (s *Store) ScoreHistory(ctx context.Context, agentID string, from, to *time.Time, daily bool) ([]ScoreHistoryPoint, error) {
+// seasonID scopes the series to one season; "" returns every season, which is
+// only meaningful when the caller knows the agent competed in one. A chart that
+// silently splices a Season 1 score (simulator prices) onto a Season 2 score
+// (real prices) draws one line through two different markets.
+func (s *Store) ScoreHistory(ctx context.Context, agentID, seasonID string, from, to *time.Time, daily bool) ([]ScoreHistoryPoint, error) {
 	args := []any{agentID}
 	where := `WHERE agent_id = $1`
+	if seasonID != "" {
+		args = append(args, seasonID)
+		where += fmt.Sprintf(" AND season_id = $%d", len(args))
+	}
 	if from != nil {
 		args = append(args, *from)
 		where += fmt.Sprintf(" AND ts >= $%d", len(args))

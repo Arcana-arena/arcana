@@ -201,7 +201,7 @@ export class PassportService {
     const out = [];
     for (const r of rows) {
       const standing = await this.seasonStanding(agentId, r.season_id);
-      const window = await this.scoreWindow(agentId, r.first_tick, r.last_tick);
+      const window = await this.seasonScores(agentId, r.season_id);
       out.push({
         season_id: r.season_id,
         season_name: r.season_name,
@@ -262,26 +262,32 @@ export class PassportService {
   }
 
   /**
-   * Peak and latest score inside the agent's participation window.
+   * Peak and final score for one season, read from the season the score was
+   * actually recorded against.
    *
-   * score_snapshots carries no season_id, so a snapshot is attributed to a
-   * season by falling between that season's first and last recorded tick for
-   * this agent. Unambiguous while an agent competes in one season at a time;
-   * overlapping seasons would need the column (Passport 2.0).
+   * This used to infer the season by asking which scores fell between the
+   * agent's first and last recorded tick, because score_snapshots carried no
+   * season_id. That inference is gone: migration 0022 added the column, so the
+   * attribution is now recorded rather than re-derived on every read.
+   *
+   * The old note said the window was "unambiguous while an agent competes in
+   * one season at a time" — which was true, and stopped being true the moment
+   * Season 2 opened with the same agents. Worse, a window is a claim about
+   * time, and Season 1's ticks and Season 2's ticks are only separated by when
+   * they happened; two seasons running concurrently would have silently mixed.
    */
-  private async scoreWindow(agentId: string, from: Date | null, to: Date | null) {
-    if (!from || !to) return { peak: null, peak_at: null, latest: null };
+  private async seasonScores(agentId: string, seasonId: string) {
     const rows = await this.db.query(
       `SELECT MAX(arcana_score) AS peak,
               (SELECT ts FROM score_snapshots
-                WHERE agent_id = $1 AND ts BETWEEN $2 AND $3 AND arcana_score IS NOT NULL
+                WHERE agent_id = $1 AND season_id = $2 AND arcana_score IS NOT NULL
                 ORDER BY arcana_score DESC, ts ASC LIMIT 1) AS peak_at,
               (SELECT arcana_score FROM score_snapshots
-                WHERE agent_id = $1 AND ts BETWEEN $2 AND $3 AND arcana_score IS NOT NULL
+                WHERE agent_id = $1 AND season_id = $2 AND arcana_score IS NOT NULL
                 ORDER BY ts DESC LIMIT 1) AS latest
        FROM score_snapshots
-       WHERE agent_id = $1 AND ts BETWEEN $2 AND $3 AND arcana_score IS NOT NULL`,
-      [agentId, from, to],
+       WHERE agent_id = $1 AND season_id = $2 AND arcana_score IS NOT NULL`,
+      [agentId, seasonId],
     );
     const r = rows[0] ?? {};
     return { peak: numeric(r.peak), peak_at: r.peak_at ?? null, latest: numeric(r.latest) };
@@ -289,13 +295,18 @@ export class PassportService {
 
   private async loadScoreHistory(agentId: string) {
     const rows = await this.db.query(
-      `SELECT ts, arcana_score, performance_score, risk_score, consistency_score,
+      // season_id travels with every point so a chart can break the line where
+      // the market changed. Season 1's scores were earned against simulator
+      // prices and Season 2's against real ones; drawing one continuous curve
+      // through both would show a career that never happened.
+      `SELECT ts, season_id, arcana_score, performance_score, risk_score, consistency_score,
               strategy_score, longevity_score
        FROM score_snapshots WHERE agent_id = $1 ORDER BY ts ASC`,
       [agentId],
     );
     const series = rows.map((r: any) => ({
       ts: r.ts,
+      season_id: r.season_id,
       arcana_score: numeric(r.arcana_score),
       performance_score: numeric(r.performance_score),
       risk_score: numeric(r.risk_score),

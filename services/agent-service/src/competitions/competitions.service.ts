@@ -135,7 +135,25 @@ export class CompetitionsService {
     return this.competitions.find({ where: { seasonId } });
   }
 
-  /** Open the next decision round for a competition. */
+  /**
+   * Open the next decision round for a competition.
+   *
+   * REFUSES A BACKFILL SNAPSHOT. This is the structural half of the
+   * backfill/replay rule (docs/market-data.md). Backfilled snapshots hold real
+   * vendor prices and are wanted — they give `/previous` something to compare
+   * against and Agent DNA months of depth it would otherwise wait for — but
+   * their outcome was already knowable when they were fetched. A season run
+   * over them is a backtest: the operator can re-run it until it looks good,
+   * and §5's "decisions are recorded before the outcome is known" quietly stops
+   * being true in the one place the platform's whole claim rests on.
+   *
+   * Enforced here rather than left to discipline because discipline is exactly
+   * what failed the last time this codebase relied on it — the snapshot/decision
+   * retention rule was a convention until it was broken, and became a foreign
+   * key (0019). The production scheduler cannot even ask for a historical
+   * session, so this guard catches the other routes in: a manual call, a script,
+   * or a future replay feature that forgets.
+   */
   async openTick(
     competitionId: string,
     marketSnapshotRef: string,
@@ -143,6 +161,25 @@ export class CompetitionsService {
     const competition = await this.findOne(competitionId);
     if (competition.status === 'completed') {
       throw new BadRequestException('Competition is completed');
+    }
+
+    const snapshot = await this.competitions.manager.query(
+      `SELECT ingest_mode, source, trading_date
+         FROM market_snapshots WHERE ref = $1`,
+      [marketSnapshotRef],
+    );
+    if (snapshot.length === 0) {
+      throw new BadRequestException(
+        `Market snapshot ${marketSnapshotRef} does not exist`,
+      );
+    }
+    if (snapshot[0].ingest_mode === 'backfill') {
+      throw new BadRequestException(
+        `Snapshot ${marketSnapshotRef} is a backfill of ${snapshot[0].trading_date}, ` +
+          'whose outcome was already known when it was fetched. A scored season runs ' +
+          'forward only — backfilled sessions provide price history, never decisions. ' +
+          'See docs/market-data.md.',
+      );
     }
 
     // Find an already-open tick (do not double-open).

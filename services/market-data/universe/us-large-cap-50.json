@@ -1,0 +1,68 @@
+{
+  "name": "us-large-cap-50",
+  "description": "50 liquid US large caps spanning all 11 GICS sectors. The competition universe for Season 2 onward.",
+  "rationale": "Not the full S&P 500, and the reason is not rate limits: the vendor's grouped-daily endpoint returns the whole US market in one call, so 500 symbols cost exactly what 50 cost. The reasons are (1) 'S&P 500' means the constituents on a given date, and without point-in-time membership data a fixed list would bake in survivorship bias; (2) a 50-name snapshot can still be checked by hand against another source, which matters most in the first weeks of real data; (3) 11 sectors is what re-enables Autopsy's sector_rotation, which was disabled while the universe was two symbols. Widening to 500 is a change to this file, not to any code.",
+  "sector_scheme": "GICS",
+  "symbols": [
+    { "symbol": "AAPL",  "sector": "Information Technology" },
+    { "symbol": "MSFT",  "sector": "Information Technology" },
+    { "symbol": "NVDA",  "sector": "Information Technology" },
+    { "symbol": "AVGO",  "sector": "Information Technology" },
+    { "symbol": "CRM",   "sector": "Information Technology" },
+    { "symbol": "ORCL",  "sector": "Information Technology" },
+
+    { "symbol": "UNH",   "sector": "Health Care" },
+    { "symbol": "JNJ",   "sector": "Health Care" },
+    { "symbol": "LLY",   "sector": "Health Care" },
+    { "symbol": "ABBV",  "sector": "Health Care" },
+    { "symbol": "TMO",   "sector": "Health Care" },
+
+    { "symbol": "JPM",   "sector": "Financials" },
+    { "symbol": "V",     "sector": "Financials" },
+    { "symbol": "MA",    "sector": "Financials" },
+    { "symbol": "BAC",   "sector": "Financials" },
+    { "symbol": "GS",    "sector": "Financials" },
+
+    { "symbol": "AMZN",  "sector": "Consumer Discretionary" },
+    { "symbol": "TSLA",  "sector": "Consumer Discretionary" },
+    { "symbol": "HD",    "sector": "Consumer Discretionary" },
+    { "symbol": "MCD",   "sector": "Consumer Discretionary" },
+    { "symbol": "NKE",   "sector": "Consumer Discretionary" },
+
+    { "symbol": "GOOGL", "sector": "Communication Services" },
+    { "symbol": "META",  "sector": "Communication Services" },
+    { "symbol": "NFLX",  "sector": "Communication Services" },
+    { "symbol": "DIS",   "sector": "Communication Services" },
+    { "symbol": "CMCSA", "sector": "Communication Services" },
+
+    { "symbol": "CAT",   "sector": "Industrials" },
+    { "symbol": "BA",    "sector": "Industrials" },
+    { "symbol": "HON",   "sector": "Industrials" },
+    { "symbol": "UPS",   "sector": "Industrials" },
+    { "symbol": "GE",    "sector": "Industrials" },
+
+    { "symbol": "PG",    "sector": "Consumer Staples" },
+    { "symbol": "KO",    "sector": "Consumer Staples" },
+    { "symbol": "PEP",   "sector": "Consumer Staples" },
+    { "symbol": "COST",  "sector": "Consumer Staples" },
+    { "symbol": "WMT",   "sector": "Consumer Staples" },
+
+    { "symbol": "XOM",   "sector": "Energy" },
+    { "symbol": "CVX",   "sector": "Energy" },
+    { "symbol": "COP",   "sector": "Energy" },
+    { "symbol": "SLB",   "sector": "Energy" },
+
+    { "symbol": "NEE",   "sector": "Utilities" },
+    { "symbol": "DUK",   "sector": "Utilities" },
+    { "symbol": "SO",    "sector": "Utilities" },
+    { "symbol": "AEP",   "sector": "Utilities" },
+
+    { "symbol": "AMT",   "sector": "Real Estate" },
+    { "symbol": "PLD",   "sector": "Real Estate" },
+    { "symbol": "SPG",   "sector": "Real Estate" },
+
+    { "symbol": "LIN",   "sector": "Materials" },
+    { "symbol": "SHW",   "sector": "Materials" },
+    { "symbol": "FCX",   "sector": "Materials" }
+  ]
+}

@@ -100,10 +100,44 @@ export class AutopsyService {
       market_regime: await this.regime(agentId),
       historical_decisions: this.history(ticks),
       not_analysed: this.notAnalysed(),
-      caveat:
-        'The market these decisions were made in is a simulator whose trend behaviour ARCANA ' +
-        'calibrated itself (docs/data-resets.md). Findings describe conduct in that market and ' +
-        'do not carry to a real one.',
+      ...this.marketProvenance(ticks, market),
+    };
+  }
+
+  /**
+   * Which market these findings describe, and the caveat that follows from it.
+   *
+   * The caveat used to be a constant, because there was only ever one market and
+   * it was a simulator. Now it is derived from the snapshots the analysis
+   * actually read: real prices earn no caveat, simulator prices still earn the
+   * full one, and a mixture earns the worst of the two rather than the average.
+   *
+   * Deriving it is the point. A hardcoded caveat is wrong the moment the data
+   * changes and nobody remembers to edit it — and a stale caveat is not a
+   * harmless leftover, it is a false statement about evidence.
+   */
+  private marketProvenance(ticks: AgentTick[], market: Map<string, MarketTick>) {
+    const sources = [
+      ...new Set(
+        ticks
+          .map((t) => (t.ref ? market.get(t.ref)?.source : undefined))
+          .filter((s): s is string => !!s),
+      ),
+    ].sort();
+
+    const simulated = sources.includes('simulator');
+    return {
+      market_provenance: {
+        sources,
+        simulated,
+      },
+      caveat: simulated
+        ? 'Some or all of the decisions analysed were made against a SIMULATOR whose trend ' +
+          'behaviour ARCANA calibrated itself (docs/data-resets.md). Findings describe conduct ' +
+          'in that market and do not carry to a real one.'
+        : `Prices came from ${sources.join(', ') || 'the market data vendor'} — real market ` +
+          'data. Findings describe conduct in the real market, within the limits listed under ' +
+          'not_analysed.',
     };
   }
 
@@ -495,8 +529,11 @@ export class AutopsyService {
       {
         section: 'sector_rotation',
         reason:
-          'The universe is two symbols (AAPL, MSFT) and no sector classification exists anywhere ' +
-          'in the schema. Any sector analysis would be invented, so none is offered.',
+          'The data blocker is gone — the universe is now 50 symbols across 11 GICS sectors and ' +
+          'every snapshot quote carries its sector (services/market-data/universe/). What is ' +
+          'missing is the analysis itself, which is Autopsy 2.0 work rather than a schema gap. ' +
+          'It also needs enough real-market history for a rotation to be distinguishable from a ' +
+          'few coincidental trades.',
       },
       {
         section: 'thesis_failure',
@@ -536,6 +573,26 @@ export class AutopsyService {
          ORDER BY ts DESC LIMIT 1
        ) d ON true
        WHERE p.agent_id = $1
+         AND p.season_id = (
+           -- Scope to the agent's MOST RECENT season.
+           --
+           -- Before the vendor switchover this read an agent's entire history,
+           -- which was right while there was only ever one market. It is wrong
+           -- now: Season 1 ran on simulator prices and Season 2 runs on real
+           -- ones, so an unscoped fingerprint would average conduct in two
+           -- different worlds and present the mean as a measurement. The
+           -- simulator caveat then becomes unremovable, because part of the
+           -- number really would still come from the simulator.
+           --
+           -- Latest by season start, not by portfolio insertion: the season is
+           -- what defines the market, and a portfolio created late in an old
+           -- season is still that season's.
+           SELECT p2.season_id FROM portfolios p2
+           JOIN seasons s2 ON s2.id = p2.season_id
+           WHERE p2.agent_id = $1
+           ORDER BY s2.start_at DESC
+           LIMIT 1
+         )
        ORDER BY ps.ts ASC`,
       [agentId],
     );

@@ -392,6 +392,26 @@ export class DnaService {
          LIMIT 1
        ) d ON true
        WHERE p.agent_id = $1
+         AND p.season_id = (
+           -- Scope to the agent's MOST RECENT season.
+           --
+           -- Before the vendor switchover this read an agent's entire history,
+           -- which was right while there was only ever one market. It is wrong
+           -- now: Season 1 ran on simulator prices and Season 2 runs on real
+           -- ones, so an unscoped fingerprint would average conduct in two
+           -- different worlds and present the mean as a measurement. The
+           -- simulator caveat then becomes unremovable, because part of the
+           -- number really would still come from the simulator.
+           --
+           -- Latest by season start, not by portfolio insertion: the season is
+           -- what defines the market, and a portfolio created late in an old
+           -- season is still that season's.
+           SELECT p2.season_id FROM portfolios p2
+           JOIN seasons s2 ON s2.id = p2.season_id
+           WHERE p2.agent_id = $1
+           ORDER BY s2.start_at DESC
+           LIMIT 1
+         )
        ORDER BY ps.ts ASC`,
       [agentId],
     );

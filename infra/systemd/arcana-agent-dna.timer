@@ -1,13 +1,16 @@
 # arcana-agent-dna.timer — recomputes Agent DNA once a day.
 #
-# CADENCE: daily at 11:00 UTC (18:00 WIB).
+# CADENCE: daily at 23:45 UTC, after the tick (23:00) and the score batch
+# (23:30).
 #
-# DNA moves slowly by construction: it is an average over an agent's whole
-# recorded history, so one more tick barely shifts it. Recomputing more often
+# It used to run at 11:00 UTC, which was fine when ticks arrived every minute
+# and any hour was as good as any other. With one tick per trading day there is
+# exactly one moment when new conduct exists to fingerprint, and 11:00 would
+# have described the market as of the previous evening for the whole day.
+#
+# DNA moves slowly by construction: it averages an agent's recorded history in
+# its current season, so one more tick barely shifts it. Recomputing more often
 # would re-read every market snapshot to produce nearly the same vector.
-#
-# The hour follows the other daily jobs into the WIB late afternoon, an hour
-# after the payout batch so the three never overlap.
 #
 # Persistent=true: a missed run fires at the next boot. The batch is an upsert
 # over the full history, so a late run produces the same answer as an on-time
@@ -16,7 +19,7 @@
 Description=Run the ARCANA Agent DNA batch daily
 
 [Timer]
-OnCalendar=*-*-* 11:00:00 UTC
+OnCalendar=*-*-* 23:45:00 UTC
 Persistent=true
 
 [Install]

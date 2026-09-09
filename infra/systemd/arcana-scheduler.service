@@ -1,13 +1,15 @@
 # arcana-scheduler.service — advances the active human_vs_ai competition by one
-# tick per invocation (see arcana-scheduler.timer, every minute).
+# tick per invocation (see arcana-scheduler.timer).
 #
 # COMPETITION_ID: the human_vs_ai competition currently running on the VPS
 # (3f444e70...). To schedule additional competitions add another unit instance
 # (copy this file, change COMPETITION_ID + unit name) or edit this id.
 #
-# NOTE ON INTERVAL: every 1 minute is a SHORT demo/testing cadence. For
-# production, match the cadence to the real competition timeframe (hourly/daily)
-# by editing arcana-scheduler.timer.
+# CADENCE: one tick per US trading day -- 23:00 UTC with idempotent retries at
+# 01:00 and 03:00 (see arcana-scheduler.timer). When the market was closed the
+# scheduler opens NO tick at all and exits 0; a day with no trading is not a
+# failure. When the vendor cannot be read it exits non-zero and opens no tick:
+# prices are never substituted.
 #
 # Overlap protection, two independent layers:
 #   1. systemd: it will not run a second instance of this unit while the first
@@ -39,10 +41,11 @@ Environment=DECISION_ENGINE_URL=http://localhost:8081
 Environment=MARKET_DATA_URL=http://localhost:8083
 Environment=SCORING_URL=http://localhost:8082
 Environment=COMPETITION_ID=3f444e70-d131-4457-92c7-f1363e22ba6e
-# Human submission window: 4 minutes. With a 1-minute timer an open tick stays
-# open across ~4 invocations (which no-op while inside the window) before the
-# scheduler closes it.
-Environment=HUMAN_WINDOW=4m
+# Human submission window: 1 hour. With ticks at 23:00 UTC and retries at 01:00
+# and 03:00, a tick opened at 23:00 stays open for humans and is closed by the
+# 01:00 run. Four minutes made sense against a 1-minute timer; against a daily
+# tick it would have shut the window before any human in any timezone saw it.
+Environment=HUMAN_WINDOW=1h
 ExecStart=/usr/bin/flock -n /tmp/arcana-scheduler.lock /home/ubuntu/arcana/scheduler-bin/scheduler -competition ${COMPETITION_ID} -human-window ${HUMAN_WINDOW}
 TimeoutStartSec=120
 

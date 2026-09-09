@@ -1,4 +1,16 @@
-# market-data (Go) — market snapshots in MinIO + simulator
+# market-data (Go) — reads real market prices from the vendor and stores
+# immutable point-in-time snapshots in MinIO.
+#
+# NO SIMULATOR. The price generator that used to live here was removed in the
+# vendor switchover; there is deliberately no fallback price source, so a vendor
+# outage pauses the competition instead of inventing a market
+# (docs/market-data.md).
+#
+# THE API KEY IS NOT IN THIS FILE. Unit files are world-readable. The key lives
+# in services/market-data/.env at mode 600, the same pattern arca-service uses
+# for its chain secrets — only the PATH appears here. Without the key the
+# service still boots and serves /healthz; it just refuses to fetch, and says so
+# loudly at boot.
 [Unit]
 Description=ARCANA Market Data Service
 After=network-online.target docker.service arcana-agent.service
@@ -15,6 +27,10 @@ Environment=S3_REGION=us-east-1
 Environment=S3_ACCESS_KEY=arcana
 Environment=S3_SECRET_KEY=arcana-secret
 Environment=S3_BUCKET=arcana-market
+Environment=MARKET_UNIVERSE_FILE=/home/ubuntu/arcana/services/market-data/universe/us-large-cap-50.json
+# Secrets only (MARKET_VENDOR_API_KEY). Leading '-' so a missing file is not a
+# boot failure: the service is designed to run un-configured and warn.
+EnvironmentFile=-/home/ubuntu/arcana/services/market-data/.env
 ExecStart=/usr/local/go/bin/go run ./cmd/server
 Restart=on-failure
 RestartSec=5

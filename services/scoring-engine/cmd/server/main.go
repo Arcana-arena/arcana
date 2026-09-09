@@ -66,11 +66,18 @@ func (s *server) handleBatch(w http.ResponseWriter, r *http.Request) {
 // handleScore returns the latest score snapshot for an agent, or the history
 // when from/to/granularity are supplied.
 //   GET /v1/agents/:id/score                 -> latest
+//   GET /v1/agents/:id/score?season_id=      -> latest within one season
 //   GET /v1/agents/:id/score?from=&to=&granularity=daily -> history
+//
+// season_id matters now that an agent's career can span markets: Season 1 ran
+// on simulator prices and Season 2 on real ones, so an unscoped history draws
+// one line through two different worlds. Scoping is opt-in rather than forced
+// because an agent that has only ever competed in one season needs no filter.
 func (s *server) handleScore(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	agentID := r.PathValue("id")
 	q := r.URL.Query()
+	seasonID := q.Get("season_id")
 
 	if q.Has("from") || q.Has("to") || q.Has("granularity") {
 		var from, to *time.Time
@@ -92,7 +99,7 @@ func (s *server) handleScore(w http.ResponseWriter, r *http.Request) {
 		}
 		daily := q.Get("granularity") == "daily"
 
-		history, err := s.engine.ScoreHistory(ctx, agentID, from, to, daily)
+		history, err := s.engine.ScoreHistory(ctx, agentID, seasonID, from, to, daily)
 		if err != nil {
 			writeError(w, http.StatusNotFound, "score_not_found", err.Error())
 			return
@@ -101,13 +108,14 @@ func (s *server) handleScore(w http.ResponseWriter, r *http.Request) {
 			history = []store.ScoreHistoryPoint{}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"agent_id": agentID,
-			"history":  history,
+			"agent_id":  agentID,
+			"season_id": seasonID,
+			"history":   history,
 		})
 		return
 	}
 
-	snap, err := s.engine.LatestScore(ctx, agentID)
+	snap, err := s.engine.LatestScore(ctx, agentID, seasonID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "score_not_found", err.Error())
 		return

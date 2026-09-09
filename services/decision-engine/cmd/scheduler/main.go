@@ -1,15 +1,28 @@
 // Command scheduler advances one competition by one tick.
 //
-// It is designed to be invoked periodically (cron/Argo). Two modes:
+// Designed to be invoked by a systemd timer at 23:00 UTC with idempotent
+// retries at 01:00 and 03:00 UTC. Three modes:
 //
-//	Phase 1 (no open tick): simulate next market snapshot -> open tick ->
-//	  run every AI participant. If the competition has human participants and
-//	  -human-window > 0 the tick is LEFT OPEN so humans can submit via the API;
-//	  otherwise it is closed immediately.
+//	Phase 0 (no session): the market was closed, or its snapshot already carried
+//	  a tick. Nothing happens and the exit code is 0 — a day with no trading is
+//	  not a failure.
+//	Phase 1 (new session): fetch the day's snapshot -> open tick -> run every AI
+//	  participant. With human participants and -human-window > 0 the tick is
+//	  LEFT OPEN so humans can submit; otherwise it is closed immediately.
 //	Phase 2 (open tick exists): once window_start + human-window has elapsed,
 //	  close the tick; if still inside the window, exit without doing anything.
 //
-// Usage: scheduler -competition <id> [-human-window 5m]
+// WHAT CHANGED WITH REAL PRICES. This used to call a simulator with two
+// hardcoded base prices and always got a snapshot back, so a tick always
+// opened — including at 03:00 on a Sunday, when agents "traded" a market that
+// had not moved because nothing was moving it. Now the snapshot comes from the
+// vendor, and there are days when there is no snapshot to be had. A closed
+// market means NO TICK AT ALL rather than a tick flagged as closed: a tick that
+// does not exist needs no exclusion logic in scoring, DNA, Autopsy, the
+// Passport or the leaderboard, and the first consumer to forget such a flag
+// would score an agent on a frozen price.
+//
+// Usage: scheduler -competition <id> [-human-window 1h]
 package main
 
 import (
@@ -40,17 +53,26 @@ type competition struct {
 }
 
 type openTick struct {
-	ID             string     `json:"id"`
-	TickIndex      int        `json:"tickIndex"`
-	Phase          string     `json:"phase"`
-	MarketSnapshotRef string   `json:"marketSnapshotRef"`
-	WindowStart    *time.Time `json:"windowStart"`
-	WindowEnd      *time.Time `json:"windowEnd"`
+	ID                string     `json:"id"`
+	TickIndex         int        `json:"tickIndex"`
+	Phase             string     `json:"phase"`
+	MarketSnapshotRef string     `json:"marketSnapshotRef"`
+	WindowStart       *time.Time `json:"windowStart"`
+	WindowEnd         *time.Time `json:"windowEnd"`
+}
+
+type sessionResult struct {
+	Ref         string `json:"market_snapshot_ref"`
+	TradingDate string `json:"trading_date"`
+	Source      string `json:"source"`
+	IngestMode  string `json:"ingest_mode"`
+	Created     bool   `json:"created"`
+	SymbolCount int    `json:"symbol_count"`
 }
 
 func main() {
 	compID := flag.String("competition", "", "competition id to advance")
-	humanWindow := flag.Duration("human-window", 0, "how long an open tick waits for human submissions before closing (e.g. 5m, 1h)")
+	humanWindow := flag.Duration("human-window", 0, "how long an open tick waits for human submissions before closing (e.g. 1h)")
 	flag.Parse()
 	if *compID == "" {
 		log.Fatal("-competition is required")
@@ -104,15 +126,42 @@ func main() {
 		return
 	}
 
-	// Phase 1: no open tick — start the next round.
-	tickTime := now
-	snapRef, err := simulateMarket(ctx, cfg, tickTime)
+	// Phase 0/1: no open tick — ask for today's session.
+	//
+	// Deliberately takes no date: the production path CANNOT request a
+	// historical session, so a scored season cannot be replayed over dates whose
+	// outcome is already known.
+	sess, status, err := fetchDailySession(ctx, cfg)
 	if err != nil {
-		log.Fatalf("simulate market: %v", err)
+		// A vendor failure is loud and non-zero. No snapshot means no tick, and
+		// no substitute price is ever generated — a paused competition is
+		// recoverable, an agent scored against an invented price is not.
+		log.Fatalf("ERROR: could not obtain today's market snapshot: %v — no tick opened, competition paused", err)
 	}
-	log.Printf("tick snapshot: %s", snapRef)
+	if status == http.StatusNoContent {
+		log.Printf("market closed today; no session, no tick for %s", *compID)
+		return
+	}
 
-	open, err = startTick(ctx, cfg, *compID, snapRef)
+	// An idempotent retry: the 23:00 run already stored this session. Check
+	// whether it also already carried a tick, so 01:00 and 03:00 confirm rather
+	// than duplicate.
+	if !sess.Created {
+		used, err := tickExistsForRef(ctx, cfg, *compID, sess.Ref)
+		if err != nil {
+			log.Fatalf("check existing ticks: %v", err)
+		}
+		if used {
+			log.Printf("session %s (%s) already ticked for %s; nothing to do",
+				sess.TradingDate, sess.Ref, *compID)
+			return
+		}
+	}
+
+	log.Printf("session %s: %s (%s, %d symbols, %s)",
+		sess.TradingDate, sess.Ref, sess.Source, sess.SymbolCount, sess.IngestMode)
+
+	open, err = startTick(ctx, cfg, *compID, sess.Ref)
 	if err != nil {
 		log.Fatalf("open tick: %v", err)
 	}
@@ -123,7 +172,7 @@ func main() {
 		if isHuman, _ := agentIsHuman(ctx, cfg, pid); isHuman {
 			continue
 		}
-		if err := runAIAgent(ctx, cfg, comp.SeasonID, pid, snapRef); err != nil {
+		if err := runAIAgent(ctx, cfg, comp.SeasonID, pid, sess.Ref); err != nil {
 			log.Printf("AI agent %s failed: %v", pid, err)
 		} else {
 			log.Printf("AI agent %s executed", pid)
@@ -154,27 +203,48 @@ func getCompetition(ctx context.Context, cfg config, id string) (*competition, e
 	return &comp, nil
 }
 
-func simulateMarket(ctx context.Context, cfg config, tick time.Time) (string, error) {
-	// Bootstrap symbols with base prices (dev fixture; real feeds come later).
-	payload := map[string]any{
-		"tick_time": tick.Format(time.RFC3339),
-		"symbols": []map[string]any{
-			{"symbol": "AAPL", "price": 110.0},
-			{"symbol": "MSFT", "price": 220.0},
-		},
-	}
-	raw, _ := json.Marshal(payload)
-	resp, err := httpPost(ctx, cfg.marketDataURL+"/internal/v1/market/simulate/tick", raw)
+// fetchDailySession asks market-data for the most recent completed session.
+// Returns the HTTP status alongside, because 204 (market closed) is a normal
+// outcome and must not be confused with a fault.
+func fetchDailySession(ctx context.Context, cfg config) (*sessionResult, int, error) {
+	status, body, err := httpPostStatus(ctx, cfg.marketDataURL+"/internal/v1/market/sessions/daily", nil)
 	if err != nil {
-		return "", err
+		return nil, status, err
 	}
-	var out struct {
-		MarketSnapshotRef string `json:"market_snapshot_ref"`
+	if status == http.StatusNoContent {
+		return nil, status, nil
 	}
-	if err := json.Unmarshal(resp, &out); err != nil {
-		return "", fmt.Errorf("decode simulate response: %w", err)
+	if status >= 400 {
+		return nil, status, fmt.Errorf("market-data returned HTTP %d: %s", status, string(body))
 	}
-	return out.MarketSnapshotRef, nil
+	var out sessionResult
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, status, fmt.Errorf("decode session response: %w", err)
+	}
+	if out.Ref == "" {
+		return nil, status, fmt.Errorf("market-data returned no snapshot ref")
+	}
+	return &out, status, nil
+}
+
+// tickExistsForRef reports whether this competition already has a tick on the
+// given snapshot. This is what makes the 01:00/03:00 retries no-ops after a
+// successful 23:00 run.
+func tickExistsForRef(ctx context.Context, cfg config, compID, ref string) (bool, error) {
+	body, err := httpGet(ctx, cfg.agentServiceURL+"/v1/competitions/"+compID+"/ticks")
+	if err != nil {
+		return false, err
+	}
+	var ticks []openTick
+	if err := json.Unmarshal(body, &ticks); err != nil {
+		return false, fmt.Errorf("decode ticks: %w", err)
+	}
+	for _, t := range ticks {
+		if t.MarketSnapshotRef == ref {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func startTick(ctx context.Context, cfg config, compID, snapRef string) (*openTick, error) {
@@ -256,6 +326,17 @@ func httpGet(ctx context.Context, url string) ([]byte, error) {
 }
 
 func httpPost(ctx context.Context, url string, payload []byte) ([]byte, error) {
+	status, body, err := httpPostStatus(ctx, url, payload)
+	if err != nil {
+		return nil, err
+	}
+	if status >= 400 {
+		return nil, fmt.Errorf("http %d: %s", status, string(body))
+	}
+	return body, nil
+}
+
+func httpPostStatus(ctx context.Context, url string, payload []byte) (int, []byte, error) {
 	var body *bytes.Reader
 	if payload == nil {
 		body = bytes.NewReader(nil)
@@ -264,14 +345,26 @@ func httpPost(ctx context.Context, url string, payload []byte) ([]byte, error) {
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, body)
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	return do(req)
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+
+	buf := new(bytes.Buffer)
+	if _, err := buf.ReadFrom(resp.Body); err != nil {
+		return resp.StatusCode, nil, err
+	}
+	return resp.StatusCode, buf.Bytes(), nil
 }
 
 func do(req *http.Request) ([]byte, error) {
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err

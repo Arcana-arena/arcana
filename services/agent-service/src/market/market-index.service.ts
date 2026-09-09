@@ -19,8 +19,20 @@ export interface MarketTick {
   ref: string;
   tickTime: Date;
   prices: Record<string, number>;
-  /** Equal-weighted mean of per-symbol returns since the previous tick. */
+  /**
+   * Equal-weighted mean of per-symbol returns since the previous tick
+   * FROM THE SAME SOURCE.
+   *
+   * Scoping by source is load-bearing. Simulator snapshots are dated around the
+   * switchover while backfilled vendor snapshots span the preceding months, so
+   * a single tick_time ordering interleaves them — and the "return" between a
+   * generated price and a real one is not a return at all, it is the gap
+   * between two unrelated worlds. It would then flow into every DNA feature and
+   * evolution comparison that asks what the market did.
+   */
   marketReturn: number;
+  /** `polygon`, `simulator`, ... — which market produced this tick. */
+  source: string;
 }
 
 @Injectable()
@@ -51,14 +63,24 @@ export class MarketIndexService {
     if (this.cache && Date.now() - this.cache.at < MarketIndexService.CACHE_TTL_MS) {
       return this.cache.data;
     }
-    const refs: Array<{ ref: string; tick_time: Date }> = await this.db.query(
-      `SELECT ref, tick_time FROM market_snapshots ORDER BY tick_time ASC`,
-    );
+    // Ordered by source first, so each source's series is walked contiguously
+    // and `prev` never crosses from one market into another.
+    const refs: Array<{ ref: string; tick_time: Date; source: string }> =
+      await this.db.query(
+        `SELECT ref, tick_time, source FROM market_snapshots
+         ORDER BY source ASC, tick_time ASC`,
+      );
 
     const out = new Map<string, MarketTick>();
     let prev: Record<string, number> | null = null;
+    let prevSource: string | null = null;
 
     for (const row of refs) {
+      if (row.source !== prevSource) {
+        // First tick of a new source: it has no predecessor in its own world.
+        prev = null;
+        prevSource = row.source;
+      }
       let prices: Record<string, number>;
       try {
         const res = await fetch(
@@ -90,6 +112,7 @@ export class MarketIndexService {
         tickTime: row.tick_time,
         prices,
         marketReturn,
+        source: row.source,
       });
       prev = prices;
     }
