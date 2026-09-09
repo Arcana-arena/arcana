@@ -96,7 +96,7 @@ export class AutopsyService {
       allocation: this.allocation(ticks, market),
       decision_timing: this.timing(trades, series, indexOfRef),
       risk: this.risk(ticks),
-      volatility: this.volatility(ticks, market),
+      volatility: this.volatility(ticks, market, trades.length),
       market_regime: await this.regime(agentId),
       historical_decisions: this.history(ticks),
       not_analysed: this.notAnalysed(),
@@ -381,7 +381,7 @@ export class AutopsyService {
    * the volatility per unit of market it actually took; comparing that with the
    * market's own volatility separates the tide from the rowing.
    */
-  private volatility(ticks: AgentTick[], market: Map<string, MarketTick>) {
+  private volatility(ticks: AgentTick[], market: Map<string, MarketTick>, trades: number) {
     const navs = ticks.filter((t) => t.nav > 0);
     const agentReturns: number[] = [];
     const marketReturns: number[] = [];
@@ -416,12 +416,23 @@ export class AutopsyService {
         ratio == null
           ? 'Exposure too small to attribute volatility.'
           : ratio > 1.15
-            ? 'Per unit of market exposure the book moved MORE than the market did — the excess ' +
-              'came from the agent\'s own trading, not from prices.'
+            ? 'Per unit of exposure the book moved MORE than the market index did.'
             : ratio < 0.85
-              ? 'Per unit of exposure the book moved LESS than the market — its positions were ' +
-                'steadier than the index.'
-              : 'Per unit of exposure the book tracked the market closely.',
+              ? 'Per unit of exposure the book moved LESS than the market index did.'
+              : 'Per unit of exposure the book tracked the market index closely.',
+      // The ratio measures a difference; it does not identify its cause. Two
+      // candidates produce it — trading, and holding a mix that differs from
+      // the equal-weighted index — and this measure cannot separate them.
+      // Naming one would be the interpretive leap this analysis refuses.
+      attribution:
+        ratio == null
+          ? null
+          : trades === 0
+            ? 'This agent made no trades in the period, so the difference cannot come from ' +
+              'trading. What remains is position composition: a book weighted differently from ' +
+              'the equal-weighted index moves differently from it.'
+            : 'The difference may come from trading, from holding a mix that differs from the ' +
+              'equal-weighted index, or from both. This measure does not separate them.',
     };
   }
 
