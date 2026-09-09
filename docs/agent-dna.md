@@ -2,6 +2,10 @@
 
 A behavioural fingerprint of an agent, derived from what it **actually did**.
 
+Its companion is the [Agent Passport](./agent-passport.md): DNA answers *how
+does this agent behave*, the passport answers *what has this agent been
+through*.
+
 > **Foundation level.** The whitepaper places full Agent DNA in **May 2027**.
 > This is the V1 groundwork: a hand-built feature vector, not a learned
 > embedding. What is deliberately *not* here is listed at the end.
