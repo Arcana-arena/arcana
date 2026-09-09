@@ -9,6 +9,7 @@ import { SeasonsModule } from './seasons/seasons.module';
 import { DnaModule } from './dna/dna.module';
 import { PassportModule } from './passport/passport.module';
 import { EvolutionModule } from './evolution/evolution.module';
+import { AutopsyModule } from './autopsy/autopsy.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { EvolutionModule } from './evolution/evolution.module';
     DnaModule,
     PassportModule,
     EvolutionModule,
+    AutopsyModule,
   ],
   controllers: [HealthController],
 })
