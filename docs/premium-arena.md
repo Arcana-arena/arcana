@@ -147,32 +147,46 @@ so every surface says it out loud.
 {
   "id": "...",
   "name": "Premium Arena — Q4 Invitational",
-  "access_tier": "premium",
+  "accessTier": "premium",
   "access": {
     "tier": "premium",
-    "gates": ["compete", "premium_arena"],
+    "gates": [
+      { "action": "compete",       "status": "inactive", "required_arca": null },
+      { "action": "premium_arena", "status": "inactive", "required_arca": null }
+    ],
     "required_arca": null,
     "enforced": false,
-    "note": "Premium Arena. The $ARCA premium_arena gate is wired but currently reads no balance (the token is not launched, or no threshold is set), so every registration passes. Marked premium, not yet guarded."
+    "note": "Premium Arena: entry needs the $ARCA premium_arena entitlement in addition to the platform-wide COMPETE entitlement. Those gates are wired but currently read no balance (the token is not launched, or no threshold is set), so every registration passes. Marked premium, not yet guarded."
   }
 }
 ```
 
-`enforced` is this endpoint's `balance_checked`. Three values, three different
-facts:
+`enforced` is this endpoint's `balance_checked`, and it answers exactly one
+question — **is entry verified against a real balance right now?** Three values,
+three different facts:
 
 | `enforced` | Meaning |
 |---|---|
-| `true` | A live $ARCA balance is read for every registration, against `required_arca`. |
-| `false` | The gate is wired and passes everyone. **Marked premium, not guarded.** |
-| `null` | arca-service could not be reached. Not known to be off. |
+| `true` | A live $ARCA balance is read for every registration. `required_arca` is what an entrant needs. |
+| `false` | Every gate is wired and admits everyone. **Marked premium, not guarded.** |
+| `null` | arca-service could not be reached. Unknown — *not* known to be off. |
+
+One live gate settles the question on its own, so `null` is reserved for when
+nothing was confirmed live *and* something was unreadable. `gates` carries the
+per-door detail when the summary is not enough, and `required_arca` is the
+**largest active threshold**: every gate must pass, so anything smaller would
+understate the price of entry.
+
+A **standard** arena reports the same block with the single `compete` gate.
+COMPETE has always applied to every season; listing it stops an open arena from
+reading as ungated.
 
 `POST /v1/competitions` answers the same question about the registration that
 just happened:
 
 ```json
 {
-  "id": "...", "season_id": "...", "status": "pending",
+  "id": "...", "seasonId": "...", "status": "pending",
   "access": {
     "tier": "premium",
     "gates_applied": ["compete", "premium_arena"],
@@ -218,22 +232,35 @@ an agent whose creator holds less than the threshold must fail with
 
 ## Verified behaviour
 
-Against a local anvil chain and a test ERC-20 (rig in `~/arca-e2e/`, a separate
-arca-service instance on :3005 — production `.env` untouched), with
-`ARCA_GATE_COMPETE=100` and `ARCA_GATE_PREMIUM_ARENA=5000`:
+Verified 2026-09-09 against a local anvil chain (`:8546`) and a test ERC-20, with
+`ARCA_GATE_COMPETE=100` and `ARCA_GATE_PREMIUM_ARENA=5000`.
+
+The rig is fully isolated — a throwaway `arcana_e2e` database, a separate
+arca-service on `:3005` and a separate agent-service on `:3011`, none of them
+systemd units. Production's `.env` was never written to and the running services
+were never pointed at the test chain. Torn down afterwards; the run log is kept
+at `~/arca-e2e/premium-arena-test.log`.
 
 | Case | Result |
 |---|---|
-| Premium arena, wallet holding 1,000,000 | admitted; both gates `balance_checked: true` |
-| Premium arena, wallet holding 500 | **denied** `403 entitlement_denied_premium_arena`, `balance_below_threshold`, balance `500` vs required `5000` — passed COMPETE, refused by the arena gate |
-| Premium arena, wallet holding 0 | **denied** at `compete` first, `403 entitlement_denied_compete` |
-| Standard arena, wallet holding 500 | admitted — one gate only, unaffected by the premium threshold |
-| arca-service stopped, premium arena | `502 entitlement_check_unavailable` |
-| arca-service stopped, `GET /v1/seasons` | `200`, premium arena reports `enforced: null` |
+| Premium arena, wallet holding 1,000,000 | **admitted**, `201`, both gates `balance_checked: true` |
+| Premium arena, wallet holding 500 | **denied** `403 entitlement_denied_premium_arena` — *"Wallet holds 500 $ARCA but 5000 is required for 'premium_arena'"*. Passed COMPETE, refused by the arena gate, message names the arena |
+| Premium arena, wallet holding 0 | **denied** `403 entitlement_denied_compete` — refused by the platform floor first, never reaching the arena gate |
+| Standard arena, wallet holding 500 | **admitted**, `201`, `gates_applied: ["compete"]` — the premium threshold does not apply |
+| arca-service stopped, registration | `502 entitlement_check_unavailable`, neither allowed nor denied |
+| arca-service stopped, `GET /v1/seasons` | `200`, every gate `status: "unknown"`, `enforced: null` |
+| Premium arena listing, gating live | `enforced: true`, `required_arca: "5000"` (the larger of 100 and 5000) |
 
-Production (token unlaunched): premium arena admits, `balance_checked: false`,
-`enforced: false`. Season 1 (`access_tier='standard'`) registers through the
-COMPETE gate alone, unchanged.
+The 500-$ARCA wallet is the case that matters: it clears COMPETE and is stopped
+by the arena gate alone. A gate that has never refused anyone has not been
+tested, and this one has.
+
+**In production** (token unlaunched): the premium arena admits everyone and says
+so — `balance_checked: false` on registration, `enforced: false` on the listing,
+and the journal records `reason=gating_inactive_token_not_launched` for both
+gates on every participant. Season 1 (`access_tier='standard'`) calls `compete`
+alone; `premium_arena` does not appear in its registration log. Its scheduler
+kept advancing ticks throughout (248 → 251, opened and closed on time).
 
 ---
 
