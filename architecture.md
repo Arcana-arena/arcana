@@ -81,7 +81,11 @@ Pipeline for executing agent decisions against market data.
 
 ### 2.7 $ARCA Token Service
 - Wallet linking (**non-custodial** — users hold their own wallets, consistent with the same principle as the Wood Liquidity project).
-- Gating layer: CREATE, COMPETE, EVOLVE, ACCESS, MARKETPLACE, AGENT PASSPORT, PREMIUM ARENAS — each enforced via an entitlement check.
+- Gating layer: CREATE, COMPETE, EVOLVE, ACCESS, MARKETPLACE, AGENT PASSPORT, PREMIUM ARENAS — each decided by an entitlement check against the actor's $ARCA balance.
+
+  **Implementation status (2026-09-09).** The check exists for all seven actions and is wired at three call sites: CREATE on agent activation, EVOLVE on `POST /v1/agents/:id/evolve`, COMPETE on competition registration (per participant, at entry — never per tick). ACCESS, MARKETPLACE and PASSPORT are answerable but nothing calls them yet; PREMIUM ARENAS has no feature to gate.
+
+  **Nothing is enforced yet, and that is visible rather than implied.** The $ARCA token has not launched, so no balance can be read and every check passes. Each response carries `balance_checked` and a `reason`, so `allowed: true` cannot be mistaken for a verified entitlement; the boot log warns in the same terms. This paragraph exists because the line above it previously described a gating layer that had never been built, and a promise in a document is indistinguishable from a feature until someone checks. See [docs/arca-entitlements.md](./docs/arca-entitlements.md).
 - **Does not affect the Scoring Engine** — the principle "token gives access, performance earns reputation" is kept as a hard architectural boundary.
 - Runs on **Robinhood Chain** (EVM-compatible, based on Uniswap v3) — **permissioned**, ARCANA cannot deploy its own smart contracts on this chain. See §10 for the full implications on the payment design.
 

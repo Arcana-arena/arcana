@@ -47,7 +47,11 @@ export class ArcaController {
   }
 
   /**
-   * Entitlement check — the single place the access rule lives (§2.7).
+   * Subscription access check — the single place the *listing access* rule
+   * lives. Distinct from the $ARCA balance gating in EntitlementService: this
+   * asks "has this wallet paid for this listing", that asks "does this wallet
+   * hold enough $ARCA to perform an action". Both are called entitlements in
+   * §2.7; only the second reads a balance.
    *
    * Callers must not re-derive it from the subscription list: the rule spans
    * status AND the grace window, and a second copy in another service will

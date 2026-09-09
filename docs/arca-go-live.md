@@ -35,6 +35,24 @@ committed). Restart is required for each — they are read once at boot.
 | `ARCA_MASTER_PRIVATE_KEY` | **KMS/HSM** | BIP-32 master seed for deriving per-subscription deposit addresses. §10.6 calls this the most critical security point in the entire design: it controls every deposit address ever issued. It must arrive from the secret manager at deploy time and never be written to a file that outlives the process, never committed, never logged. |
 | `ARCA_TREASURY_PRIVATE_KEY` | **KMS/HSM** | The operational wallet that sends creator payouts. Separate key from the deposit master — compromise of one must not imply the other. |
 
+### Entitlement gating thresholds
+
+Gating stays inactive until BOTH the token is configured and a threshold is set
+per action. Both halves matter: with `ARCA_TOKEN_ADDRESS` filled but
+`ARCA_GATE_CREATE` unset, CREATE still passes without reading a balance — and
+says so.
+
+| Variable | Gates |
+|---|---|
+| `ARCA_GATE_CREATE` | activating an agent |
+| `ARCA_GATE_COMPETE` | registering into a competition |
+| `ARCA_GATE_EVOLVE` | creating a new agent version |
+| `ARCA_GATE_ACCESS`, `ARCA_GATE_MARKETPLACE`, `ARCA_GATE_PASSPORT`, `ARCA_GATE_PREMIUM_ARENA` | answerable, no call site yet |
+
+Before setting any of them, confirm every creator who should keep operating has
+a `creators.wallet_address`: without one the check denies with
+`no_wallet_linked`, and at least one seeded creator has no wallet today.
+
 Optional, already sane by default: `ARCA_CONFIRMATIONS` (12),
 `ARCA_TOKEN_DECIMALS` (18 — **verify against the real token**, it is a
 documented assumption), `ARCA_DEPOSIT_TTL_HOURS` (24),
@@ -57,8 +75,8 @@ sudo systemctl restart arcana-arca.service
 journalctl -u arcana-arca.service -n 30 --no-pager
 ```
 
-The four `WARN ... disabled` lines that have been there since day one **must
-now be gone**, replaced by:
+The five `WARN` lines that have been there since day one — four payment ones
+plus ` gating INACTIVE` — **must now be gone**, replaced by:
 
 ```
 payment listener started (poll 15000ms, confirmations=12, audit 300000ms)
@@ -100,6 +118,14 @@ is no undo.
 7. **Audit is clean**: `curl -X POST http://localhost:3004/internal/v1/payments/listener/audit`
    → `stranded: 0`. Any non-zero value means a user paid and was not credited;
    resolve it before opening the doors.
+8. **Gating actually gates.** After setting a threshold, prove the check reads a
+   balance rather than passing by default:
+   `curl 'http://localhost:3004/v1/arca/entitlements/check?action=create&user_id=<a wallet you control>'`
+   → the response must show `"balance_checked": true` with a real `balance` and
+   `required`. If it still says `gating_inactive_*`, gating is not on, whatever
+   the env file says. Then confirm a wallet below the threshold is denied with
+   `balance_below_threshold` — a gate that never refuses anyone has not been
+   tested.
 
 ## 5. Then open subscribe
 
