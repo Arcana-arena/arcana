@@ -5,8 +5,8 @@ verifies it against the chain and grants access. No deposit address, no
 treasury, no split, no contract.
 
 Implemented in `services/arca-service/src/payments/claims.service.ts`.
-Verified by `infra/verify/claims-verify.mjs` (22 checks, against real
-transactions).
+Verified by `infra/verify/claims-verify.mjs` (26 checks, against real
+transactions, in the token production actually settles in).
 
 Related: [on-chain-direction.md §g](./on-chain-direction.md#g-marketplace--tx-hash-confirmation),
 migration 0027, architecture.md §10 (superseded).
@@ -154,11 +154,13 @@ The access-flow suite is still 11/11, unchanged.
 node infra/verify/claims-verify.mjs
 ```
 
-**22 checks. No money was spent.**
+**26 checks. No money was spent.**
 
-$ARCA has not launched, so the verifier is pointed at **USDG** — a real ERC-20
-on the same chain — and driven with a **real transaction that somebody else
-made, for their own reasons**. The suite finds one in the live block window and
+The verifier is pointed at **USDG — the token the marketplace actually settles
+in** — and driven with a **real transaction that somebody else made, for their
+own reasons**. Until 2026-09-11 this was an analogy: USDG stood in for a $ARCA
+that did not exist. It is not an analogy any more; the suite and production
+point at the same contract. The suite finds one in the live block window and
 uses it: the sender, the recipient, the amount and the block are all things
 ARCANA had no hand in.
 
