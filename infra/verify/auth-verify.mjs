@@ -60,6 +60,50 @@ async function req(url, opts = {}) {
 
 const errCode = (b) => b?.error?.code ?? b?.message ?? JSON.stringify(b)?.slice(0, 120);
 
+const sleep = (sec) => new Promise((r) => setTimeout(r, sec * 1000));
+
+/**
+ * A request that waits out a 429 instead of failing under it.
+ *
+ * This suite exercises the auth surface hard — twenty-odd sign-ins plus every
+ * deliberately-invalid attempt — and phase 12 put real limits on exactly those
+ * endpoints: 20/min on nonce, 10/min on verify. It does NOT test rate
+ * limiting (agents-verify does), so a 429 here is never the property under
+ * test; it is the suite being a heavy client.
+ *
+ * The alternative was exempting loopback from the limiter, which would be far
+ * worse than a slow test: put a reverse proxy in front of these services later
+ * and every request arrives from 127.0.0.1, disabling rate limiting
+ * platform-wide on the day it matters most.
+ */
+async function reqRL(url, opts = {}) {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const r = await req(url, opts);
+    if (r.status !== 429) return r;
+    if (attempt === 3) return r;
+    const wait = Math.min(70, Number(r.headers?.get?.('retry-after') ?? 60) + 2);
+    console.log(`  (allowance spent on ${url.split('/').pop()}; waiting ${wait}s)`);
+    await sleep(wait);
+  }
+}
+
+/**
+ * Guarantee at least `need` requests of headroom before a deliberate burst.
+ *
+ * The concurrency check fires five verifies at once to prove exactly one wins
+ * the race on a single nonce. That property is untestable if four of the five
+ * come back 429 — the suite would report a race it never ran. So the window is
+ * drained first, using the X-RateLimit-Remaining the endpoint already returns
+ * rather than guessing.
+ */
+async function ensureHeadroom(url, need) {
+  const probe = await req(url, { method: 'HEAD' }).catch(() => null);
+  const remaining = Number(probe?.headers?.get?.('x-ratelimit-remaining') ?? NaN);
+  if (Number.isFinite(remaining) && remaining >= need) return;
+  console.log(`  (draining the window before a burst of ${need})`);
+  await sleep(62);
+}
+
 /**
  * Fetch a nonce, waiting out the rate limit rather than failing under it.
  *
@@ -115,7 +159,7 @@ async function signIn(account, overrides = {}) {
     statement: 'Sign in to ARCANA.',
   });
   const signature = overrides.signature ?? (await account.signMessage({ message }));
-  const r = await req(`${AGENT}/v1/auth/verify`, {
+  const r = await reqRL(`${AGENT}/v1/auth/verify`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message, signature }),
@@ -312,6 +356,11 @@ console.log('\n=== 4. SIWE rejects forged / stale / replayed messages ===');
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message: msg, signature: sig }),
   });
+  // A DELIBERATE BURST, so it cannot use reqRL: waiting between the five would
+  // destroy the race this exists to observe. The window is drained first
+  // instead, because "exactly one succeeded" is meaningless if four of the
+  // five were refused before they reached the nonce.
+  await ensureHeadroom(`${AGENT}/v1/auth/verify`, 6);
   const results = await Promise.all([fire(), fire(), fire(), fire(), fire()]);
   const ok = results.filter((r) => r.status === 200).length;
   check(`5 concurrent requests on ONE nonce → exactly 1 succeeds (got ${ok})`, ok === 1,
@@ -322,7 +371,7 @@ console.log('\n=== 5. Refresh rotation and reuse detection ===');
 {
   const s = await signIn(bob);
   const r1 = s.body.refresh_token;
-  const rot = await req(`${AGENT}/v1/auth/refresh`, {
+  const rot = await reqRL(`${AGENT}/v1/auth/refresh`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refresh_token: r1 }),
   });
@@ -330,13 +379,13 @@ console.log('\n=== 5. Refresh rotation and reuse detection ===');
     `got ${rot.status} ${errCode(rot.body)}`);
   const r2 = rot.body.refresh_token;
 
-  const replay = await req(`${AGENT}/v1/auth/refresh`, {
+  const replay = await reqRL(`${AGENT}/v1/auth/refresh`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refresh_token: r1 }),
   });
   check('reusing the OLD refresh token → 401', replay.status === 401, `got ${replay.status} ${errCode(replay.body)}`);
 
-  const afterRevoke = await req(`${AGENT}/v1/auth/refresh`, {
+  const afterRevoke = await reqRL(`${AGENT}/v1/auth/refresh`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refresh_token: r2 }),
   });
