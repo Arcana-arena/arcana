@@ -67,9 +67,15 @@ func main() {
 			"correct state for a phase that must not move money — see the allowlist file.")
 	}
 
+	// The chain-state cache TTL is configurable because it is a real trade-off,
+	// not a constant: shorter means an issuer pause is noticed sooner, longer
+	// means fewer RPC calls on the hottest path this service has. 30s is the
+	// default; the verification rig sets it near zero so it can drive the
+	// paused/blocked states through their transitions without waiting.
+	ttl := time.Duration(envInt("SIGNER_CHAIN_CACHE_TTL_MS", 30000)) * time.Millisecond
 	srv := &server{
 		allow:  allow,
-		chain:  chain.New(rpcs, allow.ChainID, 30*time.Second),
+		chain:  chain.New(rpcs, allow.ChainID, ttl),
 		daily:  map[string]dayCount{},
 		dryRun: os.Getenv("SIGNER_ALLOW_UNSAFE_SEED") == "",
 	}
@@ -369,6 +375,16 @@ func envOr(k, def string) string {
 	return def
 }
 
+func envInt(k string, def int) int {
+	if v := os.Getenv(k); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+		log.Printf("WARN %s=%q is not a number; using %d", k, v, def)
+	}
+	return def
+}
+
 func orDefault(v, def string) string {
 	if strings.TrimSpace(v) == "" {
 		return def
@@ -376,4 +392,3 @@ func orDefault(v, def string) string {
 	return v
 }
 
-var _ = strconv.Itoa

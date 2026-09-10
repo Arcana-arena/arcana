@@ -106,7 +106,8 @@ function start(extra = {}) {
     cwd: `${REPO}/services/signer`,
     env: { ...process.env, PORT: String(PORT), INTERNAL_API_KEY: KEY,
            SIGNER_MASTER_SEED_FILE: seedPath, SIGNER_ALLOWLIST_FILE: allowPath,
-           SIGNER_RPC_URLS: `http://127.0.0.1:${RPC_PORT}`, ...extra },
+           SIGNER_RPC_URLS: `http://127.0.0.1:${RPC_PORT}`,
+           SIGNER_CHAIN_CACHE_TTL_MS: '1', ...extra },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 }
@@ -205,7 +206,7 @@ try {
     check(`${label}: value is zero — no native funds can move`, (parsed.value ?? 0n) === 0n, `got ${parsed.value}`);
     check(`${label}: destination is the expected contract`, parsed.to.toLowerCase() === expectTo.toLowerCase(), `got ${parsed.to}`);
   }
-  const swapParsed = viem.parseTransaction(swapRaw);
+  const swapParsed = swapRaw ? viem.parseTransaction(swapRaw) : { data: '' };
   check('the swap sends proceeds to the agent wallet and nowhere else',
     swapParsed.data.toLowerCase().includes(wallet.slice(2).toLowerCase()) &&
     !swapParsed.data.toLowerCase().includes(OUTSIDER.slice(2).toLowerCase()),

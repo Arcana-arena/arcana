@@ -59,7 +59,7 @@ type entry struct {
 }
 
 func New(urls []string, chainID int64, ttl time.Duration) *Client {
-	if ttl == 0 {
+	if ttl < 0 {
 		ttl = 30 * time.Second
 	}
 	return &Client{
