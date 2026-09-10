@@ -87,6 +87,25 @@ export class ListingsController {
   }
 
   /**
+   * 🔑 Claim a payment made directly to the creator.
+   *
+   * The buyer transfers $ARCA to the creator's wallet themselves — ARCANA
+   * never receives it — and then submits the transaction hash here.
+   *
+   * The claiming wallet is the SESSION's, never a body field. A hash is public
+   * the moment it is mined, so if the claimant were something a caller could
+   * state, anyone watching the chain could claim somebody else's payment.
+   */
+  @Post('listings/:id/claim-payment')
+  @UseGuards(JwtAuthGuard)
+  claimPayment(
+    @Param('id', ParseUuidAllPipe) id: string,
+    @Body() dto: { txHash?: string },
+    @CurrentWallet() wallet: string,
+  ) {
+    return this.listings.claimPayment(id, wallet, dto?.txHash ?? '');
+  }
+  /**
    * 🔒 Does the caller have an active subscription to this listing?
    *
    * The wallet is the session's. A `userWallet` query naming somebody else is

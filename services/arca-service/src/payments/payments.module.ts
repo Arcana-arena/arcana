@@ -6,12 +6,14 @@ import { Subscription } from './subscription.entity';
 import { UserPushToken } from './user-push-token.entity';
 import { ListingRef } from './listing-ref.entity';
 import { ServiceState } from './service-state.entity';
+import { PaymentClaim } from './payment-claim.entity';
 import { HdWalletService } from './hd-wallet.service';
 import { ArcaTokenService } from './arca-token.service';
 import { DepositAddressesService } from './deposit-addresses.service';
 import { SubscriptionsService } from './subscriptions.service';
 import { PaymentListenerService } from './payment-listener.service';
 import { PushService, ReminderService } from './reminder.service';
+import { ClaimsService } from './claims.service';
 import { ArcaController } from './arca.controller';
 
 @Module({
@@ -23,6 +25,7 @@ import { ArcaController } from './arca.controller';
       UserPushToken,
       ListingRef,
       ServiceState,
+      PaymentClaim,
     ]),
   ],
   controllers: [ArcaController],
@@ -34,12 +37,14 @@ import { ArcaController } from './arca.controller';
     PaymentListenerService,
     PushService,
     ReminderService,
+    ClaimsService,
   ],
   exports: [
     HdWalletService,
     DepositAddressesService,
     SubscriptionsService,
     ArcaTokenService,
+    ClaimsService,
   ],
 })
 export class PaymentsModule {}

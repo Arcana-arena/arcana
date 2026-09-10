@@ -18,6 +18,7 @@ import { CreateDepositDto, DepositAddressesService } from './deposit-addresses.s
 import { PaymentListenerService } from './payment-listener.service';
 import { ReminderService } from './reminder.service';
 import { SubscriptionsService } from './subscriptions.service';
+import { ClaimsService } from './claims.service';
 
 @Controller()
 export class ArcaController {
@@ -26,6 +27,7 @@ export class ArcaController {
     private readonly listener: PaymentListenerService,
     private readonly reminder: ReminderService,
     private readonly subs: SubscriptionsService,
+    private readonly claims: ClaimsService,
   ) {}
 
   /**
@@ -94,6 +96,26 @@ export class ArcaController {
       throw new BadRequestException('userWallet and listingId query params are required');
     }
     return { access: await this.subs.hasAccess(userWallet, listingId) };
+  }
+
+  /**
+   * 🔑 Claim a marketplace payment by transaction hash.
+   *
+   * MACHINE TIER, and that is the security boundary. marketplace calls this
+   * on a user's behalf having already verified, from the session, that the
+   * wallet it passes is the caller's own. The claimant is therefore an
+   * identity somebody proved, not a field somebody sent — which is the whole
+   * basis of the sender check inside.
+   *
+   * The user-facing door is POST /v1/marketplace/listings/:id/claim-payment.
+   */
+  @Post('internal/v1/payments/claims')
+  @UseGuards(InternalKeyGuard)
+  async claimPayment(@Body() dto: { userWallet?: string; listingId?: string; txHash?: string }) {
+    if (!dto?.userWallet || !dto?.listingId || !dto?.txHash) {
+      throw new BadRequestException('userWallet, listingId and txHash are required');
+    }
+    return this.claims.claim(dto.userWallet, dto.listingId, dto.txHash);
   }
 
   /** 🔒 All subscriptions of a wallet — your own only. */

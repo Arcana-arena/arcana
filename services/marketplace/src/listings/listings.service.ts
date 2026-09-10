@@ -93,6 +93,36 @@ export class ListingsService {
   }
 
   /**
+   * Claim a payment made directly to the creator, by transaction hash.
+   *
+   * The buyer's wallet comes from the caller's verified session and is passed
+   * to arca-service as a fact, not forwarded as a token: this is the machine
+   * tier, and marketplace has already established who is asking.
+   */
+  async claimPayment(listingId: string, userWallet: string, txHash: string) {
+    if (!this.authCfg.internalKey) {
+      // The same refusal hasAccess() makes: without the machine-tier key this
+      // service cannot reach arca-service at all, and saying so is not the same
+      // as saying the payment is invalid.
+      throw authUnavailable(
+        "INTERNAL_API_KEY is not set, so marketplace cannot reach payment verification",
+      );
+    }
+    const listing = await this.findOne(listingId);
+    if (!listing.active) {
+      throw new NotFoundException(`Listing ${listingId} is inactive`);
+    }
+    const res = await fetch(`${this.arcaUrl}/internal/v1/payments/claims`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Internal-Key': this.authCfg.internalKey },
+      body: JSON.stringify({ userWallet, listingId, txHash }),
+    });
+    if (!res.ok) {
+      throw await this.upstreamError(res, 'claim_payment');
+    }
+    return res.json();
+  }
+  /**
    * Turn a failed arca-service call into the §8 error shape with the upstream
    * status intact. Swallowing it into a generic 500 hid the real cause — a
    * deliberate "deposit generation disabled" refusal read to the caller as an
