@@ -53,8 +53,17 @@ func main() {
 	port := envOr("PORT", "8085")
 	seedPath := envOr("SIGNER_MASTER_SEED_FILE", "/etc/arcana/signer/master.key")
 	allowPath := envOr("SIGNER_ALLOWLIST_FILE", "allowlist/robinhood-mainnet.json")
+	// Four endpoints, each probed with eth_call — the method this service
+	// actually uses — rather than with eth_chainId, which anything answers.
+	// Two otherwise-plausible providers (drpc, nodeflare) serve eth_chainId and
+	// refuse eth_call, so a list checked the easy way would look redundant and
+	// not be.
+	//
+	// Ordering is deliberate: the ones that publish no request tracking come
+	// first. Every check this service makes reveals which wallet it is about to
+	// sign for, so the endpoint that answers learns ARCANA's wallet set.
 	rpcs := strings.Split(envOr("SIGNER_RPC_URLS",
-		"https://rpc.mainnet.chain.robinhood.com,https://robinhood-rpc.publicnode.com"), ",")
+		"https://rpc.mainnet.chain.robinhood.com,https://robinhood-rpc.publicnode.com,https://robinhood.api.pocket.network,https://rpc-robinhood.blockmachine.io"), ",")
 
 	allow, err := policy.Load(allowPath)
 	if err != nil {
@@ -95,6 +104,10 @@ func main() {
 		srv.ring = ring
 		log.Printf("signer ACTIVE: master seed loaded from %s", seedPath)
 	}
+
+	// Drop any endpoint that cannot serve eth_call, loudly, before the first
+	// signing request needs one.
+	srv.chain.Preflight(context.Background())
 
 	guard := internalauth.New("signer")
 

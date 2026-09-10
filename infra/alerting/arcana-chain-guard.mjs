@@ -48,12 +48,18 @@ const TIMEOUT_MS = Number(process.env.CHAIN_GUARD_TIMEOUT_MS || 15000);
 // as "the issuer changed something". They are probed at startup (see preflight)
 // and any that cannot serve this workload is dropped rather than counted.
 //
-// robinhood.drpc.org is deliberately NOT in this list. It answers eth_chainId
-// and refuses eth_call and eth_getStorageAt on its free tier, so as a fallback
-// it satisfied the identity check and then failed every real read — redundancy
-// that made one point of failure look like two.
+// TWO ENDPOINTS ARE DELIBERATELY ABSENT, and both for the same reason.
+// robinhood.drpc.org and rpc.nodeflare.app each answer eth_chainId and REFUSE
+// eth_call. Listed as fallbacks they would satisfy the identity check and then
+// fail every real read: redundancy that makes one point of failure look like
+// several. Two independent providers with the same defect is why the preflight
+// below is a permanent mechanism rather than a one-off fix.
+//
+// The four here were each probed with the methods this guard actually calls,
+// and all four answered. See infra/verify/rpc-endpoints-verify.mjs, which
+// re-checks that claim rather than trusting this comment.
 const RPCS = (process.env.CHAIN_RPC_URLS ||
-  'https://rpc.mainnet.chain.robinhood.com,https://robinhood-rpc.publicnode.com'
+  'https://rpc.mainnet.chain.robinhood.com,https://robinhood-rpc.publicnode.com,https://robinhood.api.pocket.network,https://rpc-robinhood.blockmachine.io'
 ).split(',').map(s => s.trim()).filter(Boolean);
 
 // Test hooks. Used by the verification rig to prove each branch alarms; never

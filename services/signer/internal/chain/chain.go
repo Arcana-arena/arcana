@@ -28,6 +28,7 @@ package chain
 import (
 	"bytes"
 	"context"
+	"log"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -57,6 +58,43 @@ type entry struct {
 	val bool
 	at  time.Time
 }
+
+// Preflight drops endpoints that cannot serve eth_call.
+//
+// An endpoint that answers eth_chainId and refuses eth_call is worse than no
+// endpoint: it makes a list look redundant while contributing nothing, so
+// nobody goes looking when the one real provider has a bad hour. Two
+// independent providers on this chain behave exactly that way, which is why
+// this is checked rather than assumed.
+//
+// It runs at boot, so a provider that changes its tier is noticed on the next
+// restart instead of at the moment a signature is needed.
+func (c *Client) Preflight(ctx context.Context) {
+	probe := "0x313ce567" // decimals(), on a contract that certainly exists
+	usable := make([]string, 0, len(c.urls))
+	for _, u := range c.urls {
+		saved := c.urls
+		c.urls = []string{u}
+		_, err := c.call(ctx, probeContract, strings.TrimPrefix(probe, "0x"))
+		c.urls = saved
+		if err != nil {
+			log.Printf("signer: RPC endpoint dropped: %s — cannot serve eth_call (%v)", u, err)
+			continue
+		}
+		usable = append(usable, u)
+	}
+	if len(usable) == 0 {
+		log.Printf("signer: WARN no RPC endpoint can serve eth_call. Every signing request will be " +
+			"refused with chain_state_unverifiable, which is the correct behaviour and not a workaround.")
+		return
+	}
+	c.urls = usable
+	log.Printf("signer: %d/%d RPC endpoints serve eth_call", len(usable), len(c.urls))
+}
+
+// probeContract is USDG: an allowlisted token that certainly exists, used only
+// to prove an endpoint can execute a call at all.
+const probeContract = "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168"
 
 func New(urls []string, chainID int64, ttl time.Duration) *Client {
 	if ttl < 0 {
