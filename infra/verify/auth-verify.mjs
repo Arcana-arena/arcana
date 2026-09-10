@@ -129,8 +129,16 @@ for (const [name, url] of [
 }
 
 // per-agent public reads
-const agentsList = (await req(`${AGENT}/v1/agents`)).body;
-const creatorsList = (await req(`${AGENT}/v1/creators`)).body;
+// PAGED, since 2026-09-11. These lists return { items, page, page_size,
+// total, has_more } rather than a bare array — they were unbounded public
+// reads, and one request serialising the whole table needed a ceiling.
+//
+// The shape change is real and this suite is where it was caught: it read
+// the body as an array and died on .filter. Recorded here rather than
+// papered over, because a previous commit message claimed nothing that
+// worked would stop working, and that was wrong.
+const agentsList = (await req(`${AGENT}/v1/agents?page_size=500`)).body.items;
+const creatorsList = (await req(`${AGENT}/v1/creators?page_size=500`)).body.items;
 const legacyCreatorIds = new Set(
   creatorsList.filter((c) => c.origin === 'legacy_seed').map((c) => c.id),
 );
@@ -170,6 +178,32 @@ for (const [name, path] of [
     dnaOk > 0,
     'no agent returned 200',
   );
+}
+
+console.log('\n=== 1b. Public lists are bounded ===');
+// These four are public, unauthenticated, and used to return every row. The
+// rate limiter bounds how OFTEN one request happens; it does nothing about how
+// much one costs. Both are needed, and only one existed.
+for (const [name, url] of [
+  ['agents', `${AGENT}/v1/agents`],
+  ['creators', `${AGENT}/v1/creators`],
+  ['seasons', `${AGENT}/v1/seasons`],
+  ['competitions', `${AGENT}/v1/competitions`],
+]) {
+  const r = await req(url);
+  const b = r.body;
+  check(`${name} list is paged, not an unbounded array`,
+    b !== null && typeof b === 'object' && Array.isArray(b.items) &&
+    typeof b.total === 'number' && typeof b.has_more === 'boolean',
+    JSON.stringify(b)?.slice(0, 80));
+
+  // REFUSED, not clamped. A caller asking for 100000 has a belief about what
+  // they are getting, and silently handing them 500 rows means they process a
+  // fraction of the data and never find out.
+  const over = await req(`${url}?page_size=100000`);
+  check(`${name} refuses an out-of-range page_size rather than clamping`,
+    over.status === 400 && /invalid_page_size/.test(errCode(over.body)),
+    `${over.status} ${errCode(over.body)}`);
 }
 
 console.log('\n=== 2. Protected endpoints refuse anonymous callers (401) ===');
