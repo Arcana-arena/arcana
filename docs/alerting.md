@@ -35,6 +35,8 @@ Ten units declare `OnFailure=arcana-alert@%n.service`:
 | `arcana-marketdata` | the market data service itself |
 | `arcana-arca-reminder` | subscription reminders |
 | `arcana-chain-guard` | Stock Token issuer-control drift (layer 3 below) |
+| `arcana-cadence` | opens a pool-priced tick every four hours. Alerts on a failed run — and a tick where NO agent executed exits non-zero on purpose, because a tick that opened and closed with everyone failing is the silent fault this phase exists to make visible |
+| `arcana-decision-watchdog` | asks whether a DECISION has been recorded in the last twelve hours. Replaces the tick watchdog's question, which was about a market calendar that no longer exists |
 | `arcana-signer` | the isolated key-custody service |
 | `arcana-backup` | daily full backup |
 | `arcana-backup-verify` | weekly restore rehearsal |

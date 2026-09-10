@@ -195,8 +195,26 @@ func main() {
 	}
 	log.Printf("tick %d opened for %s on %s", opened.TickIndex, *compID, pt.Ref)
 
-	ran, failed := 0, 0
+	// HUMAN PARTICIPANTS ARE SKIPPED, NOT FAILED.
+	//
+	// Human vs AI was built around one tick per trading day that stayed open
+	// for an hour so a person could submit. A four-hourly clock running through
+	// the night is not a format a person participates in — six decisions a day,
+	// two of them while they are asleep — so this cadence does not wait for
+	// anybody and does not pretend to.
+	//
+	// Calling the engine for a human-managed agent returns 422 telling you to
+	// use the manual endpoint. Counting that as a failure would print an error
+	// every four hours forever for a system behaving exactly as designed, which
+	// is the permanent noise that teaches people to stop reading the journal.
+	// The agent is NOT removed from the competition: it is a live participant
+	// with a real record, and deleting it is not this program's call.
+	ran, skipped, failed := 0, 0, 0
 	for _, pid := range comp.ParticipantIDs {
+		if human, err := agentIsHuman(ctx, cfg, pid); err == nil && human {
+			skipped++
+			continue
+		}
 		if err := runAgent(ctx, cfg, comp.SeasonID, pid, pt.Ref); err != nil {
 			log.Printf("agent %s failed: %v", pid, err)
 			failed++
@@ -204,7 +222,11 @@ func main() {
 		}
 		ran++
 	}
-	log.Printf("%d agents executed, %d failed", ran, failed)
+	if skipped > 0 {
+		log.Printf("%d human-managed agent(s) skipped: a continuous cadence has no "+
+			"submission window. See docs/cadence.md.", skipped)
+	}
+	log.Printf("%d agents executed, %d skipped, %d failed", ran, skipped, failed)
 
 	if err := closeTick(ctx, cfg, *compID); err != nil {
 		log.Fatalf("close tick: %v", err)
@@ -214,9 +236,17 @@ func main() {
 	// A tick where NOTHING ran is a fault, not a quiet success. It means every
 	// agent errored, and exiting 0 would let OnFailure= stay silent while the
 	// competition recorded a tick in which nobody decided anything.
-	if ran == 0 && len(comp.ParticipantIDs) > 0 {
-		log.Fatalf("ERROR: tick %d opened and closed with NO agent executing (%d participants, all failed)",
-			opened.TickIndex, len(comp.ParticipantIDs))
+	// Skipped agents do not count towards "somebody ran". A competition whose
+	// only participants are human now produces empty ticks, and that should be
+	// loud rather than quietly recorded as a tick in which nobody decided.
+	if ran == 0 && (len(comp.ParticipantIDs)-skipped) > 0 {
+		log.Fatalf("ERROR: tick %d opened and closed with NO agent executing (%d eligible participants, all failed)",
+			opened.TickIndex, len(comp.ParticipantIDs)-skipped)
+	}
+	if ran == 0 && skipped > 0 {
+		log.Fatalf("ERROR: tick %d has only human-managed participants (%d), so nothing decided. "+
+			"A continuous cadence cannot run a human-vs-AI competition; move these agents to a "+
+			"format that suits them or retire the competition.", opened.TickIndex, skipped)
 	}
 }
 
@@ -283,6 +313,25 @@ func takePoolTick(ctx context.Context, cfg config) (*poolTickResult, error) {
 		return nil, errors.New("pool tick returned no ref")
 	}
 	return &out, nil
+}
+
+// agentIsHuman asks agent-service whether a participant is human-managed.
+//
+// An unreadable answer is treated as NOT human, so a transient failure sends
+// the agent down the normal path and produces a real error, rather than
+// silently skipping a real AI participant and recording a tick it missed.
+func agentIsHuman(ctx context.Context, cfg config, agentID string) (bool, error) {
+	body, err := httpGet(ctx, cfg.agentServiceURL+"/v1/agents/"+agentID)
+	if err != nil {
+		return false, err
+	}
+	var a struct {
+		StrategyType *string `json:"strategyType"`
+	}
+	if err := json.Unmarshal(body, &a); err != nil {
+		return false, err
+	}
+	return a.StrategyType != nil && *a.StrategyType == "human", nil
 }
 
 func getCompetition(ctx context.Context, cfg config, id string) (*competition, error) {
