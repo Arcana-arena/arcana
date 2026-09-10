@@ -50,6 +50,11 @@ const sql = (q) =>
   execFileSync('docker', ['exec', 'arcana-postgres', 'psql', '-U', 'arcana', '-d', 'arcana', '-tAc', q],
     { encoding: 'utf8' }).trim();
 
+// A successful POST here is 201 Created, not 200. Asserting an exact status
+// made a passing system look broken twice in this project already, so the
+// helper exists to stop it happening a third time.
+const ok2xx = (r) => r.status >= 200 && r.status < 300;
+
 let pass = 0, fail = 0;
 const failures = [];
 const check = (name, ok, detail = '') => {
@@ -190,7 +195,7 @@ try {
 
   mockMode = 'good';
   let r = await executeTick();
-  check('tick executed against the second provider', r.status === 200, `got ${r.status} ${JSON.stringify(r.body)}`);
+  check('tick executed against the second provider', ok2xx(r), `got ${r.status} ${JSON.stringify(r.body)}`);
   let d = lastDecision();
   check('the model actually decided (a trade, not a hold)', d.action === 'buy' || d.action === 'sell', `action=${d.action} reason=${d.reason} rationale=${d.rationale}`);
   check('decider recorded as llm', d.decider === 'llm', `got '${d.decider}'`);
@@ -215,7 +220,7 @@ try {
   console.log('\n=== 2. Output the schema rejects ===');
   mockMode = 'garbage';
   r = await executeTick();
-  check('tick still succeeds (a rejected answer is not a failed tick)', r.status === 200, `got ${r.status}`);
+  check('tick still succeeds (a rejected answer is not a failed tick)', ok2xx(r), `got ${r.status}`);
   d = lastDecision();
   check('recorded as a HOLD', d.action === 'hold', `action=${d.action}`);
   check('reason_code = llm_invalid_output', d.reason === 'llm_invalid_output', `got '${d.reason}'`);
@@ -240,7 +245,7 @@ try {
   });
   check('engine came up pointed at a dead provider', await waitFor(`http://127.0.0.1:${ENGINE_PORT}/healthz`), 'never became healthy');
   r = await executeTick();
-  check('the tick still SUCCEEDS — the decision exists', r.status === 200, `got ${r.status} ${JSON.stringify(r.body)}`);
+  check('the tick still SUCCEEDS — the decision exists', ok2xx(r), `got ${r.status} ${JSON.stringify(r.body)}`);
   d = lastDecision();
   check('recorded as a HOLD, not a lost tick', d.action === 'hold', `action=${d.action}`);
   check('reason_code = llm_unavailable', d.reason === 'llm_unavailable', `got '${d.reason}'`);
