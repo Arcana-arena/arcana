@@ -185,11 +185,51 @@ This narrows the blocker to the one thing genuinely unknown. The scale of $ARCA
 was never unknowable — only unasked, because the token does not exist yet to
 ask. The instant it does, nobody has to remember to go and check.
 
+## The marketplace settles in USDG
+
+**Changed 2026-09-11, and it is what made the marketplace usable.** It had been
+waiting on a $ARCA launch it did not need.
+
+USDG exists on chain today. More to the point, **the verification described in
+this document was already driven against real USDG transfers** — the suite
+finds a transfer somebody else made, for their own reasons, and checks against
+it. So switching to USDG required re-proving nothing: the payment path was
+already proven against exactly this token rather than against a stand-in for
+one that did not exist.
+
+| | Variable | Token | State |
+|---|---|---|---|
+| **Payment** | `MARKETPLACE_PAYMENT_TOKEN` | USDG `0x5fc5360D…d168` | live |
+| **Gating** | `ARCA_TOKEN_ADDRESS` | $ARCA | unlaunched, and no longer blocking |
+
+### Why two variables and not one
+
+They were one variable while both were $ARCA. One variable is how they get
+swapped by accident — a day comes when somebody sets it for one purpose and
+silently changes the other. Holding USDG would then satisfy a $ARCA gate, or a
+listing would be priced in a token nobody can pay in. **Neither would throw.**
+
+So the reader takes its address as a constructor argument and is registered
+twice, under two names, from two variables. Nothing reads a token address from
+the environment except those two providers, and `claims-verify` asserts that —
+a third source appearing later is caught by a suite rather than by an incident.
+
+DI tokens rather than subclasses, deliberately: a subclass would let a consumer
+asking for the base type receive either one, which is the exact confusion this
+split exists to prevent.
+
+Decimals are still read from `decimals()` per token, with **no fallback**. That
+is what makes the switch safe at all: USDG uses 6, $ARCA will use whatever it
+uses, and neither number is written down anywhere to be got wrong. `symbol()`
+is still never consulted.
+
 ## Before this can take real money
 
-**`ARCA_TOKEN_ADDRESS`** — and that is the whole list. The token does not exist
-yet; until it is set the claim path refuses with
-`payment_verification_unavailable`, which is correct.
+**Nothing, on the token side.** This list used to be `ARCA_TOKEN_ADDRESS`, and
+that entry is gone: the marketplace settles in a token that exists.
+
+What remains is operational rather than a blocker — see "What is left before
+real users" below.
 
 The §10 subsystem that used to appear here as item 3 was **retired on
 2026-09-11**: `HdWalletService`, `DepositAddressesService`,
@@ -197,3 +237,60 @@ The §10 subsystem that used to appear here as item 3 was **retired on
 listener routes, and the marketplace `subscribe` route that called them. They
 were held through phase 4a because their replacement was not proven. This
 document is that proof, and the order was the point.
+
+## What is left before real users
+
+The marketplace is the first feature that can go live **without waiting on
+anything from the owner**. That is a real claim, so here is everything that is
+actually still between it and a stranger using it — stated as findings, not as
+a plan.
+
+### Blocking, and inside our control
+
+1. **Two creators have no `wallet_address`** (2 of 51). A listing whose creator
+   has no wallet refuses every claim with `creator_has_no_wallet`, which is the
+   correct refusal — there is no address to verify a payment against — but it
+   is a listing that can never be bought. The creators need a wallet, or their
+   listings need deactivating. **Refusing correctly is not the same as working.**
+
+2. **A buyer has no way to learn the creator's address.** The claim path
+   verifies a payment to the creator's wallet, and nothing in the API tells a
+   buyer what that address is. Today the answer would have to come from outside
+   the platform, which is exactly the sort of gap that gets filled by somebody
+   pasting an address into a chat window — and that is how payment redirection
+   attacks work. A listing needs to state its own payee, from the same row the
+   verification reads, so the two cannot disagree.
+
+3. **A buyer has no way to learn the price in the token they will pay in.**
+   `arca_gate_amount` is a NUMERIC and the claim converts it with the token's
+   decimals. A listing should say "12.500000 USDG", from the same conversion
+   the check uses, rather than leaving a client to do that arithmetic — two
+   implementations of a price conversion is how somebody underpays by a factor
+   of a million and is told `insufficient_amount`.
+
+### Not blocking, but they will be asked about
+
+4. **A confirmed payment is invisible until claimed.** The buyer pays, then
+   submits the hash. If they close the tab in between, nothing anywhere knows
+   the payment happened, and the 24-hour freshness window is running. That is
+   survivable — the money is theirs, on chain, and the claim still works within
+   the window — but the failure is silent and the remedy is a support message.
+
+5. **A refunded or mistaken payment has no path.** ARCANA never held the money,
+   so there is nothing to refund; the buyer and creator must settle it between
+   themselves. That is a consequence of the fee-free P2P design and it is the
+   right trade, but it should be stated to a buyer before they pay rather than
+   discovered after.
+
+### Deliberately not blocking
+
+- **A frontend.** Not started, and not started here on purpose.
+- **$ARCA.** It gates entitlements — CREATE, COMPETE, EVOLVE, PREMIUM ARENA —
+  and no longer touches payment. Every gate currently admits everyone and says
+  so in its response rather than passing silently.
+- **KMS, the seed, and the $10 swap.** All three are about the *trading*
+  wallets ([signer.md](./signer.md)). The marketplace holds no key and moves no
+  money: the buyer pays the creator directly and ARCANA reads the chain.
+
+The first three are ordinary product work with no external dependency. Nothing
+on this list needs a credential, an approval, or a launch.

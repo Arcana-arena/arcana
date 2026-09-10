@@ -28,7 +28,19 @@ against the chain. No deposit address, no treasury, no split, no contract. See
 [on-chain-direction.md §g](./on-chain-direction.md#g-marketplace--tx-hash-confirmation).
 
 So "go-live" now means one thing only: **the $ARCA token exists and its address
-is known.** Two systems have been waiting on that and nothing else.
+is known.**
+
+**And that is one system, not two, as of 2026-09-11.** The marketplace used to
+be on this list and is not any more: it settles in **USDG**, which exists on
+chain today, through a separate `MARKETPLACE_PAYMENT_TOKEN`. The verification
+had always been driven against real USDG transfers, so nothing had to be
+re-proven to make the switch — the payment path was already tested against
+exactly this token.
+
+What still waits here is **entitlement gating**: what a creator must HOLD to
+create, compete, evolve or enter a premium arena. That is a different question
+from what a buyer PAYS, and the two now have different variables so they cannot
+be swapped by accident.
 
 Related: [scheduling.md](./scheduling.md) (the timers), migration 0027
 (`payment_claims`), migration 0028 (what was retired).
@@ -39,7 +51,7 @@ Related: [scheduling.md](./scheduling.md) (the timers), migration 0027
 
 | Blocked | Blocked by | Not blocked by |
 |---|---|---|
-| Marketplace payment claims | `ARCA_TOKEN_ADDRESS` — the token does not exist | anything else; the verification path is proven, 22/22, against real USDG transfers |
+| ~~Marketplace payment claims~~ | **NOTHING — unblocked 2026-09-11.** Settled in USDG, which exists on chain. The verification had already been driven against real USDG transfers, so nothing had to be re-proven; the suite is now 26/26 against the production token itself | — |
 | $ARCA entitlement gating | `ARCA_TOKEN_ADDRESS` **and** a per-action threshold | — |
 
 Note what is **not** on that list any more. Token decimals used to be, as a
@@ -61,7 +73,7 @@ committed). Restart is required — they are read once at boot.
 
 | Variable | Source | Notes |
 |---|---|---|
-| `ARCA_TOKEN_ADDRESS` | the deployed $ARCA ERC-20 contract | Must be the real address. Never a test token, never guessed. While it is empty, claims refuse with `503 payment_verification_unavailable`, which is the correct answer: nothing was judged. |
+| `ARCA_TOKEN_ADDRESS` | the deployed $ARCA ERC-20 contract | Must be the real address. Never a test token, never guessed. **GATING ONLY since 2026-09-11** — the marketplace settles in USDG via `MARKETPLACE_PAYMENT_TOKEN` and no longer waits for this. While it is empty every entitlement check passes WITHOUT reading a balance, and says so in its response. |
 | `ARCA_RPC_URL` | Robinhood Chain RPC | Read-only access is all that is needed. |
 | `ARCA_CHAIN_ID` | Robinhood Chain | **4663** (`0x1237`), measured. The code falls back to `31337` (anvil), which is wrong for production. |
 
