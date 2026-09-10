@@ -230,6 +230,105 @@ console.log('\n=== 4. The pool answers, and every quote says who refereed it ===
   }
 }
 
+// ---------------------------------------------------------------------------
+console.log('\n=== 5. The cadence floor refuses, and the cadence is idempotent ===');
+// ---------------------------------------------------------------------------
+//
+// The floor is arithmetic: a round trip costs 10-60 bp of pool fee, so hourly
+// decisions cost 2.4%-14% of NAV per day if they trade. A limit that has never
+// turned anything away has not been tested, so it is driven past.
+{
+  const BIN = process.env.CADENCE_BIN || 'scheduler-bin/cadence';
+  const COMP = process.env.CADENCE_COMPETITION || 'd0653071-67e5-4302-ac78-afe2e1130d89';
+
+  function run(args, env = {}) {
+    try {
+      const out = execFileSync(BIN, args, {
+        encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, ...env },
+      });
+      return { code: 0, out };
+    } catch (e) {
+      return { code: e.status ?? 1, out: String(e.stdout ?? '') + String(e.stderr ?? '') };
+    }
+  }
+
+  const below = run(['-competition', COMP, '-interval', '1h']);
+  check('a cadence below the four-hour floor is REFUSED',
+    below.code !== 0 && /below the floor/i.test(below.out), below.out.slice(0, 140));
+  check('and the refusal explains the arithmetic rather than just saying no',
+    /round trip costs|bp|NAV/i.test(below.out), below.out.slice(0, 140));
+
+  const noKey = run(['-competition', COMP, '-interval', '4h'], { INTERNAL_API_KEY: '' });
+  check('a cadence with no internal key refuses rather than half-running',
+    noKey.code !== 0 && /INTERNAL_API_KEY/i.test(noKey.out), noKey.out.slice(0, 140));
+
+  const noComp = run(['-interval', '4h']);
+  check('a cadence with no competition refuses', noComp.code !== 0, noComp.out.slice(0, 100));
+
+  // IDEMPOTENT. A second run inside the interval must do nothing and exit 0.
+  // This matters more on a continuous cadence than a daily one: retries
+  // overlap normal operation rather than being an exception.
+  const again = run(['-competition', COMP, '-interval', '4h']);
+  check('a second run inside the interval does nothing and succeeds',
+    again.code === 0 && /Nothing to do|already completed/i.test(again.out),
+    again.out.slice(-160));
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n=== 6. The watchdog asks about decisions, and can still alarm ===');
+// ---------------------------------------------------------------------------
+//
+// A monitor that has never alerted is indistinguishable from a monitor that
+// cannot. This one could not: it called arcana-notify with the wrong argument
+// shape and got a usage error, so it would have detected a stopped system,
+// decided to alert, and sent nothing — the exact failure it exists to catch,
+// inside the thing meant to catch it. Found by firing it on purpose.
+{
+  const WD = 'infra/alerting/arcana-decision-watchdog.sh';
+
+  function runWd(env = {}) {
+    try {
+      const out = execFileSync('bash', [WD], {
+        encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, ...env },
+      });
+      return { code: 0, out };
+    } catch (e) {
+      return { code: e.status ?? 1, out: String(e.stdout ?? '') + String(e.stderr ?? '') };
+    }
+  }
+
+  const healthy = runWd();
+  check('a healthy system reports healthy and exits 0',
+    healthy.code === 0 && /Healthy|no running competition/i.test(healthy.out),
+    healthy.out.slice(0, 140));
+
+  // FORCED PAST THE THRESHOLD. Zero missed intervals means any age at all is
+  // too much, which drives the alarm path without waiting twelve hours.
+  const alarmed = runWd({ CADENCE_HOURS: '1', MISSED_INTERVALS: '0' });
+  check('past the threshold it ALERTS',
+    /ALERTED/.test(alarmed.out), alarmed.out.slice(0, 140));
+  check('and the alert actually reaches the notifier',
+    !/usage:/.test(alarmed.out), alarmed.out.slice(0, 160));
+
+  // "COULD NOT CHECK" IS ITS OWN ANSWER, and must not read as healthy. Same
+  // shape as the 503s and the referee's "unrefereed".
+  const blind = runWd({ WATCHDOG_DB: 'arcana_no_such_database' });
+  check('a check that could not be performed exits NON-ZERO, not quietly 0',
+    blind.code !== 0 && /NOT performed/i.test(blind.out), `exit ${blind.code}`);
+
+  // It must ask about DECISIONS, not ticks. A tick that opened and closed with
+  // every agent failing is the silent fault, and it looks healthy to anything
+  // counting ticks.
+  const src = readFileSync(WD, 'utf8');
+  check('the watchdog measures decisions, not ticks',
+    /max\(ts\)\)\)::bigint, -1\) FROM decisions/.test(src) || /FROM decisions/.test(src),
+    'expected a query against the decisions table');
+  check('it never opens a tick or reads the pool — a monitor must not mutate',
+    !/ticks\/pool|\/ticks"|POST/.test(src.replace(/#.*/g, '')), 'found a write in a monitor');
+}
+
 console.log('\n' + '='.repeat(40));
 console.log(`  PASS: ${pass}   FAIL: ${fail}`);
 console.log('='.repeat(40));
