@@ -17,7 +17,7 @@ opinion about who was calling.
 
 Identity in ARCANA was already wallet-shaped before any of this:
 `creators.wallet_address`, `subscriptions.user_wallet`,
-`deposit_addresses.user_wallet`, and every $ARCA entitlement is evaluated
+`payment_claims.buyer_wallet`, and every $ARCA entitlement is evaluated
 per-wallet. SIWE (EIP-4361) makes the address a *proven* fact instead of a
 claimed one, and it fits without a translation layer: the address that comes
 out of a verified signature is the same string those columns already hold.
@@ -187,11 +187,11 @@ keep working when auth is misconfigured (§5).
 | Endpoint | Tier |
 |---|---|
 | `GET /healthz` | 🌐 |
-| `POST /v1/arca/deposit-address` | 🔑 (wallet from session) |
 | `GET /v1/subscriptions/:userWallet` | 🔒 self |
 | `GET /v1/arca/accounts/:userId` | 🔒 self |
 | `GET /v1/arca/access` · `GET /v1/arca/entitlements/check` | ⚙️ |
-| `POST /internal/v1/payments/{listener/poll,listener/audit,payout/run,reminder/run}` | ⚙️ |
+| `POST /internal/v1/payments/claims` | ⚙️ (marketplace calls it; the buyer wallet is a fact it proved, not a field it forwarded) |
+| `POST /internal/v1/payments/reminder/run` | ⚙️ |
 
 ### marketplace `:3002`
 
@@ -200,7 +200,7 @@ keep working when auth is misconfigured (§5).
 | `GET /healthz` · `GET /v1/marketplace/listings` · `/agents` · `/listings/:id` | 🌐 |
 | `POST /v1/marketplace/listings` | 🔒 owner of the agent being listed |
 | `PATCH /v1/marketplace/listings/:id` | 🔒 owner of the listing |
-| `POST /v1/marketplace/listings/:id/subscribe` | 🔑 |
+| `POST /v1/marketplace/listings/:id/claim-payment` | 🔑 (claiming wallet from session, never the body) |
 | `GET /v1/marketplace/listings/:id/access` | 🔒 self |
 
 ### scoring-engine `:8082` · market-data `:8083` · decision-engine `:8081`
@@ -423,11 +423,18 @@ cd /home/ubuntu/arcana && node infra/verify/auth-verify.mjs
 **65 checks since 2026-09-10** (was 63). The §10 payout route was retired, so
 the two checks asserting its internal-key guard were testing a route that no
 longer exists. They were replaced rather than dropped: the guard assertion moved
-to the still-live reminder route, and two new checks prove the payout route is
-**gone** (404 even with a valid key) and that deposit-address generation refuses
-**by decision** — message says `retired`, and specifically does *not* say `not
-configured`. Asserting the reason, not just the refusal, is what stops the old
-behaviour returning when somebody fills in `ARCA_MASTER_PRIVATE_KEY`.
+to the still-live reminder route, and new checks prove the retired routes are
+**gone** — 404 even with a valid credential, which is the only refusal that
+cannot be reverted by editing configuration.
+
+The deposit-address check was, for one phase, weaker than that: the route still
+existed and the suite asserted it refused **by decision**, its message saying
+`retired` and specifically not `not configured`. That distinction mattered
+while `docs/arca-go-live.md` was still a written procedure telling somebody to
+fill in `ARCA_MASTER_PRIVATE_KEY`. On 2026-09-11 the route was removed outright
+along with the rest of the §10 subsystem, so the assertion tightened with it:
+404, checked **with a valid session token** on purpose, because a 401 would
+also read as "not usable" while hiding a route still sitting behind the guard.
 
 A companion suite covers the subscription access rule:
 

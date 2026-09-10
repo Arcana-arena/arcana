@@ -182,6 +182,16 @@ payment), `SubscriptionsService` and `ReminderService` (the access record and
 the lifecycle that writes it), `ArcaTokenService` (entitlements depend on it).
 Six of twelve files. Their replacement is phase 11.
 
+> **Released 2026-09-11**, the first three only. Phase 11 proved the
+> replacement (22/22 against real USDG transfers), which is exactly the
+> condition the hold was waiting on, so `DepositAddressesService`,
+> `HdWalletService` and `PaymentListenerService` went — along with their three
+> entities, the deposit-address route, both listener routes, and the
+> marketplace `subscribe` route that called them. Migration 0028.
+>
+> `SubscriptionsService`, `ReminderService` and `ArcaTokenService` remain live
+> and were not touched. The hold on them was never about phase 11.
+
 **Interlocked instead of deleted:** `DepositAddressesService.generate()` now
 refuses by decision. It previously refused only because the environment was
 empty — and `arca-go-live.md` was a written procedure to fill exactly those

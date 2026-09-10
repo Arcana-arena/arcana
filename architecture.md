@@ -487,7 +487,18 @@ Scheduler   MarketData   DecisionEngine   Sandbox(Agent)   Kafka   ScoringEngine
 
 ## 10. Subscription & Payment — $ARCA
 
-> ## ⛔ SUPERSEDED (2026-09-10). This entire section describes a design that is being retired.
+> ## ⛔ SUPERSEDED (2026-09-10). RETIRED IN CODE (2026-09-11). This section describes a design that no longer exists.
+>
+> **The code is gone, not merely dormant.** `HdWalletService`,
+> `DepositAddressesService`, `PaymentListenerService`, their three entities and
+> every route they served were removed on 2026-09-11, once phase 11 proved the
+> replacement (22/22 against real USDG transfers). The tables survive, empty and
+> marked `RETIRED` by migrations 0024 and 0028. What replaced it is
+> [docs/marketplace-payments.md](./docs/marketplace-payments.md).
+>
+> The SQL and sequence diagrams below are kept as a record of a design that was
+> built, shipped and then found to rest on a false premise. That is worth being
+> able to read back.
 >
 > **Two of its three premises were false, and the third was dropped.**
 >

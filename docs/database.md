@@ -34,8 +34,8 @@ confirmation. Tables added beyond §7 (each documented in its migration file):
   stored in object storage (MinIO/S3).
 - `competition_ticks` (0013) — turn/session state for competitions
   (human_vs_ai rounds), referencing an immutable snapshot per tick.
-- `deposit_addresses`, `payment_events`, `creator_payouts`, `subscriptions`,
-  `user_push_tokens` (0014) — the $ARCA payment flow of §10: unique HD deposit
+- `deposit_addresses`, `payment_events`, `creator_payouts` — **all RETIRED**
+  (0024, 0028); `subscriptions` and `user_push_tokens` — **still live** (0014) — the $ARCA payment flow of §10: unique HD deposit
   addresses, off-chain listener events, batch creator payouts, manual renew,
   push reminders. The design was shaped by the belief that the chain was
   permissioned and no contract could be deployed; **that was never true**.
@@ -51,9 +51,17 @@ confirmation. Tables added beyond §7 (each documented in its migration file):
   lifecycle both read and write it, and `GET /v1/arca/access` is the single
   place the grace rule lives. It was only ever a neighbour of the payment
   tables, never part of the payment model. Its comment in 0024 says so.
-- `service_state` (0015) — internal key-value state for background services
-  (payment listener block checkpoint), so restarts backfill instead of
-  rescanning from genesis.
+- `service_state` (0015) — **RETIRED 2026-09-11** (0028). Introduced as generic
+  key-value state for background services. It never became that: its only
+  consumer in the whole codebase was ever the payment listener block
+  checkpoint, and the listener was removed. Empty, kept, commented. A service
+  needing durable state should own a table that names it.
+The next two describe columns on `deposit_addresses`, which was **retired on
+2026-09-11** along with the service that wrote them. They are kept here rather
+than deleted because the reasoning is the interesting part — both were
+after-the-fact fixes for real failures, and the same two failures are available
+to anything that scans a chain for payments.
+
 - `deposit_addresses.created_at_block` (0016) — chain height when the address
   was issued. The listener's scan never starts above the oldest pending
   deposit's height, closing the case where the checkpoint lands *ahead* of a

@@ -41,6 +41,17 @@ result changed the plan:
 and `ARCA_MASTER_PRIVATE_KEY` are empty. Six of the twelve files still hold up
 the live subscribe → grant → access flow, and their replacement is phase 11.
 
+> **RESOLVED 2026-09-11.** Three of those six — `DepositAddressesService`,
+> `HdWalletService`, `PaymentListenerService` — were retired once phase 11
+> proved the replacement. The table above is left as written because it records
+> what was true on 2026-09-10 and why the hold was correct; see the
+> 2026-09-11 entry at the end of this file for what actually went.
+>
+> The other three are **still live and were not touched**:
+> `SubscriptionsService` (the access record and the grace rule),
+> `ReminderService` (the active → grace → expired transitions) and
+> `ArcaTokenService` (EntitlementService depends on it).
+
 ### What was deleted
 
 Code only. **No table was dropped and no row was deleted.**

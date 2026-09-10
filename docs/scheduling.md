@@ -29,7 +29,7 @@ Units live in [`infra/systemd/`](../infra/systemd/):
 | `arcana-decision.service` | long-running | always | decision engine (port 8081) |
 | `arcana-scoring.service` | long-running | always | score API + batch endpoint (port 8082) |
 | `arcana-marketplace.service` | long-running | always | marketplace API (port 3002) |
-| `arcana-arca.service` | long-running | always | $ARCA entitlements, deposits, payments (port **3004** — 3003 is taken on this host) |
+| `arcana-arca.service` | long-running | always | $ARCA entitlements, subscriptions, marketplace payment claims (port **3004** — 3003 is taken on this host) |
 | `arcana-scheduler.timer` → `arcana-scheduler.service` | oneshot | **23:00, 01:00, 03:00 UTC** | advance the competition one tick per TRADING DAY (the two later runs are idempotent retries) |
 | `arcana-scoring-job.timer` → `arcana-scoring-job.service` | oneshot | **daily 23:30 UTC** | run the ARCANA Score batch, after the tick |
 | `arcana-arca-reminder.timer` → `arcana-arca-reminder.service` | oneshot | **daily 09:00 UTC** | $ARCA renewal pushes + `active→grace→expired` |
@@ -37,10 +37,15 @@ Units live in [`infra/systemd/`](../infra/systemd/):
 | `arcana-chain-guard.timer` → `arcana-chain-guard.service` | oneshot | **every 4 hours** | watch the Stock Token beacon, pause state and pool liquidity for issuer-side drift ([alerting.md](./alerting.md#layer-3--the-chain-guard)) |
 | `arcana-agent-dna.timer` → `arcana-agent-dna.service` | oneshot | **daily 23:45 UTC** | recompute Agent DNA fingerprints ([agent-dna.md](./agent-dna.md)) |
 
-The $ARCA **deposit audit** (stranded-payment detection + retiring unfunded
-deposit addresses) has **no timer**: it runs inside `arcana-arca.service` on its
-own interval (`ARCA_AUDIT_INTERVAL_MS`, default 5 min). Do not add one — it
-would duplicate work already scheduled in-process.
+The $ARCA **deposit audit** — stranded-payment detection and retiring unfunded
+deposit addresses, on an in-process `setInterval` rather than a timer — was
+**removed on 2026-09-11** with `PaymentListenerService`. There is nothing left
+to audit: ARCANA issues no deposit address, so no payment can arrive somewhere
+it fails to notice. A buyer who pays and is not granted access now submits the
+transaction hash themselves and gets a reasoned answer synchronously.
+
+**No background timer or interval remains in the payment path at all.** Payment
+verification is entirely request-driven.
 
 ## Schedules
 
