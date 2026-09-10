@@ -9,6 +9,78 @@ with enough detail that a later reader can judge whether it was the right one.
 
 ---
 
+## 2026-09-10 — §10 payment subsystem retired (no data deleted)
+
+### Why
+
+The marketplace became **P2P with no fee**: the buyer transfers straight to the
+creator's wallet and submits the transaction hash, which ARCANA verifies against
+the chain. That removes the reason the §10 machinery existed — deposit
+addresses to match payments, a listener to detect them, a sweep to a treasury,
+an off-chain 80/20 split, and a batch to pay creators.
+
+The design was also shaped by a belief that was **never true**: that Robinhood
+Chain was permissioned and ARCANA could not deploy a contract. It has been
+permissionless since 1 July 2026.
+
+### What was mapped before anything was touched
+
+Filenames were not trusted. Each service was traced to its callers, and the
+result changed the plan:
+
+| Component | Verdict | Evidence |
+|---|---|---|
+| `PayoutBatchService`, `creator_payouts` | **dead by decision** | only caller is its own route and timer; P2P with no fee means ARCANA never holds or splits a payment |
+| `DepositAddressesService`, `HdWalletService` | **LIVE** — held | `POST /v1/marketplace/listings/:id/subscribe` calls `POST /v1/arca/deposit-address`. This is the current subscribe path |
+| `PaymentListenerService` | **LIVE** — held | the only thing that creates a subscription after payment; removing it would mean a user pays and access is never granted |
+| `SubscriptionsService` | **LIVE** — held | `hasAccess()` and the grace rule; `GET /v1/arca/access` is the single source of truth marketplace consults |
+| `ReminderService` | **LIVE** — held | writes the `active → grace → expired` transitions the access rule reads |
+| `ArcaTokenService` | **LIVE** — held | `EntitlementService` depends on it; $ARCA gating is unaffected |
+
+**So §10 is not dead. It is dormant** — inert only because `ARCA_TOKEN_ADDRESS`
+and `ARCA_MASTER_PRIVATE_KEY` are empty. Six of the twelve files still hold up
+the live subscribe → grant → access flow, and their replacement is phase 11.
+
+### What was deleted
+
+Code only. **No table was dropped and no row was deleted.**
+
+- `payout-batch.service.ts`, `creator-payout.entity.ts`
+- `POST /internal/v1/payments/payout/run`
+- `arcana-arca-payout.service` and `arcana-arca-payout.timer`
+- `infra/k8s/` — an empty directory describing a topology that does not exist
+
+### What was kept, and why
+
+All four payment tables. They were **empty at retirement** — verified on
+production: `deposit_addresses` 0, `payment_events` 0, `creator_payouts` 0,
+`user_push_tokens` 0 — so there was no history to preserve. What is preserved
+is the record that they existed, as `COMMENT ON TABLE` in migration **0024**.
+A comment travels with the schema and shows up in `d+`, so the next person to
+open the database gets the story without needing to find this file.
+
+`subscriptions` is explicitly **not** part of this retirement. It is the access
+record, not a payment record, and it was only ever a neighbour of the others.
+
+### The hazard that was closed
+
+`DepositAddressesService.generate()` refused only because the environment was
+empty. `docs/arca-go-live.md` is a written procedure instructing an operator to
+**fill exactly those variables in**. Following it would have silently activated
+a payment model this project has abandoned and started routing real user money
+through an ARCANA-controlled address — reporting success the whole way.
+
+The path now refuses **by decision**. Configuration cannot lift it. A retirement
+that one environment variable can undo is not a retirement, and that is the part
+of this entry worth remembering.
+
+### Backup
+
+None taken, and none needed: nothing was deleted from the database. The daily
+backup covers the schema change like any other.
+
+---
+
 ## 2026-09-09 — Season 1 (`45765ffc-51ef-4b31-aeb0-fae67633e448`)
 
 ### Why

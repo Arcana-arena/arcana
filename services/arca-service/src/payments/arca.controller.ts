@@ -16,7 +16,6 @@ import {
 } from '@arcana/auth';
 import { CreateDepositDto, DepositAddressesService } from './deposit-addresses.service';
 import { PaymentListenerService } from './payment-listener.service';
-import { PayoutBatchService } from './payout-batch.service';
 import { ReminderService } from './reminder.service';
 import { SubscriptionsService } from './subscriptions.service';
 
@@ -25,7 +24,6 @@ export class ArcaController {
   constructor(
     private readonly deposits: DepositAddressesService,
     private readonly listener: PaymentListenerService,
-    private readonly payouts: PayoutBatchService,
     private readonly reminder: ReminderService,
     private readonly subs: SubscriptionsService,
   ) {}
@@ -61,13 +59,6 @@ export class ArcaController {
   @UseGuards(InternalKeyGuard)
   async audit() {
     return this.listener.auditPendingDeposits();
-  }
-
-  /** Run one payout batch cycle. */
-  @Post('internal/v1/payments/payout/run')
-  @UseGuards(InternalKeyGuard)
-  async runPayouts() {
-    return this.payouts.run();
   }
 
   /** Run one reminder cycle. */

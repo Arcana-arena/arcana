@@ -46,8 +46,14 @@ if [ "$http_code" -ge 400 ]; then
   exit 1
 fi
 
-# The payout batch reports a deliberate stand-down in its `skipped` array, e.g.
-# {"processed":0,"paid_out":0,"skipped":["payout disabled: treasury/RPC/token not configured"]}
+# A job reports a deliberate stand-down in its `skipped` array rather than by
+# failing, e.g. {"reminded":0,"skipped":["... disabled: ... not configured"]}.
+#
+# The payout batch used to be the example here. It was retired on 2026-09-10
+# with the rest of the treasury/split model: the marketplace is P2P with no fee,
+# so ARCANA never holds or splits a payment and has nothing to pay out. The
+# remaining callers are the scoring batch, the DNA batch and the $ARCA
+# reminder, all of which touch only the database.
 if printf '%s' "$body" | grep -q 'disabled'; then
   echo "$JOB: SKIPPED (feature disabled by configuration, expected until the \$ARCA token launches): $body"
   exit 0

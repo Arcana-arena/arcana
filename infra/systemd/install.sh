@@ -51,6 +51,28 @@ chmod 600 "$REPO/services/market-data/.env"
 
 echo "==> installing units"
 sudo cp "$REPO"/infra/systemd/*.service "$REPO"/infra/systemd/*.timer "$UNIT_DIR/"
+
+# Prune units that no longer exist in the repo.
+#
+# Adding a unit and removing one are the same operation seen from two sides,
+# and only one of them used to be handled. A retired unit left enabled keeps
+# firing from /etc/systemd/system long after its file is gone from git, and
+# after `daemon-reload` it becomes a dangling symlink in timers.target.wants
+# that reports as an error every reload. The payout timer, retired 2026-09-10,
+# is the first case this covers.
+#
+# Scoped to arcana-* so this can never touch a unit ARCANA did not install.
+echo "==> pruning units no longer in the repo"
+for installed in "$UNIT_DIR"/arcana-*.service "$UNIT_DIR"/arcana-*.timer; do
+  [ -e "$installed" ] || continue
+  name="$(basename "$installed")"
+  if [ ! -e "$REPO/infra/systemd/$name" ]; then
+    echo "    removing $name (no longer in infra/systemd/)"
+    sudo systemctl disable --now "$name" >/dev/null 2>&1 || true
+    sudo rm -f "$installed"
+  fi
+done
+
 sudo systemctl daemon-reload
 
 echo "==> enabling long-running services"

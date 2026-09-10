@@ -17,8 +17,8 @@ Two rules govern the order:
 | 1 | Decisions and document corrections | **done** | — |
 | 2 | Chain guard — beacon and issuer-control monitor | **done** | — |
 | 3 | Infrastructure cleanup — Kafka and Redis off | **done** | — |
-| 4a | Retire the §10 payment subsystem (no live dependency) | next | — |
-| 5 | `MarketIndexService` — remove the per-snapshot round trip | | — |
+| 4a | Retire the §10 payment subsystem — **partly held, see below** | **done** | — |
+| 5 | `MarketIndexService` — remove the per-snapshot round trip | next | — |
 | 4b–d | Retire strategy.go, session.go, the human path | with 6, 10, 9 | each waits for its replacement |
 | 6 | Decider abstraction + DeepSeek, still on virtual money | | — |
 | 7 | Signer service, policy engine, router allowlist — no money | | — |

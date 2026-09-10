@@ -510,7 +510,7 @@ Because custom contracts were believed impossible, this design only uses capabil
 
 ### 10.1 Unique Deposit Address per Subscription
 Native transfers have no memo field, so the backend needs a reliable way to match payments:
-- When a user clicks Subscribe/Renew, the backend generates a **derived deposit address (HD wallet derivation)** specific to `(user, listing, period)` — not a contract, just a key derived from the master wallet, still valid on the permissioned chain.
+- When a user clicks Subscribe/Renew, the backend generates a **derived deposit address (HD wallet derivation)** specific to `(user, listing, period)` — not a contract, just a key derived from the master wallet. *(The original text said "still valid on the permissioned chain". The chain is permissionless; this design needed no such workaround.)*
 - The user transfers exactly the listing price to that address → 1 address = 1 expected transaction, unambiguous matching.
 - Funds are **swept** periodically from deposit addresses to the main treasury.
 

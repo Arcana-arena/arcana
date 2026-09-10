@@ -208,7 +208,7 @@ export class PaymentListenerService implements OnModuleInit, OnModuleDestroy {
       txHash,
       depositAddressId: deposit.id,
       amount,
-      creatorShare: null, // filled by the payout batch (Tahap 4)
+      creatorShare: null, // the payout batch was retired 2026-09-10 (P2P, no split)
       platformShare: null,
       payoutStatus: 'pending',
     });

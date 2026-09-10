@@ -35,9 +35,22 @@ confirmation. Tables added beyond §7 (each documented in its migration file):
 - `competition_ticks` (0013) — turn/session state for competitions
   (human_vs_ai rounds), referencing an immutable snapshot per tick.
 - `deposit_addresses`, `payment_events`, `creator_payouts`, `subscriptions`,
-  `user_push_tokens` (0014) — the $ARCA payment flow of §10 (permissioned
-  chain, no custom contracts): unique HD deposit addresses, off-chain
-  listener events, batch creator payouts, manual renew, push reminders.
+  `user_push_tokens` (0014) — the $ARCA payment flow of §10: unique HD deposit
+  addresses, off-chain listener events, batch creator payouts, manual renew,
+  push reminders. The design was shaped by the belief that the chain was
+  permissioned and no contract could be deployed; **that was never true**.
+
+  **Retired 2026-09-10 (0024), marked in the schema rather than dropped.**
+  `COMMENT ON TABLE` carries the story on each object, so `\d+` answers "what
+  was this, and what happened to it" without anyone finding a changelog. All
+  four payment tables were empty at retirement, so nothing was preserved for
+  its content — what was preserved is the record that they existed.
+
+  **`subscriptions` is NOT retired and must not be swept up with the rest.** It
+  is the access record: `hasAccess()` and the `active → grace → expired`
+  lifecycle both read and write it, and `GET /v1/arca/access` is the single
+  place the grace rule lives. It was only ever a neighbour of the payment
+  tables, never part of the payment model. Its comment in 0024 says so.
 - `service_state` (0015) — internal key-value state for background services
   (payment listener block checkpoint), so restarts backfill instead of
   rescanning from genesis.

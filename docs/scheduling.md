@@ -2,7 +2,8 @@
 
 How the recurring ARCANA jobs run automatically on the VPS: the competition
 scheduler, the score batch, the two $ARCA payment jobs (subscription reminders
-and creator payouts), and the Agent DNA fingerprint batch.
+and — until 2026-09-10 — creator payouts), the chain guard, and the Agent DNA
+fingerprint batch.
 
 ## Mechanism: systemd timers + service units
 
@@ -32,7 +33,8 @@ Units live in [`infra/systemd/`](../infra/systemd/):
 | `arcana-scheduler.timer` → `arcana-scheduler.service` | oneshot | **23:00, 01:00, 03:00 UTC** | advance the competition one tick per TRADING DAY (the two later runs are idempotent retries) |
 | `arcana-scoring-job.timer` → `arcana-scoring-job.service` | oneshot | **daily 23:30 UTC** | run the ARCANA Score batch, after the tick |
 | `arcana-arca-reminder.timer` → `arcana-arca-reminder.service` | oneshot | **daily 09:00 UTC** | $ARCA renewal pushes + `active→grace→expired` |
-| `arcana-arca-payout.timer` → `arcana-arca-payout.service` | oneshot | **daily 10:00 UTC** | $ARCA creator payout batch (80/20 split) |
+| ~~`arcana-arca-payout.timer`~~ | — | **RETIRED 2026-09-10** | The 80/20 split and treasury payout are gone: the marketplace is P2P with no fee, so ARCANA never holds or splits a payment and has nothing to pay out. Unit and service removed. |
+| `arcana-chain-guard.timer` → `arcana-chain-guard.service` | oneshot | **every 4 hours** | watch the Stock Token beacon, pause state and pool liquidity for issuer-side drift ([alerting.md](./alerting.md#layer-3--the-chain-guard)) |
 | `arcana-agent-dna.timer` → `arcana-agent-dna.service` | oneshot | **daily 23:45 UTC** | recompute Agent DNA fingerprints ([agent-dna.md](./agent-dna.md)) |
 
 The $ARCA **deposit audit** (stranded-payment detection + retiring unfunded
@@ -80,13 +82,15 @@ would duplicate work already scheduled in-process.
   per subscription — so a tighter interval would only re-scan rows already
   marked. The hour is an operations choice: it lands in the WIB afternoon, so a
   failed run is seen the same working day.
-- **$ARCA payout: daily 10:00 UTC** (17:00 WIB). §10.3 permits daily or weekly.
-  Daily wins because the gas-saving batching is *per creator per run*: a creator
-  with twenty sales gets one transfer either way. Weekly would cut an already
-  small gas bill by at most 6/7 while making creators wait up to a week for
-  money already sitting in the treasury. To switch:
-  `OnCalendar=Mon *-*-* 10:00:00 UTC`. The hour is deliberate too — this moves
-  real funds, and a failure needs a person awake to see it.
+- **$ARCA payout: RETIRED 2026-09-10.** It ran daily at 10:00 UTC and always
+  reported the same deliberate stand-down, because the token has not launched.
+  It is gone now for a different reason: the marketplace is P2P with no fee, so
+  a payment never reaches ARCANA and there is nothing to split or pay out. The
+  service and timer files were removed, not merely disabled.
+- **Chain guard: every 4 hours.** Four hours because it is the minimum agent
+  cadence, so the guard runs at least once between any two decisions an agent
+  can make. Unlike the tick watchdog it has nothing to wait for — the chain does
+  not close and no later retry can make a finding go away.
 - **Agent DNA: daily 23:45 UTC**, after the tick (23:00) and the score batch
   (23:30). The fingerprint averages an agent's recorded history in its current
   season, so one more tick barely moves it; running more often would re-read
@@ -95,36 +99,37 @@ would duplicate work already scheduled in-process.
   tick per trading day there is exactly one moment when new conduct exists to
   fingerprint. See [agent-dna.md](./agent-dna.md).
 
-Both $ARCA timers use `Persistent=true`, so a run missed while the VPS was down
-fires at the next boot. A late reminder still helps a user renew, and the payout
-batch is idempotent per `payment_event`.
+The $ARCA reminder timer uses `Persistent=true`, so a run missed while the VPS
+was down fires at the next boot. A late reminder still helps a user renew.
 
-### These two jobs are no-ops until the $ARCA token launches
+### The reminder job runs for real; the payout job is gone
 
-Production `.env` deliberately leaves `ARCA_TOKEN_ADDRESS`, `ARCA_RPC_URL`,
-`ARCA_MASTER_PRIVATE_KEY`, `ARCA_TREASURY_PRIVATE_KEY` and `ARCA_CHAIN_ID`
-empty, so anything touching funds refuses to run. Expect this in the journal
-every day, and read it as healthy:
+This section used to describe **two** $ARCA jobs standing down until the token
+launched. Only one is left.
 
-```
-payout: SKIPPED (feature disabled by configuration, expected until the $ARCA
-token launches): {"processed":0,"paid_out":0,"skipped":["payout disabled: ..."]}
-```
+The **payout** job was retired on 2026-09-10, and not because it was still
+waiting: the marketplace is now P2P with no fee, so a payment never reaches
+ARCANA and there is nothing to split or pay out. Its service and timer files
+were deleted rather than disabled.
 
-The unit exits **0** for this. A deliberate stand-down is not a failure, and a
-unit that showed `failed` daily for a year would train everyone to ignore it.
-A real fault — arca-service down, HTTP 5xx, unparseable reply — exits non-zero
-and logs to stderr. `infra/systemd/arca-job.sh` is what tells the two apart;
-plain `curl -fsS` cannot, because both cases return 2xx and the difference is
-inside the JSON body.
+The **reminder** job is the one that was always different, and it is worth not
+confusing the two: it touches only the database — no chain, no keys — so it
+genuinely runs today. It reports `{"reminded":0,"grace":0,"expired":0}` while
+there are no subscriptions, and it is what writes the
+`active → grace → expired` transitions that `GET /v1/arca/access` reads.
+**That makes it load-bearing, not dormant.**
 
-The **reminder** job is different and worth not confusing: it touches only the
-database — no chain, no keys — so it genuinely runs today. It simply reports
-`{"reminded":0,"grace":0,"expired":0}` while there are no subscriptions.
+A job that stands down deliberately still exits **0**. A deliberate stand-down
+is not a failure, and a unit showing `failed` daily for a year would train
+everyone to ignore it. A real fault — arca-service down, HTTP 5xx, unparseable
+reply — exits non-zero and logs to stderr. `infra/systemd/arca-job.sh` is what
+tells the two apart; plain `curl -fsS` cannot, because both return 2xx and the
+difference is inside the JSON body.
 
-When the token does launch, follow [arca-go-live.md](./arca-go-live.md) — which
-variables to fill, from where, and what to verify before real users can
-subscribe.
+Entitlement **gating** still waits on the token: `ARCA_TOKEN_ADDRESS` and
+`ARCA_RPC_URL` are empty, so every check passes and says so. See
+[arca-go-live.md](./arca-go-live.md) — but read its banner first: sections 1-4
+of that checklist are superseded and must not be followed.
 
 To change the cadence, edit the `[Timer] OnCalendar=` lines and the
 `HUMAN_WINDOW` in the service file, then:
@@ -152,18 +157,18 @@ layers**. They cover different things, and it is worth knowing which is which:
 | **systemd** | A timer firing while the previous run of the *same unit* is still going — systemd refuses to start a second instance. | Anything that does not go through systemd. |
 | **flock** | Any concurrent run at all, including a manual invocation or another script — the lock is held for the entire command. | Nothing, provided every caller goes through the unit or takes the same lock. |
 
-All five job units wrap the command in a non-blocking lock, so the lock is held
+Every job unit wraps the command in a non-blocking lock, so the lock is held
 for the whole run:
 
 ```
-ExecStart=/usr/bin/flock -n /tmp/arcana-arca-payout.lock /home/ubuntu/arcana/infra/systemd/arca-job.sh payout ...
+ExecStart=/usr/bin/flock -n /tmp/arcana-arca-reminder.lock /home/ubuntu/arcana/infra/systemd/arca-job.sh reminder ...
 ExecStart=/usr/bin/flock -n /tmp/arcana-scheduler.lock /home/ubuntu/arcana/scheduler-bin/scheduler -competition ... 
 ```
 
 If a run is already in progress the new one fails immediately (exit 1, visible
-in the journal) instead of stacking. That matters most for payout, which sends
-money; per-`payment_event` idempotency is the second line of defence, not the
-first.
+in the journal) instead of stacking. It mattered most for the payout job, which
+sent money; that job is now retired, and the reasoning is kept because it
+applies to any job that moves funds — the signer, when it arrives.
 
 > **Do not move the lock into `ExecStartPre`.** It used to live there as
 > `flock -n LOCK true`, which takes the lock, runs `true`, and releases it —

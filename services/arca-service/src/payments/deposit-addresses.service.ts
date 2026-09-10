@@ -48,8 +48,51 @@ export class DepositAddressesService {
     this.ttlSeconds = (Number.isFinite(hours) && hours > 0 ? hours : 24) * 3600;
   }
 
+  /**
+   * The interlock. Retirement that a single environment variable can undo is
+   * not retirement — see the note in `generate()`.
+   *
+   * `ARCA_DEPOSIT_ADDRESSES_REVIVE=i-know-this-is-retired` exists only so the
+   * verification suite can still exercise the code path behind it. It is not an
+   * operational switch, it is deliberately awkward to type, and setting it in
+   * production would re-enable a payment model this project abandoned.
+   */
+  private assertNotRetired(): void {
+    if (process.env.ARCA_DEPOSIT_ADDRESSES_REVIVE === 'i-know-this-is-retired') return;
+    throw new BadRequestException(
+      'Deposit addresses are retired. The marketplace is P2P with no fee: pay the ' +
+        "creator's wallet directly and submit the transaction hash for verification. " +
+        'See docs/on-chain-direction.md §g. This refusal is by decision and is not ' +
+        'lifted by setting ARCA_MASTER_PRIVATE_KEY or ARCA_RPC_URL.',
+    );
+  }
+
   /** POST /v1/arca/deposit-address — generate a unique derived address for (user, listing). */
   async generate(userWallet: string, listingId: string): Promise<GeneratedDeposit> {
+    // ---------------------------------------------------------------------
+    // RETIRED BY DECISION, 2026-09-10. This refuses on purpose, not on config.
+    //
+    // The marketplace is now P2P with no fee: the buyer transfers straight to
+    // the creator's wallet and submits the transaction hash, which ARCANA
+    // verifies against the chain. No deposit address, no treasury transit, no
+    // off-chain split (docs/on-chain-direction.md §g).
+    //
+    // WHY THIS IS A HARD REFUSAL AND NOT A DELETION. The path below still
+    // works. It refused until today only because ARCA_MASTER_PRIVATE_KEY and
+    // ARCA_RPC_URL are empty — and docs/arca-go-live.md is a written procedure
+    // instructing somebody to fill exactly those in. Following it would have
+    // silently activated a payment model this project has abandoned, and
+    // started routing real user money through an ARCANA-controlled address.
+    //
+    // A retired path that is one environment variable away from waking up is
+    // not retired. Deleting the code is the phase-11 job, once tx-hash
+    // verification exists to replace it; until then this is the interlock, and
+    // it cannot be undone by configuration.
+    //
+    // The behaviour a caller sees is unchanged — this endpoint already refused
+    // every request. Only the reason is now true.
+    this.assertNotRetired();
+
     if (!this.hd.enabled) {
       throw new BadRequestException(
         'Deposit generation disabled: ARCA_MASTER_PRIVATE_KEY is not configured',

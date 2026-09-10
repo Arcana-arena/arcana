@@ -1,5 +1,34 @@
 # $ARCA Go-Live Checklist
 
+> # ⛔ DO NOT FOLLOW SECTIONS 1–4. SUPERSEDED 2026-09-10.
+>
+> **This document was a live hazard, and that is why it is being corrected
+> rather than deleted.**
+>
+> It is a written procedure instructing an operator to fill in
+> `ARCA_MASTER_PRIVATE_KEY`, `ARCA_TREASURY_PRIVATE_KEY`, `ARCA_TOKEN_ADDRESS`,
+> `ARCA_RPC_URL` and `ARCA_CHAIN_ID`. Until today, those five empty variables
+> were the *only* thing keeping the deposit-address payment path inert.
+> Following these steps would have activated a payment model this project has
+> **abandoned** — routing real user money into ARCANA-derived deposit
+> addresses, sweeping it to a treasury, and splitting it off-chain — and
+> everything here would have reported success while doing it.
+>
+> **The marketplace is now P2P with no fee.** The buyer transfers straight to
+> the creator's wallet and submits the transaction hash; ARCANA verifies it
+> against the chain. No deposit address, no treasury, no split. See
+> [on-chain-direction.md §g](./on-chain-direction.md#g-marketplace--tx-hash-confirmation).
+>
+> **The path no longer depends on this file being obeyed.**
+> `DepositAddressesService.generate()` now refuses **by decision**, not by
+> configuration. Filling in the five variables does not lift it. A retirement
+> that one environment variable can undo is not a retirement.
+>
+> **What still applies:** §5 below, on `ARCA_CHAIN_ID` and the entitlement
+> layer. $ARCA gating (CREATE, COMPETE, EVOLVE, PREMIUM ARENA) is unaffected by
+> any of this — it only ever *reads* a balance, and it is now the platform's
+> only revenue surface.
+
 What to do the day the $ARCA token actually launches, in order. Everything in
 the payment path is built and verified end-to-end against a local chain
 simulator, but it is deliberately inert: five environment variables are empty,
@@ -88,7 +117,7 @@ before going further — do not proceed on the assumption that it is cosmetic.
 
 ## 4. Verify before opening subscribe to real users
 
-Do these in order. Steps 1-4 involve real money on a permissioned chain; there
+Do these in order. Steps 1-4 involve real money on Robinhood Chain (which is permissionless — the "permissioned" claim that shaped this design was never true); there
 is no undo.
 
 1. **Entitlement check responds**
