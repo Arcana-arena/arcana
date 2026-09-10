@@ -49,10 +49,19 @@ fi
 
 echo
 echo "=== 2. The seed belongs to the signer and to nobody else ==="
-if [ -e "$SEED" ]; then
-  ok "the seed exists"
-  mode="$(stat -c '%a' "$SEED")"
-  owner="$(stat -c '%U' "$SEED")"
+#
+# INSPECTED AS ROOT, ON PURPOSE. The first version of this check ran `[ -e ]`
+# as the invoking user and reported the seed MISSING — because /etc/arcana/signer
+# is 0700 arcana-signer and the caller genuinely cannot see inside it. That is
+# the isolation working, and a check that reads it as a failure would have to be
+# silenced, which would silence the real failure with it.
+#
+# So: existence and modes are read with sudo; whether an unprivileged service
+# user can read the file is section 3, and that is the claim.
+if sudo -n test -e "$SEED" 2>/dev/null; then
+  ok "the seed exists (checked as root)"
+  mode="$(sudo -n stat -c '%a' "$SEED")"
+  owner="$(sudo -n stat -c '%U' "$SEED")"
   if [ "$mode" = "400" ] || [ "$mode" = "600" ]; then
     ok "its mode is $mode — no group, no others"
   else
@@ -63,35 +72,36 @@ if [ -e "$SEED" ]; then
   else
     no "it is owned by $SIGNER_USER" "owned by $owner"
   fi
-  dirmode="$(stat -c '%a' "$(dirname "$SEED")")"
-  if [ "${dirmode:2:1}" = "0" ]; then
-    ok "its directory is not world-accessible (mode $dirmode)"
+  dirmode="$(sudo -n stat -c '%a' "$(dirname "$SEED")")"
+  if [ "$dirmode" = "700" ]; then
+    ok "its directory is 0700 — only the signer may even look inside"
   else
-    no "its directory is not world-accessible" "mode $dirmode"
+    no "its directory is 0700" "mode $dirmode"
   fi
 else
-  no "the seed exists" "$SEED not found — the signer is inactive and holds nothing"
+  no "the seed exists" "$SEED not found even as root — the signer is inactive and holds nothing"
 fi
 
 echo
 echo "=== 3. The user every OTHER service runs as cannot read it ==="
 echo "    (this is the claim; everything above is only the setup for it)"
-if [ -e "$SEED" ]; then
-  if sudo -n -u "$OTHER_USER" cat "$SEED" >/dev/null 2>&1; then
+if sudo -n test -e "$SEED" 2>/dev/null; then
+  # Attempted as the service user itself, with no privilege escalation.
+  if setpriv --reuid="$(id -u "$OTHER_USER")" --regid="$(id -g "$OTHER_USER")" --clear-groups \
+       cat "$SEED" >/dev/null 2>&1; then
     no "$OTHER_USER is DENIED read access to the seed" \
        "it read the file — every ARCANA service could read the keys"
   else
     ok "$OTHER_USER is denied read access to the seed"
   fi
-  # And the directory, so a future file dropped beside it inherits the answer.
-  if sudo -n -u "$OTHER_USER" ls "$(dirname "$SEED")" >/dev/null 2>&1; then
+  if setpriv --reuid="$(id -u "$OTHER_USER")" --regid="$(id -g "$OTHER_USER")" --clear-groups \
+       ls "$(dirname "$SEED")" >/dev/null 2>&1; then
     no "$OTHER_USER cannot even list the directory" "it listed $(dirname "$SEED")"
   else
     ok "$OTHER_USER cannot even list the directory"
   fi
 fi
 
-echo
 echo "=== 4. The unit runs as the signer, not as ubuntu ==="
 u="$(systemctl show "$UNIT" -p User --value 2>/dev/null)"
 if [ "$u" = "$SIGNER_USER" ]; then
