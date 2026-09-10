@@ -39,6 +39,30 @@ type Quote struct {
 	Trades int64   `json:"trades,omitempty"`
 
 	UpdatedAt string `json:"updated_at,omitempty"` // RFC3339 from the vendor feed
+
+	// --- referee (phase 10b) ---------------------------------------------
+	//
+	// A pool price is what a trade fills at, and it is also thin and movable
+	// within a block. Every pool price is checked against the Chainlink feed
+	// for the same symbol, and the RESULT TRAVELS ON THE QUOTE rather than
+	// only in a log line, so a snapshot read out of object storage years later
+	// still says whether its price was refereed and by what.
+	//
+	// Empty on vendor and simulator quotes, which had no referee and are not
+	// retroactively claimed to have had one.
+
+	// RefereeStatus is "agreed", "disputed" or "unrefereed".
+	//
+	// "unrefereed" is NOT a synonym for "agreed". It means the feed could not
+	// be read, or was too stale to referee with, and collapsing the two would
+	// silently remove the check on exactly the occasions it stopped working.
+	RefereeStatus string `json:"referee_status,omitempty"`
+	// RefereePrice is what Chainlink said, for comparison. Recorded even when
+	// the two agree: "they agreed" is only checkable later if both numbers survive.
+	RefereePrice float64 `json:"referee_price,omitempty"`
+	RefereeDevPct float64 `json:"referee_deviation_pct,omitempty"`
+	RefereeUpdatedAt string `json:"referee_updated_at,omitempty"`
+	RefereeNote string `json:"referee_note,omitempty"`
 }
 
 // Provenance records where a snapshot's prices came from and when they were

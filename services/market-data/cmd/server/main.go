@@ -21,8 +21,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/arcana/market-data/internal/chain"
 	"github.com/arcana/market-data/internal/objectstore"
 	"github.com/arcana/market-data/internal/service"
 	"github.com/arcana/market-data/internal/session"
@@ -52,6 +54,7 @@ var buildCommit = "unknown"
 type server struct {
 	svc     *service.Service
 	eastern *time.Location
+	pool    *service.PoolReader
 }
 
 func main() {
@@ -102,9 +105,37 @@ func main() {
 		Name:    envOr("MARKET_VENDOR_NAME", "polygon"),
 	})
 
+	// --- the chain half (phase 10b) ------------------------------------------
+	//
+	// Stock Tokens trade continuously against a Uniswap pool, so the price that
+	// matters is the one a trade would actually fill at, and the only place
+	// that exists is the pool. Chainlink referees it.
+	//
+	// Optional at boot, and loud either way. This service still serves vendor
+	// snapshots while the changeover happens, and a deployment that has not
+	// been given a chain config should say so rather than quietly behaving like
+	// the old one.
+	var poolReader *service.PoolReader
+	chainPath := envOr("MARKET_CHAIN_FILE", "config/robinhood-chain.json")
+	chainCfg, chainErr := chain.LoadConfig(chainPath)
+	if chainErr != nil {
+		log.Printf("WARN: pool prices INACTIVE: %v", chainErr)
+		log.Printf("WARN: no continuous tick can be opened from the chain. " +
+			"Set MARKET_CHAIN_FILE to a reviewed chain description.")
+	} else {
+		rpcs := strings.Split(envOr("MARKET_RPC_URLS",
+			"https://robinhood-rpc.publicnode.com,https://robinhood.api.pocket.network,https://rpc-robinhood.blockmachine.io"), ",")
+		poolReader = service.NewPoolReader(chainCfg, chain.NewClient(rpcs))
+		log.Printf("pool prices ACTIVE: chain %d, %d symbols, quote %s, "+
+			"dispute tolerance %.2f%%, feed max age %ds (reviewed %s)",
+			chainCfg.ChainID, len(chainCfg.Tokens), chainCfg.QuoteToken.Symbol,
+			chainCfg.DisputeTolerancePct, chainCfg.FeedMaxAgeSeconds, chainCfg.ReviewedAt)
+	}
+
 	srv := &server{
 		svc:     service.New(store.New(pool), objects, vendorClient, uni, eastern),
 		eastern: eastern,
+		pool:    poolReader,
 	}
 
 	// Same loudness as arca-service's five boot warnings: the state of a feature
@@ -137,6 +168,8 @@ func main() {
 	mux.HandleFunc("GET /v1/market/snapshots/{ref}", srv.handleGetSnapshot)
 	mux.HandleFunc("GET /v1/market/snapshots/{ref}/previous", srv.handlePreviousSnapshot)
 	mux.HandleFunc("POST /internal/v1/market/snapshots/prices", guard.Wrap(srv.handlePriceLookup))
+	mux.HandleFunc("POST /internal/v1/market/ticks/pool", guard.Wrap(srv.handlePoolTick))
+	mux.HandleFunc("GET /v1/market/pool/latest", srv.handlePoolLatest)
 
 	log.Printf("market-data listening on :%s", port)
 	// Loopback only: layer one of the two protecting the machine tier (the
@@ -390,5 +423,107 @@ func (s *server) handleExpectedSession(w http.ResponseWriter, r *http.Request) {
 		"asked_at":           now.Format(time.RFC3339),
 		"today_is_weekend":   session.IsWeekend(now.In(s.eastern)),
 		"holidays_determined_by": "vendor",
+	})
+}
+
+// --- pool ticks (phase 10b) --------------------------------------------------
+
+// handlePoolTick reads every configured pool once and stores the result as an
+// immutable snapshot.
+//
+// MACHINE TIER. This is what the continuous cadence calls; it is not a public
+// endpoint, because taking a tick is a write and a write to the record every
+// score is computed from.
+//
+// Idempotent within a minute by construction: the ref is derived from the tick
+// time truncated to the minute, so two calls in the same minute collide on the
+// snapshot's unique ref rather than producing two versions of "the market at
+// 14:03".
+func (s *server) handlePoolTick(w http.ResponseWriter, r *http.Request) {
+	if s.pool == nil || !s.pool.Configured() {
+		writeError(w, http.StatusServiceUnavailable, "pool_prices_unconfigured",
+			"No chain description is loaded, so no pool can be read. This is not a "+
+				"judgement about the market — nothing was looked at.")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+
+	now := time.Now().UTC()
+	tick, err := s.pool.Read(ctx, now)
+	if err != nil {
+		// NO FALLBACK, and no invented prices. Same rule as the vendor path:
+		// a competition that pauses is recoverable, agents scored against
+		// prices nobody observed are not.
+		log.Printf("pool tick FAILED: %v", err)
+		writeError(w, http.StatusServiceUnavailable, "pool_unreadable", err.Error())
+		return
+	}
+
+	row, err := s.svc.StorePoolTick(ctx, tick)
+	if err != nil {
+		log.Printf("pool tick store FAILED: %v", err)
+		writeError(w, http.StatusInternalServerError, "store_failed", err.Error())
+		return
+	}
+
+	// Everything unusual is logged at the level it deserves. A disputed symbol
+	// is not an error — the snapshot is still written and still usable — but it
+	// is the thing somebody needs to see.
+	if len(tick.Disputed) > 0 {
+		log.Printf("pool tick %s: DISPUTED %v — pool and Chainlink disagree beyond tolerance",
+			tick.Ref, tick.Disputed)
+	}
+	if len(tick.Unrefereed) > 0 {
+		log.Printf("pool tick %s: UNREFEREED %v — no usable Chainlink answer; these prices are unchecked",
+			tick.Ref, tick.Unrefereed)
+	}
+	if len(tick.Failed) > 0 {
+		log.Printf("pool tick %s: UNREADABLE %v", tick.Ref, tick.Failed)
+	}
+	log.Printf("pool tick %s stored: %d symbols (%d disputed, %d unrefereed, %d unreadable)",
+		tick.Ref, len(tick.Quotes), len(tick.Disputed), len(tick.Unrefereed), len(tick.Failed))
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ref":        row.Ref,
+		"tick_time":  row.TickTime,
+		"source":     row.Source,
+		"symbols":    len(tick.Quotes),
+		"disputed":   tick.Disputed,
+		"unrefereed": tick.Unrefereed,
+		"unreadable": tick.Failed,
+	})
+}
+
+// handlePoolLatest reads the pools WITHOUT storing anything.
+//
+// Public and read-only, for looking at the market as the platform sees it.
+// Deliberately separate from the tick endpoint: reading is free and harmless,
+// writing a snapshot is neither, and one endpoint that did both would make a
+// dashboard refresh indistinguishable from advancing the competition.
+func (s *server) handlePoolLatest(w http.ResponseWriter, r *http.Request) {
+	if s.pool == nil || !s.pool.Configured() {
+		writeError(w, http.StatusServiceUnavailable, "pool_prices_unconfigured",
+			"No chain description is loaded.")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+
+	tick, err := s.pool.Read(ctx, time.Now().UTC())
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "pool_unreadable", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"tick_time":  tick.TickTime,
+		"source":     service.SourcePool,
+		"symbols":    tick.Quotes,
+		"disputed":   tick.Disputed,
+		"unrefereed": tick.Unrefereed,
+		"unreadable": tick.Failed,
+		"note": "Read live and NOT stored. The pool price is what a trade would fill at; " +
+			"the referee price is Chainlink, used to decide whether to believe the pool " +
+			"rather than as the price itself.",
 	})
 }

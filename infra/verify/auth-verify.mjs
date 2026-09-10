@@ -51,14 +51,41 @@ async function req(url, opts = {}) {
   } catch {
     body = text;
   }
-  return { status: res.status, body };
+  // Headers are returned so a caller can read Retry-After. Added when the
+  // nonce endpoint became rate limited: backing off correctly requires the
+  // number the server already sends, and guessing it is how a client ends up
+  // polling a limit it is trying to respect.
+  return { status: res.status, body, headers: res.headers };
 }
 
 const errCode = (b) => b?.error?.code ?? b?.message ?? JSON.stringify(b)?.slice(0, 120);
 
+/**
+ * Fetch a nonce, waiting out the rate limit rather than failing under it.
+ *
+ * `GET /v1/auth/nonce` became rate limited in phase 12 — 20/min per IP,
+ * because it is unauthenticated and writes a database row per call. This suite
+ * signs in many times to exercise the auth surface, so it runs into that limit
+ * legitimately, and the first run after the limiter shipped failed seven
+ * checks: bob could not sign in at all, and four ownership checks read
+ * `401 unauthenticated` instead of `403 forbidden_not_owner` — a cascade that
+ * looks like an authorisation bug and is not one.
+ *
+ * The suite waits, using the Retry-After the endpoint already returns. The
+ * alternative — exempting loopback from the limiter — would be far worse than
+ * a slow test: put a reverse proxy in front of these services later and every
+ * request arrives from 127.0.0.1, silently disabling rate limiting for the
+ * whole platform on the day it is most needed.
+ */
 async function getNonce() {
-  const r = await req(`${AGENT}/v1/auth/nonce`);
-  return r.body.nonce;
+  let r = await req(`${AGENT}/v1/auth/nonce`);
+  if (r.status === 429) {
+    const wait = Math.min(70, Number(r.headers?.get?.('retry-after') ?? 60) + 2);
+    console.log(`  (nonce allowance spent; waiting ${wait}s, as a client should)`);
+    await new Promise((resolve) => setTimeout(resolve, wait * 1000));
+    r = await req(`${AGENT}/v1/auth/nonce`);
+  }
+  return r.body?.nonce;
 }
 
 async function signIn(account, overrides = {}) {
