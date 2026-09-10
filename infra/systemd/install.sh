@@ -25,6 +25,8 @@ BIN_DIR="$REPO/scheduler-bin"
 
 echo "==> making job wrapper executable"
 chmod +x "$REPO/infra/systemd/arca-job.sh"
+# Alerting scripts are executed directly by their units.
+chmod +x "$REPO"/infra/alerting/*.sh 2>/dev/null || true
 
 # Every binary is stamped with the commit it was built from, and reports it on
 # /healthz. Restarting a service no longer rebuilds it, so a stale deploy would
@@ -43,6 +45,12 @@ done
 echo "==> building scheduler binary"
 mkdir -p "$BIN_DIR"
 (cd "$REPO/services/decision-engine" && /usr/local/go/bin/go build -o "$BIN_DIR/scheduler" ./cmd/scheduler)
+
+# The continuous cadence (phase 10a). Built alongside the scheduler rather
+# than replacing it: the scheduler is not retired until this has been proven,
+# which is the same rule that held the six §10 files through phase 4a.
+echo "==> building cadence binary"
+(cd "$REPO/services/decision-engine" && /usr/local/go/bin/go build -ldflags "$LDFLAGS" -o "$BIN_DIR/cadence" ./cmd/cadence)
 
 # Operator tool, not a scheduled job: it loads historical sessions into
 # market_snapshots so /previous and Agent DNA have depth from day one. Built

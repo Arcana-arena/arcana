@@ -1,0 +1,59 @@
+# arcana-cadence.service — advances a competition on a continuous clock.
+#
+# WHAT THIS REPLACES. arcana-scheduler.service opened one tick per US TRADING
+# DAY, at 23:00 UTC with retries at 01:00 and 03:00. That was correct while
+# prices came from a vendor describing US sessions. Stock Tokens trade against
+# a Uniswap pool that never closes, so "trading day" no longer names anything:
+# a calendar-driven tick would stand still through two thirds of every week
+# while the market it claims to measure kept moving.
+#
+# THE TIMER DECIDES HOW OFTEN THIS LOOKS. THE PROGRAM DECIDES WHETHER ANYTHING
+# HAPPENS. The timer fires hourly; the binary measures the age of the last tick
+# and does nothing unless the cadence has elapsed. That split is deliberate:
+# a timer misconfigured to fire every ten minutes cannot produce ten-minute
+# decisions, because the floor is enforced against the RECORD rather than
+# against the schedule.
+#
+# THE FOUR-HOUR FLOOR IS ARITHMETIC. Every decision that trades pays the pool
+# fee — 5 bp on the tight pools, 30 bp on the rest — so a round trip costs 10
+# to 60 bp of NAV before slippage and gas. Hourly decisions would cost 2.4% to
+# 14% of NAV per day if they traded, and no edge survives that. The binary
+# REFUSES to start below four hours rather than clamping, because silently
+# raising a number somebody set means running a cadence nobody chose.
+#
+# Overlap protection, the same two layers the scheduler used and for the same
+# reasons: systemd will not run a second instance while the first is
+# activating, and flock wraps the command so the lock covers the whole run
+# including invocations that never go through systemd.
+[Unit]
+Description=ARCANA continuous cadence (pool-priced ticks)
+After=network-online.target arcana-agent.service arcana-decision.service arcana-marketdata.service
+Wants=network-online.target
+
+OnFailure=arcana-alert@%n.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+# Without this every journal line is attributed to `flock`, which is the
+# process systemd actually executes.
+SyslogIdentifier=arcana-cadence
+WorkingDirectory=/home/ubuntu/arcana/services/decision-engine
+Environment=AGENT_SERVICE_URL=http://localhost:3001
+Environment=DECISION_ENGINE_URL=http://localhost:8081
+Environment=MARKET_DATA_URL=http://localhost:8083
+# The competition being advanced. One unit per competition: copy this file,
+# change the id, the unit name and the lock path.
+Environment=COMPETITION_ID=d0653071-67e5-4302-ac78-afe2e1130d89
+# Minimum time between decisions. Four hours is the floor the binary enforces;
+# setting anything shorter here is refused at startup, loudly, rather than
+# quietly raised.
+Environment=CADENCE_INTERVAL=4h
+# INTERNAL_API_KEY comes from this file at mode 600 — never inline in a unit,
+# because `systemctl show` prints Environment= to any user.
+EnvironmentFile=-/home/ubuntu/arcana/.env.auth
+ExecStart=/usr/bin/flock -n /tmp/arcana-cadence.lock /home/ubuntu/arcana/scheduler-bin/cadence -competition ${COMPETITION_ID} -interval ${CADENCE_INTERVAL}
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target

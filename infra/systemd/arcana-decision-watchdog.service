@@ -1,0 +1,41 @@
+# arcana-decision-watchdog.service — detects the failure OnFailure= cannot see.
+#
+# A cadence that runs, exits 0 and produces nothing is not a failed unit, so
+# systemd has nothing to report. The symptom that matters used to be "no tick
+# on a day the market was open"; with no market calendar left, it is "no
+# DECISION in N hours".
+#
+# It measures decisions rather than ticks deliberately: a tick that opens and
+# closes with every agent failing inside it is exactly the silent fault this
+# exists to catch, and it looks perfectly healthy to anything counting ticks.
+#
+# READ-ONLY by construction. It never opens a tick and never reads the pool —
+# a monitor must not mutate what it observes, and taking a tick to check
+# whether ticks are being taken would make the watchdog the thing keeping the
+# record alive.
+#
+# Failing here (exit 1) means the CHECK could not be performed, which is itself
+# worth knowing, so this unit carries OnFailure= like the ones it watches.
+[Unit]
+Description=ARCANA decision watchdog (silent-failure detection)
+After=network-online.target docker.service
+Wants=network-online.target
+OnFailure=arcana-alert@%n.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+SyslogIdentifier=arcana-decision-watchdog
+WorkingDirectory=/home/ubuntu/arcana
+# Must match arcana-cadence.service's CADENCE_INTERVAL. Three missed intervals
+# is the alarm threshold: one is jitter, and an alarm that fires on normal
+# jitter is one people learn to close without reading.
+Environment=CADENCE_HOURS=4
+Environment=MISSED_INTERVALS=3
+Environment=CADENCE_UNIT=arcana-cadence.service
+EnvironmentFile=-/home/ubuntu/arcana/.env.alerts
+ExecStart=/usr/bin/flock -n /tmp/arcana-decision-watchdog.lock /home/ubuntu/arcana/infra/alerting/arcana-decision-watchdog.sh
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

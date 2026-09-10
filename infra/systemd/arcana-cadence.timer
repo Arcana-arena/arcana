@@ -1,0 +1,30 @@
+# arcana-cadence.timer — look every hour, act every four.
+#
+# HOURLY ON PURPOSE, against a four-hour cadence. The two numbers are not the
+# same thing and should not be:
+#
+#   * The TIMER decides how often the system asks "is it time yet". Hourly
+#     means a tick that should have landed at 12:00 and was missed — a reboot,
+#     a transient RPC failure, a node restart — lands at 13:00 instead of
+#     waiting until 16:00. Under a continuous cadence there is no market-closed
+#     excuse for a gap, and the backfill rule forbids filling a scored season
+#     backwards, so a missed interval is a permanent hole.
+#
+#   * The BINARY decides whether anything happens, by measuring the age of the
+#     last recorded tick. Firing hourly cannot produce hourly decisions.
+#
+# Without the split, catching up from a missed interval would need either a
+# tighter cadence (which the fee schedule forbids) or a manual run.
+#
+# Persistent=true so a machine that was off through an interval checks on the
+# next boot rather than waiting for the next hour.
+[Unit]
+Description=Run the ARCANA continuous cadence hourly
+
+[Timer]
+OnCalendar=*-*-* *:00:00 UTC
+RandomizedDelaySec=90
+Persistent=true
+
+[Install]
+WantedBy=timers.target

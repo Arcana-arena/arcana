@@ -1,0 +1,22 @@
+# arcana-decision-watchdog.timer — every six hours.
+#
+# The old watchdog ran once a day at 04:00 UTC, positioned after the
+# scheduler's last idempotent retry so it judged a settled day. There are no
+# days any more, and no retry window to sit behind.
+#
+# Six hours is chosen against the alarm threshold rather than against the
+# cadence: the script alerts at three missed four-hour intervals (12 hours), so
+# checking every six guarantees the condition is seen within half the window it
+# describes. Checking hourly would add nothing — the threshold cannot be
+# crossed faster than the cadence — and would multiply the chance of a
+# transient database blip being read as a fault.
+[Unit]
+Description=Run the ARCANA decision watchdog every six hours
+
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:15:00 UTC
+RandomizedDelaySec=180
+Persistent=true
+
+[Install]
+WantedBy=timers.target
