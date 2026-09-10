@@ -124,6 +124,42 @@ the measured result recorded in [capacity.md](./capacity.md): RAM used 1279 MB
 `internal/session/`, vendor-as-calendar, `ErrMarketClosed`,
 `/session/expected`, `arcana-tick-watchdog.sh` and its timer.
 
+> **Traced again on 2026-09-11, and held again.** The list above was checked
+> against its callers rather than against its description, and every item is
+> still load-bearing:
+>
+> | Piece | Held up by |
+> |---|---|
+> | `internal/session/` | six call sites: `Eastern()`, `LastCompleted()` ×3 and `IsWeekend()` ×2, across `market-data/cmd/server` and `snapshot_service.go` |
+> | `GET /v1/market/session/expected` | `arcana-tick-watchdog.sh` — it is where the watchdog learns which date to judge, deliberately, so there is only one calendar |
+> | `arcana-tick-watchdog.sh` | its timer is enabled and fires daily at 04:00 UTC |
+> | `POST /internal/v1/market/sessions/daily` | the decision-engine **scheduler**, which is the live daily tick, plus `auth-verify.mjs` |
+> | `universe/us-large-cap-50.json` | read by market-data at boot (`MARKET_UNIVERSE_FILE`) |
+>
+> **And market-data itself is not going anywhere.** Its snapshot endpoints are
+> read by `MarketIndexService` (so by Agent DNA, Autopsy and Evolution), by the
+> decision engine on every tick, and by the series endpoints. Retiring the
+> *calendar* is not retiring the *service*, and the two are easy to confuse
+> because they live in the same directory.
+>
+> The daily tick currently produces nothing, because `MARKET_VENDOR_API_KEY` is
+> unset and the scheduler exits 1 every run. That is not the same as being
+> dead: it is a working path waiting on a value. Deleting it would turn "no
+> ticks because a key is missing" into "no ticks because the code is gone",
+> and only the first of those is recoverable by pasting a string.
+>
+> **What has to exist before any of it can go**, in order:
+>
+> 1. A continuous cadence that opens ticks without a trading calendar.
+> 2. A price source that is the pool rather than the vendor.
+> 3. A watchdog that judges "no decision in N hours" instead of "no tick on a
+>    day the market was open" — the current one cannot be adapted, because its
+>    whole question is about a calendar that will not exist.
+>
+> All three are phase 10. Until then this is the second time a list of
+> obviously-dead components turned out to be the running system, which is why
+> the tracing happens before the deletion and not after.
+
 **4d — with phase 9, when Human vs AI has no live competition:**
 `ExecuteManual()` and the `human` strategy path. The decision to retire Human
 vs AI is already made and recorded; removing the code waits until the running
