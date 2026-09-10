@@ -305,9 +305,15 @@ func (s *Store) Leaderboard(ctx context.Context, sortColumn, seasonID string, li
 
 	q := fmt.Sprintf(`
 		WITH latest AS (
+			-- creator_score is selected here, not just mapped in
+			-- LeaderboardSortColumn. Adding the category without adding the
+			-- column produced "column l.creator_score does not exist" — the
+			-- sort map and this projection are two places that have to agree,
+			-- and only one of them was edited.
 			SELECT DISTINCT ON (agent_id) agent_id, season_id, ts,
 			       arcana_score, performance_score, risk_score,
-			       consistency_score, strategy_score, longevity_score
+			       consistency_score, strategy_score, longevity_score,
+			       creator_score
 			FROM score_snapshots%s
 			ORDER BY agent_id, ts DESC
 		)

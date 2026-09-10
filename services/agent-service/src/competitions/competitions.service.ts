@@ -175,11 +175,24 @@ export class CompetitionsService {
       snapshot_at: Date | null;
       decisions: string;
     }> = await this.competitions.manager.query(
+      // portfolio_snapshots is keyed by PORTFOLIO, not by agent — an agent has
+      // one portfolio per season — so the join runs through `portfolios`.
+      // Reading it as agent-keyed produced "column agent_id does not exist",
+      // which is the schema being right and the query being written from
+      // memory.
+      //
+      // Scoped to the competition's OWN season. Without that, an agent
+      // competing in two seasons would have whichever portfolio snapshot was
+      // most recent shown as its standing here — its Season 2 NAV appearing in
+      // a Season 1 contest. The same mistake migration 0022 fixed for the
+      // leaderboard.
       `WITH latest AS (
-         SELECT DISTINCT ON (agent_id) agent_id, nav, cash, ts
-           FROM portfolio_snapshots
-          WHERE agent_id = ANY($1::uuid[])
-          ORDER BY agent_id, ts DESC
+         SELECT DISTINCT ON (p.agent_id) p.agent_id, ps.nav, ps.cash, ps.ts
+           FROM portfolios p
+           JOIN portfolio_snapshots ps ON ps.portfolio_id = p.id
+          WHERE p.agent_id = ANY($1::uuid[])
+            AND p.season_id = $2::uuid
+          ORDER BY p.agent_id, ps.ts DESC
        )
        SELECT a.id  AS agent_id,
               a.name,
@@ -190,12 +203,13 @@ export class CompetitionsService {
               l.nav,
               l.cash,
               l.ts   AS snapshot_at,
-              (SELECT count(*) FROM decisions d WHERE d.agent_id = a.id) AS decisions
+              (SELECT count(*) FROM decisions d
+                WHERE d.agent_id = a.id AND d.season_id = $2::uuid) AS decisions
          FROM unnest($1::uuid[]) AS p(id)
          JOIN agents a   ON a.id = p.id
          LEFT JOIN creators c ON c.id = a.creator_id
          LEFT JOIN latest l   ON l.agent_id = a.id`,
-      [competition.participantIds ?? []],
+      [competition.participantIds ?? [], competition.seasonId],
     );
 
     // Sorted here rather than in SQL because a NULL nav must sort LAST
