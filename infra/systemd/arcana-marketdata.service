@@ -36,6 +36,11 @@ Environment=S3_ENDPOINT=http://localhost:9000
 Environment=S3_REGION=us-east-1
 Environment=S3_BUCKET=arcana-market
 Environment=MARKET_UNIVERSE_FILE=/home/ubuntu/arcana/services/market-data/universe/us-large-cap-50.json
+# The chain description: which pool each symbol prices against and which
+# Chainlink feed referees it. A FILE IN GIT, like the universe, because which
+# pool a price comes from is part of what a score means. Absolute path, so the
+# service does not depend on its working directory being what anyone assumed.
+Environment=MARKET_CHAIN_FILE=/home/ubuntu/arcana/services/market-data/config/robinhood-chain.json
 # Secrets only (MARKET_VENDOR_API_KEY, S3_ACCESS_KEY, S3_SECRET_KEY,
 # INTERNAL_API_KEY). Leading '-' so a missing file is not a boot failure: the
 # service is designed to run un-configured and warn.
