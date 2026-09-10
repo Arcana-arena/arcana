@@ -35,6 +35,21 @@ export class Agent {
   @Column({ name: 'asset_universe', type: 'varchar', length: 30 })
   assetUniverse: string;
 
+  /**
+   * The rendered mandate the decision engine reads. Produced by a template
+   * (see mandate-templates.ts), never typed by a user — but nullable and TEXT,
+   * because agents created before phase 12 have none and the built-in
+   * deterministic strategies never will.
+   */
+  @Column({ type: 'text', nullable: true })
+  mandate: string | null;
+
+  @Column({ name: 'mandate_template', type: 'varchar', length: 64, nullable: true })
+  mandateTemplate: string | null;
+
+  @Column({ name: 'mandate_params', type: 'jsonb', nullable: true })
+  mandateParams: Record<string, string | number> | null;
+
   @Column({ type: 'varchar', length: 20, default: 'draft' })
   status: string; // draft, active, retired
 

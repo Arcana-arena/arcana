@@ -5,3 +5,4 @@ export * from './errors';
 export * from './guards';
 export * from './ownership';
 export * from './tokens';
+export * from './rate-limit';

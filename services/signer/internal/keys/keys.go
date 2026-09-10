@@ -33,6 +33,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
@@ -46,9 +47,13 @@ import (
 // for one.
 const SeedMinBytes = 32
 
-// Keyring derives per-agent signing keys from one master seed.
+// Keyring derives per-agent signing keys from one master seed, and holds the
+// small number of keys owners have imported instead.
 type Keyring struct {
 	seed []byte
+	// Where owner-supplied keys live. Empty disables import entirely, which
+	// is the correct state for a deployment that has not opted into it.
+	importDir string
 }
 
 // LoadKeyring reads the master seed and REFUSES if the file is exposed.
@@ -91,6 +96,32 @@ func LoadKeyring(path string) (*Keyring, error) {
 	return &Keyring{seed: seed}, nil
 }
 
+// WithImportDir enables owner-supplied keys, stored in dir.
+//
+// The directory must already exist with the right ownership: creating it here
+// would mean an installer could bring key storage into being as a side effect,
+// and this project has already decided that creating key material is a
+// deliberate act rather than a consequence of running a script.
+func (k *Keyring) WithImportDir(dir string) (*Keyring, error) {
+	if dir == "" {
+		return k, nil
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		return nil, fmt.Errorf("import dir: %w", err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("import dir %s is not a directory", dir)
+	}
+	if mode := info.Mode().Perm(); mode&0o077 != 0 {
+		return nil, fmt.Errorf(
+			"import dir %s has mode %04o: group or others can enter it. "+
+				"Set it to 0700 and own it by the signer user", dir, mode)
+	}
+	k.importDir = dir
+	return k, nil
+}
+
 // NewKeyringFromSeed is for tests and for the verification rig.
 func NewKeyringFromSeed(seed []byte) (*Keyring, error) {
 	if len(seed) < SeedMinBytes {
@@ -124,9 +155,26 @@ func (k *Keyring) derive(agentID string) (*secp256k1.PrivateKey, error) {
 	return nil, errors.New("derive key: exhausted rejection sampling")
 }
 
+// privateFor returns the key ARCANA signs with for this agent.
+//
+// IMPORTED WINS. If an owner supplied a key, that is the agent's wallet, and
+// the derived one is not merely unused but WRONG — signing with it would
+// produce a valid transaction from an address holding none of the funds, which
+// fails on chain after the gas is spent and after the decision is recorded.
+//
+// Checked on every call rather than cached, so an import takes effect without
+// a restart and a lost import surfaces immediately rather than at the next
+// deploy.
+func (k *Keyring) privateFor(agentID string) (*secp256k1.PrivateKey, error) {
+	if k.HasImported(agentID) {
+		return k.loadImported(agentID)
+	}
+	return k.derive(agentID)
+}
+
 // Address returns the agent's Ethereum address. Public information.
 func (k *Keyring) Address(agentID string) (string, error) {
-	priv, err := k.derive(agentID)
+	priv, err := k.privateFor(agentID)
 	if err != nil {
 		return "", err
 	}
@@ -152,7 +200,11 @@ func (k *Keyring) SignHash(agentID string, hash []byte) (r, s [32]byte, v byte, 
 	if len(hash) != 32 {
 		return r, s, 0, fmt.Errorf("sign: hash must be 32 bytes, got %d", len(hash))
 	}
-	priv, err := k.derive(agentID)
+	// privateFor, NOT derive. An agent with an imported key must be signed for
+	// with that key: the derived one produces a perfectly valid transaction
+	// from an address that holds none of the funds, which fails on chain after
+	// the gas is spent and after the decision has been recorded as made.
+	priv, err := k.privateFor(agentID)
 	if err != nil {
 		return r, s, 0, err
 	}
@@ -175,4 +227,186 @@ func Keccak256(b ...[]byte) []byte {
 		h.Write(x)
 	}
 	return h.Sum(nil)
+}
+
+// ---------------------------------------------------------------------------
+// Imported keys.
+//
+// PHASE 12. A user may bring a wallet they already control instead of using
+// the one ARCANA derives. This is a real product need — some people will not
+// hand a platform sole control of an address — and it inverts one of the
+// properties this package was built on.
+//
+// WHAT IT COSTS, stated plainly rather than discovered later:
+//
+//   1. Derived keys are a pure function of the seed. Imported keys are not,
+//      so they must be STORED, and a store is a thing that can be lost. Losing
+//      the seed loses every derived wallet; losing this directory loses every
+//      imported one, and no re-derivation brings it back. The user still has
+//      their own copy — that is the entire point of an imported key — but
+//      ARCANA's ability to trade on their behalf is gone until they import
+//      again.
+//
+//   2. ARCANA can sign ANYTHING with an imported key, not only trades. The
+//      policy layer restricts what this service will build, and that is a real
+//      restriction, but it is ARCANA's restriction on itself rather than a
+//      property of the key. So an imported wallet must be one the user uses for
+//      NOTHING ELSE, and the API says so in the response rather than burying it
+//      in documentation.
+//
+// The files sit beside the master seed, under the same directory, with the
+// same ownership and the same refusal to read anything group- or
+// world-readable.
+// ---------------------------------------------------------------------------
+
+// ErrNoImportedKey is returned when an agent has no imported key. It is not a
+// failure at the call site that asks "is this imported?" — only at one that
+// assumed it was.
+var ErrNoImportedKey = errors.New("no imported key for this agent")
+
+// importedPath returns where an agent's imported key lives.
+//
+// The agent id is a UUID from the database, but it arrives here as a string
+// from an HTTP path, so it is validated as a filename rather than trusted.
+// Without this, an id of "../../etc/passwd" reads and writes wherever it likes.
+func (k *Keyring) importedPath(agentID string) (string, error) {
+	if k.importDir == "" {
+		return "", errors.New("no import directory configured")
+	}
+	id := strings.ToLower(strings.TrimSpace(agentID))
+	if id == "" {
+		return "", errors.New("empty agent id")
+	}
+	for _, c := range id {
+		isHex := (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')
+		if !isHex && c != '-' {
+			return "", fmt.Errorf("agent id %q is not a uuid", agentID)
+		}
+	}
+	return filepath.Join(k.importDir, id+".key"), nil
+}
+
+// HasImported reports whether this agent's key was supplied by its owner.
+func (k *Keyring) HasImported(agentID string) bool {
+	p, err := k.importedPath(agentID)
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(p)
+	return err == nil
+}
+
+// loadImported reads an imported key, refusing an exposed file for the same
+// reason LoadKeyring does.
+func (k *Keyring) loadImported(agentID string) (*secp256k1.PrivateKey, error) {
+	p, err := k.importedPath(agentID)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(p)
+	if err != nil {
+		return nil, ErrNoImportedKey
+	}
+	if mode := info.Mode().Perm(); mode&0o077 != 0 {
+		return nil, fmt.Errorf(
+			"imported key %s has mode %04o: readable or writable by group or others. "+
+				"Refusing to use it", p, mode)
+	}
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		return nil, fmt.Errorf("imported key: %w", err)
+	}
+	return parsePrivateKey(string(raw))
+}
+
+// parsePrivateKey accepts a 32-byte secp256k1 key as hex, with or without 0x.
+//
+// Every rejection below is a key that would otherwise be accepted and then be
+// unable to sign, or be able to sign for an address nobody expects.
+func parsePrivateKey(text string) (*secp256k1.PrivateKey, error) {
+	s := strings.TrimSpace(text)
+	s = strings.TrimPrefix(strings.TrimPrefix(s, "0x"), "0X")
+	if len(s) != 64 {
+		return nil, fmt.Errorf(
+			"private key must be 64 hex characters (32 bytes); got %d", len(s))
+	}
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		return nil, errors.New("private key is not valid hex")
+	}
+	var buf [32]byte
+	copy(buf[:], b)
+	var scalar secp256k1.ModNScalar
+	// Zero and >= n are both invalid secp256k1 scalars. A key that overflows
+	// silently reduces mod n in some libraries, producing a DIFFERENT key that
+	// signs for a DIFFERENT address than the one the user believes they gave.
+	if overflow := scalar.SetBytes(&buf); overflow != 0 {
+		return nil, errors.New("private key is not a valid secp256k1 scalar (>= curve order)")
+	}
+	if scalar.IsZero() {
+		return nil, errors.New("private key is zero")
+	}
+	return secp256k1.NewPrivateKey(&scalar), nil
+}
+
+// Import stores an owner-supplied key and returns the address it controls.
+//
+// The address is DERIVED FROM THE KEY, never accepted from the caller. If the
+// caller could state the address, a wallet row would say one thing and the
+// signer would sign for another, and the divergence would only surface when
+// money went somewhere unexpected.
+//
+// Refuses to overwrite. Replacing an agent's key silently would strand any
+// funds at the previous address with nothing in the system pointing at it.
+func (k *Keyring) Import(agentID, privHex string) (string, error) {
+	p, err := k.importedPath(agentID)
+	if err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(p); err == nil {
+		return "", errors.New(
+			"this agent already has an imported key; refusing to overwrite it. " +
+				"Replacing it would strand whatever is held at the previous address")
+	}
+	priv, err := parsePrivateKey(privHex)
+	if err != nil {
+		return "", err
+	}
+
+	// 0600 and written by O_EXCL: exclusive creation is what makes "refuses to
+	// overwrite" true under a race rather than only under sequential calls.
+	f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return "", fmt.Errorf("store imported key: %w", err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(hex.EncodeToString(priv.Serialize())); err != nil {
+		return "", fmt.Errorf("store imported key: %w", err)
+	}
+	if err := f.Sync(); err != nil {
+		return "", fmt.Errorf("store imported key: %w", err)
+	}
+	return AddressOf(priv), nil
+}
+
+// Export returns an agent's private key as hex.
+//
+// THE ONLY PLACE IN ARCANA THAT RETURNS KEY MATERIAL, and it exists because a
+// custodial wallet the owner can never take possession of is not the owner's
+// wallet. The alternative — no export — means a user's funds are hostage to
+// the platform continuing to exist and continuing to cooperate.
+//
+// The caller is responsible for recording that this happened. Once a key has
+// been handed over, ARCANA is no longer the only party who can spend from that
+// address, and every later assumption about the balance has to account for it:
+// see agent_wallets.key_custody and the custody_drift table.
+//
+// Not logged, not returned in an error, not retained. The value crosses the
+// internal API once.
+func (k *Keyring) Export(agentID string) (privHex, address string, err error) {
+	priv, err := k.privateFor(agentID)
+	if err != nil {
+		return "", "", err
+	}
+	return hex.EncodeToString(priv.Serialize()), AddressOf(priv), nil
 }

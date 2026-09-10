@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 
 /**
  * Descriptive edits only.
@@ -25,4 +25,22 @@ export class UpdateAgentDto {
   @IsString()
   @MaxLength(50)
   strategyType?: string;
+
+  /**
+   * Retune the mandate without creating a new version.
+   *
+   * Allowed on a DRAFT only. Once an agent is active its mandate is part of
+   * the record its track record was produced under, and quietly editing it
+   * would make the leaderboard a claim about an agent that no longer exists.
+   * Changing an active agent's intent is what evolve() is for — it creates a
+   * version, and the version boundary is visible.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  mandateTemplate?: string;
+
+  @IsOptional()
+  @IsObject()
+  mandateParams?: Record<string, unknown>;
 }

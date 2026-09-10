@@ -142,11 +142,51 @@ done
 
 sudo systemctl daemon-reload
 
+# Shared packages FIRST, and this was missing entirely.
+#
+# All three Node services import @arcana/auth, and they resolve it to that
+# package's dist/, not its src/. Nothing here built it. So a change to the
+# shared auth package — guards, the error envelope, rate limiting — compiled
+# into no service at all, while every service rebuilt successfully against the
+# previous dist and reported success.
+#
+# It is the same trap as `go run` and as the un-rebuilt Node services, one
+# level further down, and it is worse than either: those at least left the
+# stale code visible in a running process. This one made a correct build of a
+# service produce a binary containing last week's shared code, and the
+# stamped commit would have said the service was current, because the service
+# WAS current. Only its dependency was not.
+#
+# Fatal rather than warned. A service built against a stale shared package is
+# not a partial success, and continuing to build the services on top of it
+# would bake the staleness in and stamp it as current.
+# ONE failure collector for the whole run, declared before the first thing
+# that can fail. It used to be declared halfway down, which meant anything
+# failing above it either could not be recorded or was wiped by the later
+# assignment.
+FAILED_UNITS=""
+
+echo "==> building shared packages"
+for pkg in auth; do
+  if (cd "$REPO/packages/$pkg" && npm run build >/dev/null 2>&1); then
+    echo "    @arcana/$pkg"
+  else
+    echo "    @arcana/$pkg BUILD FAILED — refusing to build services against a stale package"
+    (cd "$REPO/packages/$pkg" && npm run build 2>&1 | tail -20 | sed 's/^/        /')
+    FAILED_UNITS="$FAILED_UNITS @arcana/$pkg(build)"
+    PKG_FAILED=1
+  fi
+done
+
 # Build the Node services too. They run from dist/, so a pull that changes
 # src/ leaves them running the previous build — the same trap as the Go
 # binaries, one language over.
 echo "==> building Node services"
 for svc in agent-service marketplace arca-service; do
+  if [ "${PKG_FAILED:-0}" = "1" ]; then
+    echo "    $svc SKIPPED — a shared package failed to build"
+    continue
+  fi
   if (cd "$REPO/services/$svc" && npm run build >/dev/null 2>&1); then
     # Stamp the build with the commit, the same as the Go binaries.
     #
@@ -158,6 +198,7 @@ for svc in agent-service marketplace arca-service; do
     echo "    $svc"
   else
     echo "    $svc BUILD FAILED — it will keep running its previous dist/"
+    FAILED_UNITS="$FAILED_UNITS $svc(build)"
   fi
 done
 
@@ -178,7 +219,6 @@ echo "==> enabling long-running services"
 # check at the end never ran. The result was a HALF-DEPLOYED host whose only
 # symptom was that the installer stopped printing. Every problem is now
 # reported at the end and the exit code still says something went wrong.
-FAILED_UNITS=""
 for u in arcana-agent arcana-marketdata arcana-decision arcana-scoring arcana-marketplace arcana-arca arcana-signer; do
   sudo systemctl enable "$u.service" >/dev/null 2>&1 || FAILED_UNITS="$FAILED_UNITS $u(enable)"
   sudo systemctl restart "$u.service" || FAILED_UNITS="$FAILED_UNITS $u(restart)"

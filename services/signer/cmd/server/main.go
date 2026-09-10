@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math/big"
 	"net/http"
@@ -56,6 +57,10 @@ func main() {
 	port := envOr("PORT", "8085")
 	seedPath := envOr("SIGNER_MASTER_SEED_FILE", "/etc/arcana/signer/master.key")
 	allowPath := envOr("SIGNER_ALLOWLIST_FILE", "allowlist/robinhood-mainnet.json")
+	// Owner-supplied keys. Empty disables import entirely, which is the right
+	// state for a deployment that has not opted into it: an unset variable
+	// cannot accidentally enable key storage.
+	importDir := os.Getenv("SIGNER_IMPORT_DIR")
 	// Four endpoints, each probed with eth_call — the method this service
 	// actually uses — rather than with eth_chainId, which anything answers.
 	// Two otherwise-plausible providers (drpc, nodeflare) serve eth_chainId and
@@ -104,6 +109,19 @@ func main() {
 			"No key material is held. Create the seed with: " +
 			"sudo install -o arcana-signer -g arcana-signer -m 0400 /dev/null %s", seedPath)
 	} else {
+		if importDir != "" {
+			ring, err = ring.WithImportDir(importDir)
+			if err != nil {
+				// Fatal. A misconfigured import directory means imported keys
+				// either cannot be read or sit somewhere readable, and both are
+				// worse than not starting.
+				log.Fatalf("import dir: %v", err)
+			}
+			log.Printf("signer: owner-imported keys enabled at %s", importDir)
+		} else {
+			log.Printf("signer: owner-imported keys DISABLED (SIGNER_IMPORT_DIR unset); " +
+				"every wallet is derived from the master seed")
+		}
 		srv.ring = ring
 		log.Printf("signer ACTIVE: master seed loaded from %s", seedPath)
 	}
@@ -124,6 +142,8 @@ func main() {
 	})
 	mux.HandleFunc("GET /internal/v1/signer/wallets/{agentId}", guard.Wrap(srv.handleWallet))
 	mux.HandleFunc("POST /internal/v1/signer/sign", guard.Wrap(srv.handleSign))
+	mux.HandleFunc("POST /internal/v1/signer/wallets/{agentId}/export", guard.Wrap(srv.handleExport))
+	mux.HandleFunc("POST /internal/v1/signer/wallets/{agentId}/import", guard.Wrap(srv.handleImport))
 
 	log.Printf("signer listening on 127.0.0.1:%s", port)
 	if err := http.ListenAndServe("127.0.0.1:"+port, mux); err != nil {
@@ -409,3 +429,107 @@ func orDefault(v, def string) string {
 	return v
 }
 
+
+// --- key custody: export and import ------------------------------------------
+//
+// THESE TWO ENDPOINTS ARE THE ONLY WAY KEY MATERIAL CROSSES THIS SERVICE'S
+// BOUNDARY IN EITHER DIRECTION, and both exist because a custodial wallet the
+// owner can never take possession of is not really the owner's wallet.
+//
+// Both are machine tier behind the internal key. agent-service calls them
+// having already proved, from the session, that the caller owns the agent. The
+// signer does not and cannot check ownership — it has no idea who owns what —
+// so the internal key is doing real work here rather than being ceremony.
+
+// handleExport hands an agent's private key to its owner. Once.
+//
+// AFTER THIS, ARCANA IS NOT THE ONLY PARTY WHO CAN SPEND. The caller is
+// responsible for recording that (agent_wallets.key_custody = 'shared'), and
+// every later assumption about the balance has to account for an owner who can
+// move funds without asking. See the custody_drift table.
+//
+// The key is not logged, not put in an error message, and not retained. What
+// IS logged is that an export happened, for which agent, and when — the event
+// is exactly the thing an audit needs and the value is exactly the thing it
+// must not contain.
+func (s *server) handleExport(w http.ResponseWriter, r *http.Request) {
+	if s.ring == nil {
+		refuse(w, "signer_not_configured", "no master seed is loaded")
+		return
+	}
+	agentID := r.PathValue("agentId")
+	privHex, addr, err := s.ring.Export(agentID)
+	if err != nil {
+		refuse(w, "export_failed", err.Error())
+		return
+	}
+	log.Printf("KEY EXPORTED for agent %s (address %s) — this wallet is now jointly held",
+		agentID, addr)
+	writeJSON(w, 200, map[string]any{
+		"agent_id":    agentID,
+		"address":     addr,
+		"private_key": "0x" + privHex,
+		"custody":     "shared",
+		"warning": "You now hold this key and so does ARCANA. Anyone with it can " +
+			"spend everything at this address. ARCANA cannot un-export it and cannot " +
+			"tell whether you have kept it safe. If you move funds from this wallet " +
+			"yourself the platform will find out by reading the chain, not by being " +
+			"told, and will reconcile its record to what the chain says.",
+	})
+}
+
+type importRequest struct {
+	PrivateKey string `json:"private_key"`
+}
+
+// handleImport takes a key the owner already controls.
+//
+// THE ADDRESS IS DERIVED FROM THE KEY, never accepted from the caller. If a
+// caller could state the address, the wallet row would say one thing and the
+// signer would sign for another, and nobody would find out until money arrived
+// somewhere unexpected.
+//
+// Unknown JSON fields are rejected outright, the same rule the sign endpoint
+// follows: a request that thinks it is asking for something else must be told
+// it is wrong rather than quietly getting something it did not ask for.
+func (s *server) handleImport(w http.ResponseWriter, r *http.Request) {
+	if s.ring == nil {
+		refuse(w, "signer_not_configured", "no master seed is loaded")
+		return
+	}
+	agentID := r.PathValue("agentId")
+
+	dec := json.NewDecoder(io.LimitReader(r.Body, 4096))
+	dec.DisallowUnknownFields()
+	var req importRequest
+	if err := dec.Decode(&req); err != nil {
+		refuse(w, "bad_request", err.Error())
+		return
+	}
+	if strings.TrimSpace(req.PrivateKey) == "" {
+		refuse(w, "bad_request", "private_key is required")
+		return
+	}
+
+	addr, err := s.ring.Import(agentID, req.PrivateKey)
+	if err != nil {
+		// The error text never contains the key: parsePrivateKey reports the
+		// SHAPE of the problem (wrong length, not hex, out of range) and never
+		// echoes the value.
+		refuse(w, "import_failed", err.Error())
+		return
+	}
+	log.Printf("KEY IMPORTED for agent %s (address %s) — owner-supplied, jointly held from the start",
+		agentID, addr)
+	writeJSON(w, 200, map[string]any{
+		"agent_id": agentID,
+		"address":  addr,
+		"custody":  "shared",
+		"warning": "USE A WALLET DEDICATED TO THIS AGENT AND NOTHING ELSE. ARCANA now " +
+			"holds this key and can sign ANY transaction with it, not only trades. " +
+			"This service restricts what it will build — an allowlisted router, an " +
+			"allowlisted token, a capped size — but that is ARCANA restricting itself, " +
+			"not a property of the key you gave it. Do not import a wallet that holds " +
+			"anything you are not putting under this agent's control.",
+	})
+}

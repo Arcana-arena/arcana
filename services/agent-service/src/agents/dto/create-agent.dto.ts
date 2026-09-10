@@ -1,6 +1,7 @@
 import {
   IsJSON,
   IsNotEmpty,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -42,4 +43,27 @@ export class CreateAgentDto {
   @IsOptional()
   @IsUUID('all')
   parentAgentId?: string;
+
+  /**
+   * Which mandate template to build this agent's intent from.
+   *
+   * There is deliberately no field for the mandate TEXT. The text is rendered
+   * by ARCANA from the template and the parameters below; accepting it would
+   * make every other defence in this path decorative. A request that sends
+   * `mandate` gets a 400 from the global ValidationPipe's
+   * `forbidNonWhitelisted`, which is the correct answer and not a hostile one.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  mandateTemplate?: string;
+
+  /**
+   * Values for the template's declared parameters. Each is checked against a
+   * closed enumeration or a numeric range before anything is rendered; see
+   * renderMandate(). Unknown keys are refused rather than ignored.
+   */
+  @IsOptional()
+  @IsObject()
+  mandateParams?: Record<string, unknown>;
 }

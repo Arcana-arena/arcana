@@ -89,3 +89,31 @@ export function assertSameWallet(
     );
   }
 }
+
+/**
+ * 429 — too many requests, and specifically NOT a judgement about the caller.
+ *
+ * Distinct from every 401/403 above, which say something about identity. This
+ * says nothing about who is asking: the same caller, one second later, is
+ * welcome. Collapsing it into 403 would tell a legitimate user their
+ * credentials were rejected, which sends them to re-authenticate — more
+ * requests, on the endpoint that is already saturated.
+ *
+ * The message states the limit and the wait, because a client that knows both
+ * can back off correctly, and one that is guessing will poll.
+ */
+export function rateLimited(
+  limit: number,
+  windowSeconds: number,
+  retryAfterSeconds: number,
+): HttpException {
+  return new HttpException(
+    authErrorBody(
+      'rate_limited',
+      `Too many requests: this endpoint allows ${limit} per ${windowSeconds}s. ` +
+        `Try again in ${retryAfterSeconds}s. This is not a rejection of your ` +
+        'credentials — the same request will succeed once the window clears.',
+    ),
+    HttpStatus.TOO_MANY_REQUESTS,
+  );
+}

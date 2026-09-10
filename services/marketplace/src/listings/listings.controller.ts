@@ -8,7 +8,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { assertSameWallet, CurrentWallet, JwtAuthGuard } from '@arcana/auth';
+import { assertSameWallet, CurrentWallet, JwtAuthGuard, RateLimit } from '@arcana/auth';
 import { ListingsService } from './listings.service';
 import { ListingOwnershipService } from './listing-ownership.service';
 import {
@@ -81,6 +81,11 @@ export class ListingsController {
    * state, anyone watching the chain could claim somebody else's payment.
    */
   @Post('listings/:id/claim-payment')
+  // Every attempt costs three RPC round trips to a node ARCANA pays for, and a
+  // rejected claim costs exactly as much as an accepted one. Keyed by wallet:
+  // the claimant is already proven by the session, which is the same fact the
+  // sender check inside relies on.
+  @RateLimit({ limit: 20, windowSeconds: 300, byWallet: true })
   @UseGuards(JwtAuthGuard)
   claimPayment(
     @Param('id', ParseUuidAllPipe) id: string,

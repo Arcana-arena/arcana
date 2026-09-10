@@ -11,6 +11,22 @@ import { EvolveAgentDto } from './dto/evolve-agent.dto';
 import { UpdateAgentDto } from './dto/update-agent.dto';
 import { EntitlementClient } from '../entitlements/entitlement.client';
 import { OwnershipService } from '../auth/ownership.service';
+import { MandateValidationError, renderMandate } from './mandate-templates';
+
+/**
+ * How many agents one creator may have ACTIVE at once.
+ *
+ * ACTIVE, not total, and the distinction is the whole point. Activating a new
+ * version retires its parent, so a creator who iterates on one strategy
+ * accumulates retired versions while never running more than one agent. A
+ * total cap would charge them for their own history and push them towards
+ * abandoning versions instead of evolving them — punishing precisely the
+ * behaviour the evolution feature exists to encourage.
+ *
+ * Drafts do not count either. A draft consumes no tick, makes no decision and
+ * costs nothing to run; it is a saved intention, not an agent.
+ */
+export const MAX_ACTIVE_AGENTS_PER_CREATOR = 3;
 
 @Injectable()
 export class AgentsService {
@@ -31,6 +47,8 @@ export class AgentsService {
    * A new agent is ALWAYS 'draft'. Status is not settable here — see activate().
    */
   async create(dto: CreateAgentDto, creatorId: string): Promise<Agent> {
+    const m = this.buildMandate(dto.mandateTemplate, dto.mandateParams);
+
     const latest = await this.agents.findOne({
       where: { creatorId, name: dto.name },
       order: { version: 'DESC' },
@@ -45,9 +63,57 @@ export class AgentsService {
       strategyType: dto.strategyType ?? null,
       riskProfile: dto.riskProfile ? JSON.parse(dto.riskProfile) : {},
       assetUniverse: dto.assetUniverse,
+      mandate: m.mandate,
+      mandateTemplate: m.template,
+      mandateParams: m.params,
       status: 'draft',
     });
     return this.agents.save(agent);
+  }
+
+  /**
+   * Turn a template id and a set of chosen values into the sentence the
+   * decision engine will read.
+   *
+   * No template is not an error. The built-in deterministic strategies have no
+   * mandate at all, and neither do agents created before phase 12; the engine
+   * simply omits the section. Requiring one would break every existing row for
+   * the sake of uniformity.
+   *
+   * Parameters without a template ARE an error, and a loud one: it means the
+   * caller believes they have configured something that is going to be
+   * discarded. Silently dropping them is how somebody ends up watching an
+   * agent behave nothing like what they set up.
+   */
+  private buildMandate(
+    templateId: string | undefined,
+    rawParams: Record<string, unknown> | undefined,
+  ): {
+    mandate: string | null;
+    template: string | null;
+    params: Record<string, string | number> | null;
+  } {
+    if (!templateId) {
+      if (rawParams && Object.keys(rawParams).length > 0) {
+        throw new BadRequestException({
+          code: 'mandate_params_without_template',
+          message:
+            'mandateParams was supplied without mandateTemplate. There is no ' +
+            'template to interpret them against, so they would have been ignored.',
+        });
+      }
+      return { mandate: null, template: null, params: null };
+    }
+
+    try {
+      const { mandate, params } = renderMandate(templateId, rawParams);
+      return { mandate, template: templateId, params };
+    } catch (e) {
+      if (e instanceof MandateValidationError) {
+        throw new BadRequestException({ code: e.code, message: e.message });
+      }
+      throw e;
+    }
   }
 
   findAll(): Promise<Agent[]> {
@@ -79,6 +145,35 @@ export class AgentsService {
     const agent = await this.findOne(id);
     if (dto.name !== undefined) agent.name = dto.name;
     if (dto.strategyType !== undefined) agent.strategyType = dto.strategyType;
+
+    if (dto.mandateTemplate !== undefined || dto.mandateParams !== undefined) {
+      // DRAFTS ONLY.
+      //
+      // An active agent's mandate is part of the conditions its track record
+      // was produced under. Editing it in place would leave the leaderboard
+      // making a claim about an agent that no longer exists, and there would be
+      // nothing in the record to show the swap happened. Changing an active
+      // agent's intent is what evolve() is for: it creates a version, and the
+      // boundary is visible to anyone reading the history.
+      if (agent.status !== 'draft') {
+        throw new BadRequestException({
+          code: 'mandate_immutable_once_active',
+          message:
+            `Agent ${id} is ${agent.status}, and a mandate can only be edited while an agent ` +
+            'is a draft. Its recorded performance was produced under the current mandate, so ' +
+            'changing it in place would misdescribe that record. Use POST /v1/agents/:id/evolve ' +
+            'to create a new version with a different mandate.',
+        });
+      }
+      const m = this.buildMandate(
+        dto.mandateTemplate ?? agent.mandateTemplate ?? undefined,
+        dto.mandateParams ?? agent.mandateParams ?? undefined,
+      );
+      agent.mandate = m.mandate;
+      agent.mandateTemplate = m.template;
+      agent.mandateParams = m.params;
+    }
+
     return this.agents.save(agent);
   }
 
@@ -109,16 +204,55 @@ export class AgentsService {
     if (agent.status === 'retired') {
       throw new BadRequestException('Retired agents cannot be activated');
     }
+    if (agent.status === 'active') return agent;
 
     const wallet = await this.entitlements.walletForCreator(agent.creatorId);
     await this.entitlements.require('create', wallet, `activate agent ${agent.id}`);
 
-    agent.status = 'active';
-    const saved = await this.agents.save(agent);
-    if (agent.parentAgentId) {
-      await this.retireParent(agent.parentAgentId, agent.id);
-    }
-    return saved;
+    // THE CAP, AND WHY IT IS INSIDE A TRANSACTION.
+    //
+    // Counting and then writing is a race: two activations arriving together
+    // both read 2, both decide there is room, and the creator ends with 4.
+    // Rare, entirely reachable from a double-clicked button, and it produces a
+    // state no later request can explain. So the creator's active rows are
+    // locked for the duration and the count is taken under that lock.
+    //
+    // The parent is EXCLUDED from the count. Activating a version retires its
+    // parent in the same transaction, so counting it would mean a creator at
+    // the cap cannot evolve — the one operation that leaves the total exactly
+    // where it was. Succession must never be blocked by a limit on
+    // simultaneity.
+    return this.agents.manager.transaction(async (tx) => {
+      const active: Array<{ id: string }> = await tx.query(
+        `SELECT id FROM agents
+          WHERE creator_id = $1 AND status = 'active' AND id <> $2
+          ORDER BY id
+          FOR UPDATE`,
+        [agent.creatorId, agent.id],
+      );
+
+      const others = active.filter((r) => r.id !== agent.parentAgentId);
+      if (others.length >= MAX_ACTIVE_AGENTS_PER_CREATOR) {
+        throw new BadRequestException({
+          code: 'active_agent_limit_reached',
+          message:
+            `This creator already has ${others.length} active agents, and the limit is ` +
+            `${MAX_ACTIVE_AGENTS_PER_CREATOR}. Retire one with POST /v1/agents/:id/retire, ` +
+            'or evolve an existing agent instead — activating a new version retires the ' +
+            'version it replaces, so it does not consume another slot. Retired and draft ' +
+            'agents do not count towards this limit.',
+          active_agents: others.map((r) => r.id),
+          limit: MAX_ACTIVE_AGENTS_PER_CREATOR,
+        });
+      }
+
+      await tx.query(`UPDATE agents SET status = 'active' WHERE id = $1`, [agent.id]);
+      if (agent.parentAgentId) {
+        await this.retireParent(agent.parentAgentId, agent.id, tx);
+      }
+      agent.status = 'active';
+      return agent;
+    });
   }
 
   /**
@@ -168,18 +302,26 @@ export class AgentsService {
    * so no comparison between them can fully separate the agent from its market.
    * See docs/agent-evolution.md.
    */
-  private async retireParent(parentId: string, childId: string): Promise<void> {
+  private async retireParent(
+    parentId: string,
+    childId: string,
+    // Runs in the caller's transaction when there is one, so the parent's
+    // retirement and the child's activation are one atomic step. If they were
+    // separate, a failure between them would leave a creator over the cap with
+    // both versions active — the exact state the cap exists to prevent.
+    tx?: { query: (sql: string, params?: unknown[]) => Promise<unknown> },
+  ): Promise<void> {
+    const db = tx ?? this.agents.manager;
     const parent = await this.agents.findOne({ where: { id: parentId } });
     if (!parent || parent.status === 'retired') return;
 
-    parent.status = 'retired';
-    await this.agents.save(parent);
+    await db.query(`UPDATE agents SET status = 'retired' WHERE id = $1`, [parentId]);
 
     // Hand over the parent's seat in any competition still running. Without
     // this the scheduler keeps calling a retired agent every tick and logs a
     // failure every minute forever — the kind of permanent noise that teaches
     // people to stop reading the journal.
-    await this.agents.manager.query(
+    await db.query(
       `UPDATE competitions
           SET participant_ids = array_replace(participant_ids, $1::uuid, $2::uuid)
         WHERE status <> 'completed'
@@ -188,7 +330,7 @@ export class AgentsService {
       [parentId, childId],
     );
     // If the child was already a participant, just drop the parent's seat.
-    await this.agents.manager.query(
+    await db.query(
       `UPDATE competitions
           SET participant_ids = array_remove(participant_ids, $1::uuid)
         WHERE status <> 'completed'
@@ -214,6 +356,14 @@ export class AgentsService {
     const wallet = await this.entitlements.walletForCreator(agent.creatorId);
     await this.entitlements.require('evolve', wallet, `evolve agent ${agent.id}`);
 
+    // The mandate follows the same inherit-unless-overridden rule as every
+    // other field. Supplying only `mandateParams` re-renders the PARENT'S
+    // template with new values, which is the common case — the same idea,
+    // tuned — and means a caller does not have to restate a template id just
+    // to change one number.
+    const template = overrides.mandateTemplate ?? agent.mandateTemplate ?? undefined;
+    const params = overrides.mandateParams ?? agent.mandateParams ?? undefined;
+
     return this.create(
       {
         name: agent.name,
@@ -221,6 +371,12 @@ export class AgentsService {
         riskProfile: overrides.riskProfile ?? JSON.stringify(agent.riskProfile),
         assetUniverse: overrides.assetUniverse ?? agent.assetUniverse,
         parentAgentId: agent.id,
+        mandateTemplate: template,
+        // When the template is inherited but the params are not stated, the
+        // parent's params come through as-is; renderMandate validates them
+        // again rather than trusting a stored row, so a template whose ranges
+        // tightened since cannot quietly keep producing an out-of-range agent.
+        mandateParams: template ? (params as Record<string, unknown> | undefined) : undefined,
       },
       agent.creatorId,
     );
