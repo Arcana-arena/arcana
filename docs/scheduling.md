@@ -30,7 +30,9 @@ Units live in [`infra/systemd/`](../infra/systemd/):
 | `arcana-scoring.service` | long-running | always | score API + batch endpoint (port 8082) |
 | `arcana-marketplace.service` | long-running | always | marketplace API (port 3002) |
 | `arcana-arca.service` | long-running | always | $ARCA entitlements, subscriptions, marketplace payment claims (port **3004** — 3003 is taken on this host) |
-| `arcana-scheduler.timer` → `arcana-scheduler.service` | oneshot | **23:00, 01:00, 03:00 UTC** | advance the competition one tick per TRADING DAY (the two later runs are idempotent retries) |
+| ~~`arcana-scheduler.timer`~~ | — | **RETIRED 2026-09-11** | One tick per US trading day, 23:00 UTC with retries at 01:00 and 03:00. Stock Tokens trade against a pool that never closes, so "trading day" stopped naming anything and a calendar-driven tick stood still through two thirds of every week. |
+| `arcana-cadence.timer` → `arcana-cadence.service` | oneshot | **hourly** | advance the competition on a CONTINUOUS clock. The timer decides how often the system looks; the binary measures the age of the last tick and acts only once the four-hour cadence has elapsed. Prices come from the Uniswap pool, refereed by Chainlink ([cadence.md](./cadence.md)) |
+| `arcana-decision-watchdog.timer` → `arcana-decision-watchdog.service` | oneshot | **00,06,12,18:15 UTC** | shouts if no DECISION has been recorded in twelve hours. Measures decisions rather than ticks: a tick that opened and closed with every agent failing looks healthy to anything counting ticks |
 | `arcana-scoring-job.timer` → `arcana-scoring-job.service` | oneshot | **daily 23:30 UTC** | run the ARCANA Score batch, after the tick |
 | `arcana-arca-reminder.timer` → `arcana-arca-reminder.service` | oneshot | **daily 09:00 UTC** | $ARCA renewal pushes + `active→grace→expired` |
 | ~~`arcana-arca-payout.timer`~~ | — | **RETIRED 2026-09-10** | The 80/20 split and treasury payout are gone: the marketplace is P2P with no fee, so ARCANA never holds or splits a payment and has nothing to pay out. Unit and service removed. |
@@ -39,7 +41,7 @@ Units live in [`infra/systemd/`](../infra/systemd/):
 | `arcana-signer.service` | long-running | always | the only component that holds key material; runs as its own Linux user `arcana-signer` (port 8085 — [signer.md](./signer.md)) |
 | `arcana-backup.timer` → `arcana-backup.service` | oneshot | **daily 02:00 UTC** | full backup, database + MinIO, with an off-site copy to Google Drive. **Fails loudly if the upload fails** — a backup that never left the machine is a failed backup ([backup-restore.md](./backup-restore.md)) |
 | `arcana-backup-verify.timer` → `arcana-backup-verify.service` | oneshot | **weekly** | restores the newest archive into a scratch database and counts rows. A backup nobody has restored is a hypothesis |
-| `arcana-tick-watchdog.timer` → `arcana-tick-watchdog.service` | oneshot | **daily** | shouts if a trading day passed with no tick |
+| ~~`arcana-tick-watchdog.timer`~~ | — | **RETIRED 2026-09-11** | Asked whether a trading day passed with no tick. There are no trading days: the pool never closes. Replaced by `arcana-decision-watchdog`. |
 | `arcana-alert@.service` | template | on failure | `OnFailure=` target for every unit above; instantiated per failing unit ([alerting.md](./alerting.md)) |
 
 > **These last five were missing from this table until 2026-09-11**, when

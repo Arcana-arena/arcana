@@ -29,7 +29,7 @@ Ten units declare `OnFailure=arcana-alert@%n.service`:
 
 | Unit | What it does |
 |---|---|
-| `arcana-scheduler` | opens/closes the daily tick |
+| ~~`arcana-scheduler`~~ | **RETIRED 2026-09-11.** Opened one tick per US trading day. Stock Tokens trade against a pool that never closes, so a calendar-driven tick stood still through two thirds of every week. Replaced by `arcana-cadence`. |
 | `arcana-scoring-job` | ARCANA Score batch |
 | `arcana-agent-dna` | DNA fingerprint batch |
 | `arcana-marketdata` | the market data service itself |
@@ -40,7 +40,7 @@ Ten units declare `OnFailure=arcana-alert@%n.service`:
 | `arcana-signer` | the isolated key-custody service |
 | `arcana-backup` | daily full backup |
 | `arcana-backup-verify` | weekly restore rehearsal |
-| `arcana-tick-watchdog` | layer 2 (below) — a monitor that cannot run is itself worth knowing about |
+| ~~`arcana-tick-watchdog`~~ | **RETIRED 2026-09-11.** Asked "was there a tick on a day the market was open" — a question about a calendar that no longer exists. Replaced by `arcana-decision-watchdog`, which asks whether a DECISION has been recorded in the last twelve hours. |
 
 One template rather than one handler per unit, because a second copy would
 drift — and this table has now drifted on its own, in both directions at once:
