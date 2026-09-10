@@ -75,9 +75,18 @@ check_node() {
     no "$name is answering" "no response on :$port"
     return
   fi
-  dist="$(stat -c %Y "$dir/dist/main.js" 2>/dev/null)"
+  # The NEWEST file in dist/, not main.js. `nest build` is incremental: it does
+  # not rewrite main.js when main.ts has not changed, so comparing against that
+  # one file reported a fresh build as stale on every run — a check that cries
+  # wolf, which is worse than no check.
+  if [ ! -d "$dir/dist" ]; then
+    no "$name has a build" "$dir/dist not found"
+    return
+  fi
+  dist="$(find "$dir/dist" -type f -printf "%T@
+" 2>/dev/null | sort -rn | head -1 | cut -d. -f1)"
   if [ -z "$dist" ]; then
-    no "$name has a build" "$dir/dist/main.js not found"
+    no "$name has a build" "$dir/dist is empty"
     return
   fi
   src="$(find "$dir/src" -type f -newermt "@$dist" 2>/dev/null | head -1)"
