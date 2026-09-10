@@ -147,8 +147,18 @@ sudo systemctl daemon-reload
 # binaries, one language over.
 echo "==> building Node services"
 for svc in agent-service marketplace arca-service; do
-  (cd "$REPO/services/$svc" && npm run build >/dev/null 2>&1) && echo "    $svc" \
-    || echo "    $svc BUILD FAILED — it will keep running its previous dist/"
+  if (cd "$REPO/services/$svc" && npm run build >/dev/null 2>&1); then
+    # Stamp the build with the commit, the same as the Go binaries.
+    #
+    # An earlier version compared file mtimes instead, and that cannot work:
+    # any git operation that rewrites a file bumps its mtime whether or not
+    # the content changed, so `git checkout -- .` alone made every build look
+    # stale. A stamp compares what was built, not when.
+    echo "$COMMIT" > "$REPO/services/$svc/dist/.build-commit"
+    echo "    $svc"
+  else
+    echo "    $svc BUILD FAILED — it will keep running its previous dist/"
+  fi
 done
 
 echo "==> enabling long-running services"

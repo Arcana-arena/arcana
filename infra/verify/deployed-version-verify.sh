@@ -17,10 +17,10 @@
 # So every Go binary is stamped at link time with the commit it was built from
 # and reports it on /healthz, and this compares that against HEAD.
 #
-# The Node services are checked more weakly and the difference is stated rather
-# than glossed: they run from dist/, so what can be compared is whether the
-# build is NEWER THAN THE SOURCE. That catches "forgot to build" but not "built
-# from a different commit".
+# The Node services carry the same stamp, written into dist/.build-commit by
+# the installer. They cannot report it over HTTP without a code change in each
+# service, so it is read from disk instead — weaker in that a stamp could in
+# principle outlive the build it names, and stated rather than glossed.
 #
 # Read-only.
 #
@@ -66,40 +66,33 @@ check_go market-data     8083
 check_go signer          8085
 
 echo
-echo "=== Node services: is the build newer than its source? ==="
-echo "    (weaker on purpose — this catches a missing build, not a wrong commit)"
+echo "=== Node services report the commit they were built from ==="
 check_node() {
   local name="$1" dir="$2" port="$3"
-  local dist src
+  local stamp
   if ! curl -s -o /dev/null --max-time 6 "http://127.0.0.1:${port}/healthz"; then
     no "$name is answering" "no response on :$port"
     return
   fi
-  # The NEWEST file in dist/, not main.js. `nest build` is incremental: it does
-  # not rewrite main.js when main.ts has not changed, so comparing against that
-  # one file reported a fresh build as stale on every run — a check that cries
-  # wolf, which is worse than no check.
-  if [ ! -d "$dir/dist" ]; then
-    no "$name has a build" "$dir/dist not found"
-    return
-  fi
-  dist="$(find "$dir/dist" -type f -printf "%T@
-" 2>/dev/null | sort -rn | head -1 | cut -d. -f1)"
-  if [ -z "$dist" ]; then
-    no "$name has a build" "$dir/dist is empty"
-    return
-  fi
-  src="$(find "$dir/src" -type f -newermt "@$dist" 2>/dev/null | head -1)"
-  if [ -z "$src" ]; then
-    ok "$name build is newer than every file in src/"
+  # A STAMP, not a timestamp.
+  #
+  # This compared mtimes at first, and that cannot work: any git operation
+  # that rewrites a file bumps its mtime whether or not the content changed,
+  # so `git checkout -- .` alone made a correct build look stale. A check that
+  # cries wolf is worse than no check — the next real staleness reads as more
+  # of the same.
+  stamp="$(cat "$dir/dist/.build-commit" 2>/dev/null)"
+  if [ -z "$stamp" ]; then
+    no "$name reports a build commit" "$dir/dist/.build-commit missing — built before stamping, or not built"
+  elif [ "$stamp" = "$HEAD" ]; then
+    ok "$name built from ${stamp:0:12} — matches HEAD"
   else
-    no "$name build is current" "$(basename "$src") is newer than dist/ — run npm run build"
+    no "$name built from HEAD" "built from ${stamp:0:12}, checked out $SHORT. Run infra/systemd/install.sh"
   fi
 }
 check_node agent-service       services/agent-service       3001
 check_node marketplace-service services/marketplace         3002
 check_node arca-service        services/arca-service        3004
-
 echo
 echo "=== The working tree is what was committed ==="
 if [ -z "$(git status --porcelain 2>/dev/null)" ]; then
