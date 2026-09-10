@@ -86,9 +86,38 @@ const psqlSafe = (sql) => {
 // was right. An expectation you cannot derive is an expectation you are going
 // to have to keep loosening.
 let noncesSpent = 0;
-async function signIn(account) {
+
+/**
+ * Fetch a nonce, waiting out the rate limit if this suite's own previous run
+ * spent it.
+ *
+ * Section 10 deliberately floods this endpoint until it refuses, which means a
+ * second run inside the same minute cannot sign in at all. The first version
+ * died there with "could not sign in a fresh wallet" — technically true and
+ * useless, because it names neither the cause nor the remedy.
+ *
+ * Waiting is the right answer rather than exempting the suite from the limit:
+ * an exemption is a code path where the limiter does not apply, and a code
+ * path where the limiter does not apply is the thing most worth not having.
+ * Retry-After says exactly how long, and the window is at most a minute.
+ */
+async function getNonce() {
   noncesSpent++;
-  const nonce = (await req(`${AGENT}/v1/auth/nonce`)).body.nonce;
+  let r = await req(`${AGENT}/v1/auth/nonce`);
+  if (r.status === 429) {
+    const wait = Math.min(70, Number(r.headers.get('retry-after') ?? 60) + 2);
+    console.log(`  (nonce allowance spent — almost certainly by this suite's last run.`);
+    console.log(`   Waiting ${wait}s for the window to clear, as a client should.)`);
+    await new Promise((resolve) => setTimeout(resolve, wait * 1000));
+    noncesSpent = 1;
+    r = await req(`${AGENT}/v1/auth/nonce`);
+  }
+  return r.body?.nonce;
+}
+
+async function signIn(account) {
+  const nonce = await getNonce();
+  if (!nonce) return null;
   const message = createSiweMessage({
     address: account.address, chainId: CHAIN_ID, domain: DOMAIN, nonce,
     uri: URI, version: '1', issuedAt: new Date(), statement: 'Sign in to ARCANA.',
