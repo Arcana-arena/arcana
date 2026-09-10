@@ -29,7 +29,7 @@
 import { createServer } from 'node:http';
 import { spawn, execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 
 const REPO = process.env.REPO || '/home/ubuntu/arcana';
 const ARCA_PORT = Number(process.env.TEST_ARCA_PORT || 3094);
@@ -48,6 +48,77 @@ const DB = 'postgres://arcana:arcana@localhost:5432/arcana?sslmode=disable';
 const sql = (q) =>
   execFileSync('docker', ['exec', 'arcana-postgres', 'psql', '-U', 'arcana', '-d', 'arcana', '-tAc', q],
     { encoding: 'utf8' }).trim();
+
+/**
+ * ONE INSTANCE AT A TIME, and a clean slate before starting.
+ *
+ * This suite's fixture puts a REAL ON-CHAIN ADDRESS on a creator, and
+ * `creators.wallet_address` is UNIQUE. Two consequences that only show up in a
+ * full regression:
+ *
+ *   1. TWO CONCURRENT RUNS CANNOT BOTH EXIST. Both find the same recipient on
+ *      chain and both want it on their own creator row; the second gets
+ *      "duplicate key value violates unique constraint". Widening the scan
+ *      window from 18 blocks to 4096 made the pick deterministic, which turned
+ *      a rare collision into a reliable one — a regression introduced by the
+ *      previous fix.
+ *
+ *   2. AN INTERRUPTED RUN POISONS THE NEXT ONE. Kill the suite between the
+ *      INSERT and its cleanup and the row survives, holding the address every
+ *      subsequent run needs. The suite then fails forever, on a machine where
+ *      nothing is wrong, until somebody deletes a row by hand.
+ *
+ * Both are removed here rather than in the fixture, because the fixture is
+ * right: driving the checks with a transaction somebody else really made is
+ * the whole point, and a synthetic address would prove only that the code
+ * agrees with itself.
+ *
+ * The lock is the same mechanism the systemd units use, for the same reason.
+ * It is non-blocking: a second instance says so and exits rather than queueing
+ * behind a run that may take minutes.
+ */
+const LOCK = '/tmp/arcana-claims-verify.lock';
+
+/**
+ * A PID lock rather than flock(2), because Node has no flock and shelling out
+ * to flock(1) would mean re-executing this script under it.
+ *
+ * SELF-HEALING, which a bare lock file is not. A run killed with SIGKILL never
+ * removes its lock, and a lock nobody can clear is a permanent outage of the
+ * check — the same shape as the poisoned fixture row this exists to prevent.
+ * So the holder's pid is written down and a lock whose holder is gone is taken
+ * over, loudly.
+ */
+function takeLockAndCleanStale() {
+  try {
+    writeFileSync(LOCK, String(process.pid), { flag: 'wx' });
+  } catch {
+    const holder = Number(readFileSync(LOCK, 'utf8').trim());
+    let alive = false;
+    try { process.kill(holder, 0); alive = true; } catch { alive = false; }
+    if (alive) {
+      console.error(
+        `claims-verify: another instance (pid ${holder}) is already running.\n` +
+        'This suite cannot run twice at once: its fixture claims a real on-chain\n' +
+        'address, and creators.wallet_address is UNIQUE. Nothing was judged.');
+      process.exit(2);
+    }
+    console.log(`  (taking over a lock left by pid ${holder}, which is gone)`);
+    writeFileSync(LOCK, String(process.pid));
+  }
+  // Holding the lock, so nothing else is mid-run: any fixture row still here
+  // is from a run that died before cleaning up.
+  const stale = sql(`SELECT count(*) FROM creators WHERE handle LIKE '${TAG}%'`);
+  if (stale !== '0') {
+    console.log(`  (clearing ${stale} fixture row(s) left by an interrupted run)`);
+    sql(`DELETE FROM marketplace_listings WHERE agent_id IN (
+           SELECT id FROM agents WHERE creator_id IN (
+             SELECT id FROM creators WHERE handle LIKE '${TAG}%'))`);
+    sql(`DELETE FROM agents WHERE creator_id IN (
+           SELECT id FROM creators WHERE handle LIKE '${TAG}%')`);
+    sql(`DELETE FROM creators WHERE handle LIKE '${TAG}%'`);
+  }
+}
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -190,6 +261,11 @@ const claim = async (userWallet, listing, txHash) => {
   return { status: r.status, body: await r.json().catch(() => null) };
 };
 const code = (r) => r.body?.code || r.body?.message?.code || '';
+
+// Taken BEFORE anything is created, and before the chain scan — the scan is
+// the slow part, and two instances that both scanned before locking would
+// still both want the same address.
+takeLockAndCleanStale();
 
 try {
   console.log('claims-verify: looking for a real USDG transfer on chain...');
@@ -366,6 +442,13 @@ try {
   await stop();
   controlled.close();
   cleanup();
+  // Released last, after the fixture is gone. Releasing it first would let a
+  // waiting instance start against rows this one is still deleting.
+  //
+  // A crash that skips this leaves the lock behind, and that is handled at the
+  // other end: the next run finds the pid dead and takes over. Between them,
+  // neither a crash nor a concurrent start can wedge this suite permanently.
+  try { unlinkSync(LOCK); } catch { /* already gone; nothing to release */ }
   console.log('\nclaims-verify: fixtures removed');
 }
 
