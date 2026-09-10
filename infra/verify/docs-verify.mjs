@@ -52,6 +52,17 @@ function check(name, ok, detail = '') {
 
 const read = (p) => (existsSync(p) ? readFileSync(p, 'utf8') : '');
 
+/**
+ * Split a document into lines, whichever line ending it happens to carry.
+ *
+ * This repository is edited on Windows and runs on Linux, so a document may
+ * arrive with either. A checker that splits on one and silently produces a
+ * single enormous "line" for the other would report every document as clean —
+ * a check that cannot fail, which is the failure mode this whole suite exists
+ * to prevent.
+ */
+const splitLines = (text) => text.split(/\r?\n/);
+
 // ---------------------------------------------------------------------------
 console.log('\n=== 1. auth.md lists the routes that exist, and only those ===');
 // ---------------------------------------------------------------------------
@@ -231,16 +242,39 @@ console.log('\n=== 4. No document names a source file that is gone ===');
     'DepositAddressesService', 'HdWalletService', 'PaymentListenerService',
     'PayoutBatchService',
   ];
+
+  // TELLING HISTORY FROM A CLAIM NEEDS A MARKER, NOT A CLEVERER REGEX.
+  //
+  // The first version of this check guessed, by looking for words like
+  // "retired" on the same line. It flagged data-resets.md three times — a
+  // document that is ENTIRELY a historical record, where a table row reading
+  // "**LIVE** — held" is a true statement about 2026-09-10 and a false one
+  // about today. No regex resolves that, because the difference is not in the
+  // text; it is in what the section is FOR.
+  //
+  // So a document says so, once, in a comment the renderer ignores:
+  //
+  //     <!-- docs-verify: historical -->
+  //
+  // Everything from that line to the next top-level heading is a record of
+  // what was true then. Cheap to add, visible to the next person editing the
+  // file, and — unlike a regex — it cannot quietly start matching things it
+  // was never meant to.
+  const HISTORICAL = '<!-- docs-verify: historical -->';
   const offenders = [];
   for (const doc of docs) {
     const text = read(doc);
     if (!text) continue;
-    for (const cls of GONE) {
-      for (const line of text.split('\n')) {
+    let historical = false;
+    for (const line of splitLines(text)) {
+      if (line.includes(HISTORICAL)) { historical = true; continue; }
+      if (/^## /.test(line)) historical = false;   // a heading ends the section
+      if (historical) continue;
+      for (const cls of GONE) {
         if (!line.includes(cls)) continue;
-        // Retirement language, a strikethrough, or a blockquote (a banner)
-        // makes it a record rather than a claim.
-        if (/retired|removed|deleted|gone|no longer|was |used to|gave way|gone from|gone:|~~|gone\b/i.test(line)) continue;
+        // Retirement language on the line itself still reads as history, for
+        // the ordinary case of one sentence in an otherwise current document.
+        if (/retired|removed|deleted|gone|no longer|was |used to|went|~~/i.test(line)) continue;
         if (line.trim().startsWith('>')) continue;
         offenders.push(`${doc}: ${line.trim().slice(0, 80)}`);
       }

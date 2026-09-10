@@ -61,9 +61,9 @@ exists, with nothing in the history showing the swap. Changing an active
 agent's intent is what `POST /v1/agents/:id/evolve` is for, and there the
 version boundary is visible to anyone reading the record.
 
-## Three ACTIVE agents per creator
+## 3 active agents per creator
 
-Not three total, and the difference is the whole design.
+Three ACTIVE, not three total, and the difference is the whole design.
 
 Activating a version **retires its parent**. A creator iterating on one
 strategy therefore accumulates retired versions while never running more than

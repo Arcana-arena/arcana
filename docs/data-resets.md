@@ -30,6 +30,11 @@ result changed the plan:
 
 | Component | Verdict | Evidence |
 |---|---|---|
+<!-- docs-verify: historical -->
+<!-- Everything to the next `##` is a record of what was true on 2026-09-10,
+     including rows saying LIVE about services retired the following day.
+     Rewriting them would destroy the evidence that the hold rule worked. -->
+
 | `PayoutBatchService`, `creator_payouts` | **dead by decision** | only caller is its own route and timer; P2P with no fee means ARCANA never holds or splits a payment |
 | `DepositAddressesService`, `HdWalletService` | **LIVE** — held | `POST /v1/marketplace/listings/:id/subscribe` calls `POST /v1/arca/deposit-address`. This is the current subscribe path |
 | `PaymentListenerService` | **LIVE** — held | the only thing that creates a subscription after payment; removing it would mean a user pays and access is never granted |

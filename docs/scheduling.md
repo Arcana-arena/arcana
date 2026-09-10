@@ -36,6 +36,19 @@ Units live in [`infra/systemd/`](../infra/systemd/):
 | ~~`arcana-arca-payout.timer`~~ | — | **RETIRED 2026-09-10** | The 80/20 split and treasury payout are gone: the marketplace is P2P with no fee, so ARCANA never holds or splits a payment and has nothing to pay out. Unit and service removed. |
 | `arcana-chain-guard.timer` → `arcana-chain-guard.service` | oneshot | **every 4 hours** | watch the Stock Token beacon, pause state and pool liquidity for issuer-side drift ([alerting.md](./alerting.md#layer-3--the-chain-guard)) |
 | `arcana-agent-dna.timer` → `arcana-agent-dna.service` | oneshot | **daily 23:45 UTC** | recompute Agent DNA fingerprints ([agent-dna.md](./agent-dna.md)) |
+| `arcana-signer.service` | long-running | always | the only component that holds key material; runs as its own Linux user `arcana-signer` (port 8085 — [signer.md](./signer.md)) |
+| `arcana-backup.timer` → `arcana-backup.service` | oneshot | **daily 02:00 UTC** | full backup, database + MinIO, with an off-site copy to Google Drive. **Fails loudly if the upload fails** — a backup that never left the machine is a failed backup ([backup-restore.md](./backup-restore.md)) |
+| `arcana-backup-verify.timer` → `arcana-backup-verify.service` | oneshot | **weekly** | restores the newest archive into a scratch database and counts rows. A backup nobody has restored is a hypothesis |
+| `arcana-tick-watchdog.timer` → `arcana-tick-watchdog.service` | oneshot | **daily** | shouts if a trading day passed with no tick |
+| `arcana-alert@.service` | template | on failure | `OnFailure=` target for every unit above; instantiated per failing unit ([alerting.md](./alerting.md)) |
+
+> **These last five were missing from this table until 2026-09-11**, when
+> `docs-verify.mjs` first compared it against `infra/systemd/`. Four of them
+> are the units that protect the record — the backups, their proof, and the
+> watchdog — and one is the service that holds every private key. Exactly the
+> drift `alerting.md` had, in a different document, invisible for the same
+> reason: a hand-maintained list of things has no way to notice what it left
+> out. Both directions are now checked on every deploy.
 
 The $ARCA **deposit audit** — stranded-payment detection and retiring unfunded
 deposit addresses, on an in-process `setInterval` rather than a timer — was
