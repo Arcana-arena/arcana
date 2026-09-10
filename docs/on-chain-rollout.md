@@ -21,7 +21,7 @@ Two rules govern the order:
 | 5 | `MarketIndexService` — remove the per-snapshot round trip | **done** | — |
 | 4b–d | Retire strategy.go, session.go, the human path | with 6, 10, 9 | each waits for its replacement |
 | 6 | Decider abstraction + DeepSeek, still on virtual money | **done** | **owner: DeepSeek API key** |
-| 7 | Signer service, policy engine, router allowlist — no money | next | — |
+| 7 | Signer service, policy engine, router allowlist — no money | **done** | **owner: key custody (~$0.06–$1/mo)** |
 | 8 | **First real swap, ~$20, one wallet** | | **owner: approval to spend** |
 | 9 | Deposit, withdrawal, and the attack suite that proves it refuses | | — |
 | 10 | Pool prices, Chainlink referee, cost meter, staggered cadence | | — |
@@ -228,9 +228,20 @@ on this chain but is not wired to its factory.
 
 **No money yet.** The signer signs against a wallet with nothing in it.
 
-**Verified by:** an attempt to sign a raw transfer to an outside address is
-refused, and no signature is produced. Proven by a test that mounts the attack,
-not by reading the code.
+**Done 2026-09-11.** 31 signing checks + 15 isolation checks, every refusal
+triggered for real. The strongest result: **viem recovers the sender of the raw
+transaction the Go signer produced, and it is the signer own derived wallet** —
+the cryptography confirmed by an independent implementation rather than by the
+one under test.
+
+A caller cannot ask for a raw transfer because the API has no way to say it:
+the signer takes a NAMED INTENT and builds the calldata itself. No `to`, no
+`data`, no `value`, no `recipient`.
+
+**Waiting on the owner: the key-custody decision.** A KMS-wrapped seed costs
+~$0.06/month (GCP) or ~$1/month (AWS) and needs an account, so it is not made
+here. A phase-7 seed exists for empty wallets and must be replaced before
+anything is funded. Options and costs in [signer.md](./signer.md).
 
 ## Phase 8 — The first real swap ⛔ *needs the owner*
 
