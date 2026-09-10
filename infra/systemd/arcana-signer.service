@@ -1,0 +1,61 @@
+# arcana-signer.service — the only process that holds key material.
+#
+# WHY THIS UNIT LOOKS DIFFERENT FROM THE OTHER SIX. Every other ARCANA service
+# runs as `ubuntu` and can read `ubuntu`'s files. This one will eventually hold
+# the keys to hundreds of wallets containing other people's money, so it runs as
+# its own Linux user and its seed is readable by that user alone. If it ran as
+# `ubuntu`, a bug in any of the six public-facing services would be a bug that
+# can read the keys, and the separation would be a diagram rather than a fact.
+#
+# THE SEED IS NOT IN AN ENVIRONMENT FILE. Other services take secrets through
+# EnvironmentFile=; this one takes a PATH and reads the file itself. Environment
+# is visible in /proc/<pid>/environ to anything running as the same user, is
+# inherited by every child process, and is printed by a careless crash handler.
+# A file is read once, by a process that refuses to start if its mode is wrong.
+#
+# IT DOES NOT BROADCAST. The service signs and returns; nothing in it can send a
+# transaction. That is what makes it safe to run before the custody decision is
+# made.
+[Unit]
+Description=ARCANA Signer (isolated key custody)
+After=network-online.target
+Wants=network-online.target
+OnFailure=arcana-alert@%n.service
+
+[Service]
+Type=simple
+User=arcana-signer
+Group=arcana-signer
+WorkingDirectory=/home/ubuntu/arcana/services/signer
+Environment=PORT=8085
+Environment=SIGNER_MASTER_SEED_FILE=/etc/arcana/signer/master.key
+Environment=SIGNER_ALLOWLIST_FILE=/home/ubuntu/arcana/services/signer/allowlist/robinhood-mainnet.json
+# The internal API key is shared with the other services and comes from a file
+# at mode 640 owned by root:arcana-signer — readable by this service, not
+# writable by it.
+EnvironmentFile=-/home/ubuntu/arcana/.env.auth
+ExecStart=/home/ubuntu/arcana/scheduler-bin/signer
+Restart=on-failure
+RestartSec=5
+
+# Defence in depth. None of these is the reason the service is safe — the
+# allowlist and the seed's file mode are — but each removes something this
+# process has no business being able to do.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadOnlyPaths=/etc/arcana/signer
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+# The seed must never reach a core dump.
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target

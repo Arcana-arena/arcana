@@ -65,6 +65,34 @@ if [ ! -f "$REPO/.env.llm" ]; then
 fi
 chmod 600 "$REPO/.env.llm"
 
+# The signer is the only component that gets its own Linux identity.
+#
+# Every other ARCANA service runs as `ubuntu` and can read `ubuntu`s files. The
+# signer will hold the keys to wallets containing other peoples money, so its
+# seed must not be readable by a process that answers HTTP from the internet.
+# If it ran as `ubuntu`, a bug in any of the six public-facing services would be
+# a bug that can read the keys.
+#
+# The seed itself is NOT created here. Creating key material is a deliberate
+# act, and doing it as a side effect of running an installer is how a seed ends
+# up in a backup nobody meant to take. The service boots without one and refuses
+# every signing request, loudly, until somebody puts one there on purpose.
+echo "==> signer identity and key directory"
+if ! id arcana-signer >/dev/null 2>&1; then
+  sudo useradd --system --no-create-home --shell /usr/sbin/nologin arcana-signer
+  echo "    created system user arcana-signer (nologin)"
+fi
+sudo install -d -o arcana-signer -g arcana-signer -m 0700 /etc/arcana/signer
+# The internal API key is shared, so the signer must be able to READ it without
+# being able to write it, and without it being world-readable.
+if [ -f "$REPO/.env.auth" ]; then
+  sudo chgrp arcana-signer "$REPO/.env.auth" 2>/dev/null || true
+  sudo chmod 640 "$REPO/.env.auth"
+fi
+
+echo "==> building signer binary"
+(cd "$REPO/services/signer" && /usr/local/go/bin/go build -o "$BIN_DIR/signer" ./cmd/server)
+
 echo "==> installing units"
 sudo cp "$REPO"/infra/systemd/*.service "$REPO"/infra/systemd/*.timer "$UNIT_DIR/"
 
@@ -92,7 +120,7 @@ done
 sudo systemctl daemon-reload
 
 echo "==> enabling long-running services"
-for u in arcana-agent arcana-marketdata arcana-decision arcana-scoring arcana-marketplace arcana-arca; do
+for u in arcana-agent arcana-marketdata arcana-decision arcana-scoring arcana-marketplace arcana-arca arcana-signer; do
   sudo systemctl enable --now "$u.service"
 done
 
