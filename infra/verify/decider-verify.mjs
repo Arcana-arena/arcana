@@ -66,11 +66,13 @@ const check = (name, ok, detail = '') => {
 // Speaks the OpenAI chat-completions shape. `mode` decides what it answers.
 let mockMode = 'good';
 let lastPrompt = null;
+let mockCalls = 0;
 const mock = createServer((req, res) => {
   let body = '';
   req.on('data', (c) => (body += c));
   req.on('end', () => {
     if (!req.url.endsWith('/v1/chat/completions')) { res.writeHead(404).end('{}'); return; }
+    mockCalls++;
     if ((req.headers.authorization || '') !== 'Bearer verify-key') { res.writeHead(401).end('{"error":{"message":"bad key"}}'); return; }
     try { lastPrompt = JSON.parse(body).messages.map((m) => m.content).join('\n'); } catch {}
 
@@ -269,6 +271,33 @@ try {
     d.action === 'hold' && d.reason === 'llm_unavailable', `action=${d.action} reason=${d.reason}`);
   check('and it is still recorded as an llm agent, not relabelled', d.decider === 'llm', `decider='${d.decider}'`);
 
+  // === 6. nothing moved ===================================================
+  //
+  // The cheapest refusal there is: if no symbol moved beyond the agent's own
+  // rebalance band, do not buy inference to be told to hold. Asserting the
+  // provider was NOT called is the whole point — a version of this that still
+  // called out and discarded the answer would look identical in the database.
+  console.log('\n=== 6. Nothing moved beyond the rebalance band ===');
+  await stopEngine();
+  sql(`UPDATE agents SET risk_profile = jsonb_set(risk_profile, '{rebalance_band_pct}', '9.0')
+       WHERE id = '${agentId}'`);
+  engineProc = startEngine({
+    LLM_PROVIDER: 'verify-mock',
+    LLM_BASE_URL: `http://127.0.0.1:${MOCK_PORT}`,
+    LLM_API_KEY: 'verify-key',
+    LLM_MODEL: 'verify-model',
+  });
+  check('engine came up', await waitFor(`http://127.0.0.1:${ENGINE_PORT}/healthz`), 'never became healthy');
+  mockMode = 'good';
+  const callsBefore = mockCalls;
+  r = await executeTick();
+  check('tick recorded', ok2xx(r), `got ${r.status}`);
+  d = lastDecision();
+  check('recorded as a hold with reason no_material_move',
+    d.action === 'hold' && d.reason === 'no_material_move', `action=${d.action} reason=${d.reason}`);
+  check('NO inference was purchased — the provider was never called',
+    mockCalls === callsBefore, `provider was called ${mockCalls - callsBefore} time(s)`);
+  check('and therefore no prompt was stored', d.ph === '', `prompt_hash='${d.ph}'`);
   const total = sql(`SELECT count(*) FROM decisions WHERE agent_id='${agentId}'`);
   console.log(`\n  ${total} decisions recorded across every branch — none dropped.`);
 } finally {
