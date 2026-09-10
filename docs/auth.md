@@ -191,6 +191,9 @@ keep working when auth is misconfigured (§5).
 | `GET /v1/arca/accounts/:userId` | 🔒 self |
 | `GET /v1/arca/access` · `GET /v1/arca/entitlements/check` | ⚙️ |
 | `POST /internal/v1/payments/claims` | ⚙️ (marketplace calls it; the buyer wallet is a fact it proved, not a field it forwarded) |
+| `GET /internal/v1/payments/quote` | ⚙️ — what a buyer must send and to whom. Fronted publicly by `GET /v1/marketplace/listings/:id/quote`; canonical here because the payee and the amount come from the rows the *verification* reads |
+| `GET /internal/v1/payments/payable` | ⚙️ — can this agent's creator receive a payment at all? Asked by marketplace before publishing a listing, so a listing with no payee is never created |
+| `GET /internal/v1/payments/unclaimed` | ⚙️ — transfers this buyer already made to this creator. **Grants nothing**: candidate hashes only, and claiming one still passes every check. The wallet searched is the session's, passed as a proven fact |
 | `POST /internal/v1/payments/reminder/run` | ⚙️ |
 
 ### marketplace `:3002`
@@ -200,6 +203,8 @@ keep working when auth is misconfigured (§5).
 | `GET /healthz` · `GET /v1/marketplace/listings` · `/agents` · `/listings/:id` | 🌐 |
 | `POST /v1/marketplace/listings` | 🔒 owner of the agent being listed |
 | `PATCH /v1/marketplace/listings/:id` | 🔒 owner of the listing |
+| `GET /v1/marketplace/listings/:id/quote` | 🌐 — the payee and the price. Public because a buyer needs both before signing in and neither is secret; it closes a payment-redirection hole, since the address otherwise came from outside the platform |
+| `GET /v1/marketplace/listings/:id/unclaimed-payments` | 🔒 self — payments you already made, for the buyer who closed the tab. Grants nothing |
 | `POST /v1/marketplace/listings/:id/claim-payment` | 🔑 (claiming wallet from session, never the body) |
 | `GET /v1/marketplace/listings/:id/access` | 🔒 self |
 

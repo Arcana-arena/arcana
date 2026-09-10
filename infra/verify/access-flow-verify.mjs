@@ -33,6 +33,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 
 const ARCA = process.env.ARCA_URL || 'http://127.0.0.1:3004';
 const PG_CONTAINER = process.env.PG_CONTAINER || 'arcana-postgres';
@@ -71,14 +72,41 @@ async function accessFor(wallet, listingId) {
 }
 
 const WALLET = '0xACCE55' + '0'.repeat(35).slice(0, 34);
+const TAG = 'access-flow-verify';
 let listingId = null;
+let ownFixture = null;   // { creatorId, agentId, listingId } when this suite made one
 
 try {
-  // A listing to attach to. Any active one will do — this tests the access
-  // rule, not the catalogue.
-  listingId = sql("SELECT id FROM marketplace_listings WHERE active = true LIMIT 1");
+  // A listing to attach to, and this suite makes its OWN.
+  //
+  // It used to take whatever active listing happened to be in the database,
+  // and that is a dependency on production data pretending to be a fixture.
+  // It broke the day the one active listing was deactivated — for an unrelated
+  // and correct reason — and reported "no active marketplace listing", which
+  // reads as a broken system rather than as a suite that cannot set itself up.
+  //
+  // The listing does not even need to be ACTIVE: this tests the access rule,
+  // which is about subscriptions. Requiring active was an incidental coupling
+  // that made the suite fragile for no property gained.
+  //
+  // subscriptions.listing_id has a foreign key, so a row must exist — hence a
+  // fixture rather than a made-up uuid.
+  {
+    const creatorId = randomUUID();
+    const agentId = randomUUID();
+    const newListing = randomUUID();
+    const wallet = '0x' + 'ac'.repeat(20);
+    sql(`INSERT INTO creators (id, handle, wallet_address, status)
+         VALUES ('${creatorId}', '${TAG}-${creatorId.slice(0, 8)}', '${wallet}', 'active')`);
+    sql(`INSERT INTO agents (id, creator_id, name, version, strategy_type, risk_profile, asset_universe, status)
+         VALUES ('${agentId}', '${creatorId}', '${TAG}', 1, 'llm', '{}'::jsonb, 'us_equity', 'active')`);
+    sql(`INSERT INTO marketplace_listings (id, agent_id, access_type, arca_gate_amount, active)
+         VALUES ('${newListing}', '${agentId}', 'subscription', 1.00000000, true)`);
+    ownFixture = { creatorId, agentId, listingId: newListing };
+    listingId = newListing;
+  }
   if (!listingId) {
-    console.error('access-flow-verify: no active marketplace listing to test against.');
+    console.error('access-flow-verify: could not create a listing fixture.');
     process.exit(1);
   }
   console.log(`access-flow-verify: listing ${listingId}, wallet ${WALLET}\n`);
@@ -156,6 +184,20 @@ try {
   console.log(`\naccess-flow-verify: cleaned up ${removed} test subscription row(s)`);
   const leftover = sql("SELECT count(*) FROM subscriptions WHERE user_wallet LIKE '0xACCE55%'");
   if (leftover !== '0') console.log(`access-flow-verify: WARNING ${leftover} test row(s) left behind`);
+
+  // The fixture goes too, in dependency order. Leaving a listing behind would
+  // make the next run's "no active listing" check pass for the wrong reason,
+  // and leaving a creator behind would hold a wallet_address that is UNIQUE.
+  if (ownFixture) {
+    try {
+      sql(`DELETE FROM marketplace_listings WHERE id = '${ownFixture.listingId}'`);
+      sql(`DELETE FROM agents WHERE id = '${ownFixture.agentId}'`);
+      sql(`DELETE FROM creators WHERE id = '${ownFixture.creatorId}'`);
+      console.log('access-flow-verify: fixture removed');
+    } catch (e) {
+      console.log(`access-flow-verify: FIXTURE CLEANUP FAILED: ${String(e.message).slice(0, 160)}`);
+    }
+  }
 }
 
 console.log(`\n========================================`);
