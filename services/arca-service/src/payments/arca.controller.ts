@@ -64,6 +64,75 @@ export class ArcaController {
   }
 
   /**
+   * ⚙️ What a buyer must send, and to whom, for one listing.
+   *
+   * Read-only, and it exists to close a payment-redirection hole: until this
+   * endpoint existed, a buyer learned the creator's address from OUTSIDE the
+   * platform, and anyone who could substitute an address in that path took the
+   * money. ARCANA's verification would then refuse their claim correctly,
+   * after the loss.
+   *
+   * The payee and the amount come from `ClaimsService.resolvePayable()` and
+   * `requiredBaseUnits()` — the same calls `claim()` makes, not a parallel
+   * query that agrees today.
+   *
+   * Machine tier because the marketplace fronts it, the same as the claim
+   * route. There is no user data in the answer; the tier is about where the
+   * canonical version lives, not about secrecy.
+   */
+  @Get('internal/v1/payments/quote')
+  @UseGuards(InternalKeyGuard)
+  async quote(@Query('listingId') listingId?: string) {
+    if (!listingId) throw new BadRequestException('listingId is required');
+    return this.claims.quote(listingId);
+  }
+
+  /**
+   * ⚙️ Can this agent's creator receive a payment at all?
+   *
+   * Asked by the marketplace BEFORE a listing is published, so a listing with
+   * no payee is never created rather than created and found unbuyable. The
+   * answer comes from `creatorWalletFor()` — the same lookup the verification
+   * uses — so "can this be paid for" has one definition and not one per
+   * caller.
+   */
+  @Get('internal/v1/payments/payable')
+  @UseGuards(InternalKeyGuard)
+  async payable(@Query('agentId') agentId?: string) {
+    if (!agentId) throw new BadRequestException('agentId is required');
+    return this.claims.isPayable(agentId);
+  }
+
+  /**
+   * ⚙️ Transfers this buyer has already made to this listing's creator.
+   *
+   * THE CASE: somebody pays, then closes the tab before submitting the hash.
+   * The money is theirs, on chain, and the platform knows nothing about it —
+   * so it looks lost, and the freshness window is running.
+   *
+   * GRANTS NOTHING. It reads the chain for transfers whose sender is the
+   * caller's own proven wallet and whose recipient is this listing's creator,
+   * and hands back candidate hashes. Claiming them still goes through
+   * `claim()` unchanged: every check, including the sender check and the
+   * UNIQUE on tx_hash, applies exactly as before.
+   *
+   * That is why it opens no new surface. It reveals transactions involving the
+   * caller's OWN wallet — which they can already see — and the creator's
+   * address, which the quote above now states anyway.
+   */
+  @Get('internal/v1/payments/unclaimed')
+  @UseGuards(InternalKeyGuard)
+  async unclaimed(
+    @Query('listingId') listingId?: string,
+    @Query('userWallet') userWallet?: string,
+  ) {
+    if (!listingId || !userWallet) {
+      throw new BadRequestException('listingId and userWallet are required');
+    }
+    return this.claims.findUnclaimed(userWallet, listingId);
+  }
+
+  /**
    * 🔑 Claim a marketplace payment by transaction hash.
    *
    * MACHINE TIER, and that is the security boundary. marketplace calls this

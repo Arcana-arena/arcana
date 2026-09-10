@@ -71,6 +71,48 @@ export class ListingsController {
   // door is now POST listings/:id/claim-payment, directly below.
 
   /**
+   * 🌐 What to send, and to whom, to buy this listing.
+   *
+   * PUBLIC, and that is deliberate. A buyer has to know the price and the
+   * payee before they sign in, the same way they can already read the listing
+   * — and there is nothing private in the answer: the creator's address is
+   * public on chain and the price is public on the listing.
+   *
+   * THIS ENDPOINT CLOSES A PAYMENT-REDIRECTION HOLE. Until it existed the
+   * buyer learned the address from outside the platform, and anyone who could
+   * substitute one in that path took the money — after which ARCANA's
+   * verification refused their claim correctly, and too late. A refusal that
+   * arrives after the loss is not a defence.
+   *
+   * Both figures come from arca-service, from the rows the verification reads.
+   * Nothing is computed here.
+   */
+  @Get('listings/:id/quote')
+  quote(@Param('id', ParseUuidAllPipe) id: string) {
+    return this.listings.quote(id);
+  }
+
+  /**
+   * 🔒 Payments you already made to this creator that are not yet claimed.
+   *
+   * For the buyer who paid and then closed the tab. It GRANTS NOTHING: it
+   * returns candidate transaction hashes, and claiming one still goes through
+   * every check unchanged. The wallet searched is the session's, never a body
+   * field, so nobody can ask what somebody else has paid.
+   *
+   * Rate limited because each call reads the chain.
+   */
+  @Get('listings/:id/unclaimed-payments')
+  @RateLimit({ limit: 10, windowSeconds: 300, byWallet: true })
+  @UseGuards(JwtAuthGuard)
+  unclaimedPayments(
+    @Param('id', ParseUuidAllPipe) id: string,
+    @CurrentWallet() wallet: string,
+  ) {
+    return this.listings.unclaimedPayments(id, wallet);
+  }
+
+  /**
    * 🔑 Claim a payment made directly to the creator.
    *
    * The buyer transfers $ARCA to the creator's wallet themselves — ARCANA

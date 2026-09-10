@@ -465,6 +465,82 @@ try {
   console.log('\nclaims-verify: fixtures removed');
 }
 
+console.log('\n=== The quote and the check cannot disagree ===');
+{
+  // THE PROPERTY: a buyer is told an address and an amount, and the
+  // verification later looks for an address and an amount. If those came from
+  // two places they would agree until the day they did not — and the failure
+  // is a buyer paying the wrong party, or underpaying by a factor of a
+  // million and being told `insufficient_amount`.
+  //
+  // Proved structurally, not by comparing two outputs and hoping. The quote
+  // and the claim must be the SAME CODE, and that is checkable in the source.
+  const svc = readFileSync(
+    `${REPO}/services/arca-service/src/payments/claims.service.ts`, 'utf8');
+
+  // Exactly one lookup of "who gets paid", and both paths call it.
+  const walletLookups = (svc.match(/creatorWalletFor\(/g) ?? []).length;
+  check('there is exactly one definition of creatorWalletFor and it has callers',
+    (svc.match(/private async creatorWalletFor\(/g) ?? []).length === 1 && walletLookups >= 3,
+    `${walletLookups} references`);
+  check('the CLAIM resolves its payee through resolvePayable()',
+    /const \{ creatorWallet \} = await this\.resolvePayable\(listingId\)/.test(svc),
+    'claim() should not query the creator itself');
+  check('the QUOTE resolves its payee through the same resolvePayable()',
+    /async quote\([\s\S]*?await this\.resolvePayable\(listingId\)/.test(svc),
+    'quote() should not query the creator itself');
+
+  // Exactly one decimal conversion, and both paths call it.
+  check('there is exactly one baseUnits() implementation',
+    (svc.match(/private baseUnits\(/g) ?? []).length === 1,
+    'a second conversion is how a price silently diverges');
+  check('the CLAIM gets its required amount from requiredBaseUnits()',
+    /const required = await this\.requiredBaseUnits\(listingId, hash\)/.test(svc),
+    'claim() should not convert the price itself');
+  check('the QUOTE gets its amount from the same requiredBaseUnits()',
+    /async quote\([\s\S]*?await this\.requiredBaseUnits\(listingId\)/.test(svc),
+    'quote() should not convert the price itself');
+
+  // And marketplace must not compute either one. A proxy that "helpfully"
+  // formats the amount is a second implementation wearing a different hat.
+  const mkt = readFileSync(
+    `${REPO}/services/marketplace/src/listings/listings.service.ts`, 'utf8');
+  check('marketplace computes neither the payee nor the amount',
+    !/wallet_address|10 \*\* |BigInt\(|toFixed\(6\)/.test(
+      mkt.slice(mkt.indexOf('async quote('), mkt.indexOf('async unclaimedPayments('))),
+    'marketplace should proxy the quote, not recompute it');
+
+  // The refund consequence must be stated BEFORE the money moves.
+  check('the quote warns that ARCANA cannot refund, before payment',
+    /cannot refund it, reverse it, or recover it/.test(svc),
+    'a buyer must learn this while they can still decide');
+}
+
+console.log('\n=== A listing with no payee cannot be published ===');
+{
+  // Refusing a claim correctly is not the same as working: a listing whose
+  // creator has no wallet refused every claim with the right code and was
+  // still a listing nobody could ever buy.
+  const mkt = readFileSync(
+    `${REPO}/services/marketplace/src/listings/listings.service.ts`, 'utf8');
+  check('create() asserts the creator can be paid',
+    /async create\([\s\S]*?await this\.assertPayable\(/.test(mkt), 'no guard on create');
+  check('REACTIVATING also asserts it — a PATCH must not walk around the guard',
+    /if \(dto\.active && !listing\.active\) await this\.assertPayable\(/.test(mkt),
+    'update() can set active=true without a payee check');
+  check('the payee check asks arca-service, not a second local query',
+    /internal\/v1\/payments\/payable\?agentId=/.test(mkt) && !/FROM creators/.test(mkt),
+    'a local creators query would be a second definition');
+
+  // And no active listing may currently be unbuyable.
+  const orphaned = sql(`SELECT count(*) FROM marketplace_listings l
+      JOIN agents a ON a.id = l.agent_id
+      JOIN creators c ON c.id = a.creator_id
+     WHERE c.wallet_address IS NULL AND l.active`);
+  check('no ACTIVE listing has a creator without a wallet', orphaned === '0',
+    `${orphaned} active listings cannot be paid for`);
+}
+
 console.log('\n=== The payment token is not the gating token ===');
 {
   // THE MISTAKE THIS FORECLOSES. One variable served both purposes while both

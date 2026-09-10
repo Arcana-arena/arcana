@@ -226,6 +226,38 @@ export class Erc20Reader {
   }
 
   /**
+   * Transfers between two specific addresses in a block range.
+   *
+   * FILTERED BY THE NODE, not by us. `from` and `to` are indexed parameters of
+   * the Transfer event, so they become topics and the node returns only the
+   * matching logs. Pulling every transfer in the range and filtering here
+   * would move the same work onto a machine somebody else pays for, and would
+   * scale with the token's whole traffic rather than with one buyer's.
+   *
+   * Returns the raw shape the caller needs — hash and data — rather than a
+   * decoded convenience object, because the caller compares a uint256 and a
+   * decoded number would be the wrong type for that comparison.
+   */
+  async transfersBetween(
+    fromBlock: bigint,
+    toBlock: bigint,
+    from: string,
+    to: string,
+  ): Promise<Array<{ transactionHash: string; data: string }>> {
+    if (!this.client) throw new Error('ARCA_RPC_URL not configured');
+    if (!this.tokenAddress) throw new Error(`${this.configVar} not configured`);
+
+    const logs = await this.client.getLogs({
+      address: this.tokenAddress,
+      event: parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 value)'),
+      args: { from: from as `0x${string}`, to: to as `0x${string}` },
+      fromBlock,
+      toBlock,
+    });
+    return logs.map((l) => ({ transactionHash: l.transactionHash, data: l.data }));
+  }
+
+  /**
    * Token balance of an address. Used by the deposit audit pass to answer the
    * question a log scan cannot: did money actually arrive at this address,
    * regardless of whether any scan ever covered its block?

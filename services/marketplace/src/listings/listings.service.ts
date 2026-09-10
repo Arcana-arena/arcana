@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   HttpException,
   HttpStatus,
   Injectable,
@@ -28,7 +29,23 @@ export class ListingsService {
     this.arcaUrl = config.get<string>('ARCA_SERVICE_URL') ?? 'http://localhost:3003';
   }
 
-  create(dto: CreateListingDto): Promise<MarketplaceListing> {
+  /**
+   * Publish a listing.
+   *
+   * A LISTING WITHOUT A PAYEE CANNOT BE PUBLISHED. Two creators had no
+   * wallet_address, so their listings refused every claim with
+   * `creator_has_no_wallet` — the CORRECT refusal, and still a listing nobody
+   * could ever buy. Refusing correctly is not the same as working.
+   *
+   * Checked here rather than cleaned up once, because cleaning up once fixes
+   * the two rows that exist and none of the ones somebody creates tomorrow.
+   *
+   * The check asks arca-service, which owns the answer — the same service the
+   * verification runs in. Asking a second place would be a second definition
+   * of "can this be paid for", and this codebase has had one of those before.
+   */
+  async create(dto: CreateListingDto): Promise<MarketplaceListing> {
+    await this.assertPayable(dto.agentId);
     const listing = this.listings.create({
       agentId: dto.agentId,
       accessType: dto.accessType ?? 'subscription',
@@ -60,8 +77,118 @@ export class ListingsService {
       listing.priceUsd = dto.priceUsd.toFixed(2);
     if (dto.arcaGateAmount !== undefined)
       listing.arcaGateAmount = dto.arcaGateAmount.toFixed(8);
-    if (dto.active !== undefined) listing.active = dto.active;
+    // Reactivating is publishing. A listing deactivated because its creator
+    // had no wallet must not come back without one, or the guard above is a
+    // formality that one PATCH walks around.
+    if (dto.active !== undefined) {
+      if (dto.active && !listing.active) await this.assertPayable(listing.agentId);
+      listing.active = dto.active;
+    }
     return this.listings.save(listing);
+  }
+
+  /**
+   * Refuse if this agent's creator cannot receive a payment.
+   *
+   * Delegated to arca-service's quote, which resolves the payee from the row
+   * the VERIFICATION reads. A local query against creators would be a second
+   * source for the same fact, and the two would agree right up until one of
+   * them was edited.
+   *
+   * A quote that fails for any OTHER reason — the chain unreadable, the token
+   * unconfigured — must not block publishing. That would make listing depend
+   * on an RPC being up, which is a different and much worse property. Only
+   * `creator_has_no_wallet` refuses.
+   */
+  private async assertPayable(agentId: string): Promise<void> {
+    if (!this.authCfg.internalKey) {
+      // No machine-tier key means this cannot be asked at all. REFUSING here
+      // would be wrong in a specific way: it would make publishing depend on a
+      // credential that has nothing to do with whether the creator has a
+      // wallet, and a misconfigured host would look like a validation error.
+      // The claim path still refuses correctly if the wallet is missing.
+      this.logger.warn(
+        'INTERNAL_API_KEY is not set, so the payee check was skipped for this listing',
+      );
+      return;
+    }
+    let res: Response;
+    try {
+      res = await fetch(
+        `${this.arcaUrl}/internal/v1/payments/payable?agentId=${encodeURIComponent(agentId)}`,
+        { headers: { 'X-Internal-Key': this.authCfg.internalKey } },
+      );
+    } catch {
+      // arca-service unreachable. NOT a reason to refuse a listing: that would
+      // make publishing depend on another service being up, which is a much
+      // worse property than a listing that has to be fixed later.
+      this.logger.warn(`payee check unavailable for agent ${agentId}; publishing anyway`);
+      return;
+    }
+    if (!res.ok) {
+      this.logger.warn(`payee check returned ${res.status} for agent ${agentId}; publishing anyway`);
+      return;
+    }
+    const body = (await res.json().catch(() => null)) as { payable?: boolean } | null;
+    if (body?.payable === false) {
+      throw new BadRequestException({
+        code: 'creator_has_no_wallet',
+        message:
+          "This agent's creator has no wallet_address, so there is no address a buyer " +
+          'could pay and no address the platform could verify a payment against. Link a ' +
+          'wallet before publishing — a listing nobody can buy is worse than no listing.',
+      });
+    }
+  }
+
+  /**
+   * What a buyer must send, and to whom, for one listing.
+   *
+   * Proxied straight through from arca-service, which resolves both from the
+   * rows the VERIFICATION reads. Marketplace deliberately computes nothing
+   * here — not the address, not the amount, not the decimals. A second
+   * conversion in this service is exactly the divergence the endpoint exists
+   * to prevent, and it would be invisible until a buyer underpaid by a factor
+   * of a million and was told `insufficient_amount`.
+   */
+  async quote(listingId: string) {
+    if (!this.authCfg.internalKey) {
+      throw authUnavailable(
+        'INTERNAL_API_KEY is not set, so marketplace cannot reach the payment quote. ' +
+        'No address or amount can be stated — do not send anything.',
+      );
+    }
+    const listing = await this.findOne(listingId);
+    if (!listing.active) {
+      throw new NotFoundException(`Listing ${listingId} is inactive`);
+    }
+    const res = await fetch(
+      `${this.arcaUrl}/internal/v1/payments/quote?listingId=${encodeURIComponent(listingId)}`,
+      { headers: { 'X-Internal-Key': this.authCfg.internalKey } },
+    );
+    if (!res.ok) throw await this.upstreamError(res, 'quote');
+    return res.json();
+  }
+
+  /**
+   * Payments this buyer already made to this listing's creator, unclaimed.
+   *
+   * The buyer's wallet is the SESSION's, passed as a fact the way the claim
+   * path passes it. A caller cannot ask what somebody else has paid.
+   */
+  async unclaimedPayments(listingId: string, userWallet: string) {
+    if (!this.authCfg.internalKey) {
+      throw authUnavailable(
+        'INTERNAL_API_KEY is not set, so marketplace cannot look for your payment.',
+      );
+    }
+    const res = await fetch(
+      `${this.arcaUrl}/internal/v1/payments/unclaimed` +
+      `?listingId=${encodeURIComponent(listingId)}&userWallet=${encodeURIComponent(userWallet)}`,
+      { headers: { 'X-Internal-Key': this.authCfg.internalKey } },
+    );
+    if (!res.ok) throw await this.upstreamError(res, 'unclaimed_payments');
+    return res.json();
   }
 
   // subscribe() was removed on 2026-09-11 with the §10 deposit-address
