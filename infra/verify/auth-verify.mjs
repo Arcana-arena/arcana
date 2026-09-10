@@ -364,7 +364,7 @@ console.log('\n=== 10. Machine tier refuses callers without the key ===');
 for (const [name, url] of [
   ['agent-service tick open', `${AGENT}/internal/v1/competitions/${'00000000-0000-0000-0000-000000000000'}/ticks`],
   ['agent-service dna compute', `${AGENT}/internal/v1/agents/dna/compute`],
-  ['arca payout run', `${ARCA}/internal/v1/payments/payout/run`],
+  ['arca reminder run', `${ARCA}/internal/v1/payments/reminder/run`],
   ['scoring batch', `${SCORING}/internal/v1/scoring/batch`],
   ['decision execute', `${DECISION}/internal/v1/decisions/execute`],
   ['marketdata daily session', `${MARKETDATA}/internal/v1/market/sessions/daily`],
@@ -390,6 +390,39 @@ for (const [name, url] of [
     body: '{}',
   });
   check('scoring batch WITH the key → allowed', r.status < 400, `got ${r.status} ${errCode(r.body)}`);
+}
+
+// Retired payment paths must STAY retired, and the two cases differ.
+//
+// The payout batch was removed on 2026-09-10 with the rest of the treasury and
+// split model. Two checks above used to assert its internal-key guard; a guard
+// on a route that no longer exists tests nothing, so they were replaced by the
+// checks below, and the guard assertion moved to the reminder route, which is
+// still live and still needs one.
+//
+// The deposit-address path is different, deliberately. It still EXISTS — the
+// live subscribe flow calls it — but it now refuses BY DECISION rather than
+// because ARCA_MASTER_PRIVATE_KEY happens to be empty. That distinction is the
+// whole point: docs/arca-go-live.md is a written procedure telling somebody to
+// fill that variable in. So the refusal is asserted, not assumed.
+console.log('\n=== 10b. Retired payment paths stay retired ===');
+{
+  const r = await req(`${ARCA}/internal/v1/payments/payout/run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Internal-Key': INTERNAL_KEY },
+    body: '{}',
+  });
+  check('payout batch route is gone even WITH a valid internal key → 404',
+    r.status === 404, `got ${r.status} ${errCode(r.body)}`);
+
+  const d = await req(`${ARCA}/v1/arca/deposit-address`, {
+    method: 'POST', headers: bearer(aliceToken),
+    body: JSON.stringify({ listingId: '00000000-0000-0000-0000-000000000000' }),
+  });
+  const msg = JSON.stringify(d.body ?? '');
+  check('deposit address refuses BY DECISION, not because a key is unset',
+    d.status === 400 && /retired/i.test(msg) && !/not configured/i.test(msg),
+    `got ${d.status} ${msg.slice(0, 140)}`);
 }
 
 console.log('\n=== 11. Wallet-addressed reads are self-only ===');
