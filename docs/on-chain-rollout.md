@@ -196,7 +196,7 @@ refusal state from the direction doc is implemented and recorded.
 **Still on virtual money.** The point of this phase is that the pipeline, the
 scoring and the evidence trail work before anything is at stake.
 
-**Done 2026-09-10.** `infra/verify/decider-verify.mjs`, **29 checks** against a
+**Done 2026-09-10.** `infra/verify/decider-verify.mjs`, **34 checks** against a
 real decision-engine process writing real rows. The abstraction is proved by
 using a *different* provider selected by configuration alone; a genuinely closed
 port proves `llm_unavailable` produces a recorded hold rather than a lost tick.

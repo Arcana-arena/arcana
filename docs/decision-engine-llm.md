@@ -190,7 +190,7 @@ the small number before and is a smaller one now.
 node infra/verify/decider-verify.mjs
 ```
 
-**29 checks**, run against a real decision-engine process writing real rows, on
+**34 checks**, run against a real decision-engine process writing real rows, on
 its own port so the live service is never reconfigured.
 
 The abstraction is proved by *using a different provider* — an HTTP server
@@ -206,5 +206,11 @@ Mocking our own client would have tested the test.
 | Invented symbol → recorded hold, refusal names the symbol | the provider returns `NOTREAL` |
 | Provider down → recorded hold, `llm_unavailable` | **a genuinely closed port**, not a mocked error |
 | No provider configured → holds, **does not relabel itself** | engine started with no key |
+| Nothing moved → `no_material_move`, **and the provider is never called** | the call count is asserted, not the row |
 
-Five decisions across every branch, none dropped.
+Six decisions across every branch, none dropped.
+
+The `no_material_move` row is worth its own note: what is asserted is that the
+provider was **not called**. A version that still called out and discarded the
+answer would leave an identical row in the database while costing real money on
+every tick, so counting the calls is the only thing that tells them apart.
