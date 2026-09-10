@@ -78,14 +78,28 @@ const errCode = (b) => b?.error?.code ?? b?.message ?? JSON.stringify(b)?.slice(
  * whole platform on the day it is most needed.
  */
 async function getNonce() {
-  let r = await req(`${AGENT}/v1/auth/nonce`);
-  if (r.status === 429) {
+  // WAITS IN A LOOP, not once. This suite signs in more than twenty times —
+  // real sessions plus every deliberately-invalid attempt — so it crosses the
+  // 20/min allowance repeatedly, not once. A single wait cleared the first
+  // crossing and returned undefined on the second, which surfaced as bob being
+  // unable to sign in and four ownership checks reading 401 instead of 403: a
+  // cascade that looks exactly like an authorisation bug.
+  //
+  // Three waits is the cap. Beyond that something other than this suite is
+  // consuming the allowance, and quietly waiting forever would turn a real
+  // problem into a hung test.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const r = await req(`${AGENT}/v1/auth/nonce`);
+    if (r.status !== 429) return r.body?.nonce;
+    if (attempt === 3) {
+      console.error('  nonce still rate limited after three waits — something else is consuming the allowance');
+      return undefined;
+    }
     const wait = Math.min(70, Number(r.headers?.get?.('retry-after') ?? 60) + 2);
     console.log(`  (nonce allowance spent; waiting ${wait}s, as a client should)`);
     await new Promise((resolve) => setTimeout(resolve, wait * 1000));
-    r = await req(`${AGENT}/v1/auth/nonce`);
   }
-  return r.body?.nonce;
+  return undefined;
 }
 
 async function signIn(account, overrides = {}) {
