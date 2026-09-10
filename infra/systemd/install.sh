@@ -97,6 +97,11 @@ if ! id arcana-signer >/dev/null 2>&1; then
   echo "    created system user arcana-signer (nologin)"
 fi
 sudo install -d -o arcana-signer -g arcana-signer -m 0700 /etc/arcana/signer
+# Where owner-imported keys live (phase 12). The DIRECTORY is created here —
+# it is not key material — but nothing in this script ever creates a KEY.
+# Creating key material remains a deliberate act, never a side effect of
+# running an installer.
+sudo install -d -o arcana-signer -g arcana-signer -m 0700 /etc/arcana/signer/imported
 # Nothing the signer needs may live under /home/ubuntu: it cannot traverse the
 # application users home, and that is the point rather than an obstacle.
 echo "==> building and installing the signer to system paths"

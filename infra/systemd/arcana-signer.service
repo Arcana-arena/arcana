@@ -30,6 +30,12 @@ WorkingDirectory=/etc/arcana/signer
 Environment=PORT=8085
 Environment=SIGNER_MASTER_SEED_FILE=/etc/arcana/signer/master.key
 Environment=SIGNER_ALLOWLIST_FILE=/etc/arcana/signer/allowlist.json
+# Owner-imported keys (phase 12). Unset disables import entirely, which is the
+# right default: an unset variable must not be able to enable key storage by
+# accident. The directory is 0700 and owned by arcana-signer, and the service
+# REFUSES TO START if it is readable by anyone else — the same rule the master
+# seed has, for the same reason.
+Environment=SIGNER_IMPORT_DIR=/etc/arcana/signer/imported
 # NOTHING THIS UNIT TOUCHES LIVES UNDER /home/ubuntu.
 #
 # The first version pointed at the repo, and systemd refused to start it:
