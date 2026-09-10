@@ -133,8 +133,10 @@ try {
     body: '{}',
   });
   const body = await r.json().catch(() => ({}));
+  // NestJS answers a POST with 201 by default, so assert 2xx rather than a
+  // specific code. Pinning it to 200 made this fail on a run that worked.
   check('reminder job runs (route alive, not retired with the payout batch)',
-    r.status === 200, `got ${r.status} ${JSON.stringify(body)}`);
+    r.ok, `got ${r.status} ${JSON.stringify(body)}`);
   const after = sql(`SELECT status FROM subscriptions WHERE user_wallet = '${WALLET}'`);
   check('an expired-but-active subscription was moved to grace by the job',
     after === 'grace', `status is now '${after}'`);
