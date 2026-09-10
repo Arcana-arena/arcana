@@ -26,15 +26,24 @@ OnFailure=arcana-alert@%n.service
 Type=simple
 User=arcana-signer
 Group=arcana-signer
-WorkingDirectory=/home/ubuntu/arcana/services/signer
+WorkingDirectory=/etc/arcana/signer
 Environment=PORT=8085
 Environment=SIGNER_MASTER_SEED_FILE=/etc/arcana/signer/master.key
-Environment=SIGNER_ALLOWLIST_FILE=/home/ubuntu/arcana/services/signer/allowlist/robinhood-mainnet.json
-# The internal API key is shared with the other services and comes from a file
-# at mode 640 owned by root:arcana-signer — readable by this service, not
-# writable by it.
-EnvironmentFile=-/home/ubuntu/arcana/.env.auth
-ExecStart=/home/ubuntu/arcana/scheduler-bin/signer
+Environment=SIGNER_ALLOWLIST_FILE=/etc/arcana/signer/allowlist.json
+# NOTHING THIS UNIT TOUCHES LIVES UNDER /home/ubuntu.
+#
+# The first version pointed at the repo, and systemd refused to start it:
+# arcana-signer cannot traverse into the application users home. That was the
+# isolation working, so the fix was to remove the dependency rather than to
+# widen the permission. Binary, allowlist and env are installed to system paths.
+#
+# The shared internal API key is copied into a file owned root:arcana-signer at
+# mode 0640 — readable by this service, writable by neither. The same secret
+# exists twice, each copy at the permissions its reader needs; the alternative
+# was granting a key-holding process read access into the home directory of the
+# user that serves HTTP, which is worse.
+EnvironmentFile=-/etc/arcana/signer/signer.env
+ExecStart=/usr/local/bin/arcana-signer
 Restart=on-failure
 RestartSec=5
 
@@ -44,7 +53,7 @@ RestartSec=5
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
-ProtectHome=read-only
+ProtectHome=yes
 ReadOnlyPaths=/etc/arcana/signer
 ProtectKernelTunables=yes
 ProtectKernelModules=yes

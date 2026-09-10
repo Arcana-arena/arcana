@@ -83,15 +83,24 @@ if ! id arcana-signer >/dev/null 2>&1; then
   echo "    created system user arcana-signer (nologin)"
 fi
 sudo install -d -o arcana-signer -g arcana-signer -m 0700 /etc/arcana/signer
-# The internal API key is shared, so the signer must be able to READ it without
-# being able to write it, and without it being world-readable.
-if [ -f "$REPO/.env.auth" ]; then
-  sudo chgrp arcana-signer "$REPO/.env.auth" 2>/dev/null || true
-  sudo chmod 640 "$REPO/.env.auth"
-fi
+# Nothing the signer needs may live under /home/ubuntu: it cannot traverse the
+# application users home, and that is the point rather than an obstacle.
+echo "==> building and installing the signer to system paths"
+(cd "$REPO/services/signer" && /usr/local/go/bin/go build -o /tmp/arcana-signer ./cmd/server)
+sudo install -o root -g root -m 0755 /tmp/arcana-signer /usr/local/bin/arcana-signer
+rm -f /tmp/arcana-signer
+sudo install -o root -g root -m 0644 "$REPO/services/signer/allowlist/robinhood-mainnet.json" /etc/arcana/signer/allowlist.json
 
-echo "==> building signer binary"
-(cd "$REPO/services/signer" && /usr/local/go/bin/go build -o "$BIN_DIR/signer" ./cmd/server)
+# The shared internal API key, copied where the signer can read it and cannot
+# write it. The same secret in two places, each at the permissions its reader
+# needs — the alternative is letting a key-holding process read the home
+# directory of the user that answers HTTP.
+if [ -f "$REPO/.env.auth" ]; then
+  sudo install -o root -g arcana-signer -m 0640 /dev/null /etc/arcana/signer/signer.env
+  grep -m1 "^INTERNAL_API_KEY=" "$REPO/.env.auth" | sudo tee /etc/arcana/signer/signer.env >/dev/null
+  sudo chmod 0640 /etc/arcana/signer/signer.env
+  sudo chgrp arcana-signer /etc/arcana/signer/signer.env
+fi
 
 echo "==> installing units"
 sudo cp "$REPO"/infra/systemd/*.service "$REPO"/infra/systemd/*.timer "$UNIT_DIR/"
