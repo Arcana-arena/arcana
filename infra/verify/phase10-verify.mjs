@@ -241,11 +241,16 @@ console.log('\n=== 5. The cadence floor refuses, and the cadence is idempotent =
   const BIN = process.env.CADENCE_BIN || 'scheduler-bin/cadence';
   const COMP = process.env.CADENCE_COMPETITION || 'd0653071-67e5-4302-ac78-afe2e1130d89';
 
+  // STDERR IS MERGED IN, and it has to be: Go's log package writes to stderr,
+  // and execFileSync returns only stdout on success. The first version of this
+  // check read an empty string for a run that had succeeded and printed four
+  // informative lines — a check failing because it was looking in the wrong
+  // place, which is worse than no check.
   function run(args, env = {}) {
+    const quoted = args.map((a) => `'${String(a).replace(/'/g, `'\\''`)}'`).join(' ');
     try {
-      const out = execFileSync(BIN, args, {
-        encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
-        env: { ...process.env, ...env },
+      const out = execFileSync('bash', ['-c', `${BIN} ${quoted} 2>&1`], {
+        encoding: 'utf8', env: { ...process.env, ...env },
       });
       return { code: 0, out };
     } catch (e) {
