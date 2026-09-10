@@ -231,11 +231,18 @@ for f in "$REPO"/infra/systemd/*.service; do
     ALERT_DRIFT=1
   fi
 done
-# TABLE ROWS ONLY. Matching the name anywhere in the document made the check
+# TABLE ROWS ONLY — and note the escaped pipe.
+#
+# An unescaped `^|` is not "start of line, then a pipe". In ERE it is an
+# alternation with an empty left branch: start-of-line OR nothing, which
+# matches every line in the file. The check went on reporting drift that was
+# not there, and looked like it was working.
+#
+# Matching the name anywhere in the document made the check
 # flag its own explanation: the prose describing why arcana-arca-payout was
 # removed counts as a mention. A check that fires on the text written to record
 # a fix is a check that gets deleted.
-for n in $(grep -oE '^| `arcana-[a-z@-]+`' "$REPO/docs/alerting.md" | grep -oE 'arcana-[a-z@-]+' | sort -u); do
+for n in $(grep -oE '^\| `arcana-[a-z@-]+`' "$REPO/docs/alerting.md" | grep -oE 'arcana-[a-z@-]+' | sort -u); do
   case "$n" in arcana-alert@) continue ;; esac
   if [ ! -e "$REPO/infra/systemd/$n.service" ]; then
     echo "    STALE in docs/alerting.md: $n has no unit file"
