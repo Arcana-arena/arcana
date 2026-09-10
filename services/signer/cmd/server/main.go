@@ -39,7 +39,10 @@ import (
 var buildCommit = "unknown"
 
 type server struct {
-	ring    *keys.Keyring
+	// The INTERFACE, not the concrete keyring. Moving to a KMS before the
+	// first wallet is funded should be one new implementation and one line at
+	// boot, not a change that reaches into every handler. See keys.Vault.
+	ring    keys.Vault
 	allow   *policy.Allowlist
 	chain   *chain.Client
 	dryRun  bool
@@ -123,7 +126,7 @@ func main() {
 				"every wallet is derived from the master seed")
 		}
 		srv.ring = ring
-		log.Printf("signer ACTIVE: master seed loaded from %s", seedPath)
+		log.Printf("signer ACTIVE: %s (seed %s)", ring.Describe(), seedPath)
 	}
 
 	// Drop any endpoint that cannot serve eth_call, loudly, before the first
