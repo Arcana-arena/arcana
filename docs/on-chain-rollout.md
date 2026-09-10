@@ -175,12 +175,19 @@ and the mapping is why.**
 Retired: `PayoutBatchService`, `creator-payout.entity.ts`, its internal route,
 `arcana-arca-payout.{service,timer}`, and the empty `infra/k8s/`.
 
-**Held, because they are live:** `DepositAddressesService` and `HdWalletService`
-(the subscribe path — `POST /listings/:id/subscribe` calls them),
-`PaymentListenerService` (the only thing that grants a subscription after
-payment), `SubscriptionsService` and `ReminderService` (the access record and
-the lifecycle that writes it), `ArcaTokenService` (entitlements depend on it).
-Six of twelve files. Their replacement is phase 11.
+**Held on 2026-09-10, because they were live at the time:**
+`DepositAddressesService` and `HdWalletService` were then the subscribe path —
+`POST /listings/:id/subscribe` called them; `PaymentListenerService` was the
+only thing that granted a subscription after payment; `SubscriptionsService`
+and `ReminderService` were, and remain, the access record and the lifecycle
+that writes it; `ArcaTokenService` was, and remains, what entitlements depend
+on. Six of twelve files. Their replacement was phase 11.
+
+The tense above was corrected on 2026-09-11 — it read "because they are live"
+for a day after three of the six were removed. A rollout log describes
+decisions that were made, and writing one in the present tense makes it a
+claim about now that goes stale the moment the next phase lands. Found by
+`docs-verify.mjs`, which is the argument for having it.
 
 > **Released 2026-09-11**, the first three only. Phase 11 proved the
 > replacement (22/22 against real USDG transfers), which is exactly the
