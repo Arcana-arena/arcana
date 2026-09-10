@@ -7,7 +7,7 @@
     "allowSyntheticDefaultImports": true,
     "target": "ES2021",
     "outDir": "./dist",
-    "baseUrl": "./",
+    "rootDir": "./src",
     "skipLibCheck": true,
     "strict": true,
     "strictPropertyInitialization": false
