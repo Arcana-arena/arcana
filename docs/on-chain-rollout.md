@@ -22,11 +22,11 @@ Two rules govern the order:
 | 4b–d | Retire strategy.go, session.go, the human path | with 6, 10, 9 | each waits for its replacement |
 | 6 | Decider abstraction + DeepSeek, still on virtual money | **done** | **owner: DeepSeek API key** |
 | 7 | Signer service, policy engine, router allowlist — no money | **done** | **owner: key custody (~$0.06–$1/mo)** |
-| 8 | **First real swap, ~$20, one wallet** | | **owner: approval to spend** |
+| 8 | **First real swap, $10, one wallet** | | **owner: approval to spend** |
 | 9 | Deposit, withdrawal, and the attack suite that proves it refuses | | — |
 | 10 | Pool prices, Chainlink referee, cost meter, staggered cadence | | — |
 | 11 | Marketplace — tx-hash verification | **done** | — |
-| 12 | User-created agents, public signup | | **owner: legal answer on the US exclusion** |
+| 12 | User-created agents, public signup | | in progress — the parts needing no funding |
 
 ---
 
@@ -291,12 +291,19 @@ anything is funded. Options and costs in [signer.md](./signer.md).
 
 ## Phase 8 — The first real swap ⛔ *needs the owner*
 
-One wallet, roughly **$20**, one swap on a 5 bp pool, end to end: decision
+One wallet, **$10**, one swap on a 5 bp pool, end to end: decision
 recorded, transaction signed, receipt read back, NAV read from the chain,
 reconciliation confirming the database matches the chain.
 
 **This is the phase that spends money, and it will be raised before it is
 spent** — the amount, the pool and the moment.
+
+**$10, set by the owner on 2026-09-11**, down from the $20 this document
+originally proposed. It is enough to prove the execution path: a swap either
+signs, lands and reconciles or it does not, and that is not a function of
+size. If testing shows it genuinely is not enough — a pool too thin to fill it
+without absurd slippage, say — the number is raised with the owner **before**
+any money moves, not adjusted quietly during the run.
 
 **Verified by:** a transaction hash that succeeded, *and* a deliberate failure
 — RPC pulled, LLM response corrupted — proven to produce a refusal rather than a
@@ -355,15 +362,24 @@ by racing three concurrent claims of one hash: exactly one succeeds.
 replacement was not proven. It now is. Full write-up in
 [marketplace-payments.md](./marketplace-payments.md).
 
-## Phase 12 — Users ⛔ *needs a legal answer*
+## Phase 12 — Users
 
 Template-based agent creation, public signup.
 
-**Blocked, and not by engineering.** The US exclusion on Stock Tokens is a
+**No longer blocked.** The US exclusion on Stock Tokens is a
 product geofence in Robinhood's app, not enforced on-chain. Nothing stops ARCANA
 technically, which is exactly the problem: operating outside an issuer's intended
 distribution while holding other people's funds is a question that needs a real
-answer, and it is not one for me to give.
+answer, and it was not one for me to give.
+
+It was given. On **2026-09-11, after the consequences were put plainly, the
+owner decided not to restrict by region.** A deliberate decision made with the
+consequence in view, recorded as one — not left looking like something nobody
+got round to.
+
+The phase is being built in the order that needs no funding: agent creation,
+the active-agent limit, agent wallets, and rate limiting. None of it moves
+money.
 
 ---
 
@@ -373,7 +389,7 @@ answer, and it is not one for me to give.
 |---|---|---|
 | `AUTH_ADMIN_WALLETS` | phase 9 | withdrawal approval has no owner until this is set — it went from convenience to control |
 | healthchecks.io ping URL | phase 10 | under continuous operation there is no "market closed" excuse; a silent stop is always a fault |
-| Cloudflare R2 credentials | phase 8 | backups now protect a record that maps to real money. **Key material is a separate requirement R2 does not solve** — it must not sit beside the database dump behind the same access path |
+| Google Drive OAuth (rclone) | phase 8 | backups now protect a record that maps to real money. Drive rather than R2: the owner already has it and rclone speaks it. **Its OAuth token can expire, and that stops uploads silently** — so the alarm must fire on a failed UPLOAD, not only on a failed backup. **Key material is a separate requirement Drive does not solve** — it must not sit beside the database dump behind the same access path |
 | `MARKET_VENDOR_API_KEY` | nothing | **confirmed no longer a blocker.** Prices come from the pool; Chainlink referees. Polygon keeps one narrow use — backfilling pre-launch history for DNA and Autopsy depth — and loses the redistribution-licence problem, since the leaderboard no longer publishes vendor closes |
 
 None of the four blocks phases 2 through 7.

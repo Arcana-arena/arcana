@@ -100,25 +100,44 @@ This backup exists ONLY on the machine it is meant to protect.
 Nothing here needs more than a free tier — the daily archive is ~130 KB, so a
 full year of daily-plus-weekly retention is well under 50 MB.
 
+**CHOSEN 2026-09-11: Google Drive.** The owner already has it, rclone speaks
+it natively, and the daily archive is ~130 KB — a full year of daily-plus-weekly
+retention is well under 50 MB, so cost is not a factor in this decision at all.
+
+**The consequence that has to be engineered around: Drive uses OAuth, and an
+OAuth refresh token can stop working while everything else keeps succeeding.**
+It expires, or it is revoked, or the app password is rotated, or Google decides
+the grant is stale. The backup itself still runs. The archive still appears on
+the VPS. Every log line still says the word "ok". The only thing that stopped
+is the part that made the copy off-site — which is the entire point of having
+one.
+
+That is the same failure shape as three others this project has already been
+bitten by, and the answer is the same each time: **the alarm must fire on a
+failed UPLOAD, not only on a failed backup.** A backup that succeeded locally
+and failed to leave the machine is a FAILURE, not a partial success, and is
+reported as one. See docs/alerting.md.
+
+### The options that were considered
+
 | Option | Cost at this size | Blast radius | Notes |
-|---|---|---|---|
-| **Cloudflare R2** *(recommended)* | **$0** — 10 GB free, no egress fees | **Separate from the VPS provider** | S3-compatible, works with rclone. Needs a Cloudflare account and an R2 API token. |
-| **Backblaze B2** | **$0** — 10 GB free | Separate from the VPS provider | Equivalent to R2 in every way that matters here. Pick on preference. |
+| **Google Drive** *(CHOSEN)* | **$0** — existing account | **Separate from the VPS provider** | rclone has a native backend. Costs nothing new and needs no new account. **OAuth token can expire silently** — see above. |
+| Cloudflare R2 | **$0** — 10 GB free, no egress fees | Separate from the VPS provider | S3-compatible, static credentials that do not expire. Was the earlier recommendation; loses to Drive on the account already existing. |
+| Backblaze B2 | **$0** — 10 GB free | Separate from the VPS provider | Equivalent to R2 in every way that matters here. |
 | Tencent COS | ~$0.01/month | **Shared** — same account as the VPS | Most convenient (same provider, `cos.ap-singapore` is reachable), but an account-level suspension or compromise takes the backup with the server. That is the exact scenario this protects against. |
 | Pull to your own machine | $0 | Fully separate | No new account, but the VPS cannot push to a machine behind NAT, so it needs a scheduled pull from your side and only runs when that machine is on. **Good as a second copy, not as the only one.** |
 | Private git repo | $0 | Separate | Not recommended: binary blobs bloat history forever and git has no rotation. |
 
-**Recommendation: Cloudflare R2 or Backblaze B2**, because the point of an
-off-site copy is that the failure taking out the VPS does not take out the
-backup — and "same cloud account, different service" does not fully deliver
-that. Tencent COS is a reasonable second-best if convenience wins.
+The ranking above was written before the decision and is left as written: the
+trade Drive makes is a static credential for an account that already exists,
+and naming that trade is more useful than hiding it.
 
 ### Wiring it up once chosen
 
 ```bash
 sudo apt-get install -y rclone
 
-# interactive; creates the remote (choose "s3" -> the provider)
+# interactive; creates the remote (choose "drive" for Google Drive)
 rclone config --config /home/ubuntu/arcana/.rclone.conf
 chmod 600 /home/ubuntu/arcana/.rclone.conf     # secrets live HERE, never in the unit
 
@@ -130,6 +149,13 @@ sudo systemctl edit arcana-backup.service
 sudo systemctl daemon-reload
 sudo systemctl start arcana-backup.service
 sudo journalctl -u arcana-backup -n 30 --no-pager   # expect "off-site copy ok"
+
+# PROVE THE ALARM, do not assume it. Break the remote on purpose and confirm
+# the backup reports FAILURE rather than a cheerful local-only success:
+#   rclone config update arcana-offsite token "{}" --config /home/ubuntu/arcana/.rclone.conf
+#   sudo systemctl start arcana-backup.service   # must exit non-zero
+# then restore the real token. A token that has never been seen to expire is a
+# token whose expiry has never been handled.
 ```
 
 `.rclone.conf` is covered by the `.env`-style secret rules: **mode 600, never

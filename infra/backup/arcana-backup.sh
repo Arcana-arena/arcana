@@ -146,20 +146,66 @@ if [ -n "$BACKUP_REMOTE" ]; then
   if ! command -v rclone >/dev/null 2>&1; then
     die "BACKUP_REMOTE is set but rclone is not installed"
   fi
+  RC="--config ${RCLONE_CONFIG:-/home/ubuntu/arcana/.rclone.conf}"
   log "uploading to ${BACKUP_REMOTE}"
-  if rclone copy "$ARCHIVE" "${BACKUP_REMOTE}/daily/" --config "${RCLONE_CONFIG:-/home/ubuntu/arcana/.rclone.conf}" 2>&1; then
-    OFFSITE_OK=1
-    log "off-site copy ok"
-    if [ "$DOW" = "7" ]; then
-      rclone copy "$ARCHIVE" "${BACKUP_REMOTE}/weekly/" --config "${RCLONE_CONFIG:-/home/ubuntu/arcana/.rclone.conf}" 2>&1 \
-        && log "off-site weekly copy ok"
-    fi
-    # Remote retention mirrors local retention.
-    rclone delete "${BACKUP_REMOTE}/daily/"  --min-age "${KEEP_DAILY}d"  --config "${RCLONE_CONFIG:-/home/ubuntu/arcana/.rclone.conf}" 2>&1
-    rclone delete "${BACKUP_REMOTE}/weekly/" --min-age "$((KEEP_WEEKLY * 7))d" --config "${RCLONE_CONFIG:-/home/ubuntu/arcana/.rclone.conf}" 2>&1
-  else
-    die "off-site upload to ${BACKUP_REMOTE} failed — the backup did not leave this host"
+
+  # A FAILED UPLOAD IS A FAILED BACKUP, and it dies here rather than warning.
+  #
+  # The destination is Google Drive, which authenticates with OAuth, and an
+  # OAuth refresh token stops working on its own schedule: it expires, or is
+  # revoked, or the grant goes stale. Everything else keeps succeeding when
+  # that happens — the dump runs, the archive is written, the local retention
+  # rotates, the log says "ok" — and the only thing that stopped is the part
+  # that made the copy off-site, which is the entire reason the copy exists.
+  #
+  # So the exit code has to distinguish "the backup ran" from "the backup left
+  # this machine", and it does: any upload failure is fatal, and
+  # OnFailure=arcana-alert@ in the unit turns that into an alert.
+  # shellcheck disable=SC2086
+  if ! rclone copy "$ARCHIVE" "${BACKUP_REMOTE}/daily/" $RC 2>&1; then
+    die "off-site upload to ${BACKUP_REMOTE} failed — the backup did not leave this host. \
+If the remote is Google Drive, check the OAuth token first: \
+rclone about ${BACKUP_REMOTE%%:*}: $RC"
   fi
+
+  # rclone exiting 0 says the transfer reported success. It does not say the
+  # bytes are readable at the far end, and for the failure being defended
+  # against here — a credential that is half-alive — that difference is the
+  # whole question. So the remote is ASKED.
+  # shellcheck disable=SC2086
+  REMOTE_SIZE="$(rclone size "${BACKUP_REMOTE}/daily/$(basename "$ARCHIVE")" --json $RC 2>/dev/null \
+                 | sed -n 's/.*"bytes":\([0-9]*\).*/\1/p')"
+  LOCAL_SIZE="$(stat -c %s "$ARCHIVE" 2>/dev/null)"
+  if [ -z "$REMOTE_SIZE" ] || [ "$REMOTE_SIZE" = "0" ]; then
+    die "uploaded to ${BACKUP_REMOTE} but the remote does not have the file — \
+rclone reported success and the archive is not there"
+  elif [ -n "$LOCAL_SIZE" ] && [ "$REMOTE_SIZE" != "$LOCAL_SIZE" ]; then
+    die "off-site copy is ${REMOTE_SIZE} bytes, local archive is ${LOCAL_SIZE} — truncated upload"
+  fi
+  OFFSITE_OK=1
+  log "off-site copy ok and verified present (${REMOTE_SIZE} bytes)"
+
+  if [ "$DOW" = "7" ]; then
+    # Also fatal. The weekly copy is the one that survives a fault nobody
+    # noticed for a week, so a silent weekly failure is the worse of the two.
+    # This used to be `&& log ok` with no else, which reported nothing at all.
+    # shellcheck disable=SC2086
+    if rclone copy "$ARCHIVE" "${BACKUP_REMOTE}/weekly/" $RC 2>&1; then
+      log "off-site weekly copy ok"
+    else
+      die "off-site WEEKLY upload to ${BACKUP_REMOTE} failed — the daily copy went, the weekly did not"
+    fi
+  fi
+
+  # Remote retention mirrors local retention. NOT fatal, and that asymmetry is
+  # deliberate: failing to delete an old backup leaves too many backups, which
+  # is not the emergency that failing to make one is. It is still reported.
+  # shellcheck disable=SC2086
+  rclone delete "${BACKUP_REMOTE}/daily/"  --min-age "${KEEP_DAILY}d"  $RC 2>&1 \
+    || warn "remote daily retention failed — old archives may be accumulating off-site"
+  # shellcheck disable=SC2086
+  rclone delete "${BACKUP_REMOTE}/weekly/" --min-age "$((KEEP_WEEKLY * 7))d" $RC 2>&1 \
+    || warn "remote weekly retention failed — old archives may be accumulating off-site"
 else
   warn "================================================================"
   warn "OFF-SITE COPY SKIPPED: BACKUP_REMOTE is not configured."
