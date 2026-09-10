@@ -266,17 +266,42 @@ console.log('\n=== 4. No document names a source file that is gone ===');
     const text = read(doc);
     if (!text) continue;
     let historical = false;
+    // THE UNIT OF MEANING IS A PARAGRAPH, NOT A LINE.
+    //
+    // A per-line check was the wrong granularity, and it produced three false
+    // findings against sentences that wrap:
+    //
+    //     Six files went: `HdWalletService`, `DepositAddressesService`,
+    //     `PaymentListenerService`, and the three entities only they used
+    //
+    // "went" is on the first line and the class name is on the second. The
+    // sentence says plainly that these are gone; only the line does not.
+    //
+    // So prose is read a paragraph at a time. This is not a loosening — it is
+    // the correct scope, because prose is written in sentences and a sentence
+    // does not stop meaning what it means at a line break. A TABLE ROW is
+    // still checked on its own, because a row IS one claim and burying a bad
+    // row among good ones must not launder it.
+    const isRow = (l) => l.trim().startsWith('|');
+    let paragraph = [];
+    const units = [];
+    const flush = () => { if (paragraph.length) { units.push(paragraph.join(' ')); paragraph = []; } };
     for (const line of splitLines(text)) {
-      if (line.includes(HISTORICAL)) { historical = true; continue; }
-      if (/^## /.test(line)) historical = false;   // a heading ends the section
+      if (line.includes(HISTORICAL)) { flush(); historical = true; continue; }
+      if (/^## /.test(line)) { flush(); historical = false; }
       if (historical) continue;
+      if (line.trim() === '') { flush(); continue; }
+      if (isRow(line)) { flush(); units.push(line); continue; }
+      paragraph.push(line);
+    }
+    flush();
+
+    for (const unit of units) {
       for (const cls of GONE) {
-        if (!line.includes(cls)) continue;
-        // Retirement language on the line itself still reads as history, for
-        // the ordinary case of one sentence in an otherwise current document.
-        if (/retired|removed|deleted|gone|no longer|was |used to|went|~~/i.test(line)) continue;
-        if (line.trim().startsWith('>')) continue;
-        offenders.push(`${doc}: ${line.trim().slice(0, 80)}`);
+        if (!unit.includes(cls)) continue;
+        if (/retired|removed|deleted|gone|no longer|was |used to|went|~~/i.test(unit)) continue;
+        if (unit.trim().startsWith('>')) continue;   // a banner is a record
+        offenders.push(`${doc}: ${unit.trim().slice(0, 90)}`);
       }
     }
   }
