@@ -260,7 +260,11 @@ for (const [name, url] of [
   // fraction of the data and never find out.
   const over = await req(`${url}?page_size=100000`);
   check(`${name} refuses an out-of-range page_size rather than clamping`,
-    over.status === 400 && /invalid_page_size/.test(errCode(over.body)),
+    // Reads body.code directly. errCode() prefers body.error.code and falls
+    // back to body.message — and a BadRequestException here carries { code,
+    // message } with no error wrapper, so errCode returned the prose and the
+    // regex never matched a refusal that was working perfectly.
+    over.status === 400 && over.body?.code === 'invalid_page_size',
     `${over.status} ${errCode(over.body)}`);
 }
 
