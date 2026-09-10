@@ -71,15 +71,41 @@ const TRANSFER = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523
 async function findRealTransfer() {
   // Poll the live window for a USDG transfer into the AAPL pool. Any real
   // transfer will do; what matters is that nobody made it for this test.
+  // THE WINDOW WAS 18 BLOCKS, WHICH IS 1.8 SECONDS.
+  //
+  // Robinhood Chain produces a block every 0.100 s — measured, four ways. A
+  // fixed 18-block window is therefore under two seconds of history, and USDG
+  // transfers are not that frequent: polling it sixty times just moves the
+  // same two-second slot along and can legitimately see nothing all run. That
+  // is what made this suite fail intermittently inside a full regression while
+  // passing every time it was run alone.
+  //
+  // Widest-first, narrowing on refusal. Public RPCs cap eth_getLogs ranges and
+  // they do not agree on the cap, so the range is negotiated rather than
+  // assumed — the same shape as the endpoint list, which exists because two
+  // providers on this chain serve eth_chainId and refuse eth_call.
+  const WINDOWS = [4096, 1024, 256, 18]; // ~7 min, ~1.7 min, ~26 s, ~1.8 s
+  let window = WINDOWS[0];
   for (let attempt = 0; attempt < 60; attempt++) {
     const head = Number(BigInt(await chain('eth_blockNumber', [])));
     let logs = [];
     try {
       logs = await chain('eth_getLogs', [{
-        address: USDG, fromBlock: '0x' + (head - 18).toString(16), toBlock: '0x' + head.toString(16),
+        address: USDG,
+        fromBlock: '0x' + Math.max(0, head - window).toString(16),
+        toBlock: '0x' + head.toString(16),
         topics: [TRANSFER],
       }]);
-    } catch { /* archive limits; try again at the new head */ }
+    } catch {
+      // Refused: almost always the range cap. Narrow once and retry rather
+      // than spending every remaining attempt on a range this node will never
+      // serve.
+      const next = WINDOWS[WINDOWS.indexOf(window) + 1];
+      if (next) {
+        window = next;
+        console.log(`  (range refused; narrowing the scan to ${window} blocks)`);
+      }
+    }
     const hit = logs.find((l) => l.topics.length >= 3 && BigInt(l.data || '0x0') > 0n);
     if (hit) {
       return {
@@ -168,7 +194,30 @@ const code = (r) => r.body?.code || r.body?.message?.code || '';
 try {
   console.log('claims-verify: looking for a real USDG transfer on chain...');
   const real = await findRealTransfer();
-  if (!real) { console.error('claims-verify: no live USDG transfer found; cannot run'); process.exit(1); }
+  if (!real) {
+    // COULD NOT RUN is not the same as FAILED, and exiting 1 with no summary
+    // conflated them. In a full regression the harness saw "? pass ? fail" and
+    // that reads as a crash in the system under test, not as a suite that
+    // never got its precondition — which cost a full investigation to find out.
+    //
+    // The distinction this codebase already makes everywhere: 503
+    // "could not find out" against 4xx "you are wrong"; `unrefereed` against
+    // `agreed`; `enforced: null` against `false`. The suites should follow
+    // their own rule.
+    //
+    // Exit 2, and say so in the summary format the harness reads.
+    console.log('\n' + '='.repeat(40));
+    console.log('  PASS: 0   FAIL: 0   COULD NOT RUN');
+    console.log('='.repeat(40));
+    console.error(
+      'claims-verify: no live USDG transfer appeared on chain during the scan, so there\n' +
+      'was nothing real to verify against. This suite deliberately drives itself with a\n' +
+      'transaction SOMEBODY ELSE made — fabricating one would prove only that the code\n' +
+      'agrees with itself.\n\n' +
+      'Nothing was judged. This is not a failure of the claim path; re-run when the\n' +
+      'chain has traffic.');
+    process.exit(2);
+  }
   console.log(`  found ${real.hash}`);
   console.log(`  ${real.from} -> ${real.to}, ${real.value} base units, block ${real.block}\n`);
 
