@@ -25,7 +25,14 @@
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { privateKeyToAccount, generatePrivateKey } from 'viem/accounts';
-import { createSiweMessage } from 'viem/siwe';
+// ONE implementation, shared by every suite. This file used to carry its own
+// getNonce that waited ONCE and a signIn that did not wait at all — so after
+// auth-verify drained the 10/min verify budget, the fourth of six identities
+// could not sign in, newIdentity threw during setup, and the suite died
+// before printing a summary. See infra/verify/lib/rate-aware.mjs.
+import {
+  req, signInToken, bearer,
+} from './lib/rate-aware.mjs';
 
 const AGENT = process.env.AGENT_URL || 'http://127.0.0.1:3001';
 const SIGNER = process.env.SIGNER_URL || 'http://127.0.0.1:8085';
@@ -55,18 +62,11 @@ function check(name, ok, detail = '') {
   else { fail++; failures.push(`${name} — ${detail}`); console.log(`  FAIL  ${name} — ${detail}`); }
 }
 
-async function req(url, init = {}) {
-  const res = await fetch(url, init);
-  const text = await res.text();
-  let body;
-  try { body = text ? JSON.parse(text) : null; } catch { body = text; }
-  return { status: res.status, body, headers: res.headers };
-}
-
 // NestJS answers 201 to a POST unless the handler says otherwise. Asserting
 // 200 has bitten this project twice, so the intent — "it worked" — is written
 // down once instead of guessed at each call site.
 const ok2xx = (s) => s >= 200 && s < 300;
+
 const errCode = (b) => b?.error?.code ?? b?.code ?? b?.message ?? JSON.stringify(b)?.slice(0, 90);
 
 const psql = (sql) =>
@@ -80,56 +80,16 @@ const psqlSafe = (sql) => {
   try { return psql(sql); } catch (e) { return 'ERROR: ' + String(e.message).slice(0, 120); }
 };
 
-// The suite's own sign-ins come out of the SAME per-IP nonce allowance the
-// flood below is testing. Counted rather than ignored: the first version
-// asserted a guessed range, got 14 where it expected 15-21, and the limiter
-// was right. An expectation you cannot derive is an expectation you are going
-// to have to keep loosening.
-let noncesSpent = 0;
-
 /**
- * Fetch a nonce, waiting out the rate limit if this suite's own previous run
- * spent it.
+ * Sign in through the shared waiting path.
  *
- * Section 10 deliberately floods this endpoint until it refuses, which means a
- * second run inside the same minute cannot sign in at all. The first version
- * died there with "could not sign in a fresh wallet" — technically true and
- * useless, because it names neither the cause nor the remedy.
- *
- * Waiting is the right answer rather than exempting the suite from the limit:
- * an exemption is a code path where the limiter does not apply, and a code
- * path where the limiter does not apply is the thing most worth not having.
- * Retry-After says exactly how long, and the window is at most a minute.
+ * The local version waited once on the NONCE and not at all on VERIFY, which
+ * is where this broke: auth-verify drains the 10/min verify budget, and six
+ * sign-ins in a row then hit a limit nothing was watching for.
  */
-async function getNonce() {
-  noncesSpent++;
-  let r = await req(`${AGENT}/v1/auth/nonce`);
-  if (r.status === 429) {
-    const wait = Math.min(70, Number(r.headers.get('retry-after') ?? 60) + 2);
-    console.log(`  (nonce allowance spent — almost certainly by this suite's last run.`);
-    console.log(`   Waiting ${wait}s for the window to clear, as a client should.)`);
-    await new Promise((resolve) => setTimeout(resolve, wait * 1000));
-    noncesSpent = 1;
-    r = await req(`${AGENT}/v1/auth/nonce`);
-  }
-  return r.body?.nonce;
-}
+const signIn = (account) => signInToken(AGENT, account, { chainId: CHAIN_ID, domain: DOMAIN, uri: URI });
 
-async function signIn(account) {
-  const nonce = await getNonce();
-  if (!nonce) return null;
-  const message = createSiweMessage({
-    address: account.address, chainId: CHAIN_ID, domain: DOMAIN, nonce,
-    uri: URI, version: '1', issuedAt: new Date(), statement: 'Sign in to ARCANA.',
-  });
-  const signature = await account.signMessage({ message });
-  const r = await req(`${AGENT}/v1/auth/verify`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, signature }),
-  });
-  return r.body.access_token;
-}
-const bearer = (t) => ({ Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' });
+
 
 // A FRESH IDENTITY PER SECTION, and the reason is worth stating because the
 // first version of this suite got it wrong.
@@ -638,6 +598,27 @@ try {
       check('a by-wallet limit counts per wallet, not per IP',
         bobEx.status !== 429, `${bobEx.status} ${errCode(bobEx.body)}`);
     }
+  }
+} catch (e) {
+  // A SETUP FAILURE MUST STILL PRODUCE A SUMMARY.
+  //
+  // This is the other half of the bug the shared rate-aware module fixes. When
+  // newIdentity threw during setup, the throw escaped, the summary never
+  // printed, and the harness reported "? pass ? fail" — which reads as a crash
+  // in the system under test rather than as the suite being unable to start.
+  // It cost a full investigation to learn the suite had simply been queued out
+  // of a rate-limit window.
+  //
+  // Recorded as a failure with its reason, so the count is real and the line
+  // names what went wrong.
+  fail++;
+  failures.push(`suite could not run to completion — ${e.message}`);
+  console.log(`\n  FAIL  the suite could not run to completion — ${e.message}`);
+  if (/could not sign in/.test(e.message)) {
+    console.log('        This is almost always the auth rate limit: another suite ran');
+    console.log('        immediately before and drained the window. Every sign-in goes');
+    console.log('        through infra/verify/lib/rate-aware.mjs, which waits up to three');
+    console.log('        windows — if it still failed, something else is consuming them.');
   }
 } finally {
   // -------------------------------------------------------------------------

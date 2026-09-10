@@ -7,6 +7,14 @@
 import { readFileSync } from 'node:fs';
 import { privateKeyToAccount, generatePrivateKey } from 'viem/accounts';
 import { createSiweMessage } from 'viem/siwe';
+// ONE implementation of rate-limit-aware HTTP and sign-in, shared by every
+// suite. This file used to carry its own, written assuming it was the only
+// thing using the window — an assumption two suites in sequence break no
+// matter how carefully either is written. See infra/verify/lib/rate-aware.mjs.
+import {
+  req, reqRL, ensureHeadroom, getNonce as sharedGetNonce,
+  signIn as sharedSignIn, bearer,
+} from './lib/rate-aware.mjs';
 
 const AGENT = 'http://127.0.0.1:3001';
 const ARCA = 'http://127.0.0.1:3004';
@@ -42,132 +50,21 @@ function check(name, ok, detail = '') {
   }
 }
 
-async function req(url, opts = {}) {
-  const res = await fetch(url, opts);
-  const text = await res.text();
-  let body;
-  try {
-    body = JSON.parse(text);
-  } catch {
-    body = text;
-  }
-  // Headers are returned so a caller can read Retry-After. Added when the
-  // nonce endpoint became rate limited: backing off correctly requires the
-  // number the server already sends, and guessing it is how a client ends up
-  // polling a limit it is trying to respect.
-  return { status: res.status, body, headers: res.headers };
-}
-
 const errCode = (b) => b?.error?.code ?? b?.message ?? JSON.stringify(b)?.slice(0, 120);
 
-const sleep = (sec) => new Promise((r) => setTimeout(r, sec * 1000));
-
 /**
- * A request that waits out a 429 instead of failing under it.
+ * Sign in, with this suite's defaults, through the shared waiting path.
  *
- * This suite exercises the auth surface hard — twenty-odd sign-ins plus every
- * deliberately-invalid attempt — and phase 12 put real limits on exactly those
- * endpoints: 20/min on nonce, 10/min on verify. It does NOT test rate
- * limiting (agents-verify does), so a 429 here is never the property under
- * test; it is the suite being a heavy client.
- *
- * The alternative was exempting loopback from the limiter, which would be far
- * worse than a slow test: put a reverse proxy in front of these services later
- * and every request arrives from 127.0.0.1, disabling rate limiting
- * platform-wide on the day it matters most.
+ * Overrides carry through: this suite signs in WRONGLY on purpose — a bad
+ * chain id, a stale nonce, a signature from the wrong key — and every one of
+ * those consumes exactly as much allowance as a valid attempt. That is the
+ * detail the per-suite versions kept undercounting.
  */
-async function reqRL(url, opts = {}) {
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const r = await req(url, opts);
-    if (r.status !== 429) return r;
-    if (attempt === 3) return r;
-    const wait = Math.min(70, Number(r.headers?.get?.('retry-after') ?? 60) + 2);
-    console.log(`  (allowance spent on ${url.split('/').pop()}; waiting ${wait}s)`);
-    await sleep(wait);
-  }
-}
+const getNonce = () => sharedGetNonce(AGENT);
+const signIn = (account, overrides = {}) =>
+  sharedSignIn(AGENT, account, { chainId: CHAIN_ID, domain: DOMAIN, uri: URI, ...overrides });
 
-/**
- * Guarantee at least `need` requests of headroom before a deliberate burst.
- *
- * The concurrency check fires five verifies at once to prove exactly one wins
- * the race on a single nonce. That property is untestable if four of the five
- * come back 429 — the suite would report a race it never ran. So the window is
- * drained first, using the X-RateLimit-Remaining the endpoint already returns
- * rather than guessing.
- */
-async function ensureHeadroom(url, need) {
-  const probe = await req(url, { method: 'HEAD' }).catch(() => null);
-  const remaining = Number(probe?.headers?.get?.('x-ratelimit-remaining') ?? NaN);
-  if (Number.isFinite(remaining) && remaining >= need) return;
-  console.log(`  (draining the window before a burst of ${need})`);
-  await sleep(62);
-}
 
-/**
- * Fetch a nonce, waiting out the rate limit rather than failing under it.
- *
- * `GET /v1/auth/nonce` became rate limited in phase 12 — 20/min per IP,
- * because it is unauthenticated and writes a database row per call. This suite
- * signs in many times to exercise the auth surface, so it runs into that limit
- * legitimately, and the first run after the limiter shipped failed seven
- * checks: bob could not sign in at all, and four ownership checks read
- * `401 unauthenticated` instead of `403 forbidden_not_owner` — a cascade that
- * looks like an authorisation bug and is not one.
- *
- * The suite waits, using the Retry-After the endpoint already returns. The
- * alternative — exempting loopback from the limiter — would be far worse than
- * a slow test: put a reverse proxy in front of these services later and every
- * request arrives from 127.0.0.1, silently disabling rate limiting for the
- * whole platform on the day it is most needed.
- */
-async function getNonce() {
-  // WAITS IN A LOOP, not once. This suite signs in more than twenty times —
-  // real sessions plus every deliberately-invalid attempt — so it crosses the
-  // 20/min allowance repeatedly, not once. A single wait cleared the first
-  // crossing and returned undefined on the second, which surfaced as bob being
-  // unable to sign in and four ownership checks reading 401 instead of 403: a
-  // cascade that looks exactly like an authorisation bug.
-  //
-  // Three waits is the cap. Beyond that something other than this suite is
-  // consuming the allowance, and quietly waiting forever would turn a real
-  // problem into a hung test.
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const r = await req(`${AGENT}/v1/auth/nonce`);
-    if (r.status !== 429) return r.body?.nonce;
-    if (attempt === 3) {
-      console.error('  nonce still rate limited after three waits — something else is consuming the allowance');
-      return undefined;
-    }
-    const wait = Math.min(70, Number(r.headers?.get?.('retry-after') ?? 60) + 2);
-    console.log(`  (nonce allowance spent; waiting ${wait}s, as a client should)`);
-    await new Promise((resolve) => setTimeout(resolve, wait * 1000));
-  }
-  return undefined;
-}
-
-async function signIn(account, overrides = {}) {
-  const nonce = overrides.nonce ?? (await getNonce());
-  const message = createSiweMessage({
-    address: account.address,
-    chainId: overrides.chainId ?? CHAIN_ID,
-    domain: overrides.domain ?? DOMAIN,
-    nonce,
-    uri: overrides.uri ?? URI,
-    version: '1',
-    issuedAt: overrides.issuedAt ?? new Date(),
-    statement: 'Sign in to ARCANA.',
-  });
-  const signature = overrides.signature ?? (await account.signMessage({ message }));
-  const r = await reqRL(`${AGENT}/v1/auth/verify`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, signature }),
-  });
-  return { ...r, message, signature, nonce };
-}
-
-const bearer = (t) => ({ Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' });
 
 // ---------------------------------------------------------------------------
 
