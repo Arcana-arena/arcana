@@ -25,7 +25,7 @@ Two rules govern the order:
 | 8 | **First real swap, ~$20, one wallet** | | **owner: approval to spend** |
 | 9 | Deposit, withdrawal, and the attack suite that proves it refuses | | — |
 | 10 | Pool prices, Chainlink referee, cost meter, staggered cadence | | — |
-| 11 | Marketplace — tx-hash verification | | — |
+| 11 | Marketplace — tx-hash verification | **done** | — |
 | 12 | User-created agents, public signup | | **owner: legal answer on the US exclusion** |
 
 ---
@@ -329,9 +329,21 @@ Buyer transfers to the creator directly and submits the transaction hash.
 Verification against the chain: exists, confirmed, amount matches, recipient is
 that listing's creator.
 
-**Verified by:** a replayed hash is refused; a hash for a real transfer to the
-wrong recipient is refused; a failed verification is logged at ERROR with the
-hash rather than swallowed.
+**Done 2026-09-11.** 22 checks, run against a REAL USDG transfer somebody else
+made — the sender, recipient, amount and block are all things ARCANA had no hand
+in. No money was spent.
+
+Fourteen checks, five of them not on the original list: a reverted transaction
+(which has a hash, a receipt and a gas bill, and moved nothing), pending versus
+non-existent, and refusing when there is nothing to verify against.
+
+The anti-replay guard is `UNIQUE (tx_hash)` — not `(tx_hash, listing_id)`,
+which would have let one payment buy every listing a creator publishes. Proved
+by racing three concurrent claims of one hash: exactly one succeeds.
+
+**This unblocks the phase-4a hold.** The six §10 files were kept because their
+replacement was not proven. It now is. Full write-up in
+[marketplace-payments.md](./marketplace-payments.md).
 
 ## Phase 12 — Users ⛔ *needs a legal answer*
 
