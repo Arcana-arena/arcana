@@ -586,7 +586,20 @@ try {
 
     // THE ENDPOINT THIS WAS WRITTEN FOR. Unauthenticated, and it writes a row
     // per call. The limit is 20/min; 30 calls must therefore be stopped.
-    const spentBeforeFlood = noncesSpent;
+    // ASK THE SERVER WHAT IS LEFT, do not compute it.
+    //
+    // The first version derived the expectation from this suite's own
+    // sign-ins, which assumes this suite is the only thing using the window.
+    // It is not: auth-verify hammers the same endpoint from the same IP, and
+    // running the two back to back left 10 where the arithmetic said 14.
+    //
+    // The endpoint already reports X-RateLimit-Remaining on every response.
+    // Deriving the expectation from the thing being measured is the only
+    // version that stays true when something else shares the window.
+    const probe = await req(`${AGENT}/v1/auth/nonce`);
+    const expected = probe.status === 429
+      ? 0
+      : Math.max(0, Number(probe.headers.get('x-ratelimit-remaining') ?? 0));
     let limited = 0;
     let served = 0;
     let retryAfter = null;
@@ -601,10 +614,8 @@ try {
     // flood is that minus what this suite already spent signing in, and the
     // check says so — a number derived from the configuration rather than
     // eyeballed, so it stays true if either changes.
-    const NONCE_LIMIT = 20;
-    const expected = Math.max(0, NONCE_LIMIT - spentBeforeFlood);
-    check(`it served its REMAINING allowance first (${expected} left after ${spentBeforeFlood} sign-ins), not nothing`,
-      served === expected, `served ${served}, expected ${expected}`);
+    check(`it served exactly the allowance the endpoint said was left (${expected})`,
+      served === expected, `served ${served}, endpoint reported ${expected} remaining`);
     check('and everything else was refused rather than dropped',
       served + limited === 30, `${served} + ${limited}`);
     check('the refusal carries Retry-After so a client can back off',
