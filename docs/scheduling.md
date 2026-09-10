@@ -218,8 +218,8 @@ the two timers.
 # timers & next runs
 systemctl list-timers arcana-cadence.timer arcana-scoring-job.timer
 
-# last scheduler invocations (tick opened/closed/no-op, AI runs)
-journalctl -u arcana-scheduler.service -n 50
+# last cadence invocations (tick opened/closed/no-op, agent runs)
+journalctl -u arcana-cadence.service -n 50
 
 # last score batch runs
 journalctl -u arcana-scoring-job.service -n 20
@@ -228,7 +228,7 @@ journalctl -u arcana-scoring-job.service -n 20
 systemctl list-units --failed | grep arcana
 
 # follow live
-journalctl -u arcana-scheduler.service -f
+journalctl -u arcana-cadence.service -f
 ```
 
 A healthy scheduler log shows one cycle per trading day:
