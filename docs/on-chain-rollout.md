@@ -18,9 +18,9 @@ Two rules govern the order:
 | 2 | Chain guard — beacon and issuer-control monitor | **done** | — |
 | 3 | Infrastructure cleanup — Kafka and Redis off | **done** | — |
 | 4a | Retire the §10 payment subsystem — **partly held, see below** | **done** | — |
-| 5 | `MarketIndexService` — remove the per-snapshot round trip | next | — |
+| 5 | `MarketIndexService` — remove the per-snapshot round trip | **done** | — |
 | 4b–d | Retire strategy.go, session.go, the human path | with 6, 10, 9 | each waits for its replacement |
-| 6 | Decider abstraction + DeepSeek, still on virtual money | | — |
+| 6 | Decider abstraction + DeepSeek, still on virtual money | next | — |
 | 7 | Signer service, policy engine, router allowlist — no money | | — |
 | 8 | **First real swap, ~$20, one wallet** | | **owner: approval to spend** |
 | 9 | Deposit, withdrawal, and the attack suite that proves it refuses | | — |
@@ -170,8 +170,18 @@ it is thousands, and four consumers each trigger it.
 read prices from Postgres/object storage in one pass, cache the derived index
 rather than the raw snapshots.
 
-**Verified by:** the same Autopsy response, measured against the current 854 ms,
-with a synthetic snapshot count an order of magnitude larger.
+**Done 2026-09-10.** Measured on the production host, then at scale in a
+throwaway database: **14,626 ms → 349 ms at 8,760 snapshots (42×)**, and the
+cost is now flat in snapshot count rather than linear. Evolution end-to-end
+582 ms → 28 ms.
+
+The 854 ms Autopsy figure had the same root — cold 553 ms, warm 16 ms, so
+537 ms of it was the index load. One fix closed both, and that was checked
+rather than assumed.
+
+**No regression, proved by diff:** DNA, Autopsy and Evolution captured for all
+13 agents before and after — identical byte-for-byte, 72,872 bytes. Full
+write-up in [market-index.md](./market-index.md).
 
 ## Phase 6 — The decider
 
