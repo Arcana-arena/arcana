@@ -415,9 +415,43 @@ try {
     code(r) === 'payment_verification_unavailable', code(r));
   await stop();
 
-  console.log('\n=== It accepts a genuine payment ===');
+  console.log('\n=== The quote names the address the check will look for ===');
   proc = startArca();
   await waitUp();
+  {
+    // THE END-TO-END VERSION of the structural checks below. The quote is
+    // taken BEFORE the claim, and then the very same payment is accepted — so
+    // the address the buyer would have been told is provably the address the
+    // accepted transfer went to, and the amount they were quoted is provably
+    // the amount the check compared against.
+    //
+    // Nothing here is asserted about equality of two strings computed twice.
+    // The claim that follows is the second half of the proof.
+    const q = await fetch(
+      `http://127.0.0.1:${ARCA_PORT}/internal/v1/payments/quote?listingId=${listingId}`,
+      { headers: { 'X-Internal-Key': KEY } });
+    const quote = await q.json().catch(() => null);
+    check('the quote answers', q.status === 200, `${q.status} ${JSON.stringify(quote)?.slice(0, 120)}`);
+    check('pay_to is the address the real transfer actually went to',
+      quote?.pay_to === real.to, `quote says ${quote?.pay_to}, the transfer went to ${real.to}`);
+    check('the token quoted is the token the check matches on',
+      quote?.token === USDG, quote?.token);
+    check('the amount is stated in base units, not left to the client to convert',
+      typeof quote?.amount_base_units === 'string' && /^[0-9]+$/.test(quote.amount_base_units),
+      String(quote?.amount_base_units));
+    check('the decimals came from the chain (USDG is 6, never assumed 18)',
+      quote?.decimals === 6, String(quote?.decimals));
+    // The listing is priced at half of what was really paid, so the quoted
+    // requirement must be under the real transfer — which is exactly why the
+    // claim below succeeds. If the quote over-stated, this would catch it.
+    check('the quoted requirement is satisfied by the real payment',
+      BigInt(quote?.amount_base_units ?? '0') <= real.value,
+      `quoted ${quote?.amount_base_units}, paid ${real.value}`);
+    check('the buyer is warned about refunds BEFORE paying',
+      /cannot refund/.test(quote?.warning ?? ''), String(quote?.warning).slice(0, 60));
+  }
+
+  console.log('\n=== It accepts a genuine payment ===');
   r = await claim(real.from, listingId, real.hash);
   check('a real, confirmed, sufficient payment is accepted',
     r.status < 300 && r.body?.granted === true, `${r.status} ${JSON.stringify(r.body)}`);
