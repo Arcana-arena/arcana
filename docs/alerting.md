@@ -126,7 +126,7 @@ live snapshot with trading_date = D ?
 ```
 
 `COMPETITION_ID` is read from the scheduler's own unit
-(`systemctl show arcana-scheduler.service -p Environment`), so there is **one**
+(`systemctl show arcana-cadence.service -p Environment`), so there is **one**
 declaration of the active competition and no second place to forget.
 
 Both `Result` **and** `ExecMainStatus` are checked, not either:

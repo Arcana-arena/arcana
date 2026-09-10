@@ -122,7 +122,8 @@ the measured result recorded in [capacity.md](./capacity.md): RAM used 1279 MB
 
 **4c — with phase 10, when continuous cadence replaces it:**
 `internal/session/`, vendor-as-calendar, `ErrMarketClosed`,
-`/session/expected`, `arcana-tick-watchdog.sh` and its timer.
+`/session/expected`, `arcana-tick-watchdog.sh` and its timer. All three were
+removed on 2026-09-11 once the decision watchdog replaced them.
 
 > **Traced again on 2026-09-11, and held again.** The list above was checked
 > against its callers rather than against its description, and every item is
@@ -131,7 +132,7 @@ the measured result recorded in [capacity.md](./capacity.md): RAM used 1279 MB
 > | Piece | Held up by |
 > |---|---|
 > | `internal/session/` | six call sites: `Eastern()`, `LastCompleted()` ×3 and `IsWeekend()` ×2, across `market-data/cmd/server` and `snapshot_service.go` |
-> | `GET /v1/market/session/expected` | `arcana-tick-watchdog.sh` — it is where the watchdog learns which date to judge, deliberately, so there is only one calendar |
+> | `GET /v1/market/session/expected` | `arcana-tick-watchdog.sh`, now removed — it was where the watchdog learned which date to judge, deliberately, so there was only one calendar |
 > | `arcana-tick-watchdog.sh` | its timer is enabled and fires daily at 04:00 UTC |
 > | `POST /internal/v1/market/sessions/daily` | the decision-engine **scheduler**, which is the live daily tick, plus `auth-verify.mjs` |
 > | `universe/us-large-cap-50.json` | read by market-data at boot (`MARKET_UNIVERSE_FILE`) |

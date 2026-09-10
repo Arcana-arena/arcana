@@ -404,7 +404,9 @@ with a reason code; none is dropped, and none is silently a hold.
 
 **N consecutive refusals with the same reason pause the agent and alert.** A
 component that runs, exits cleanly and produces nothing is the failure
-`OnFailure=` cannot see — the reason `arcana-tick-watchdog.sh` had to exist.
+`OnFailure=` cannot see — the reason `arcana-tick-watchdog.sh` had to exist
+(it was replaced on 2026-09-11 by the decision watchdog, which asks the same
+question without a market calendar; see [cadence.md](./cadence.md)).
 
 ---
 

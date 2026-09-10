@@ -33,7 +33,8 @@ Reversible: the named volumes (`arcana-data_kafka_data`,
 
 **Verified after:** all six services `active`, all six `/healthz` returning 200.
 
-> One unit shows `failed`: `arcana-scheduler.service`, which exited 1 at 03:00
+> One unit showed `failed` at the time of this measurement:
+> `arcana-scheduler.service` (since removed), which exited 1 at 03:00
 > UTC — twelve hours before this change — because `MARKET_VENDOR_API_KEY` is
 > unset and no snapshot could be fetched. That is the documented, muted case in
 > [alerting.md](./alerting.md#the-vendor-mute-lifts-itself), it predates this

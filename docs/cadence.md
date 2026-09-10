@@ -179,8 +179,8 @@ never alerted is indistinguishable from a monitor that cannot.
 
 **Retired 2026-09-11**, replacements proven first:
 
-- `arcana-scheduler.service` / `.timer` — the daily tick
-- `arcana-tick-watchdog.service` / `.timer` / its script — the calendar question
+- `arcana-scheduler.service` / `.timer` — the daily tick, removed
+- `arcana-tick-watchdog.service` / `.timer` / its script — the calendar question, removed
 
 **Held, and this is a report rather than an oversight.** The trace found live
 dependencies:

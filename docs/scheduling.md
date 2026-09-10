@@ -216,7 +216,7 @@ the two timers.
 
 ```bash
 # timers & next runs
-systemctl list-timers arcana-scheduler.timer arcana-scoring-job.timer
+systemctl list-timers arcana-cadence.timer arcana-scoring-job.timer
 
 # last scheduler invocations (tick opened/closed/no-op, AI runs)
 journalctl -u arcana-scheduler.service -n 50
