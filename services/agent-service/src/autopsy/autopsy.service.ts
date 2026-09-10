@@ -68,6 +68,22 @@ export class AutopsyService {
     const series = [...market.values()];
     const indexOfRef = new Map(series.map((t, i) => [t.ref, i]));
 
+    // Prices are fetched per ref, so ask for exactly the ones this analysis
+    // reads: the ticks this agent recorded, plus the +/-TIMING_WINDOW
+    // neighbours the timing percentile compares them against. At 8,760 ticks a
+    // year, loading the lot would cost 14 seconds to use a few hundred.
+    const needed = new Set<string>();
+    for (const t of ticks) {
+      if (!t.ref) continue;
+      needed.add(t.ref);
+      const idx = indexOfRef.get(t.ref);
+      if (idx == null) continue;
+      const lo = Math.max(0, idx - TIMING_WINDOW);
+      const hi = Math.min(series.length - 1, idx + TIMING_WINDOW);
+      for (let i = lo; i <= hi; i++) needed.add(series[i].ref);
+    }
+    await this.marketIndex.ensurePrices(market, needed);
+
     const decisions = ticks.filter((t) => t.action != null).length;
     const trades = ticks.filter((t) => t.action === 'buy' || t.action === 'sell');
 
@@ -184,7 +200,7 @@ export class AutopsyService {
 
       for (const [sym, qty] of Object.entries(cur.holdings)) {
         const before = p0[sym];
-        const after = m1.prices[sym];
+        const after = m1.prices?.[sym] ?? 0;
         if (before > 0 && after > 0) {
           pnl[sym] = (pnl[sym] ?? 0) + qty * (after - before);
         }
@@ -275,14 +291,14 @@ export class AutopsyService {
       if (!t.ref || !t.symbol) continue;
       const idx = indexOfRef.get(t.ref);
       if (idx == null) continue;
-      const price = series[idx].prices[t.symbol];
+      const price = series[idx].prices?.[t.symbol] ?? 0;
       if (!(price > 0)) continue;
 
       const lo = Math.max(0, idx - TIMING_WINDOW);
       const hi = Math.min(series.length - 1, idx + TIMING_WINDOW);
       const window: number[] = [];
       for (let i = lo; i <= hi; i++) {
-        const p = series[i].prices[t.symbol];
+        const p = series[i].prices?.[t.symbol] ?? 0;
         if (p > 0) window.push(p);
       }
 
@@ -293,7 +309,7 @@ export class AutopsyService {
       }
 
       const fwdIdx = Math.min(series.length - 1, idx + TIMING_WINDOW);
-      const fwdPrice = series[fwdIdx].prices[t.symbol];
+      const fwdPrice = series[fwdIdx].prices?.[t.symbol] ?? 0;
       const forward =
         fwdIdx > idx && fwdPrice > 0 ? round4(((fwdPrice - price) / price) * 100) : null;
 

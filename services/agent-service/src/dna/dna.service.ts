@@ -103,7 +103,16 @@ export class DnaService {
 
   /** Recompute DNA for every agent that has competed enough to have one. */
   async computeAll(): Promise<{ computed: number; skipped: number }> {
+    // Prices are fetched per ref, so ask for the refs decisions actually
+    // cite rather than every snapshot ever recorded. DNA scopes each agent to
+    // its most recent season, so this is a season-sized set, not a
+    // year-sized one.
     const market = await this.marketIndex.load();
+    const cited: Array<{ ref: string }> = await this.db.query(
+      `SELECT DISTINCT market_snapshot_ref AS ref FROM decisions
+       WHERE market_snapshot_ref IS NOT NULL`,
+    );
+    await this.marketIndex.ensurePrices(market, cited.map((r) => r.ref));
 
     const rows: Array<{ agent_id: string; n: string }> = await this.db.query(
       `SELECT agent_id, COUNT(*) AS n FROM decisions GROUP BY agent_id`,
