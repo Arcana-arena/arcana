@@ -1,8 +1,11 @@
-# Four things waiting on the owner
+# Three things waiting on the owner
 
-Each one is **prepared to the point where only the owner's part remains**. No
+Each is **prepared to the point where only the owner's part remains**. No
 engineering work is left in any of them; what is left is a credential, an
 authorisation, or a decision to spend.
+
+A fourth — `AUTH_ADMIN_WALLETS` — was closed on 2026-09-11 and is kept below as
+a record of how it was verified, not as an outstanding item.
 
 Nothing here is a blocker for anything else. They are listed together because
 they share that shape, not because they are related.
@@ -12,7 +15,7 @@ they share that shape, not because they are related.
 | 1 | Google Drive authorisation | script, alarm, verification, retention | off-site backups |
 | 2 | KMS decision + a new seed | interface, procedure, rotation steps | funding the first wallet |
 | 3 | Approval to spend $10 | full procedure, allowlist, simulation | phase 8 |
-| 4 | `AUTH_ADMIN_WALLETS` | guard, routes, refusals | operator actions |
+| ~~4~~ | ~~`AUTH_ADMIN_WALLETS`~~ | **DONE 2026-09-11** — set, and proved from both sides: it refuses a non-admin AND admits a configured one | — |
 
 ---
 
@@ -245,28 +248,89 @@ adjusted during the run.
 
 ---
 
-## 4. `AUTH_ADMIN_WALLETS`
+## 4. `AUTH_ADMIN_WALLETS` — **done 2026-09-11**
 
-**Waiting on:** one or more wallet addresses.
+Set to one address. The admin tier has an owner.
 
-### Already done
+### An ADDRESS, never a private key
 
-`AdminGuard` exists, is applied, and **refuses everyone while the variable is
-empty** — which is the correct behaviour and not a bug. Operator actions have
-no owner until somebody is named, and defaulting to "anybody with a session"
-would be worse than defaulting to nobody.
+The guard compares `auth.wallet` — the address SIWE **recovered from a
+signature the owner made in their own wallet**. The key never leaves the
+wallet, never crosses the wire, and is never stored.
 
-### The owner's part
+So this list grants no ability to sign anything. It only names who may perform
+an operator action *once they have already proved who they are*. Adding an
+address you do not control gives that person nothing they could use.
+
+The only private keys anywhere in ARCANA are the **agent trading wallets**,
+held by the signer in a file the application user cannot read
+([signer.md](./signer.md)). Different subsystem, different threat, different
+storage.
+
+### It lives in `.env.auth`, not in the unit file
+
+The unit is committed to git, and an admin address there would permanently
+record **which address controls ARCANA** in the history. The address itself is
+public on chain; the *association* is the part worth not publishing, and
+avoiding it costs nothing.
+
+`EnvironmentFile=` is declared after `Environment=` in the unit, so the file
+wins over the empty inline default. That ordering is load-bearing — reversed,
+the inline empty value would silently blank the setting and the admin tier
+would refuse everyone while looking configured.
 
 ```bash
-sudo systemctl edit arcana-agent.service
-#   [Service]
-#   Environment=AUTH_ADMIN_WALLETS=0xabc...,0xdef...
-
-sudo systemctl daemon-reload && sudo systemctl restart arcana-agent
-node infra/verify/auth-verify.mjs        # the admin checks stop being skipped
+# On the VPS. Comma-separated; the guard lowercases, so case does not matter.
+printf 'AUTH_ADMIN_WALLETS=0x…
+' >> /home/ubuntu/arcana/.env.auth
+sudo systemctl restart arcana-agent
 ```
 
-Comma-separated, lowercase or checksummed — the guard normalises. **Use a
-wallet that is not also an agent's trading wallet.** Signing in as an admin and
-signing a trade are different acts and should not share a key.
+**Verify it took.** `systemctl show -p Environment` will NOT show it — that
+prints only `Environment=` directives, not `EnvironmentFile` contents, and
+reading an empty value there is the obvious way to conclude wrongly that this
+failed. Read the process instead:
+
+```bash
+sudo tr '\0' '\n' < /proc/$(systemctl show arcana-agent -p MainPID --value)/environ | grep ADMIN
+```
+
+### Proved from BOTH sides
+
+`auth-verify` asserts that a signed-in non-admin gets `403
+forbidden_not_admin`. **That check passed while the list was empty too**, so on
+its own it proves the guard refuses — not that the list admits. A list that
+never admits anyone looks identical to a working one.
+
+So the other side was proved on purpose: a throwaway wallet was added to the
+list, signed in, performed an operator action (creating a season — `AdminGuard`
+protected) and got **201**, then was removed and the season deleted. No part of
+it needed the owner's key, because the allowlist is addresses.
+
+```
+AUTH_ADMIN_WALLETS=0x7c1b…597d,0xdab3…0A36
+signed in: true
+operator action status: 201
+RESULT: the allowlist ADMITS a configured wallet.
+```
+
+### Two things to keep true
+
+- **Not also an agent's trading wallet.** Signing in as an operator and signing
+  a trade are different acts and should not share a key. Checked before this
+  was set: the address appears in neither `creators.wallet_address` nor
+  `agent_wallets.address`.
+- **Empty still means nobody.** An unset list denies everyone rather than
+  allowing everyone — `AdminGuard` has always worked that way, and it is worth
+  restating because the opposite is the more common default.
+
+### Signing in
+
+The wallet must be on **Robinhood Chain** when it signs: `AUTH_ALLOWED_CHAIN_IDS`
+pins 4663 (mainnet) and 46630 (testnet). A signature produced while the wallet
+sits on Ethereum mainnet is refused — EIP-191 signatures are not chain-bound,
+so the `Chain ID` line is a claim in plain text and is checked against
+configuration rather than believed.
+
+The wallet needs **no funds**. It signs a message; it never sends a
+transaction.
