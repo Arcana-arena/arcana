@@ -88,8 +88,11 @@ func (c *Client) Preflight(ctx context.Context) {
 			"refused with chain_state_unverifiable, which is the correct behaviour and not a workaround.")
 		return
 	}
+	// The total is captured BEFORE the assignment: reading len(c.urls) after it
+	// would always print N/N and quietly claim every endpoint passed.
+	total := len(c.urls)
 	c.urls = usable
-	log.Printf("signer: %d/%d RPC endpoints serve eth_call", len(usable), len(c.urls))
+	log.Printf("signer: %d/%d RPC endpoints serve eth_call", len(usable), total)
 }
 
 // probeContract is USDG: an allowlisted token that certainly exists, used only
