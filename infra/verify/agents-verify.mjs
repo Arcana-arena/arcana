@@ -73,6 +73,13 @@ const psql = (sql) =>
   execFileSync('docker', ['exec', PG_CONTAINER, 'psql', '-U', 'arcana', '-d', 'arcana', '-tAc', sql],
     { encoding: 'utf8' }).trim();
 
+// A failed query must not end the run. A suite that dies halfway reports
+// nothing about everything after it, and the first failure then hides all the
+// others — which is how one broken assumption looks like a working system.
+const psqlSafe = (sql) => {
+  try { return psql(sql); } catch (e) { return 'ERROR: ' + String(e.message).slice(0, 120); }
+};
+
 async function signIn(account) {
   const nonce = (await req(`${AGENT}/v1/auth/nonce`)).body.nonce;
   const message = createSiweMessage({
@@ -88,25 +95,51 @@ async function signIn(account) {
 }
 const bearer = (t) => ({ Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' });
 
-const alice = privateKeyToAccount(generatePrivateKey());
-const bob = privateKeyToAccount(generatePrivateKey());
-const aliceToken = await signIn(alice);
-const bobToken = await signIn(bob);
-if (!aliceToken || !bobToken) {
-  console.error('agents-verify: could not sign in — is auth configured?');
-  process.exit(1);
+// A FRESH IDENTITY PER SECTION, and the reason is worth stating because the
+// first version of this suite got it wrong.
+//
+// Agent creation is rate limited to 10/hour PER WALLET, and this suite needs
+// far more than ten agents to drive the caps to their boundaries. The first
+// run failed with `rate_limited` — which was the limit working exactly as
+// designed, on the suite that exists to prove it works.
+//
+// The wrong fix is to raise the production limit so the test passes. It is
+// also the tempting one, and this project has a standing rule against
+// weakening a real defence for the convenience of the thing checking it.
+//
+// The right fix is for the suite to live inside the same constraint a user
+// does: a wallet per section, each with its own allowance. That is honest
+// about the limit AND it independently proves the limit is keyed on the
+// wallet — because every one of these identities shares this machine's IP,
+// so if the key were the IP they would all inherit one exhausted counter.
+const identities = [];
+async function newIdentity(label) {
+  const account = privateKeyToAccount(generatePrivateKey());
+  const token = await signIn(account);
+  if (!token) throw new Error(`could not sign in a fresh wallet for ${label}`);
+  // Handles are lowercase alphanumeric and underscore only — hyphens are
+  // refused by CreateCreatorDto, which the first draft of this suite did not
+  // read carefully enough.
+  const handle = `phase12_verify_${label}_${Date.now().toString(36)}`;
+  const r = await req(`${AGENT}/v1/creators`, {
+    method: 'POST', headers: bearer(token), body: JSON.stringify({ handle }),
+  });
+  const id = r.body?.id ?? null;
+  if (!id) throw new Error(`could not create a creator for ${label}: ${errCode(r.body)}`);
+  const identity = { account, token, creatorId: id, handle };
+  identities.push(identity);
+  return identity;
 }
 
 const created = [];   // agent ids to clean up
-let creatorId = null;
-
-async function makeCreator(token, handle) {
-  const r = await req(`${AGENT}/v1/creators`, {
-    method: 'POST', headers: bearer(token),
-    body: JSON.stringify({ handle }),
-  });
-  return r.body?.id ?? null;
-}
+// Assigned per section from newIdentity(); declared here so the sections below
+// read as one narrative rather than threading an identity through every call.
+let aliceToken, bobToken, creatorId;
+// Module scope on purpose: the cleanup in `finally` removes this agent's
+// imported key from the signer, and a `let` inside the try block would not be
+// visible there. Leaving real key material behind — even a throwaway key this
+// suite generated — is not an acceptable way for a test to end.
+let importedAgent = null;
 
 async function makeAgent(token, name, extra = {}) {
   const r = await req(`${AGENT}/v1/agents`, {
@@ -118,7 +151,15 @@ async function makeAgent(token, name, extra = {}) {
 }
 
 try {
-  creatorId = await makeCreator(aliceToken, `phase12-verify-${Date.now()}`);
+  // One identity per section, each with its own 10/hour create allowance.
+  const idMandate = await newIdentity("mandate");   // sections 2 and 3
+  const idLength  = await newIdentity("length");    // section 4
+  const idCap     = await newIdentity("cap");       // section 5
+  const idFreeze  = await newIdentity("freeze");    // sections 6 and 8
+  const idOther   = await newIdentity("other");     // the stranger, and section 10
+  aliceToken = idMandate.token;
+  bobToken = idOther.token;
+  creatorId = idMandate.creatorId;
 
   // -------------------------------------------------------------------------
   console.log('\n=== 1. The mandate catalogue is public and closed ===');
@@ -234,7 +275,7 @@ try {
     for (const t of r.body?.templates ?? []) {
       const params = {};
       for (const p of t.params ?? []) params[p.name] = p.kind === 'int' ? p.max : p.options.at(-1);
-      const made = await makeAgent(aliceToken, `phase12-verify-len-${t.id}`, {
+      const made = await makeAgent(idLength.token, `phase12-verify-len-${t.id}`, {
         mandateTemplate: t.id, mandateParams: params,
       });
       if (typeof made.body?.mandate === 'string') worst = Math.max(worst, made.body.mandate.length);
@@ -252,12 +293,12 @@ try {
     // by hitting it, not by reading the constant.
     const ids = [];
     for (let i = 0; i < 4; i++) {
-      const r = await makeAgent(aliceToken, `phase12-verify-cap-${i}`);
+      const r = await makeAgent(idCap.token, `phase12-verify-cap-${i}`);
       ids.push(r.body?.id);
     }
     const results = [];
     for (const id of ids) {
-      const r = await req(`${AGENT}/v1/agents/${id}/activate`, { method: 'POST', headers: bearer(aliceToken) });
+      const r = await req(`${AGENT}/v1/agents/${id}/activate`, { method: 'POST', headers: bearer(idCap.token) });
       results.push(r);
     }
     check('the first three activate', results.slice(0, 3).every((r) => ok2xx(r.status)),
@@ -268,32 +309,32 @@ try {
 
     // Retire one, and the slot comes back. A cap you cannot get out from under
     // is a trap rather than a limit.
-    const rr = await req(`${AGENT}/v1/agents/${ids[0]}/retire`, { method: 'POST', headers: bearer(aliceToken) });
+    const rr = await req(`${AGENT}/v1/agents/${ids[0]}/retire`, { method: 'POST', headers: bearer(idCap.token) });
     check('retiring frees a slot', ok2xx(rr.status), `${rr.status} ${errCode(rr.body)}`);
-    const retry = await req(`${AGENT}/v1/agents/${ids[3]}/activate`, { method: 'POST', headers: bearer(aliceToken) });
+    const retry = await req(`${AGENT}/v1/agents/${ids[3]}/activate`, { method: 'POST', headers: bearer(idCap.token) });
     check('the fourth activates once a slot is free', ok2xx(retry.status), `${retry.status} ${errCode(retry.body)}`);
 
     // THE CASE THE CAP MUST NOT BREAK: at the limit, evolving still works,
     // because activating a child retires its parent and the total is unchanged.
     const ev = await req(`${AGENT}/v1/agents/${ids[1]}/evolve`, {
-      method: 'POST', headers: bearer(aliceToken), body: JSON.stringify({}),
+      method: 'POST', headers: bearer(idCap.token), body: JSON.stringify({}),
     });
     const childId = ev.body?.id;
     if (childId) created.push(childId);
     check('evolving at the cap is allowed', ok2xx(ev.status) && !!childId, `${ev.status} ${errCode(ev.body)}`);
-    const act = await req(`${AGENT}/v1/agents/${childId}/activate`, { method: 'POST', headers: bearer(aliceToken) });
+    const act = await req(`${AGENT}/v1/agents/${childId}/activate`, { method: 'POST', headers: bearer(idCap.token) });
     check('ACTIVATING that child at the cap is allowed — succession is not simultaneity',
       ok2xx(act.status), `${act.status} ${errCode(act.body)}`);
-    const parentStatus = psql(`SELECT status FROM agents WHERE id = '${ids[1]}'`);
+    const parentStatus = psqlSafe(`SELECT status FROM agents WHERE id = '${ids[1]}'`);
     check('and the parent was retired in the same step', parentStatus === 'retired', parentStatus);
 
     const activeNow = Number(psql(
-      `SELECT count(*) FROM agents WHERE creator_id = '${creatorId}' AND status = 'active'`));
+      `SELECT count(*) FROM agents WHERE creator_id = '${idCap.creatorId}' AND status = 'active'`));
     check('the creator is still at or under the cap after evolving', activeNow <= 3, String(activeNow));
 
     // Retired and draft rows must not count. Proved by having more than three
     // rows in total while remaining able to operate.
-    const total = Number(psql(`SELECT count(*) FROM agents WHERE creator_id = '${creatorId}'`));
+    const total = Number(psql(`SELECT count(*) FROM agents WHERE creator_id = '${idCap.creatorId}'`));
     check('the creator has MORE than three agents in total — the cap is on active only',
       total > 3, `${total} rows`);
   }
@@ -302,22 +343,22 @@ try {
   console.log('\n=== 6. A mandate is frozen once the agent is active ===');
   // -------------------------------------------------------------------------
   {
-    const draft = await makeAgent(aliceToken, 'phase12-verify-freeze', { mandateTemplate: 'concentrated' });
+    const draft = await makeAgent(idFreeze.token, 'phase12-verify-freeze', { mandateTemplate: 'concentrated' });
     const id = draft.body?.id;
     const edit = await req(`${AGENT}/v1/agents/${id}`, {
-      method: 'PATCH', headers: bearer(aliceToken),
+      method: 'PATCH', headers: bearer(idFreeze.token),
       body: JSON.stringify({ mandateParams: { conviction: 'aggressive' } }),
     });
     check('a DRAFT mandate can be retuned', ok2xx(edit.status), `${edit.status} ${errCode(edit.body)}`);
 
     // Make room, activate, then try again.
     const anyActive = psql(
-      `SELECT id FROM agents WHERE creator_id = '${creatorId}' AND status = 'active' LIMIT 1`);
-    if (anyActive) await req(`${AGENT}/v1/agents/${anyActive}/retire`, { method: 'POST', headers: bearer(aliceToken) });
-    const on = await req(`${AGENT}/v1/agents/${id}/activate`, { method: 'POST', headers: bearer(aliceToken) });
+      `SELECT id FROM agents WHERE creator_id = '${idFreeze.creatorId}' AND status = 'active' LIMIT 1`);
+    if (anyActive) await req(`${AGENT}/v1/agents/${anyActive}/retire`, { method: 'POST', headers: bearer(idFreeze.token) });
+    const on = await req(`${AGENT}/v1/agents/${id}/activate`, { method: 'POST', headers: bearer(idFreeze.token) });
     if (ok2xx(on.status)) {
       const after = await req(`${AGENT}/v1/agents/${id}`, {
-        method: 'PATCH', headers: bearer(aliceToken),
+        method: 'PATCH', headers: bearer(idFreeze.token),
         body: JSON.stringify({ mandateParams: { conviction: 'aggressive' } }),
       });
       check('an ACTIVE mandate is refused — the record was produced under it',
@@ -397,15 +438,15 @@ try {
   // -------------------------------------------------------------------------
   console.log('\n=== 8. Importing a wallet the owner already controls ===');
   // -------------------------------------------------------------------------
-  let importedAgent = null;
+
   {
-    const made = await makeAgent(aliceToken, 'phase12-verify-import');
+    const made = await makeAgent(idFreeze.token, 'phase12-verify-import');
     importedAgent = made.body?.id;
     const ownKey = generatePrivateKey();
     const ownAcct = privateKeyToAccount(ownKey);
 
     const bad = await req(`${AGENT}/v1/agents/${importedAgent}/wallet/import`, {
-      method: 'POST', headers: bearer(aliceToken),
+      method: 'POST', headers: bearer(idFreeze.token),
       body: JSON.stringify({ privateKey: 'not-a-key' }),
     });
     check('a malformed key is refused before it crosses a service boundary',
@@ -414,7 +455,7 @@ try {
       !/not-a-key/.test(JSON.stringify(bad.body ?? '')), JSON.stringify(bad.body).slice(0, 80));
 
     const imp = await req(`${AGENT}/v1/agents/${importedAgent}/wallet/import`, {
-      method: 'POST', headers: bearer(aliceToken),
+      method: 'POST', headers: bearer(idFreeze.token),
       body: JSON.stringify({ privateKey: ownKey }),
     });
     check('an owner-supplied key is accepted', imp.status === 200, `${imp.status} ${errCode(imp.body)}`);
@@ -427,14 +468,14 @@ try {
       String(imp.body?.warning).slice(0, 80));
 
     const twice = await req(`${AGENT}/v1/agents/${importedAgent}/wallet/import`, {
-      method: 'POST', headers: bearer(aliceToken),
+      method: 'POST', headers: bearer(idFreeze.token),
       body: JSON.stringify({ privateKey: generatePrivateKey() }),
     });
     check('a second import is refused — replacing a key strands the old address',
       twice.status === 400, `${twice.status} ${errCode(twice.body)}`);
 
     const exImported = await req(`${AGENT}/v1/agents/${importedAgent}/wallet/export`, {
-      method: 'POST', headers: bearer(aliceToken),
+      method: 'POST', headers: bearer(idFreeze.token),
     });
     check('exporting an imported key is refused — you already have it',
       exImported.status === 400 && /cannot_export_imported_key/.test(errCode(exImported.body)),
@@ -512,7 +553,24 @@ try {
     // BY-WALLET LIMITS MUST BE KEYED ON THE WALLET, not the IP. Both accounts
     // are on this one machine, so if the key were the IP, bob would inherit
     // alice's exhausted counter. Export is 3/hour and alice has used one.
-    const bobAgent = await makeAgent(bobToken, 'phase12-verify-bob');
+    // THE CREATE LIMIT MUST ALSO REFUSE. 10/hour per wallet: an eleventh
+    // create from one wallet has to be turned away. This is the limit that
+    // shaped this whole suite — the first draft ran everything on one wallet
+    // and was stopped by it — so it is asserted rather than merely worked
+    // around.
+    const burner = await newIdentity('limit');
+    let createdOk = 0;
+    let createLimited = 0;
+    for (let i = 0; i < 13; i++) {
+      const r = await makeAgent(burner.token, `phase12-verify-limit-${i}`);
+      if (r.status === 429) createLimited++;
+      else if (ok2xx(r.status)) createdOk++;
+    }
+    check('agent creation stops at its allowance', createLimited > 0,
+      `${createdOk} created, ${createLimited} limited`);
+    check('it allowed roughly ten first', createdOk >= 8 && createdOk <= 10, `${createdOk} created`);
+
+    const bobAgent = await makeAgent(idOther.token, 'phase12-verify-bob');
     if (bobAgent.body?.id) {
       const bobEx = await req(`${AGENT}/v1/agents/${bobAgent.body.id}/wallet/export`, {
         method: 'POST', headers: bearer(bobToken),
@@ -528,7 +586,8 @@ try {
   // Runs even when a check failed, because a suite that leaves rows behind on
   // failure poisons the next run and makes the second failure a different one.
   try {
-    if (creatorId) {
+    for (const identity of identities) {
+      const creatorId = identity.creatorId;
       psql(`DELETE FROM custody_drift WHERE agent_id IN (SELECT id FROM agents WHERE creator_id = '${creatorId}')`);
       psql(`DELETE FROM agent_wallets WHERE agent_id IN (SELECT id FROM agents WHERE creator_id = '${creatorId}')`);
       psql(`UPDATE competitions SET participant_ids = (
@@ -538,10 +597,12 @@ try {
       psql(`DELETE FROM agents WHERE creator_id = '${creatorId}'`);
       psql(`DELETE FROM creators WHERE id = '${creatorId}'`);
     }
-    // Bob's agents too.
+    // Belt and braces: anything matching the marker, whichever identity made
+    // it. Handles use underscores because CreateCreatorDto refuses hyphens.
     psql(`DELETE FROM agent_wallets WHERE agent_id IN (SELECT id FROM agents WHERE name LIKE 'phase12-verify%')`);
+    psql(`DELETE FROM custody_drift WHERE agent_id IN (SELECT id FROM agents WHERE name LIKE 'phase12-verify%')`);
     psql(`DELETE FROM agents WHERE name LIKE 'phase12-verify%'`);
-    psql(`DELETE FROM creators WHERE handle LIKE 'phase12-verify%'`);
+    psql(`DELETE FROM creators WHERE handle LIKE 'phase12_verify%'`);
     console.log('  cleaned');
   } catch (e) {
     console.log(`  CLEANUP FAILED: ${e.message.slice(0, 200)}`);
@@ -549,7 +610,7 @@ try {
   }
   // The signer's imported key file is NOT left behind either: it is real key
   // material, even for a throwaway wallet, and this suite created it.
-  if (typeof importedAgent === 'string' && importedAgent) {
+  if (importedAgent) {
     try {
       execFileSync('sudo', ['rm', '-f', `/etc/arcana/signer/imported/${importedAgent}.key`]);
       console.log('  removed the test imported key from the signer');
