@@ -1,0 +1,95 @@
+package engine
+
+import "context"
+
+// ---------------------------------------------------------------------------
+// Deciders.
+//
+// A Decider turns "here is the market and your book" into "here is what I want
+// to do". It is the seam that lets an LLM replace three if-then functions
+// without the rest of the pipeline noticing: the same snapshot loading, the
+// same risk limits, the same append-only record, the same portfolio mark.
+//
+// WHAT A DECIDER IS NOT ALLOWED TO DO. It returns an INTENT, not a trade.
+// Everything it asks for still passes through buyableQty() and applyIntent(),
+// which are deterministic and which it cannot talk out of their limits. That
+// separation is the whole safety model for user-written agents: the prompt
+// decides intent, the code decides what is permitted. A prompt can be
+// jailbroken; buyableQty() cannot.
+//
+// It is also why strategy.go is still here and still used. The deterministic
+// deciders are not legacy to be swept away — they are the reference the LLM is
+// measured against, and the risk arithmetic they carry is shared.
+// ---------------------------------------------------------------------------
+
+// DeciderInput is everything a decider may see. Deliberately no more than the
+// old strategies got: the current snapshot, the one before it, the book, and
+// the agent's own configured limits. No future data, no other agents.
+type DeciderInput struct {
+	AgentID  string
+	Mandate  string // the user's bounded statement of intent; empty for built-ins
+	Strategy string // agents.strategy_type
+	View     marketView
+	Holdings map[string]any
+	Cash     float64
+	NAV      float64
+	Limits   RiskLimits
+}
+
+// Evidence is what the decision record keeps about HOW a decision was reached.
+//
+// For a deterministic decider this is nearly empty and that is correct: the
+// function and the snapshot are the whole story, and it can be replayed. For an
+// LLM it is the entire story, because it cannot.
+type Evidence struct {
+	Decider      string         // deterministic | llm | human
+	Provider     string         // deepseek, ... — as it was at the time, not as configured now
+	Model        string
+	ModelVersion string         // what the provider says it actually served
+	Params       map[string]any // temperature, top_p, seed, max_tokens
+	PromptBody   string         // exact text sent, including the prices it saw
+	ResponseBody string         // raw, before parsing: a malformed answer is still evidence
+	// ReasonCode is set when the decision was not a free choice —
+	// llm_unavailable, llm_invalid_output, no_material_move. Empty means the
+	// decider chose. A hold because nothing looked good and a hold because the
+	// provider timed out are different events and must not look alike.
+	ReasonCode string
+	// Thesis is the forward-looking, falsifiable claim:
+	// {claim, horizon_ticks, invalidated_if}. Nil when the decider makes none —
+	// which is every deterministic one, and is exactly why Agent Autopsy has
+	// always refused thesis_failure.
+	Thesis map[string]any
+	// Usage, for the cost meter. Zero for deciders that cost nothing.
+	PromptTokens, CompletionTokens, CachedTokens int
+	LatencyMS                                    int64
+}
+
+// Decider produces one intent per tick.
+type Decider interface {
+	// Name is recorded on the decision.
+	Name() string
+	// Decide never returns an error for "the provider was down". That is a
+	// decision — a recorded hold with a reason — not a failure of the tick.
+	// An error here means the tick genuinely could not be processed, and the
+	// caller refuses rather than inventing a hold.
+	Decide(ctx context.Context, in DeciderInput) (tradeIntent, Evidence, error)
+}
+
+// ---------------------------------------------------------------------------
+// The deterministic decider: the three strategies that shipped, unchanged.
+// ---------------------------------------------------------------------------
+
+type deterministicDecider struct{}
+
+// NewDeterministicDecider returns the momentum / mean_reversion / buy_and_hold
+// decider. It stays because it works, because it is the reference an LLM's
+// behaviour is compared against, and because nothing is deleted here before its
+// replacement has been proven.
+func NewDeterministicDecider() Decider { return deterministicDecider{} }
+
+func (deterministicDecider) Name() string { return "deterministic" }
+
+func (deterministicDecider) Decide(_ context.Context, in DeciderInput) (tradeIntent, Evidence, error) {
+	intent := decide(in.Strategy, in.View, in.Holdings, in.Cash, in.NAV, in.Limits)
+	return intent, Evidence{Decider: "deterministic"}, nil
+}

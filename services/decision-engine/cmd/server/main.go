@@ -9,11 +9,55 @@ import (
 	"os"
 	"time"
 
+	"strconv"
+
 	"github.com/arcana/decision-engine/internal/engine"
+	"github.com/arcana/decision-engine/internal/llm"
 	"github.com/arcana/internalauth"
 	"github.com/arcana/decision-engine/internal/marketdata"
 	"github.com/arcana/decision-engine/internal/store"
 )
+
+// buildLLM assembles the provider client from the environment.
+//
+// PROVIDER-AGNOSTIC ON PURPOSE. Three values identify a provider — base URL,
+// model, key — and every one of them is configuration. Switching from DeepSeek
+// to anything that speaks the OpenAI chat-completions shape is an env change,
+// not a code change. That is not hypothetical tidiness: 'deepseek-chat' was
+// named in the plan for this work and had already been retired while the plan
+// was being written.
+func buildLLM() *llm.Client {
+	cfg := llm.Config{
+		Name:        envOr("LLM_PROVIDER", "deepseek"),
+		BaseURL:     envOr("LLM_BASE_URL", "https://api.deepseek.com"),
+		Model:       envOr("LLM_MODEL", "deepseek-flash"),
+		APIKey:      os.Getenv("LLM_API_KEY"),
+		Temperature: envFloat("LLM_TEMPERATURE", 0.2),
+		TopP:        envFloat("LLM_TOP_P", 0.9),
+		MaxTokens:   int(envFloat("LLM_MAX_TOKENS", 700)),
+		Seed:        int(envFloat("LLM_SEED", 0)),
+		Timeout:     time.Duration(envFloat("LLM_TIMEOUT_MS", 30000)) * time.Millisecond,
+		JSONMode:    envOr("LLM_JSON_MODE", "1") == "1",
+	}
+	return llm.New(cfg)
+}
+
+func envOr(k, def string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
+}
+
+func envFloat(k string, def float64) float64 {
+	if v := os.Getenv(k); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f
+		}
+		log.Printf("WARN %s=%q is not a number; using %v", k, v, def)
+	}
+	return def
+}
 
 type server struct {
 	engine *engine.Engine
@@ -41,7 +85,30 @@ func main() {
 	}
 	defer pool.Close()
 
-	srv := &server{engine: engine.New(store.New(pool), marketdata.New(marketDataURL))}
+	eng := engine.New(store.New(pool), marketdata.New(marketDataURL))
+
+	// The LLM decider is attached only when a provider is actually configured.
+	//
+	// WITHOUT A KEY THE SERVICE STILL BOOTS AND STILL SERVES /healthz, and every
+	// agent whose strategy_type is 'llm' RECORDS A HOLD with reason
+	// llm_unavailable. It does not fall back to a deterministic strategy: an
+	// agent that quietly stops being what it says it is would corrupt its own
+	// track record, which is the one thing this platform sells. Same shape as
+	// market-data's missing vendor key and arca-service's five warnings — a
+	// stand-down that is visible, not a substitution that is not.
+	client := buildLLM()
+	if client.Configured() {
+		eng = eng.WithLLM(engine.NewLLMDecider(client))
+		log.Printf("llm decider ACTIVE: provider=%s model=%s", client.Provider(), client.Model())
+	} else {
+		log.Printf("WARN: llm decider INACTIVE: LLM_API_KEY not set — agents with " +
+			"strategy_type='llm' will record a HOLD with reason llm_unavailable on every " +
+			"tick. There is no fallback to a deterministic strategy by design: an agent " +
+			"must not quietly become something other than what it declares. Deterministic " +
+			"agents (momentum, mean_reversion, buy_and_hold) are unaffected.")
+	}
+
+	srv := &server{engine: eng}
 
 	guard := internalauth.New("decision-engine")
 

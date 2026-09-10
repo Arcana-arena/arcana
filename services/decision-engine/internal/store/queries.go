@@ -26,16 +26,20 @@ type AgentRow struct {
 	StrategyType  string
 	RiskProfile   map[string]any
 	AssetUniverse string
+	// Mandate is the user-supplied half of a parameterised agent: what its
+	// owner asked it to do. Empty for the built-in deterministic agents.
+	Mandate string
 }
 
 // GetActiveAgent loads an agent and verifies it is active.
 func (s *Store) GetActiveAgent(ctx context.Context, agentID string) (*AgentRow, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, status, COALESCE(strategy_type,''), risk_profile, asset_universe
+		`SELECT id, status, COALESCE(strategy_type,''), risk_profile, asset_universe,
+		        COALESCE(mandate,'')
 		 FROM agents WHERE id = $1`, agentID)
 	var a AgentRow
 	var risk []byte
-	if err := row.Scan(&a.ID, &a.Status, &a.StrategyType, &risk, &a.AssetUniverse); err != nil {
+	if err := row.Scan(&a.ID, &a.Status, &a.StrategyType, &risk, &a.AssetUniverse, &a.Mandate); err != nil {
 		return nil, fmt.Errorf("load agent %s: %w", agentID, err)
 	}
 	if err := json.Unmarshal(risk, &a.RiskProfile); err != nil {

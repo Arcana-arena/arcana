@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"log"
 	"strconv"
 	"time"
 
@@ -14,10 +15,43 @@ import (
 type Engine struct {
 	store *store.Store
 	md    *marketdata.Client
+
+	// deterministic is always present: it is the reference the LLM is measured
+	// against, and it still runs every agent whose strategy_type names one of
+	// the three built-in strategies.
+	deterministic Decider
+	// llmDecider is nil when no provider is configured. Nil means an LLM agent
+	// REFUSES, loudly and on the record — it never silently falls back to a
+	// deterministic strategy, because an agent that quietly stops being what it
+	// says it is is the worst outcome available here.
+	llmDecider Decider
 }
 
 func New(st *store.Store, md *marketdata.Client) *Engine {
-	return &Engine{store: st, md: md}
+	return &Engine{store: st, md: md, deterministic: NewDeterministicDecider()}
+}
+
+// WithLLM attaches an LLM decider. Called at boot when a provider is
+// configured; left alone when one is not.
+func (e *Engine) WithLLM(d Decider) *Engine {
+	e.llmDecider = d
+	return e
+}
+
+// deciderFor picks who decides this tick.
+//
+// The selection is on agents.strategy_type, the column that already decided
+// this. 'llm' routes to the model; the three built-ins route to the functions
+// that have always served them.
+//
+// When strategy_type is 'llm' and no provider is configured, this returns nil
+// and the caller records a hold with llm_unavailable. It does NOT fall back.
+// A configuration gap must not change what an agent is.
+func (e *Engine) deciderFor(strategyType string) Decider {
+	if strategyType == "llm" {
+		return e.llmDecider
+	}
+	return e.deterministic
 }
 
 // Execute runs the automated pipeline and returns the recorded decision id.
@@ -78,14 +112,63 @@ func (e *Engine) Execute(ctx context.Context, req ExecuteRequest) (int64, error)
 	}
 
 	view := marketView{symbols: snap.Symbols, prices: prices, prev: prevPrices}
-	intent := decide(agent.StrategyType, view, holdings, cash, nav, riskLimitsFrom(agent.RiskProfile))
+	in := DeciderInput{
+		AgentID:  req.AgentID,
+		Mandate:  agent.Mandate,
+		Strategy: agent.StrategyType,
+		View:     view,
+		Holdings: holdings,
+		Cash:     cash,
+		NAV:      nav,
+		Limits:   riskLimitsFrom(agent.RiskProfile),
+	}
+
+	var intent tradeIntent
+	var ev Evidence
+	d := e.deciderFor(agent.StrategyType)
+	if d == nil {
+		// An LLM agent with no provider configured. It holds, on the record,
+		// with the reason named — rather than trading as something it is not.
+		intent = hold("no LLM provider is configured; this agent cannot decide")
+		ev = Evidence{Decider: "llm", ReasonCode: ReasonLLMUnavailable}
+	} else {
+		var derr error
+		intent, ev, derr = d.Decide(ctx, in)
+		if derr != nil {
+			return 0, fmt.Errorf("decide: %w", derr)
+		}
+	}
+
 	action, symbol, qty, holdings, cash, rationale := applyIntent(intent, prices, holdings, cash)
 
 	decisionID, err := e.persist(ctx, req, portfolio.ID, action, symbol, qty, holdings, cash, prices, rationale)
 	if err != nil {
 		return 0, err
 	}
+
+	// Evidence is attached after the decision exists. A failure here loses the
+	// EXPLANATION, which is bad and is logged; failing the tick over it would
+	// lose the DECISION, which would put a hole in an append-only record whose
+	// whole value is that it has none.
+	if err := e.store.AttachEvidence(ctx, decisionID, req.AgentID, req.Timestamp, toStoreEvidence(ev)); err != nil {
+		log.Printf("ERROR decision %d recorded but its evidence was not: %v", decisionID, err)
+	}
 	return decisionID, nil
+}
+
+// toStoreEvidence converts the engine's evidence into its storage shape.
+func toStoreEvidence(ev Evidence) store.DecisionEvidence {
+	return store.DecisionEvidence{
+		Decider:      ev.Decider,
+		Provider:     ev.Provider,
+		Model:        ev.Model,
+		ModelVersion: ev.ModelVersion,
+		Params:       ev.Params,
+		PromptBody:   ev.PromptBody,
+		ResponseBody: ev.ResponseBody,
+		ReasonCode:   ev.ReasonCode,
+		Thesis:       ev.Thesis,
+	}
 }
 
 // ExecuteManual records a human-submitted trade for a human_vs_ai session.
@@ -175,6 +258,10 @@ func (e *Engine) ExecuteManual(ctx context.Context, req ExecuteManualRequest) (i
 	}, portfolio.ID, action, symbol, &qty, holdings, cash, prices, rationale)
 	if err != nil {
 		return 0, err
+	}
+	if err := e.store.AttachEvidence(ctx, decisionID, req.AgentID, req.Timestamp,
+		store.DecisionEvidence{Decider: "human"}); err != nil {
+		log.Printf("ERROR decision %d recorded but its evidence was not: %v", decisionID, err)
 	}
 	return decisionID, nil
 }
