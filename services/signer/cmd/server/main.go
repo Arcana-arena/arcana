@@ -34,6 +34,9 @@ import (
 	"github.com/arcana/signer/internal/tx"
 )
 
+// Stamped at link time; see the note in the other services.
+var buildCommit = "unknown"
+
 type server struct {
 	ring    *keys.Keyring
 	allow   *policy.Allowlist
@@ -114,7 +117,8 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, 200, map[string]any{
-			"status": "ok", "signer_configured": srv.ring != nil,
+			"status": "ok", "service": "signer", "commit": buildCommit,
+			"signer_configured": srv.ring != nil,
 			"routers_allowlisted": len(allow.Routers), "chain_id": allow.ChainID,
 		})
 	})

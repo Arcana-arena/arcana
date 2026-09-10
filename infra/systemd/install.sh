@@ -26,6 +26,20 @@ BIN_DIR="$REPO/scheduler-bin"
 echo "==> making job wrapper executable"
 chmod +x "$REPO/infra/systemd/arca-job.sh"
 
+# Every binary is stamped with the commit it was built from, and reports it on
+# /healthz. Restarting a service no longer rebuilds it, so a stale deploy would
+# otherwise be invisible — which is exactly how a signer change went missing
+# once already.
+COMMIT="$(cd "$REPO" && git rev-parse HEAD)"
+LDFLAGS="-X main.buildCommit=$COMMIT"
+echo "==> building at $COMMIT"
+
+echo "==> building service binaries"
+for svc in decision-engine scoring-engine market-data; do
+  (cd "$REPO/services/$svc" && /usr/local/go/bin/go build -ldflags "$LDFLAGS" -o "$BIN_DIR/$svc" ./cmd/server)
+  echo "    $svc"
+done
+
 echo "==> building scheduler binary"
 mkdir -p "$BIN_DIR"
 (cd "$REPO/services/decision-engine" && /usr/local/go/bin/go build -o "$BIN_DIR/scheduler" ./cmd/scheduler)
@@ -86,7 +100,7 @@ sudo install -d -o arcana-signer -g arcana-signer -m 0700 /etc/arcana/signer
 # Nothing the signer needs may live under /home/ubuntu: it cannot traverse the
 # application users home, and that is the point rather than an obstacle.
 echo "==> building and installing the signer to system paths"
-(cd "$REPO/services/signer" && /usr/local/go/bin/go build -o /tmp/arcana-signer ./cmd/server)
+(cd "$REPO/services/signer" && /usr/local/go/bin/go build -ldflags "$LDFLAGS" -o /tmp/arcana-signer ./cmd/server)
 sudo install -o root -g root -m 0755 /tmp/arcana-signer /usr/local/bin/arcana-signer
 rm -f /tmp/arcana-signer
 sudo install -o root -g root -m 0644 "$REPO/services/signer/allowlist/robinhood-mainnet.json" /etc/arcana/signer/allowlist.json
@@ -156,6 +170,9 @@ echo "==> done"
 echo
 echo "installed timers (expect one line per .timer file in infra/systemd/):"
 systemctl list-timers --all --no-legend | grep arcana || true
+echo
+echo "deployed version check:"
+bash "$REPO/infra/verify/deployed-version-verify.sh" || true
 echo
 echo "any arcana unit in a failed state:"
 systemctl list-units --failed --no-legend | grep arcana || echo "  none"

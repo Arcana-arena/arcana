@@ -24,7 +24,17 @@ EnvironmentFile=-/home/ubuntu/arcana/.env.auth
 # strategy_type='llm' records a HOLD with reason llm_unavailable. There is no
 # fallback to a deterministic strategy by design.
 EnvironmentFile=-/home/ubuntu/arcana/.env.llm
-ExecStart=/usr/local/go/bin/go run ./cmd/server
+# RUNS A BUILT BINARY, NOT `go run`.
+#
+# `go run` compiles and then execs the program as a CHILD, so systemd was
+# supervising the compiler rather than the service: an extra ~7 MB process per
+# service, a recompile on every restart, and signals and exit codes arriving
+# one hop away from where they were sent.
+#
+# The trade-off it hid: restarting used to be the same as deploying. It is not
+# any more, so the binary carries the commit it was built from and reports it
+# on /healthz — see infra/verify/deployed-version-verify.sh.
+ExecStart=/home/ubuntu/arcana/scheduler-bin/decision-engine
 Restart=on-failure
 RestartSec=5
 

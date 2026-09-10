@@ -14,7 +14,17 @@ Environment=PORT=8082
 # mode 600. They are NEVER inline here: unit files are world-readable and
 # systemctl show prints Environment= to any user.
 EnvironmentFile=-/home/ubuntu/arcana/.env.auth
-ExecStart=/usr/local/go/bin/go run ./cmd/server
+# RUNS A BUILT BINARY, NOT `go run`.
+#
+# `go run` compiles and then execs the program as a CHILD, so systemd was
+# supervising the compiler rather than the service: an extra ~7 MB process per
+# service, a recompile on every restart, and signals and exit codes arriving
+# one hop away from where they were sent.
+#
+# The trade-off it hid: restarting used to be the same as deploying. It is not
+# any more, so the binary carries the commit it was built from and reports it
+# on /healthz — see infra/verify/deployed-version-verify.sh.
+ExecStart=/home/ubuntu/arcana/scheduler-bin/scoring-engine
 Restart=on-failure
 RestartSec=5
 

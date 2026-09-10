@@ -2,6 +2,7 @@
 package main
 
 import (
+	"fmt"
 	"context"
 	"encoding/json"
 	"log"
@@ -17,6 +18,22 @@ import (
 	"github.com/arcana/decision-engine/internal/marketdata"
 	"github.com/arcana/decision-engine/internal/store"
 )
+
+// buildCommit is stamped at link time by infra/systemd/install.sh:
+//   go build -ldflags "-X main.buildCommit=$(git rev-parse HEAD)"
+//
+// WHY A SERVICE REPORTS ITS OWN VERSION. These used to run under `go run`,
+// which recompiled on every restart, so restarting was the same as deploying.
+// Running a built binary is faster and cleaner but breaks that: `git pull &&
+// systemctl restart` silently keeps running the old code, with nothing to
+// show for it. That trap was found in this repo the day the signer was
+// installed — a preflight change simply did not appear, and the only clue was
+// a log line that never printed.
+//
+// So the binary carries the commit it was built from and says so on /healthz,
+// and infra/verify/deployed-version-verify.sh compares that against the
+// checked-out HEAD. A stale deploy becomes something that reports itself.
+var buildCommit = "unknown"
 
 // buildLLM assembles the provider client from the environment.
 //
@@ -114,8 +131,9 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
+		fmt.Fprintf(w, `{"status":"ok","service":"decision-engine","commit":"%s"}`, buildCommit)
 	})
 	mux.HandleFunc("POST /internal/v1/decisions/execute", guard.Wrap(srv.handleExecute))
 	mux.HandleFunc("POST /internal/v1/decisions/manual", guard.Wrap(srv.handleManual))
