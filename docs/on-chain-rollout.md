@@ -19,14 +19,14 @@ Two rules govern the order:
 | 3 | Infrastructure cleanup — Kafka and Redis off | **done** | — |
 | 4a | Retire the §10 payment subsystem — **partly held, see below** | **done** | — |
 | 5 | `MarketIndexService` — remove the per-snapshot round trip | **done** | — |
-| 4b–d | Retire strategy.go, session.go, the human path | with 6, 10, 9 | each waits for its replacement |
+| 4b–d | Retire strategy.go, session.go, the human path | **partly done** | session.go and the vendor path HELD — still carrying Polygon backfill; the human format is retired, the code is not. See below |
 | 6 | Decider abstraction + DeepSeek, still on virtual money | **done** | **owner: DeepSeek API key** |
 | 7 | Signer service, policy engine, router allowlist — no money | **done** | **owner: key custody (~$0.06–$1/mo)** |
 | 8 | **First real swap, $10, one wallet** | | **owner: approval to spend** |
 | 9 | Deposit, withdrawal, and the attack suite that proves it refuses | | — |
-| 10 | Pool prices, Chainlink referee, cost meter, staggered cadence | | — |
+| 10 | Pool prices, Chainlink referee, continuous cadence, decision watchdog | **done** | — |
 | 11 | Marketplace — tx-hash verification | **done** | — |
-| 12 | User-created agents, public signup | | in progress — the parts needing no funding |
+| 12 | User-created agents, public signup | **done** (the parts needing no funding) | frontend not started, and deliberately not started here |
 
 ---
 
@@ -369,6 +369,42 @@ by racing three concurrent claims of one hash: exactly one succeeds.
 **This unblocks the phase-4a hold.** The six §10 files were kept because their
 replacement was not proven. It now is. Full write-up in
 [marketplace-payments.md](./marketplace-payments.md).
+
+## The human-vs-AI format: retired as a format, not as code
+
+**Decided 2026-09-11.** The owner asked whether a human registering themselves
+into a competition is still relevant now that the daily tick is gone. It is
+not, and the reasoning is arithmetic rather than taste.
+
+Human vs AI was built around **one tick per trading day** that stayed open for
+an hour so a person could submit a trade. The continuous cadence produces
+**six decisions a day at four-hour intervals, two of them while its owner is
+asleep**. There is no window a person can be expected to attend, and adding one
+would mean either holding a tick open for hours with nobody arriving, or
+running a different cadence for human participants — which is a different
+competition, not the same one.
+
+**What changed:** the cadence skips human-managed agents with one log line
+instead of calling the engine and counting the 422 as a failure. That would
+have printed an error every four hours forever for a system behaving exactly
+as designed.
+
+**What did NOT change, deliberately:**
+
+- `POST /v1/agents/:id/decisions` still exists and still works. A person can
+  still submit a trade for their own agent.
+- the human agent in the running competition is still a participant with a
+  real record. Deleting it is not the cadence's call.
+- `strategy_type = 'human'` is still a valid agent, and the engine still
+  refuses to auto-run one.
+
+A competition whose only remaining participants are human now exits non-zero
+and says so, rather than recording a tick in which nobody decided anything.
+That is the honest failure: the format cannot run on this clock, and the
+system says which competition and why instead of producing empty ticks.
+
+If a human-facing format returns, it needs its own cadence and its own
+scoring — not a submission window bolted onto a clock built for machines.
 
 ## Phase 12 — Users
 
