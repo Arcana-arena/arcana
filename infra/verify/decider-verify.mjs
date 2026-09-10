@@ -119,6 +119,11 @@ function cleanup() {
       sql(`DELETE FROM agents WHERE id = '${agentId}'`);
     }
     if (creatorId) sql(`DELETE FROM creators WHERE id = '${creatorId}'`);
+    // Evidence bodies are content-addressed and not owned by any one decision,
+    // so deleting the decisions leaves them behind. Collect the ones nothing
+    // cites any more — otherwise every run of this suite grows the table.
+    sql(`DELETE FROM decision_evidence e WHERE NOT EXISTS (
+           SELECT 1 FROM decisions d WHERE d.prompt_hash = e.hash OR d.response_hash = e.hash)`);
   } catch (e) { console.log('  cleanup warning: ' + e.message); }
 }
 

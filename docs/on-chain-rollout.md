@@ -20,8 +20,8 @@ Two rules govern the order:
 | 4a | Retire the §10 payment subsystem — **partly held, see below** | **done** | — |
 | 5 | `MarketIndexService` — remove the per-snapshot round trip | **done** | — |
 | 4b–d | Retire strategy.go, session.go, the human path | with 6, 10, 9 | each waits for its replacement |
-| 6 | Decider abstraction + DeepSeek, still on virtual money | next | — |
-| 7 | Signer service, policy engine, router allowlist — no money | | — |
+| 6 | Decider abstraction + DeepSeek, still on virtual money | **done** | **owner: DeepSeek API key** |
+| 7 | Signer service, policy engine, router allowlist — no money | next | — |
 | 8 | **First real swap, ~$20, one wallet** | | **owner: approval to spend** |
 | 9 | Deposit, withdrawal, and the attack suite that proves it refuses | | — |
 | 10 | Pool prices, Chainlink referee, cost meter, staggered cadence | | — |
@@ -196,9 +196,20 @@ refusal state from the direction doc is implemented and recorded.
 **Still on virtual money.** The point of this phase is that the pipeline, the
 scoring and the evidence trail work before anything is at stake.
 
-**Verified by:** running a season on virtual capital with the LLM decider; the
-score still computes; and a deliberately broken provider produces
-`llm_unavailable` rows in the log rather than a gap in the record.
+**Done 2026-09-10.** `infra/verify/decider-verify.mjs`, **29 checks** against a
+real decision-engine process writing real rows. The abstraction is proved by
+using a *different* provider selected by configuration alone; a genuinely closed
+port proves `llm_unavailable` produces a recorded hold rather than a lost tick.
+
+Cost recomputed from the prompt that is actually generated rather than an
+assumed one: **$11/month for 100 agents hourly, against a $22 estimate** — the
+estimate was conservative by ~2x, and it changes no decision, because cadence
+was never driven by inference cost.
+
+**Still waiting on the owner for a DeepSeek key.** Without it the service boots,
+serves /healthz, and every `llm` agent records a hold with `llm_unavailable`.
+There is deliberately no fallback. Full write-up in
+[decision-engine-llm.md](./decision-engine-llm.md).
 
 ## Phase 7 — The signer
 

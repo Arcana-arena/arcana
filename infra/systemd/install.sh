@@ -49,6 +49,22 @@ if [ ! -f "$REPO/services/market-data/.env" ]; then
 fi
 chmod 600 "$REPO/services/market-data/.env"
 
+# The LLM provider key lives here at mode 600 and is never committed. Created
+# empty if absent so the path exists and the permissions are right before
+# anyone pastes a key into it — the same pattern as the vendor key above.
+if [ ! -f "$REPO/.env.llm" ]; then
+  echo "==> creating empty .env.llm (mode 600) — add LLM_API_KEY"
+  install -m 600 /dev/null "$REPO/.env.llm"
+  {
+    echo "# Provider key for the LLM decider. See .env.example for the rest."
+    echo "# Without it, agents whose strategy_type is llm record a HOLD with"
+    echo "# reason llm_unavailable. There is NO fallback to a deterministic"
+    echo "# strategy: an agent must not quietly become something it is not."
+    echo "LLM_API_KEY="
+  } >> "$REPO/.env.llm"
+fi
+chmod 600 "$REPO/.env.llm"
+
 echo "==> installing units"
 sudo cp "$REPO"/infra/systemd/*.service "$REPO"/infra/systemd/*.timer "$UNIT_DIR/"
 

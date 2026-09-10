@@ -15,6 +15,15 @@ Environment=MARKET_DATA_URL=http://localhost:8083
 # mode 600. They are NEVER inline here: unit files are world-readable and
 # systemctl show prints Environment= to any user.
 EnvironmentFile=-/home/ubuntu/arcana/.env.auth
+# LLM_API_KEY, and any provider override, come from their own file at mode 600.
+# Separate from .env.auth on purpose: a provider key is rotated on a different
+# schedule and by a different person than the signing keys, and a file that
+# mixes them invites copying the wrong line.
+#
+# Without it the service still boots and serves /healthz, and every agent with
+# strategy_type='llm' records a HOLD with reason llm_unavailable. There is no
+# fallback to a deterministic strategy by design.
+EnvironmentFile=-/home/ubuntu/arcana/.env.llm
 ExecStart=/usr/local/go/bin/go run ./cmd/server
 Restart=on-failure
 RestartSec=5
