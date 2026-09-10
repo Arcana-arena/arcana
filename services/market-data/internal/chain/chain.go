@@ -447,3 +447,13 @@ func Referee(cfg *Config, t TokenConfig, pool float64, feed FeedAnswer, feedErr 
 	v.Status = "agreed"
 	return v
 }
+
+// errNoFeed is the "no Chainlink answer" case, named so tests can drive the
+// referee's refusal path without fabricating an RPC failure.
+var errNoFeed = errors.New("no feed configured")
+
+// writeFile is a test helper kept beside the code it tests rather than
+// duplicated into each test file.
+func writeFile(path, content string) error {
+	return os.WriteFile(path, []byte(content), 0o600)
+}
