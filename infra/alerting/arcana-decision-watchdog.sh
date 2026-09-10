@@ -58,13 +58,21 @@ psql() {
   docker exec "$PG_CONTAINER" psql -U "$PG_USER" -d "$WATCHDOG_DB" -tAc "$1" 2>/dev/null
 }
 
+# alert <title> <body>
+#
+# The body goes on STDIN and the title is an argument: that is arcana-notify's
+# interface (`alert <priority> <title>`, body piped), not a guess. The first
+# version of this script called it as `notify "$title" "$body"` and got a usage
+# error — the alarm path was broken from the moment it was written, and it
+# would have stayed broken until the day it was needed. Found by firing it on
+# purpose, which is the only way this class of bug is ever found.
 alert() {
-  if [ -x "$NOTIFY" ]; then
-    "$NOTIFY" "$1" "$2" || true
-  else
+  if [ ! -x "$NOTIFY" ]; then
     echo "decision-watchdog: NOTIFY MISSING at $NOTIFY" >&2
     echo "decision-watchdog: $1 — $2" >&2
+    return
   fi
+  printf '%s\n' "$2" | "$NOTIFY" alert high "$1" || true
 }
 
 # --- is there anything to watch? --------------------------------------------
