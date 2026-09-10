@@ -1,0 +1,104 @@
+{
+  "chain_id": 4663,
+  "quote_token": {
+    "symbol": "USDG",
+    "address": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+    "decimals": 6
+  },
+  "v3_factory": "0x1f7d7550b1b028f7571e69a784071f0205fd2efa",
+  "reviewed_at": "2026-09-10",
+  "reviewed_by": "phase 2 — read from mainnet 2026-09-10 and cross-checked against docs/go-no-go-stock-tokens.md",
+  "tokens": [
+    {
+      "symbol": "AAPL",
+      "address": "0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9",
+      "beacon": "0xe10b6f6b275de231345c20d14ab812db62151b00",
+      "implementation": "0xb35490d6f9163de4f80d88dc75c3516eb64c5ae2",
+      "implementation_code_size": 11614,
+      "paused_expected": false,
+      "pool": "0xaae0d815ee56e4092a5e5c2911e676fea50b2d6d",
+      "pool_fee_bps": 5
+    },
+    {
+      "symbol": "NVDA",
+      "address": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+      "beacon": "0xe10b6f6b275de231345c20d14ab812db62151b00",
+      "implementation": "0xb35490d6f9163de4f80d88dc75c3516eb64c5ae2",
+      "implementation_code_size": 11614,
+      "paused_expected": false,
+      "pool": "0xd4eb21209c4d6093f80b5b84f5c45cc093ea14a3",
+      "pool_fee_bps": 5
+    },
+    {
+      "symbol": "GOOGL",
+      "address": "0x2e0847E8910a9732eB3fb1bb4b70a580ADAD4FE3",
+      "beacon": "0xe10b6f6b275de231345c20d14ab812db62151b00",
+      "implementation": "0xb35490d6f9163de4f80d88dc75c3516eb64c5ae2",
+      "implementation_code_size": 11614,
+      "paused_expected": false,
+      "pool": "0x34d0dc122cf9a8eb296fc5e0d3a233625d7d19b7",
+      "pool_fee_bps": 5
+    },
+    {
+      "symbol": "SPY",
+      "address": "0x117cc2133c37B721F49dE2A7a74833232B3B4C0C",
+      "beacon": "0xe10b6f6b275de231345c20d14ab812db62151b00",
+      "implementation": "0xb35490d6f9163de4f80d88dc75c3516eb64c5ae2",
+      "implementation_code_size": 11614,
+      "paused_expected": false,
+      "pool": "0xa7bb1ac63bbab0c44316e6c8c455213441689167",
+      "pool_fee_bps": 5
+    },
+    {
+      "symbol": "QQQ",
+      "address": "0xD5f3879160bc7c32ebb4dC785F8a4F505888de68",
+      "beacon": "0xe10b6f6b275de231345c20d14ab812db62151b00",
+      "implementation": "0xb35490d6f9163de4f80d88dc75c3516eb64c5ae2",
+      "implementation_code_size": 11614,
+      "paused_expected": false,
+      "pool": "0xd60a5d14db690b7afad71f76b108071d7175597d",
+      "pool_fee_bps": 5
+    },
+    {
+      "symbol": "TSLA",
+      "address": "0x322F0929c4625eD5bAd873c95208D54E1c003b2d",
+      "beacon": "0xe10b6f6b275de231345c20d14ab812db62151b00",
+      "implementation": "0xb35490d6f9163de4f80d88dc75c3516eb64c5ae2",
+      "implementation_code_size": 11614,
+      "paused_expected": false,
+      "pool": "0xf4acdaeeb7022862a763c9b1b885e11191c889e3",
+      "pool_fee_bps": 30
+    },
+    {
+      "symbol": "AMZN",
+      "address": "0x12f190a9F9d7D37a250758b26824B97CE941bF54",
+      "beacon": "0xe10b6f6b275de231345c20d14ab812db62151b00",
+      "implementation": "0xb35490d6f9163de4f80d88dc75c3516eb64c5ae2",
+      "implementation_code_size": 11614,
+      "paused_expected": false,
+      "pool": "0x8ac92da74ab5f3b1d024dc1943ad7e15dc4179ef",
+      "pool_fee_bps": 30
+    },
+    {
+      "symbol": "MSFT",
+      "address": "0xe93237C50D904957Cf27E7B1133b510C669c2e74",
+      "beacon": "0xe10b6f6b275de231345c20d14ab812db62151b00",
+      "implementation": "0xb35490d6f9163de4f80d88dc75c3516eb64c5ae2",
+      "implementation_code_size": 11614,
+      "paused_expected": false,
+      "pool": "0xeb60bcd1d920ad6e102690ccfc6fb488899e1510",
+      "pool_fee_bps": 30
+    },
+    {
+      "symbol": "META",
+      "address": "0xc0D6457C16Cc70d6790Dd43521C899C87ce02f35",
+      "beacon": "0xe10b6f6b275de231345c20d14ab812db62151b00",
+      "implementation": "0xb35490d6f9163de4f80d88dc75c3516eb64c5ae2",
+      "implementation_code_size": 11614,
+      "paused_expected": false,
+      "pool": "0x107a7cb40d8665360ba10e59471af06150a50922",
+      "pool_fee_bps": 30
+    }
+  ],
+  "note": "All nine tokens share ONE beacon and ONE implementation. A single upgrade transaction changes every Stock Token at once. That is why implementation drift is a CRITICAL alarm and not a warning."
+}

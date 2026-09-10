@@ -8,8 +8,10 @@
 #   1. copies *.service / *.timer into /etc/systemd/system/
 #   2. builds the scheduler binary into ~/arcana/scheduler-bin/
 #   3. daemon-reload, enables and starts the long-running services
-#      (agent, market-data, decision, scoring, marketplace, arca) and the four
-#      timers (scheduler, scoring batch, $ARCA reminder, $ARCA payout).
+#      (agent, market-data, decision, scoring, marketplace, arca) and EVERY
+#      timer in infra/systemd/ — the list is derived from the files rather than
+#      written out here, because a hand-kept copy of it had already drifted and
+#      left the backup, the restore proof and the tick watchdog disabled.
 #
 # NOTE: arca-service reads its ARCA_* config (incl. secrets) from
 # services/arca-service/.env — create it from .env.example before starting,
@@ -56,10 +58,29 @@ for u in arcana-agent arcana-marketdata arcana-decision arcana-scoring arcana-ma
   sudo systemctl enable --now "$u.service"
 done
 
+# Enable every timer that was installed, derived from the files themselves.
+#
+# This used to be a hand-maintained list of five, while nine timer files were
+# being copied into place. The four it silently left disabled were
+# arcana-backup, arcana-backup-verify, arcana-tick-watchdog and
+# arcana-chain-guard — that is, the daily backup, the proof that the backup
+# restores, the silent-failure detector, and the contract-drift monitor. Every
+# one of them exists because its absence already cost something, and a fresh
+# install would have had none of them while reporting success.
+#
+# Deriving the list from the .timer files makes the installer correct by
+# construction: a timer that ships is a timer that is enabled, and adding one
+# cannot be half-done again.
 echo "==> enabling timers"
-for t in arcana-scheduler arcana-scoring-job arcana-arca-reminder arcana-arca-payout arcana-agent-dna; do
-  sudo systemctl enable --now "$t.timer"
+for f in "$REPO"/infra/systemd/*.timer; do
+  t="$(basename "$f")"
+  sudo systemctl enable --now "$t"
 done
 
 echo "==> done"
-systemctl list-timers --no-legend | grep arcana || true
+echo
+echo "installed timers (expect one line per .timer file in infra/systemd/):"
+systemctl list-timers --all --no-legend | grep arcana || true
+echo
+echo "any arcana unit in a failed state:"
+systemctl list-units --failed --no-legend | grep arcana || echo "  none"

@@ -1,0 +1,41 @@
+# arcana-chain-guard.service — watch what the token issuer controls.
+#
+# THE CASE THIS EXISTS FOR. Every Robinhood Stock Token ARCANA can trade is a
+# beacon proxy, and all nine of them point at the SAME beacon and the SAME
+# implementation. One upgrade transaction rewrites the transfer rules for every
+# one of them at once. The permission this whole direction rests on — that a
+# wallet ARCANA created may hold and trade these tokens — is revocable that way,
+# with no notice and no announcement.
+#
+# Nothing inside ARCANA would show that until an agent's trade started reverting
+# and its owner asked why. So this reads the values the issuer controls and
+# compares them against a baseline a person reviewed and committed
+# (infra/alerting/chain-baseline.json).
+#
+# READ-ONLY by construction: eth_call and eth_getStorageAt only. It signs
+# nothing, sends nothing, and holds no key. A monitor must not be able to move
+# what it observes.
+#
+# NO SECRETS HERE. Public RPC endpoints only; the ntfy topic used for alerting
+# is the credential and lives in .env.alerts at mode 600, referenced by path.
+#
+# Exit 1 means the CHECK could not be performed — not that nothing changed —
+# which is itself worth waking someone for, so this unit carries OnFailure=
+# like the units it watches.
+[Unit]
+Description=ARCANA chain guard (Stock Token issuer-control drift)
+After=network-online.target
+Wants=network-online.target
+OnFailure=arcana-alert@%n.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+SyslogIdentifier=arcana-chain-guard
+WorkingDirectory=/home/ubuntu/arcana
+EnvironmentFile=-/home/ubuntu/arcana/.env.alerts
+ExecStart=/usr/bin/flock -n /tmp/arcana-chain-guard.lock /usr/bin/node /home/ubuntu/arcana/infra/alerting/arcana-chain-guard.mjs
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

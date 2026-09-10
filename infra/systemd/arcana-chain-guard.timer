@@ -1,0 +1,33 @@
+# arcana-chain-guard.timer — check the issuer's switches every four hours.
+#
+# CADENCE: every 4 hours, on the hour, with a randomised delay.
+#
+# Four hours is not arbitrary. It is the minimum agent cadence
+# (AGENT_MIN_CADENCE_HOURS=4, see docs/on-chain-direction.md §i), so the guard
+# runs at least once between any two decisions an agent can make. A slower
+# guard would let an agent trade against rules that had already changed; a
+# faster one would only spend more free-tier RPC budget to learn the same thing,
+# since a contract upgrade is a rare event, not a continuous one.
+#
+# Unlike the tick watchdog, this has nothing to wait for. The chain does not
+# close, there is no settling period, and there is no later retry that might
+# make a finding go away — which is exactly why the tick watchdog had to run at
+# 04:00 and this does not.
+#
+# RandomizedDelaySec keeps every ARCANA host off the same second of the same
+# public endpoint.
+#
+# Persistent=true: a run missed while the VPS was down still matters. A contract
+# upgrade that happened during the outage is MORE urgent to learn about, not
+# less — the opposite of the scheduler, where a missed session has simply
+# passed.
+[Unit]
+Description=Run the ARCANA chain guard every four hours
+
+[Timer]
+OnCalendar=*-*-* 00/4:00:00 UTC
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

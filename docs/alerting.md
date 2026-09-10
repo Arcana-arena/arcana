@@ -116,6 +116,80 @@ look clean to the watchdog.
 
 ---
 
+## Layer 3 — the chain guard
+
+`infra/alerting/arcana-chain-guard.mjs`, every four hours via
+`arcana-chain-guard.timer`. Added 2026-09-10 with the
+[on-chain direction](./on-chain-direction.md).
+
+**The case it exists for.** Every Robinhood Stock Token ARCANA can trade is a
+beacon proxy, and all nine point at the **same beacon and the same
+implementation** — verified across all nine, not inferred from one. A single
+upgrade transaction rewrites the transfer rules for every Stock Token at once.
+
+Today those rules are a **blocklist**: permissive by default, deny named
+addresses. That is the only reason a wallet ARCANA creates can trade at all
+([go-no-go-stock-tokens.md](./go-no-go-stock-tokens.md)). An upgrade could make
+it an **allowlist** — deny by default — and nothing inside ARCANA would show it
+until an agent's trade started reverting and its owner asked why.
+
+**What it reads**, per token: the beacon pointer in the token's own storage
+slot, `implementation()` on the beacon, `paused()`, and the routed pool's
+`liquidity()`. Once wallets exist (phase 8) it also reads `isBlocked()` for each
+of them.
+
+### The baseline is in git, not in the database
+
+`infra/alerting/chain-baseline.json`, reviewed and dated by a person.
+
+A monitor that remembers what it last saw will, on its first run after a change,
+adopt the new value as normal — and stay silent at the one moment it existed to
+speak. A committed baseline means a change requires somebody to look at it, date
+it and say so. Same reasoning as the market universe living in git rather than
+in `.env`: this is a rule, not a setting.
+
+### Two failures found while building it, both worth keeping in mind
+
+**A fallback that could not serve the workload.** `robinhood.drpc.org` was
+listed as a second RPC endpoint. It answers `eth_chainId` and **refuses**
+`eth_call` and `eth_getStorageAt` on its free tier — so it satisfied the chain
+identity check and then failed every real read. Listed as redundancy it provided
+none, and made a single point of failure look like two. The guard now **probes
+each endpoint with the methods it actually uses** and drops what cannot serve
+them, loudly.
+
+**One transient hiccup read as a monitor fault.** Each run makes around forty
+RPC calls against a free public endpoint. Without retries, a single dropped
+connection produced exit 1 — "the check could not run" — which on a four-hour
+timer would have meant regular alerts that were nobody's fault. That is the
+alert-fatigue failure this whole document is built around. Calls now retry with
+backoff across the surviving endpoints before anything is declared a fault.
+
+Both were found by running the verification suite repeatedly rather than once.
+A monitor that passes its tests on the first attempt and fails on the third is
+not passing.
+
+### Proven to fire
+
+`bash infra/verify/chain-guard-verify.sh` exercises every branch against the
+**live** chain, injecting drift through test hooks. Nothing is mocked — real
+addresses, real RPC, real baseline — only the compared value is forced.
+
+| Case | Expected | Result |
+|---|---|---|
+| Baseline matches the chain | exit 0, silent | ✅ |
+| Implementation changed | exit 0, **alarm** | ✅ all 9 tokens, from one injected change |
+| Token paused by the issuer | exit 0, **alarm** | ✅ |
+| Every RPC endpoint unreachable | **exit 1** | ✅ never reported as healthy |
+| Connected to the wrong chain | **exit 1** | ✅ |
+| Baseline file missing | **exit 1** | ✅ |
+| Alert body names the action to take | present | ✅ *"STOP funding new agent wallets"* |
+
+The nine-from-one row is the point of the whole layer: it is what a real
+upgrade would look like.
+
+---
+
 ## What is deliberately silent, and why
 
 A false alarm is more dangerous than no alarm. Somebody woken every Saturday by
