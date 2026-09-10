@@ -420,6 +420,26 @@ to any user.
 cd /home/ubuntu/arcana && node infra/verify/auth-verify.mjs
 ```
 
+**65 checks since 2026-09-10** (was 63). The §10 payout route was retired, so
+the two checks asserting its internal-key guard were testing a route that no
+longer exists. They were replaced rather than dropped: the guard assertion moved
+to the still-live reminder route, and two new checks prove the payout route is
+**gone** (404 even with a valid key) and that deposit-address generation refuses
+**by decision** — message says `retired`, and specifically does *not* say `not
+configured`. Asserting the reason, not just the refusal, is what stops the old
+behaviour returning when somebody fills in `ARCA_MASTER_PRIVATE_KEY`.
+
+A companion suite covers the subscription access rule:
+
+```bash
+cd /home/ubuntu/arcana && node infra/verify/access-flow-verify.mjs
+```
+
+11 checks over `active → grace → expired`, including the one that is easy to
+get wrong and silent when broken: **access survives expiry for the whole 48-hour
+grace window and then stops**. It exists because `subscriptions` lives inside the
+retired §10 module and must not be deleted by association.
+
 63 checks: public reachability, 401 for anonymous callers, 403 for a signed-in
 non-owner, non-admin and legacy writes, forged/stale/wrong-domain/wrong-chain
 signatures, sequential and **concurrent** nonce replay, refresh rotation and

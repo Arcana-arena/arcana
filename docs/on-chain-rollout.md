@@ -133,9 +133,31 @@ vs AI is already made and recorded; removing the code waits until the running
 human participants, Season 1 and every decision ever recorded stay where they
 are. What stops is accrual.
 
-**Verified by:** the services build and boot with the code gone; no timer
-references a removed unit; `docs/data-resets.md` gains an entry saying what was
-removed and why.
+**Done 2026-09-10. What was actually retired is much less than the list above,
+and the mapping is why.**
+
+Retired: `PayoutBatchService`, `creator-payout.entity.ts`, its internal route,
+`arcana-arca-payout.{service,timer}`, and the empty `infra/k8s/`.
+
+**Held, because they are live:** `DepositAddressesService` and `HdWalletService`
+(the subscribe path — `POST /listings/:id/subscribe` calls them),
+`PaymentListenerService` (the only thing that grants a subscription after
+payment), `SubscriptionsService` and `ReminderService` (the access record and
+the lifecycle that writes it), `ArcaTokenService` (entitlements depend on it).
+Six of twelve files. Their replacement is phase 11.
+
+**Interlocked instead of deleted:** `DepositAddressesService.generate()` now
+refuses by decision. It previously refused only because the environment was
+empty — and `arca-go-live.md` was a written procedure to fill exactly those
+variables in. A retirement one environment variable from waking up is not one.
+
+**No table dropped, no row deleted.** All four payment tables were empty;
+migration 0024 records the retirement with `COMMENT ON TABLE`, and marks
+`subscriptions` explicitly LIVE so it is not swept up later.
+
+**Verified:** auth suite **65/65**, new access-flow suite **11/11**, six
+services active, six `/healthz` 200, eight timers enabled, no dangling unit
+symlinks. `docs/data-resets.md` carries the full entry.
 
 ## Phase 5 — `MarketIndexService`
 
