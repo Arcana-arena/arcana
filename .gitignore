@@ -32,3 +32,12 @@ tmp/
 
 # --- Local tooling (never pushed to remote / VPS) ---
 .commandcode/
+
+# Build artefacts produced on the host by infra/systemd/install.sh.
+# Untracked binaries made every deployed-version check report a dirty working
+# tree, which would have trained everyone to ignore the one signal that says
+# production is running code nobody reviewed.
+go.work.sum
+scheduler-bin/
+services/*/server
+services/*/backfill

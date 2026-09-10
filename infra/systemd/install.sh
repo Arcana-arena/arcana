@@ -142,9 +142,27 @@ done
 
 sudo systemctl daemon-reload
 
+# Build the Node services too. They run from dist/, so a pull that changes
+# src/ leaves them running the previous build — the same trap as the Go
+# binaries, one language over.
+echo "==> building Node services"
+for svc in agent-service marketplace arca-service; do
+  (cd "$REPO/services/$svc" && npm run build >/dev/null 2>&1) && echo "    $svc" \
+    || echo "    $svc BUILD FAILED — it will keep running its previous dist/"
+done
+
 echo "==> enabling long-running services"
+#
+# RESTART, NOT JUST ENABLE. `systemctl enable --now` starts a stopped service
+# and does NOTHING to one that is already running — so an installer that only
+# enabled would copy new binaries into place and leave every service running
+# the old ones, reporting success. That is the third time this script has been
+# quietly incomplete: it copied nine timers and enabled five, it never pruned
+# units removed from the repo, and it installed binaries nobody was told to
+# pick up.
 for u in arcana-agent arcana-marketdata arcana-decision arcana-scoring arcana-marketplace arcana-arca arcana-signer; do
-  sudo systemctl enable --now "$u.service"
+  sudo systemctl enable "$u.service" >/dev/null
+  sudo systemctl restart "$u.service"
 done
 
 # Enable every timer that was installed, derived from the files themselves.
@@ -171,6 +189,7 @@ echo
 echo "installed timers (expect one line per .timer file in infra/systemd/):"
 systemctl list-timers --all --no-legend | grep arcana || true
 echo
+sleep 5
 echo "deployed version check:"
 bash "$REPO/infra/verify/deployed-version-verify.sh" || true
 echo
