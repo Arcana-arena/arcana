@@ -296,3 +296,60 @@ flag. That is a competition-rules decision, not a bug fix, and with one tick per
 trading day the window is now a meaningful constraint worth designing properly
 rather than bolting on during a data migration. Season 1's dates were corrected
 so the archived record is at least truthful about itself.
+
+---
+
+## 2026-09-11 — §10 payment subsystem retired (no data removed)
+
+**Nothing was deleted.** This entry exists because the phase that removed the
+code touched tables, and an entry saying "and the data was left alone" is worth
+as much as one saying what went.
+
+Six files went: `HdWalletService`, `DepositAddressesService`,
+`PaymentListenerService`, and the three entities only they used —
+`DepositAddress`, `PaymentEvent`, `ServiceState`. With them, three routes
+(`POST /v1/arca/deposit-address`, `internal/v1/payments/listener/poll`,
+`internal/v1/payments/listener/audit`) and the marketplace `subscribe` route
+that called the first of them.
+
+### Row counts, read on production immediately before
+
+```
+deposit_addresses  0
+payment_events     0
+service_state      0
+subscriptions      0   (LIVE — not retired, counted only to show it was seen)
+payment_claims     0
+user_push_tokens   0
+```
+
+All three retired tables were empty, so no data existed to preserve or destroy.
+They are **kept**, marked with `COMMENT ON TABLE` by migration 0028, for the
+same reason as 0024: an empty table costs nothing, and the schema is then able
+to answer "what was here, and what happened to it" without anyone finding this
+document first.
+
+### Backup taken anyway
+
+`~/arcana-backups/automated/daily/arcana-20260910T191939Z.tar.gz` (151 KB),
+via `sudo systemctl start arcana-backup.service`, before any file was removed.
+Taken despite the tables being empty — the rule is backup-before-removal, and a
+rule with a "unless you're sure it's empty" clause is a rule that eventually
+meets someone who was sure and wrong.
+
+### Why now, and not in phase 4a
+
+These six were explicitly **held** in phase 4a under this project's standing
+rule: nothing live is deleted until its replacement is proven. Phase 11 proved
+the replacement — `ClaimsService`, 22/22 checks, driven by real USDG transfers
+that somebody else made on chain for their own reasons. Only then did the rule
+release them.
+
+### One finding worth recording
+
+`service_state` was introduced by migration 0015, described as generic
+key-value state for background services. Tracing every reference before
+removing anything found exactly **one** consumer in the entire codebase:
+`PaymentListenerService`, storing its block scan cursor. The general facility
+existed in the description, never in the code. It is retired with its only
+user rather than kept on the strength of its name.

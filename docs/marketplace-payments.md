@@ -166,14 +166,34 @@ Only the conditions the chain will not supply on demand come from a controlled
 RPC speaking the same protocol: a reverted receipt (the same transaction with
 `status: 0x0`), an unmined one, and a node that is down.
 
+## Decimals are read from the token, not configured
+
+There was an `ARCA_TOKEN_DECIMALS`, defaulting to **18** with a comment calling
+it a documented assumption. USDG, the token this chain settles in, uses **6**.
+An assumption wrong by twelve orders of magnitude does not error — it compares
+two numbers and returns a confident answer about money.
+
+It is not an assumption at all. `decimals()` is a view function on the token,
+so whatever token is configured, **the chain will say**. It is read at the
+moment it is needed, cached for the process (decimals is immutable for any
+ERC-20 worth accepting — set at construction, no setter in the standard), and
+there is deliberately **no fallback**: a token that cannot be asked is a token
+that cannot be verified against, which is check 6's
+`payment_verification_unavailable`, not a guess.
+
+This narrows the blocker to the one thing genuinely unknown. The scale of $ARCA
+was never unknowable — only unasked, because the token does not exist yet to
+ask. The instant it does, nobody has to remember to go and check.
+
 ## Before this can take real money
 
-1. **`ARCA_TOKEN_ADDRESS`** — the token does not exist yet. Until it is set the
-   claim path refuses with `payment_verification_unavailable`, which is correct.
-2. **`ARCA_TOKEN_DECIMALS`** — currently a documented assumption of 18. USDG,
-   the only comparable token on this chain, uses 6. Getting it wrong scales
-   every price check by a trillion in one direction or the other. Verify against
-   the real token before anyone can pay.
-3. **The §10 subsystem is still standing**, deliberately. Six files were held in
-   phase 4a because their replacement was not proven. It is now — retiring them
-   is its own phase, which is the right order and the reason they were held.
+**`ARCA_TOKEN_ADDRESS`** — and that is the whole list. The token does not exist
+yet; until it is set the claim path refuses with
+`payment_verification_unavailable`, which is correct.
+
+The §10 subsystem that used to appear here as item 3 was **retired on
+2026-09-11**: `HdWalletService`, `DepositAddressesService`,
+`PaymentListenerService`, their three entities, the deposit-address route, both
+listener routes, and the marketplace `subscribe` route that called them. They
+were held through phase 4a because their replacement was not proven. This
+document is that proof, and the order was the point.

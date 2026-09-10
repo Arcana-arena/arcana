@@ -1,68 +1,76 @@
 # $ARCA Go-Live Checklist
 
-> # ⛔ DO NOT FOLLOW SECTIONS 1–4. SUPERSEDED 2026-09-10.
+> **Rewritten 2026-09-11.** The previous version of this file was a live
+> hazard, and the history is worth keeping because the shape of the mistake
+> recurs.
 >
-> **This document was a live hazard, and that is why it is being corrected
-> rather than deleted.**
->
-> It is a written procedure instructing an operator to fill in
+> It was a written procedure instructing an operator to fill in
 > `ARCA_MASTER_PRIVATE_KEY`, `ARCA_TREASURY_PRIVATE_KEY`, `ARCA_TOKEN_ADDRESS`,
-> `ARCA_RPC_URL` and `ARCA_CHAIN_ID`. Until today, those five empty variables
-> were the *only* thing keeping the deposit-address payment path inert.
-> Following these steps would have activated a payment model this project has
-> **abandoned** — routing real user money into ARCANA-derived deposit
-> addresses, sweeping it to a treasury, and splitting it off-chain — and
-> everything here would have reported success while doing it.
+> `ARCA_RPC_URL` and `ARCA_CHAIN_ID`, then to restart and watch for
+> `payment listener started`. Those five empty variables were, for a while, the
+> *only* thing keeping the abandoned §10 payment path inert. Following the
+> steps would have activated a model this project had already discarded —
+> routing real user money into ARCANA-derived deposit addresses, sweeping it to
+> a treasury, splitting it off-chain — and every step would have reported
+> success while doing it.
 >
-> **The marketplace is now P2P with no fee.** The buyer transfers straight to
-> the creator's wallet and submits the transaction hash; ARCANA verifies it
-> against the chain. No deposit address, no treasury, no split. See
-> [on-chain-direction.md §g](./on-chain-direction.md#g-marketplace--tx-hash-confirmation).
->
-> **The path no longer depends on this file being obeyed.**
-> `DepositAddressesService.generate()` now refuses **by decision**, not by
-> configuration. Filling in the five variables does not lift it. A retirement
-> that one environment variable can undo is not a retirement.
->
-> **What still applies:** §5 below, on `ARCA_CHAIN_ID` and the entitlement
-> layer. $ARCA gating (CREATE, COMPETE, EVOLVE, PREMIUM ARENA) is unaffected by
-> any of this — it only ever *reads* a balance, and it is now the platform's
-> only revenue surface.
+> **A retirement that a document can undo is not a retirement.** On 2026-09-11
+> the code went: `HdWalletService`, `DepositAddressesService`,
+> `PaymentListenerService`, the deposit-address route, the two listener routes,
+> and the marketplace `subscribe` route that called them. There is now nothing
+> for those variables to configure. The steps below are what is left, and all
+> of it is real.
 
-What to do the day the $ARCA token actually launches, in order. Everything in
-the payment path is built and verified end-to-end against a local chain
-simulator, but it is deliberately inert: five environment variables are empty,
-and every feature that moves funds refuses to start without them.
+The marketplace is **P2P with no fee**: the buyer transfers straight to the
+creator's wallet and submits the transaction hash, which ARCANA verifies
+against the chain. No deposit address, no treasury, no split, no contract. See
+[marketplace-payments.md](./marketplace-payments.md) and
+[on-chain-direction.md §g](./on-chain-direction.md#g-marketplace--tx-hash-confirmation).
 
-This file exists so that moment is a checklist, not an improvisation.
+So "go-live" now means one thing only: **the $ARCA token exists and its address
+is known.** Two systems have been waiting on that and nothing else.
 
-Related: [scheduling.md](./scheduling.md) (the timers), architecture.md §10
-(the design these steps implement).
+Related: [scheduling.md](./scheduling.md) (the timers), migration 0027
+(`payment_claims`), migration 0028 (what was retired).
 
 ---
 
-## Before you touch anything
+## What is actually blocked, and by what
 
-Confirm you have all five values below and the two things the design cannot
-supply for you: the **KMS/HSM** holding the wallet keys, and a **funded
-treasury wallet**. If either is missing, stop — do not fill in a placeholder to
-"see if it works". The whole point of the empty env is that a half-configured
-payment path refuses to run instead of half-running.
+| Blocked | Blocked by | Not blocked by |
+|---|---|---|
+| Marketplace payment claims | `ARCA_TOKEN_ADDRESS` — the token does not exist | anything else; the verification path is proven, 22/22, against real USDG transfers |
+| $ARCA entitlement gating | `ARCA_TOKEN_ADDRESS` **and** a per-action threshold | — |
+
+Note what is **not** on that list any more. Token decimals used to be, as a
+"documented assumption of 18". It is not a blocker and never should have been
+one: `decimals()` is a view function on the token, so whatever token is
+configured, the chain says. The value is read from the token at the moment it
+is needed, cached for the process, and there is deliberately **no fallback** —
+a token that cannot be asked is a token that cannot be verified against, which
+answers `503 payment_verification_unavailable` rather than guessing. Guessing
+18 where the truth is 6 scales every price check by a factor of a trillion,
+silently.
 
 ---
 
-## 1. Fill the five variables
+## 1. Fill three variables
 
 All live in `/home/ubuntu/arcana/services/arca-service/.env` (mode `600`, never
-committed). Restart is required for each — they are read once at boot.
+committed). Restart is required — they are read once at boot.
 
 | Variable | Source | Notes |
 |---|---|---|
-| `ARCA_TOKEN_ADDRESS` | the deployed $ARCA ERC-20 contract | Must be the real address. Never a test token, never guessed — the listener refuses to run without it precisely so no placeholder can slip through. |
-| `ARCA_RPC_URL` | Robinhood Chain RPC gateway | The internal project gateway (§10.2). Read-only access is all that is needed for the listener. |
-| `ARCA_CHAIN_ID` | Robinhood Chain | Not recorded anywhere in this repo. The code falls back to `31337` (anvil) — **wrong for production**, and only harmless while payouts are disabled. Set it before the first payout. |
-| `ARCA_MASTER_PRIVATE_KEY` | **KMS/HSM** | BIP-32 master seed for deriving per-subscription deposit addresses. §10.6 calls this the most critical security point in the entire design: it controls every deposit address ever issued. It must arrive from the secret manager at deploy time and never be written to a file that outlives the process, never committed, never logged. |
-| `ARCA_TREASURY_PRIVATE_KEY` | **KMS/HSM** | The operational wallet that sends creator payouts. Separate key from the deposit master — compromise of one must not imply the other. |
+| `ARCA_TOKEN_ADDRESS` | the deployed $ARCA ERC-20 contract | Must be the real address. Never a test token, never guessed. While it is empty, claims refuse with `503 payment_verification_unavailable`, which is the correct answer: nothing was judged. |
+| `ARCA_RPC_URL` | Robinhood Chain RPC | Read-only access is all that is needed. |
+| `ARCA_CHAIN_ID` | Robinhood Chain | **4663** (`0x1237`), measured. The code falls back to `31337` (anvil), which is wrong for production. |
+
+No private key appears in this table, and that is the point. Claim verification
+**reads** the chain. ARCANA holds no wallet in the payment path at all — the
+money never touches it.
+
+(Custodial *trading* wallets are a different subsystem with its own key
+custody; see [signer.md](./signer.md). Nothing here funds or unlocks them.)
 
 ### Entitlement gating thresholds
 
@@ -83,80 +91,58 @@ Before setting any of them, confirm every creator who should keep operating has
 a `creators.wallet_address`: without one the check denies with
 `no_wallet_linked`, and at least one seeded creator has no wallet today.
 
-Optional, already sane by default: `ARCA_CONFIRMATIONS` (12),
-`ARCA_TOKEN_DECIMALS` (18 — **verify against the real token**, it is a
-documented assumption), `ARCA_DEPOSIT_TTL_HOURS` (24),
-`ARCA_POLL_INTERVAL_MS` (15000), `ARCA_AUDIT_INTERVAL_MS` (300000),
+Sane by default, and now genuinely optional:
+`ARCA_CLAIM_MIN_CONFIRMATIONS` (600 — **a block count on a 0.100 s/block
+chain, so about 60 seconds**; the old `ARCA_CONFIRMATIONS=12` was Ethereum's
+convention and meant 1.2 seconds here), `ARCA_CLAIM_MAX_AGE_HOURS` (24),
 `ARCA_GRACE_HOURS` (48), `SUBSCRIPTION_DAYS` (30).
 
-## 2. Fund the treasury wallet
-
-It needs **both**:
-- enough **$ARCA** to cover creator shares of everything collected, and
-- enough **native gas** for one transfer per creator per payout run.
-
-The payout batch checks gas and skips loudly rather than failing halfway, but a
-skipped payout is still a creator who was not paid.
-
-## 3. Restart and read the boot log
+## 2. Restart and read the boot log
 
 ```bash
 sudo systemctl restart arcana-arca.service
 journalctl -u arcana-arca.service -n 30 --no-pager
 ```
 
-The five `WARN` lines that have been there since day one — four payment ones
-plus ` gating INACTIVE` — **must now be gone**, replaced by:
+Expect the ` gating INACTIVE` warning to be gone, and the claim service to
+state its settings in wall-clock terms:
 
 ```
-payment listener started (poll 15000ms, confirmations=12, audit 300000ms)
+payment claims: 600 confirmations (~60s at 0.100 s/block), max age 24h
 ```
 
-If any "disabled" warning survives, that variable did not take effect. Fix it
+If a "disabled" warning survives, that variable did not take effect. Fix it
 before going further — do not proceed on the assumption that it is cosmetic.
 
-## 4. Verify before opening subscribe to real users
+## 3. Verify before opening claims to real users
 
-Do these in order. Steps 1-4 involve real money on Robinhood Chain (which is permissionless — the "permissioned" claim that shaped this design was never true); there
+Step 2 involves real money on Robinhood Chain (which is **permissionless** —
+the "permissioned" claim that shaped the original design was never true). There
 is no undo.
 
-1. **Entitlement check responds**
-   `curl 'http://localhost:3004/v1/arca/access?userWallet=0x...&listingId=...'`
-   → `{"access":false}` for an unknown wallet.
-2. **Deposit address generation works**
-   `POST /v1/arca/deposit-address` returns an address, `expected_amount`, and
-   `expires_in`. Confirm the row in `deposit_addresses` has a **non-null
-   `created_at_block`** — that column is what keeps the listener's scan from
-   starting above a payment (§10.2). If it is null, the chain was unreadable
-   and the address should never have been issued; treat it as a blocker.
-3. **One real end-to-end payment, small, from a wallet you control.**
-   Transfer exactly `expected_amount`, then watch:
-   `journalctl -u arcana-arca.service -f`
-   Expect `scanning blocks A..B` → `payment recorded` → `granted access`, and
-   the subscription active with the right `expires_at`. Then confirm the
-   marketplace agrees: `GET /v1/marketplace/listings/{id}/access`.
-4. **One real payout**, with a single small `payment_event` pending:
-   `sudo systemctl start arcana-arca-payout.service`
-   `journalctl -u arcana-arca-payout.service -n 20 --no-pager`
-   Expect `payout: ok {"processed":1,"paid_out":1,...}` — not the SKIPPED line.
-   Verify the creator's on-chain balance actually moved and `creator_payouts`
-   has the tx hash.
-5. **Run it again immediately.** It must report `processed:0` and move nothing.
-   Idempotency is what stands between a retry and paying a creator twice.
-6. **Reminder job**: `sudo systemctl start arcana-arca-reminder.service`
+1. **The token answers.** Confirm the boot log's `decimals=` line names the
+   value you expect from the deployed contract. If the two disagree, stop: one
+   of them is not the token you think it is.
+2. **One real end-to-end claim, small, from a wallet you control.** Transfer at
+   least the listing price to the creator's wallet, wait ~60 seconds, then
+   `POST /v1/marketplace/listings/{id}/claim-payment` with the hash. Expect the
+   grant, then confirm `GET /v1/marketplace/listings/{id}/access` agrees.
+3. **Claim it again.** It must fail `tx_already_claimed` and grant nothing.
+   Replay is the primary attack surface here — a transaction hash is public the
+   moment it is mined — and `UNIQUE (tx_hash)` is what stops it. A guard that
+   has never refused anyone has not been tested.
+4. **Claim someone else's payment.** Find any transfer between two other
+   wallets and submit it. It must fail `sender_is_not_claimant`.
+5. **Reminder job**: `sudo systemctl start arcana-arca-reminder.service`
    → `reminder: ok {...}`, exit 0.
-7. **Audit is clean**: `curl -X POST http://localhost:3004/internal/v1/payments/listener/audit`
-   → `stranded: 0`. Any non-zero value means a user paid and was not credited;
-   resolve it before opening the doors.
-8. **Gating actually gates.** After setting a threshold, prove the check reads a
+6. **Gating actually gates.** After setting a threshold, prove the check reads a
    balance rather than passing by default:
    `curl 'http://localhost:3004/v1/arca/entitlements/check?action=create&user_id=<a wallet you control>'`
    → the response must show `"balance_checked": true` with a real `balance` and
    `required`. If it still says `gating_inactive_*`, gating is not on, whatever
    the env file says. Then confirm a wallet below the threshold is denied with
-   `balance_below_threshold` — a gate that never refuses anyone has not been
-   tested.
-9. **Premium arenas gate.** Only if `ARCA_GATE_PREMIUM_ARENA` is set. Check the
+   `balance_below_threshold`.
+7. **Premium arenas gate.** Only if `ARCA_GATE_PREMIUM_ARENA` is set. Check the
    arena reports itself as enforcing:
    `curl localhost:3001/v1/seasons/<premium season id>`
    → `access.enforced` must be `true` with a real `required_arca`. `false` means
@@ -166,23 +152,22 @@ is no undo.
    arena. Confirm a standard season still admits the same agent — the premium
    threshold must not have leaked onto every arena.
 
-## 5. Then open subscribe
+## 4. Then open claims
 
-Only after every step above passes. From this point the daily timers carry it:
-reminder at 09:00 UTC, payout at 10:00 UTC.
+Only after every step above passes. From this point the daily timer carries the
+subscription lifecycle: reminder at 09:00 UTC.
 
 ---
 
 ## What to watch in the first week
 
-- `journalctl -u arcana-arca.service | grep STRANDED` — must stay empty. A hit
-  means funds arrived and access was not granted; it names the address, user,
-  and listing.
-- `arcana-arca-payout.service` should report `ok`, never `SKIPPED`, once the
-  env is filled. A SKIPPED line after go-live means a variable was lost —
-  probably a restart that did not pick up the secret.
-- Deposits stuck at `pending` well past their TTL that the audit has **not**
-  retired: retirement requires a zero balance, so a pending row that refuses to
-  retire is one that holds funds.
-- `ARCA_TOKEN_DECIMALS` — if amounts look off by powers of ten, this is the
-  first thing to check. It is an assumption, not a verified fact.
+- `journalctl -u arcana-arca.service | grep payment_verification_unavailable` —
+  a steady trickle means the chain is unreadable and buyers are being told
+  "not checked" rather than being wrongly refused. That is the designed
+  behaviour, but a *sustained* trickle is an RPC problem, not a payments one.
+- `SELECT count(*) FROM payment_claims WHERE created_at > now() - '1 day'::interval;`
+  against the number of new subscriptions. They should match exactly: a claim
+  is the only way a subscription is now granted.
+- Any claim rejected `insufficient_amount` where the buyer insists they paid in
+  full. One case is a user error; a pattern means the decimals read from the
+  token disagrees with what the listing price assumes.

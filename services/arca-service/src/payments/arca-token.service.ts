@@ -14,20 +14,24 @@ export class ArcaTokenService {
   private readonly client;
   readonly chainName: string;
   /**
-   * Token decimals. A DOCUMENTED ASSUMPTION until the token exists: 18 is
-   * the ERC-20 convention and USDG, the only comparable token on this chain,
-   * uses 6. Getting it wrong scales every price check by a factor of a
-   * trillion in one direction or the other, so it is configuration rather
-   * than a constant, and arca-go-live.md flags verifying it against the real
-   * token before anyone can pay.
+   * Token decimals, once read FROM THE CHAIN. Null until then.
+   *
+   * It used to be `ARCA_TOKEN_DECIMALS`, defaulting to 18 because "18 is the
+   * ERC-20 convention" — and USDG, the token this chain actually settles in,
+   * uses **6**. That guess scales every price check by a factor of a trillion,
+   * silently, in whichever direction it is wrong.
+   *
+   * `decimals()` is a view function on the token itself. Whatever token is
+   * configured, the chain will say. So it is no longer configuration, and
+   * there is deliberately no fallback: a token that cannot be asked is a token
+   * that cannot be verified against, which is a 503, not a guess.
    */
-  readonly decimals: number;
+  private decimalsCache: number | null = null;
 
   constructor(config: ConfigService) {
     const rawAddress = config.get<string>('ARCA_TOKEN_ADDRESS');
     const rpc = config.get<string>('ARCA_RPC_URL');
     this.chainName = config.get<string>('ARCA_CHAIN_NAME') ?? 'robinhood';
-    this.decimals = parseInt(config.get<string>('ARCA_TOKEN_DECIMALS') ?? '18', 10);
 
     this.tokenAddress = rawAddress?.match(/^0x[a-fA-F0-9]{40}$/)
       ? (rawAddress.toLowerCase() as `0x${string}`)
@@ -43,6 +47,42 @@ export class ArcaTokenService {
 
   get enabled(): boolean {
     return this.client != null && this.tokenAddress != null;
+  }
+
+  /**
+   * The token's own `decimals()`, read once and cached for the process.
+   *
+   * Throws when the token cannot be asked — no RPC, no address, or an address
+   * with no contract behind it. Callers turn that into
+   * `payment_verification_unavailable`, because not knowing the scale of an
+   * amount means the amount was never checked.
+   *
+   * Cached because decimals is immutable for every ERC-20 worth accepting: it
+   * is set at construction and has no setter in the standard. A token that
+   * changed it would be a token that renumbered everyone's balance.
+   */
+  async getDecimals(): Promise<number> {
+    if (this.decimalsCache != null) return this.decimalsCache;
+    if (!this.client || !this.tokenAddress) {
+      throw new Error('cannot read decimals(): ARCA_RPC_URL or ARCA_TOKEN_ADDRESS not set');
+    }
+    // 0x313ce567 = keccak("decimals()")[0:4]. Called raw rather than through an
+    // ABI helper so a token that returns a short word still decodes.
+    const res = await this.client.call({
+      to: this.tokenAddress,
+      data: '0x313ce567' as `0x${string}`,
+    });
+    const raw = res?.data;
+    if (!raw || raw === '0x') {
+      throw new Error(`decimals() returned nothing for ${this.tokenAddress} — is it a token?`);
+    }
+    const value = Number(BigInt(raw));
+    if (!Number.isInteger(value) || value < 0 || value > 36) {
+      throw new Error(`decimals() returned an implausible ${value} for ${this.tokenAddress}`);
+    }
+    this.decimalsCache = value;
+    this.logger.log(`token ${this.tokenAddress} reports decimals=${value} (read from chain)`);
+    return value;
   }
 
   get transferEventTopic(): string {

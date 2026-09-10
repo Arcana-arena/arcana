@@ -14,8 +14,6 @@ import {
   InternalKeyGuard,
   JwtAuthGuard,
 } from '@arcana/auth';
-import { CreateDepositDto, DepositAddressesService } from './deposit-addresses.service';
-import { PaymentListenerService } from './payment-listener.service';
 import { ReminderService } from './reminder.service';
 import { SubscriptionsService } from './subscriptions.service';
 import { ClaimsService } from './claims.service';
@@ -23,45 +21,12 @@ import { ClaimsService } from './claims.service';
 @Controller()
 export class ArcaController {
   constructor(
-    private readonly deposits: DepositAddressesService,
-    private readonly listener: PaymentListenerService,
     private readonly reminder: ReminderService,
     private readonly subs: SubscriptionsService,
     private readonly claims: ClaimsService,
   ) {}
 
-  /**
-   * 🔑 Generate a unique HD deposit address for (caller, listing).
-   *
-   * The wallet is the caller's own, from the session — never a body field. It
-   * used to be one, which meant anyone could mint a deposit address in anyone
-   * else's name and watch the address that payment would be credited to.
-   *
-   * Non-custodial throughout: this derives a RECEIVING address. No user private
-   * key is asked for, transmitted or stored.
-   */
-  @Post('v1/arca/deposit-address')
-  @UseGuards(JwtAuthGuard)
-  async createDeposit(@Body() dto: CreateDepositDto, @CurrentWallet() wallet: string) {
-    return this.deposits.generate(wallet, dto.listingId);
-  }
-
   // --- ⚙️ machine tier: batch jobs and timers -------------------------------
-
-  /** Run one listener poll cycle. */
-  @Post('internal/v1/payments/listener/poll')
-  @UseGuards(InternalKeyGuard)
-  async poll() {
-    const processed = await this.listener.pollOnce();
-    return { processed };
-  }
-
-  /** Audit pending deposits for funds that arrived but were never credited. */
-  @Post('internal/v1/payments/listener/audit')
-  @UseGuards(InternalKeyGuard)
-  async audit() {
-    return this.listener.auditPendingDeposits();
-  }
 
   /** Run one reminder cycle. */
   @Post('internal/v1/payments/reminder/run')

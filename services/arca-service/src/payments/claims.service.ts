@@ -250,9 +250,25 @@ export class ClaimsService {
       });
     }
 
-    // 10. Amount.
+    // 10. Amount. The scale comes from the token, not from configuration: a
+    //     price compared at the wrong number of decimals is off by a factor of
+    //     a trillion and still looks like a comparison. If the token will not
+    //     say, the amount was not checked, and that is a 503 like any other
+    //     thing the chain would not tell us.
+    let decimals: number;
+    try {
+      decimals = await this.token.getDecimals();
+    } catch (e) {
+      this.logger.error(`cannot read decimals() while verifying ${hash}: ${e}`);
+      throw new ServiceUnavailableException({
+        code: 'payment_verification_unavailable',
+        message:
+          'The token\'s decimals could not be read, so the amount was not checked. ' +
+          'Nothing about your payment has been judged.',
+      });
+    }
     const paid = fromClaimant.reduce((sum, t) => sum + t.value, 0n);
-    const required = this.baseUnits(listing.arcaGateAmount);
+    const required = this.baseUnits(listing.arcaGateAmount, decimals);
     if (paid < required) {
       throw new BadRequestException({
         code: 'insufficient_amount',
@@ -345,9 +361,11 @@ export class ClaimsService {
    * `arca_gate_amount` is NUMERIC(20,8) — a human amount. Converted to base
    * units with the token's decimals, using string arithmetic rather than
    * floating point: a price is money, and 0.1 + 0.2 is a bad way to hold it.
+   *
+   * `decimals` is READ FROM THE TOKEN, not configured. See
+   * ArcaTokenService.getDecimals().
    */
-  private baseUnits(human: string): bigint {
-    const decimals = this.token.decimals;
+  private baseUnits(human: string, decimals: number): bigint {
     const [whole, frac = ''] = human.trim().split('.');
     const padded = (frac + '0'.repeat(decimals)).slice(0, decimals);
     return BigInt(whole || '0') * 10n ** BigInt(decimals) + BigInt(padded || '0');

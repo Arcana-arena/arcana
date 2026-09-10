@@ -64,33 +64,12 @@ export class ListingsService {
     return this.listings.save(listing);
   }
 
-  /**
-   * Subscribe to a listing: delegates to arca-service to generate a unique
-   * HD deposit address. Access is granted only after the on-chain payment is
-   * confirmed by the arca payment listener — NOT here.
-   */
-  async subscribe(listingId: string, authorization: string) {
-    const listing = await this.findOne(listingId);
-    if (!listing.active) {
-      throw new NotFoundException(`Listing ${listingId} is inactive`);
-    }
-
-    // The caller's own token goes through, so arca-service derives the
-    // subscriber from a signature it verifies itself. We do not tell it an
-    // address and ask it to believe us.
-    const res = await fetch(`${this.arcaUrl}/v1/arca/deposit-address`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: authorization,
-      },
-      body: JSON.stringify({ listingId }),
-    });
-    if (!res.ok) {
-      throw await this.upstreamError(res, 'subscribe');
-    }
-    return res.json();
-  }
+  // subscribe() was removed on 2026-09-11 with the §10 deposit-address
+  // subsystem it called. It asked arca-service to mint an address ARCANA
+  // controlled and told the buyer to pay it; there is no such address any more,
+  // because the buyer now pays the creator directly. claimPayment() below is
+  // the whole of what replaced it, and it was proven against real USDG
+  // transfers in phase 11 before this was taken out.
 
   /**
    * Claim a payment made directly to the creator, by transaction hash.

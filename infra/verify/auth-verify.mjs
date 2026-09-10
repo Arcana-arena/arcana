@@ -400,11 +400,16 @@ for (const [name, url] of [
 // checks below, and the guard assertion moved to the reminder route, which is
 // still live and still needs one.
 //
-// The deposit-address path is different, deliberately. It still EXISTS — the
-// live subscribe flow calls it — but it now refuses BY DECISION rather than
-// because ARCA_MASTER_PRIVATE_KEY happens to be empty. That distinction is the
-// whole point: docs/arca-go-live.md is a written procedure telling somebody to
-// fill that variable in. So the refusal is asserted, not assumed.
+// The deposit-address path USED to be asserted differently: it still existed,
+// refusing by decision, because the live subscribe flow called it and its
+// replacement was not yet proven. Phase 11 proved the replacement (22/22
+// against real USDG transfers) and on 2026-09-11 the whole subsystem was
+// removed. So the assertion changes with it: a route that refuses is a route
+// that can be un-refused by editing one line, and 404 is the only refusal
+// that cannot be reverted by a configuration change.
+//
+// Checked WITH a valid session token on purpose. A 401 would also be "not
+// usable", and would hide the route still being there behind the guard.
 console.log('\n=== 10b. Retired payment paths stay retired ===');
 {
   const r = await req(`${ARCA}/internal/v1/payments/payout/run`, {
@@ -419,10 +424,18 @@ console.log('\n=== 10b. Retired payment paths stay retired ===');
     method: 'POST', headers: bearer(aliceToken),
     body: JSON.stringify({ listingId: '00000000-0000-0000-0000-000000000000' }),
   });
-  const msg = JSON.stringify(d.body ?? '');
-  check('deposit address refuses BY DECISION, not because a key is unset',
-    d.status === 400 && /retired/i.test(msg) && !/not configured/i.test(msg),
-    `got ${d.status} ${msg.slice(0, 140)}`);
+  check('deposit-address route is GONE even WITH a valid session → 404',
+    d.status === 404, `got ${d.status} ${errCode(d.body)}`);
+
+  for (const path of ['listener/poll', 'listener/audit']) {
+    const l = await req(`${ARCA}/internal/v1/payments/${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Internal-Key': INTERNAL_KEY },
+      body: '{}',
+    });
+    check(`${path} is gone even WITH a valid internal key → 404`,
+      l.status === 404, `got ${l.status} ${errCode(l.body)}`);
+  }
 }
 
 console.log('\n=== 11. Wallet-addressed reads are self-only ===');

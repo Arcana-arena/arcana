@@ -2,7 +2,6 @@ import {
   Body,
   Controller,
   Get,
-  Headers,
   Param,
   Patch,
   Post,
@@ -66,25 +65,10 @@ export class ListingsController {
     return this.listings.update(id, dto);
   }
 
-  /**
-   * 🔑 Subscribe: generate a deposit address via arca-service (no direct grant).
-   *
-   * The subscriber is the caller. The wallet used to arrive in the body, which
-   * meant anyone could open a subscription in another person's name and see the
-   * address their money would be expected at.
-   *
-   * The caller's own bearer token is forwarded to arca-service rather than
-   * arca being told an address to trust: identity crosses the hop as proof, not
-   * as data.
-   */
-  @Post('listings/:id/subscribe')
-  @UseGuards(JwtAuthGuard)
-  subscribe(
-    @Param('id', ParseUuidAllPipe) id: string,
-    @Headers('authorization') authorization: string,
-  ) {
-    return this.listings.subscribe(id, authorization);
-  }
+  // POST listings/:id/subscribe was removed on 2026-09-11. It returned a
+  // deposit address for the buyer to pay, and that address no longer exists:
+  // payment goes creator-to-buyer with no ARCANA account in the middle. The
+  // door is now POST listings/:id/claim-payment, directly below.
 
   /**
    * 🔑 Claim a payment made directly to the creator.
