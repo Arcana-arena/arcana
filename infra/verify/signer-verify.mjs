@@ -1,0 +1,264 @@
+/**
+ * ARCANA signer verification.
+ *
+ * The signer will one day hold the keys to hundreds of wallets containing other
+ * people's money. Every bug this project has found so far produced a bad number;
+ * a bug here produces a missing balance. So the refusals are proved BEFORE
+ * anything is at stake, which is the entire reason this phase signs against
+ * empty wallets.
+ *
+ * WHAT IS PROVED, and how each condition is triggered for real:
+ *
+ *   REFUSES
+ *     - an intent it does not recognise            (a request naming "transfer")
+ *     - a raw transfer to an outside address       (there is no field for one)
+ *     - a token that is not allowlisted            (a real, unlisted address)
+ *     - a router that is not allowlisted           (ditto)
+ *     - an amount over the cap                     (arithmetic on real decimals)
+ *     - an unlimited approval                      (2^256-1)
+ *     - a swap whose proceeds go elsewhere         (there is no recipient field)
+ *     - a PAUSED token                             (an RPC that answers paused=true)
+ *     - a BLOCKED wallet                           (an RPC that answers isBlocked=true)
+ *     - a chain it cannot read                     (an RPC that is really down)
+ *     - more signatures than the daily cap         (by actually exceeding it)
+ *
+ *   ACCEPTS
+ *     - a within-limits approve and swap. A gate that refuses everything has
+ *       not been shown to be right either.
+ *
+ *   AND THE CRYPTOGRAPHY IS CHECKED BY SOMEONE ELSE. viem parses the raw
+ *   transaction the Go signer produced and recovers the sender. If the address
+ *   it recovers is the one the signer claims, then the key derivation, the RLP
+ *   encoding and the signature are all correct — verified by an independent
+ *   implementation rather than by the one under test.
+ *
+ * Nothing is broadcast. The signer cannot broadcast.
+ */
+import { createServer } from 'node:http';
+import { spawn, execFileSync } from 'node:child_process';
+import { writeFileSync, mkdtempSync, chmodSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { randomUUID, randomBytes } from 'node:crypto';
+
+const REPO = process.env.REPO || '/home/ubuntu/arcana';
+const PORT = Number(process.env.TEST_SIGNER_PORT || 8095);
+const RPC_PORT = Number(process.env.TEST_RPC_PORT || 8096);
+const DEAD_RPC = Number(process.env.TEST_DEAD_RPC || 8097);
+const GO = process.env.GO_BIN || '/usr/local/go/bin/go';
+
+const viem = await import(`${REPO}/node_modules/viem/_esm/index.js`);
+
+const env = Object.fromEntries(
+  readFileSync(`${REPO}/.env.auth`, 'utf8').split('\n').filter((l) => l && !l.startsWith('#'))
+    .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
+const KEY = env.INTERNAL_API_KEY;
+
+let pass = 0, fail = 0;
+const failures = [];
+const check = (n, ok, d = '') => {
+  if (ok) { pass++; console.log(`  PASS  ${n}`); }
+  else { fail++; failures.push(`${n} — ${d}`); console.log(`  FAIL  ${n} — ${d}`); }
+};
+
+// --- fixtures ---------------------------------------------------------------
+const dir = mkdtempSync(join(tmpdir(), 'signer-verify-'));
+const seedPath = join(dir, 'master.key');
+writeFileSync(seedPath, randomBytes(32).toString('hex'));
+chmodSync(seedPath, 0o400);
+
+const USDG = '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168';
+const AAPL = '0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9';
+const ROUTER = '0x1111111111111111111111111111111111111111';   // test-only, allowlisted below
+const OUTSIDER = '0xdEAD00000000000000000000000000000000BEEF';
+const UNLISTED_TOKEN = '0x00000000000000000000000000000000000000AA';
+
+// A test allowlist. Production's has NO routers on purpose — no router is yet
+// proven against this chain's factory — so a router is added here to prove the
+// accept path without weakening the shipped configuration.
+const allowPath = join(dir, 'allowlist.json');
+const prod = JSON.parse(readFileSync(`${REPO}/services/signer/allowlist/robinhood-mainnet.json`, 'utf8'));
+writeFileSync(allowPath, JSON.stringify({ ...prod, routers: [ROUTER] }, null, 2));
+
+// --- a chain that answers whatever this test needs --------------------------
+let paused = false, blocked = false, rpcCalls = 0;
+const word = (v) => '0x' + (v ? '1' : '0').padStart(64, '0');
+const rpc = createServer((req, res) => {
+  let b = ''; req.on('data', (c) => (b += c));
+  req.on('end', () => {
+    rpcCalls++;
+    let id = 1, data = '';
+    try { const j = JSON.parse(b); id = j.id; data = j.params?.[0]?.data || ''; } catch {}
+    let result = word(false);
+    if (data.startsWith('0x5c975abb')) result = word(paused);          // paused()
+    else if (data.startsWith('0xfbac3951')) result = word(blocked);    // isBlocked(address)
+    else if (data === '') result = '0x1237';
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ jsonrpc: '2.0', id, result }));
+  });
+});
+
+let proc = null;
+const AGENT = randomUUID();
+
+function start(extra = {}) {
+  return spawn(GO, ['run', './cmd/server'], {
+    cwd: `${REPO}/services/signer`,
+    env: { ...process.env, PORT: String(PORT), INTERNAL_API_KEY: KEY,
+           SIGNER_MASTER_SEED_FILE: seedPath, SIGNER_ALLOWLIST_FILE: allowPath,
+           SIGNER_RPC_URLS: `http://127.0.0.1:${RPC_PORT}`, ...extra },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+async function stop() {
+  if (!proc) return;
+  proc.kill('SIGKILL');
+  try { execFileSync('bash', ['-lc', `fuser -k ${PORT}/tcp 2>/dev/null || true`]); } catch {}
+  proc = null; await new Promise((r) => setTimeout(r, 900));
+}
+async function waitUp(ms = 30000) {
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    try { const r = await fetch(`http://127.0.0.1:${PORT}/healthz`); if (r.ok) return true; } catch {}
+    await new Promise((r) => setTimeout(r, 350));
+  }
+  return false;
+}
+const sign = async (body) => {
+  const r = await fetch(`http://127.0.0.1:${PORT}/internal/v1/signer/sign`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Internal-Key': KEY },
+    body: JSON.stringify(body) });
+  return { status: r.status, body: await r.json().catch(() => null) };
+};
+const code = (r) => r.body?.error?.code || '';
+const okSwap = (over = {}) => ({ intent: 'swap_exact_in', agent_id: AGENT, token_in: USDG,
+  token_out: AAPL, router: ROUTER, amount: '10000000', min_out: '1', price_usd: 1, nonce: 0, ...over });
+const okApprove = (over = {}) => ({ intent: 'approve', agent_id: AGENT, token_in: USDG,
+  router: ROUTER, amount: '50000000', price_usd: 1, nonce: 0, ...over });
+
+try {
+  await new Promise((r) => rpc.listen(RPC_PORT, '127.0.0.1', r));
+  proc = start();
+  check('signer came up', await waitUp(), 'never became healthy');
+
+  const wres = await fetch(`http://127.0.0.1:${PORT}/internal/v1/signer/wallets/${AGENT}`, { headers: { 'X-Internal-Key': KEY } });
+  const wallet = (await wres.json()).address;
+  console.log(`  agent  ${AGENT}\n  wallet ${wallet}\n`);
+
+  // === REFUSALS ===========================================================
+  console.log('=== It refuses ===');
+
+  let r = await sign({ intent: 'transfer', agent_id: AGENT, token_in: USDG, router: OUTSIDER, amount: '1', price_usd: 1 });
+  check('an intent it does not recognise → unknown_intent', code(r) === 'unknown_intent', `${r.status} ${JSON.stringify(r.body)}`);
+
+  r = await sign({ intent: 'approve', agent_id: AGENT, token_in: USDG, router: ROUTER, amount: '1', price_usd: 1, to: OUTSIDER, data: '0xa9059cbb' });
+  check('a request carrying raw calldata → rejected outright, not ignored', r.status >= 400 && code(r) === 'bad_request', `${r.status} ${JSON.stringify(r.body)}`);
+
+  r = await sign(okApprove({ router: OUTSIDER }));
+  check('an outside address as the spender → router_not_allowlisted', code(r) === 'router_not_allowlisted', code(r));
+
+  r = await sign(okSwap({ router: OUTSIDER }));
+  check('an outside address as the swap target → router_not_allowlisted', code(r) === 'router_not_allowlisted', code(r));
+
+  r = await sign(okSwap({ token_out: UNLISTED_TOKEN }));
+  check('a token nobody allowlisted → token_not_allowlisted', code(r) === 'token_not_allowlisted', code(r));
+
+  r = await sign(okSwap({ amount: '500000000', price_usd: 1 }));   // $500 > $100 cap
+  check('an amount over the signer-enforced cap → amount_over_cap', code(r) === 'amount_over_cap', code(r));
+
+  r = await sign(okApprove({ amount: '0x' + 'f'.repeat(64) }));
+  check('an unlimited approval → amount_over_cap', code(r) === 'amount_over_cap', code(r));
+
+  r = await sign(okSwap({ token_out: USDG }));
+  check('a swap from a token to itself → token_in_equals_token_out', code(r) === 'token_in_equals_token_out', code(r));
+
+  paused = true;
+  r = await sign(okSwap());
+  check('a token the issuer has PAUSED → token_paused', code(r) === 'token_paused', code(r));
+  paused = false;
+
+  blocked = true;
+  r = await sign(okSwap());
+  check('a wallet the issuer has BLOCKED → wallet_blocked', code(r) === 'wallet_blocked', code(r));
+  blocked = false;
+
+  // === ACCEPTS ============================================================
+  console.log('\n=== It accepts what it should ===');
+  r = await sign(okApprove());
+  check('a within-limits approve is signed', r.status === 200 && r.body?.raw?.startsWith('0x02'), `${r.status} ${JSON.stringify(r.body).slice(0, 160)}`);
+  const approveRaw = r.body?.raw;
+
+  r = await sign(okSwap());
+  check('a within-limits swap is signed', r.status === 200 && r.body?.raw?.startsWith('0x02'), `${r.status} ${JSON.stringify(r.body).slice(0, 160)}`);
+  const swapRaw = r.body?.raw;
+  check('the response says plainly that nothing was broadcast', r.body?.broadcast === false, `${r.body?.broadcast}`);
+
+  // === CRYPTOGRAPHY, CHECKED BY AN INDEPENDENT IMPLEMENTATION =============
+  console.log('\n=== viem verifies what Go produced ===');
+  for (const [label, raw, expectTo] of [['approve', approveRaw, USDG], ['swap', swapRaw, ROUTER]]) {
+    if (!raw) { check(`${label}: a raw transaction was returned`, false, 'none'); continue; }
+    const parsed = viem.parseTransaction(raw);
+    const recovered = await viem.recoverTransactionAddress({ serializedTransaction: raw });
+    check(`${label}: viem recovers the sender as the signer's own wallet`,
+      recovered.toLowerCase() === wallet.toLowerCase(), `recovered ${recovered}, wallet ${wallet}`);
+    check(`${label}: chain id is ${prod.chain_id}`, Number(parsed.chainId) === prod.chain_id, `got ${parsed.chainId}`);
+    check(`${label}: value is zero — no native funds can move`, (parsed.value ?? 0n) === 0n, `got ${parsed.value}`);
+    check(`${label}: destination is the expected contract`, parsed.to.toLowerCase() === expectTo.toLowerCase(), `got ${parsed.to}`);
+  }
+  const swapParsed = viem.parseTransaction(swapRaw);
+  check('the swap sends proceeds to the agent wallet and nowhere else',
+    swapParsed.data.toLowerCase().includes(wallet.slice(2).toLowerCase()) &&
+    !swapParsed.data.toLowerCase().includes(OUTSIDER.slice(2).toLowerCase()),
+    'recipient not found in calldata');
+
+  // === DAILY CAP ==========================================================
+  console.log('\n=== The daily cap refuses by actually being exceeded ===');
+  let capped = null;
+  for (let i = 0; i < prod.limits.max_signatures_per_agent_per_day + 4; i++) {
+    const x = await sign(okApprove({ nonce: i + 10 }));
+    if (code(x) === 'daily_signature_cap') { capped = i; break; }
+  }
+  check('signing stops at the cap', capped !== null, 'the cap never fired');
+
+  // === A CHAIN IT CANNOT READ =============================================
+  console.log('\n=== A chain it cannot read ===');
+  await stop();
+  proc = start({ SIGNER_RPC_URLS: `http://127.0.0.1:${DEAD_RPC}` });
+  check('signer came up pointed at a dead RPC', await waitUp(), 'never became healthy');
+  r = await sign(okSwap({ agent_id: randomUUID() }));
+  check('refuses rather than signing unverified → chain_state_unverifiable',
+    code(r) === 'chain_state_unverifiable', code(r));
+
+  // === NO SEED ============================================================
+  console.log('\n=== No master seed ===');
+  await stop();
+  proc = start({ SIGNER_MASTER_SEED_FILE: join(dir, 'nope.key') });
+  check('signer still boots and serves /healthz without a seed', await waitUp(), 'did not boot');
+  const h = await (await fetch(`http://127.0.0.1:${PORT}/healthz`)).json();
+  check('health says it is not configured', h.signer_configured === false, JSON.stringify(h));
+  r = await sign(okApprove());
+  check('every signing request refused → signer_not_configured', code(r) === 'signer_not_configured', code(r));
+
+  // === AN EXPOSED SEED FILE ===============================================
+  console.log('\n=== A seed file anyone can read ===');
+  await stop();
+  const loose = join(dir, 'loose.key');
+  writeFileSync(loose, randomBytes(32).toString('hex'));
+  chmodSync(loose, 0o644);
+  proc = start({ SIGNER_MASTER_SEED_FILE: loose });
+  check('signer boots but refuses to load a world-readable seed', await waitUp(), 'did not boot');
+  const h2 = await (await fetch(`http://127.0.0.1:${PORT}/healthz`)).json();
+  check('a seed at mode 0644 is NOT loaded', h2.signer_configured === false, JSON.stringify(h2));
+
+  console.log(`\n  ${rpcCalls} chain reads made while deciding — the checks are real calls, not assumptions.`);
+} finally {
+  await stop();
+  rpc.close();
+  try { execFileSync('rm', ['-rf', dir]); } catch {}
+  console.log('signer-verify: fixtures removed');
+}
+
+console.log(`\n========================================`);
+console.log(`  PASS: ${pass}   FAIL: ${fail}`);
+console.log(`========================================`);
+if (fail) { console.log('\nFailures:'); for (const f of failures) console.log('  - ' + f); process.exit(1); }
