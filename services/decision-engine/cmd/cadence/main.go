@@ -317,7 +317,12 @@ func getOpenTick(ctx context.Context, cfg config, compID string) (*tick, error) 
 
 func startTick(ctx context.Context, cfg config, compID, ref string) (*tick, error) {
 	payload, _ := json.Marshal(map[string]string{"marketSnapshotRef": ref})
-	body, err := httpPost(ctx, cfg.agentServiceURL+"/v1/competitions/"+compID+"/ticks", payload)
+	// INTERNAL tier. Opening a tick is a write to the record every score is
+	// computed from, so it sits behind the internal key — /v1/competitions
+	// exposes only the reads. The first run of this binary used the public
+	// prefix and got a 404, which is the router being right.
+	body, err := httpPost(ctx, cfg,
+		cfg.agentServiceURL+"/internal/v1/competitions/"+compID+"/ticks", payload)
 	if err != nil {
 		return nil, err
 	}
@@ -329,7 +334,8 @@ func startTick(ctx context.Context, cfg config, compID, ref string) (*tick, erro
 }
 
 func closeTick(ctx context.Context, cfg config, compID string) error {
-	_, err := httpPost(ctx, cfg.agentServiceURL+"/v1/competitions/"+compID+"/ticks/close", []byte("{}"))
+	_, err := httpPost(ctx, cfg,
+		cfg.agentServiceURL+"/internal/v1/competitions/"+compID+"/ticks/close", []byte("{}"))
 	return err
 }
 
@@ -375,12 +381,13 @@ func httpGet(ctx context.Context, url string) ([]byte, error) {
 	return body, nil
 }
 
-func httpPost(ctx context.Context, url string, payload []byte) ([]byte, error) {
+func httpPost(ctx context.Context, cfg config, url string, payload []byte) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Internal-Key", cfg.internalKey)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
