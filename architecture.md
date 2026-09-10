@@ -2,6 +2,14 @@
 
 > AI trading agent competition & reputation platform. This document consolidates the complete architecture: high-level design, implementation details, and the $ARCA subscription/payment design (final).
 
+> ### Direction change, 2026-09-10 — read this first
+>
+> ARCANA is moving from a **virtual-capital competition** to **LLM agents trading real money on-chain, continuously**. Wallets for agents are **custodial**. The decisions this forced — and the measurements behind them — are in **[docs/on-chain-direction.md](./docs/on-chain-direction.md)**; the test that established it was possible at all is in **[docs/go-no-go-stock-tokens.md](./docs/go-no-go-stock-tokens.md)**.
+>
+> Sections of this document are superseded and each says so where it is affected: **§2.2** (deterministic strategies), **§2.4** (virtual capital, daily cadence, exchange calendar), **§2.5** (Human vs AI, retired), **§2.7** (custody), **§10** (the entire payment design), **§11** (sandbox). Where the direction doc and this one disagree, the direction doc is current.
+>
+> Nothing here is deleted while the code implementing it still runs. Each superseded block is removed in the phase that removes its code, so a document and its implementation are never out of step in opposite directions.
+
 ---
 
 ## 1. High-Level Overview
@@ -85,6 +93,16 @@ Pipeline for executing agent decisions against market data.
 - Portfolio Simulator executes decisions on virtual capital, recording portfolio rebalancing.
 - Isolated sandbox per agent run so creators' strategies cannot leak to each other (IP protection).
 
+  > **Superseded (2026-09-10).** Three of the four lines above change.
+  >
+  > **The decider is an LLM**, behind a provider abstraction, not a creator-supplied model or the three deterministic Go functions (`momentum`, `mean_reversion`, `buy_and_hold`) that actually shipped. Those functions are what the whitepaper called "AI agents" while being if-then rules; replacing them is the point of this change, not a feature on top of it.
+  >
+  > **The Portfolio Simulator is replaced by real execution**: a signed swap against a Uniswap v3 pool, with NAV *read back from the chain* rather than computed from a snapshot. A trade that cannot settle is no longer degraded to a hold — it is `tx_failed`, and its gas was still spent.
+  >
+  > **The sandbox is not needed.** Calling an LLM API does not require a microVM. §11 goes with it.
+  >
+  > What survives unchanged: every decision is still an immutable append-only event. What "verified" means changes — see [on-chain-direction.md §b](./docs/on-chain-direction.md#b-evidence--attested-not-reproducible).
+
 ### 2.3 Scoring Engine (ARCANA Score)
 - Computes a composite score from several factors: Performance, Risk, Strategy, Market Regime fit, Consistency, Creator, Competition History, Agent DNA, Longevity.
 - Runs as a batch job (daily) + incremental update after each decision/portfolio rebalance.
@@ -111,10 +129,28 @@ Pipeline for executing agent decisions against market data.
 
   **Virtual capital is unchanged**: agents trade simulated money against real prices. No broker, no order routing, no on-chain execution (§3 excludes real-money autonomous execution from launch).
 
+  > **Superseded (2026-09-10).** Real money, real on-chain execution. And the parts of this section that the change costs are worth naming precisely, because most of them were finished barely a day before it:
+  >
+  > | Retired | Why |
+  > |---|---|
+  > | `internal/session` — trading-day resolution, weekend skip | there is no trading day; the pools never close |
+  > | vendor-as-calendar, `ErrMarketClosed`, "market closed → no tick at all" | nothing to be closed |
+  > | cadence 23:00 / 01:00 / 03:00 UTC and its idempotent retries | replaced by a per-agent cadence the user chooses, staggered |
+  > | `arcana-tick-watchdog.sh` (~200 lines) | its whole premise is "was the market open on date D" |
+  > | `us-large-cap-50.json` as the universe | on-chain the universe is set by pool depth, not GICS coverage; ~9 symbols have real liquidity |
+  >
+  > **The vendor is not retired, its role changes**: from *being* the market to *refereeing* it. Execution price is the pool's; a Chainlink feed is the independent sanity check, because it answers on a Sunday and Polygon does not.
+  >
+  > **What survives and gets stronger**: the backfill-vs-replay rule (a real trade cannot be replayed, so reality now enforces what discipline had to), and `market_snapshots` provenance — which simply gains a third `source`, `pool`.
+
 ### 2.5 Leaderboard & Competition Service
 - Manages Seasons, Arenas, Challenges (Portfolio, Stock Selection, Research, Risk).
 - Global & per-category rankings (Risk-Adjusted, Consistency, Creator, Regime).
 - Human vs AI: competition sessions with identical rules (capital, timeframe, market) between human accounts and agents.
+
+  > **Retired (2026-09-10)** — retired, not paused. A person submitting trades that the platform executes from a wallet the platform controls is a materially different activity from an autonomous agent trading its owner's funds, and it is not one this project has decided to answer for. The mechanic also does not survive the cadence change: `HUMAN_WINDOW` means "the tick is open for an hour", and continuous trading has no ticks to open. Its fairness premise — identical capital, identical snapshot, identical window — was retired by [on-chain-direction.md §a](./docs/on-chain-direction.md#a-fairness--decision-quality-and-execution-quality-are-scored-separately).
+  >
+  > **Nothing is deleted.** Season 1's human participants keep their decisions, portfolio snapshots, score history and Passport, exactly as a retired agent does. What stops is accrual: the record closes, it is not erased.
 
 ### 2.6 Marketplace Service
 - Agent Discovery, public Agent Profiles, Verified Track Record display.
@@ -123,14 +159,20 @@ Pipeline for executing agent decisions against market data.
 - Access gating connected to the $ARCA Service (see 2.7).
 
 ### 2.7 $ARCA Token Service
-- Wallet linking (**non-custodial** — users hold their own wallets, consistent with the same principle as the Wood Liquidity project).
+- Wallet linking for **$ARCA entitlements** is non-custodial — a user proves control of their own wallet via SIWE and the balance is only ever read.
+
+  **This is now the narrow case, not the general one.** Since 2026-09-10 ARCANA also creates and holds a wallet per **agent**, and signs trades from it: agent trading is **custodial**. The two are deliberately separate — an entitlement wallet is the user's and is never signed for; an agent wallet is the platform's to sign and the user's to fund and withdraw. See [docs/on-chain-direction.md](./docs/on-chain-direction.md).
 - Gating layer: CREATE, COMPETE, EVOLVE, ACCESS, MARKETPLACE, AGENT PASSPORT, PREMIUM ARENAS — each decided by an entitlement check against the actor's $ARCA balance.
 
   **Implementation status (2026-09-09).** The check exists for all seven actions and is wired at four call sites: CREATE on agent activation, EVOLVE on `POST /v1/agents/:id/evolve`, COMPETE on competition registration (per participant, at entry — never per tick), and PREMIUM ARENAS on registration into a season marked `access_tier='premium'` — checked *in addition to* COMPETE, never instead of it, so the effective requirement is the larger of the two thresholds rather than whichever gate happens to be cheaper. ACCESS, MARKETPLACE and PASSPORT are answerable but nothing calls them yet. See [docs/premium-arena.md](./docs/premium-arena.md).
 
   **Nothing is enforced yet, and that is visible rather than implied.** The $ARCA token has not launched, so no balance can be read and every check passes. Each response carries `balance_checked` and a `reason`, so `allowed: true` cannot be mistaken for a verified entitlement; the boot log warns in the same terms. This paragraph exists because the line above it previously described a gating layer that had never been built, and a promise in a document is indistinguishable from a feature until someone checks. See [docs/arca-entitlements.md](./docs/arca-entitlements.md).
 - **Does not affect the Scoring Engine** — the principle "token gives access, performance earns reputation" is kept as a hard architectural boundary.
-- Runs on **Robinhood Chain** (EVM-compatible, based on Uniswap v3) — **permissioned**, ARCANA cannot deploy its own smart contracts on this chain. See §10 for the full implications on the payment design.
+- Runs on **Robinhood Chain** (EVM-compatible, Arbitrum Orbit L2, chain id **4663**, gas paid in ETH).
+
+  > **Correction (2026-09-10).** This line said the chain was **permissioned** and that ARCANA **cannot deploy its own smart contracts**. That was never true. Robinhood Chain launched its public mainnet permissionless on 1 July 2026: anyone can deploy, with no review. The claim survived here long enough to shape a whole subsystem — §10's deposit-address design exists *because* of it — which is the same failure mode as "IEX Cloud" and "the gateway handles auth". Verified by execution, not by documentation: see [docs/go-no-go-stock-tokens.md](./docs/go-no-go-stock-tokens.md).
+  >
+  > ARCANA nonetheless deploys **no contracts**, for a different and deliberate reason: nothing in the current design needs one. Trading is custodial, and the marketplace verifies payments by transaction hash.
 
 ### 2.8 Intelligence / Research Layer
 - Query layer over the Data Warehouse for natural-language questions: "what changed in my portfolio today", "which agents agree with my thesis".
@@ -445,12 +487,26 @@ Scheduler   MarketData   DecisionEngine   Sandbox(Agent)   Kafka   ScoringEngine
 
 ## 10. Subscription & Payment — $ARCA
 
-**Chain**: Robinhood Chain (EVM-compatible, based on Uniswap v3) — **fully permissioned**, ARCANA **cannot deploy its own smart contracts**.
-**Wallet model**: **non-custodial** — users hold their own wallets (consistent with the Wood Liquidity principle: "users have full responsibility for their funds").
+> ## ⛔ SUPERSEDED (2026-09-10). This entire section describes a design that is being retired.
+>
+> **Two of its three premises were false, and the third was dropped.**
+>
+> 1. *"The chain is fully permissioned, ARCANA cannot deploy its own smart contracts."* **Never true.** Robinhood Chain mainnet has been permissionless since 1 July 2026. The derived-deposit-address design below exists solely because of this belief.
+> 2. *"Funds transit through the ARCANA treasury and the split is computed off-chain."* The marketplace is now **P2P with no fee**: the buyer pays the creator's wallet directly, there is no split, and no treasury transit.
+> 3. Payment matching is now by **transaction hash submitted by the buyer and verified against the chain** — the transfer exists, is confirmed, the amount matches the listing, and the recipient is that listing's creator.
+>
+> **What is retired:** the HD-derived deposit addresses (§10.1), the payment listener and its scan floor (§10.2), the sweep/split/payout batch (§10.3), the reminder job (§10.4), and their two systemd timers.
+>
+> **What is kept, because it was learned the hard way and applies to any verifier:** a payment that arrives and is never credited is logged at **ERROR**, never swallowed; the verifier must check the *recipient*, not merely that a transfer happened; and `payment_events.tx_hash UNIQUE` is now load-bearing against hash replay rather than merely tidy.
+>
+> The replacement is specified in [docs/on-chain-direction.md §g](./docs/on-chain-direction.md#g-marketplace--tx-hash-confirmation). The text below is kept until the code implementing it is removed, so the two cannot drift apart while both exist.
+
+**Chain**: Robinhood Chain (EVM-compatible, Arbitrum Orbit L2, chain id 4663) — **permissionless**; the "fully permissioned" claim that shaped this section was wrong.
+**Wallet model** *(as designed)*: **non-custodial** — users hold their own wallets.
 **Renewal model**: **manual renew** — no auto-debit; users explicitly trigger each payment.
 **Reminder channel**: **in-app push notification**.
 
-Because custom contracts cannot be deployed, this design only uses capabilities that are guaranteed available: **native transfer** of the $ARCA token (built-in token function) + **read-only listener/indexer** via RPC. Consequently, the revenue split (creator vs platform) is **not automatic on-chain** — it is done off-chain, and funds transit through the ARCANA treasury before being paid out to creators (this portion is temporarily custodial, although users still trigger the transfer from their own wallets).
+Because custom contracts were believed impossible, this design only uses capabilities that are guaranteed available: **native transfer** of the $ARCA token (built-in token function) + **read-only listener/indexer** via RPC. Consequently, the revenue split (creator vs platform) is **not automatic on-chain** — it is done off-chain, and funds transit through the ARCANA treasury before being paid out to creators (this portion is temporarily custodial, although users still trigger the transfer from their own wallets).
 
 ### 10.1 Unique Deposit Address per Subscription
 Native transfers have no memo field, so the backend needs a reliable way to match payments:
@@ -533,6 +589,10 @@ User picks a listing → clicks Subscribe → backend generates a unique deposit
 
 ## 11. Strategy Execution Isolation & Security
 
+> **Superseded (2026-09-10).** Never built, and no longer needed: an agent is now an LLM prompt, and calling an API does not require a microVM. Its cost was zero, because it stayed a plan.
+>
+> The security problem it was solving does not disappear — it moves and gets sharper, because the platform now signs transactions. The replacement is the six-layer authority model in [on-chain-direction.md §f](./docs/on-chain-direction.md#f-agent-authority--six-layers-and-only-one-of-them-binds), whose load-bearing layer is a **signer process that accepts only a fixed set of transaction shapes and refuses any raw transfer to an arbitrary address**. Isolation is now about what a compromised caller can make the keys do, not about what a creator's code can read.
+
 - Each `decision execute` request → spin up a short-lived **microVM** (Firecracker) or **gVisor sandbox** (per tick, then destroyed).
 - The sandbox has no outbound network access (egress) except to the Market Data Service via an internal API — preventing exfiltration/"cheating" strategies.
 - Strict resource limits (CPU/mem/timeout) per run — a timeout is treated as an automatic `hold`, recorded as `timeout_decision`.
@@ -542,6 +602,14 @@ User picks a listing → clicks Subscribe → backend generates a unique deposit
 ---
 
 ## 12. Data Consistency & Fairness
+
+> **Partly superseded (2026-09-10).** Two of the four rules below change; two survive and are load-bearing.
+>
+> **"All agents within the same window use the identical snapshot" is gone.** It cannot survive real execution: agents trading the same pool move each other's prices, and with a per-agent cadence two agents four hours apart see different markets by construction. What the rule protected — that the score measures judgement, not the luck of the minute — is preserved differently: the ARCANA Score is computed on **decision quality**, marked against a reference price at the moment of the decision, while realised execution is scored separately. See [on-chain-direction.md §a](./docs/on-chain-direction.md#a-fairness--decision-quality-and-execution-quality-are-scored-separately) and [§c](./docs/on-chain-direction.md#c-slippage-gas-and-failed-transactions).
+>
+> **"Idempotent score recompute, deterministic from the same input" no longer holds for the decision itself.** An LLM can answer the same prompt differently. Scoring stays deterministic — it reads a NAV series and a decision log — but a *decision* is now **attested rather than reproducible**: prompt, raw response, model id and version, and the transaction hash. That is a weakening of the platform's central claim, and [§b](./docs/on-chain-direction.md#b-evidence--attested-not-reproducible) states it as one rather than letting marketing find it first.
+>
+> **Unchanged and still enforced:** the append-only decision log, and the foreign key binding a decision to the snapshot it cites. A decision without its evidence is not a weaker record, it is an unverifiable one — and that is now true of the transaction receipt as well.
 
 - **Point-in-time snapshot**: one snapshot per tick window, immutable, hashed as `market_snapshot_ref`. All agents within the same window must use the identical snapshot.
 - **Append-only Decision Log**: the `decisions` table is never UPDATE/DELETE'd — corrections via new compensating events (event sourcing).
