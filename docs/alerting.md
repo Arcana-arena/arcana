@@ -74,11 +74,22 @@ next: journalctl -u arcana-backup-verify.service -n 50 --no-pager
 
 ---
 
-## Layer 2 — the tick watchdog
+## Layer 2 — the decision watchdog
 
-`arcana-tick-watchdog.timer`, daily at **04:00 UTC**: after the scheduler's last
-idempotent retry (03:00) and before the backup (04:30). Running earlier would
-report a missing tick that a later retry was about to create.
+`arcana-decision-watchdog.timer`, every six hours at **:15**. It asks whether a
+DECISION has been recorded in the last twelve hours — three missed four-hour
+intervals.
+
+It replaced `arcana-tick-watchdog` on 2026-09-11, which asked whether a trading
+day had passed with no tick. That question needed a market calendar, and there
+is no longer one: Stock Tokens trade against a pool that never closes. Six
+hours is chosen against the twelve-hour alarm threshold rather than against the
+cadence, so the condition is always seen within half the window it describes.
+
+Measuring **decisions rather than ticks** is the improvement worth naming. A
+tick that opened and closed with every agent failing inside it is exactly the
+silent fault this exists to catch, and it looks perfectly healthy to anything
+counting ticks.
 
 ### Who decides what a trading day is — not this watchdog
 
@@ -268,11 +279,11 @@ accident.
 **Mute everything for a planned window:**
 
 ```sh
-sudo systemctl stop arcana-tick-watchdog.timer          # stop the daily check
+sudo systemctl stop arcana-decision-watchdog.timer      # stop the silent-failure check
 sudo systemctl mask 'arcana-alert@*.service'            # stop OnFailure= alerts
 # ... maintenance ...
 sudo systemctl unmask 'arcana-alert@*.service'
-sudo systemctl start arcana-tick-watchdog.timer
+sudo systemctl start arcana-decision-watchdog.timer
 ```
 
 **Mute one noisy unit** — comment out its `OnFailure=` with a drop-in, which
@@ -287,8 +298,8 @@ sudo systemctl edit arcana-scoring-job.service
 **Re-arming is the part people forget.** After any maintenance:
 
 ```sh
-systemctl show arcana-scheduler -p OnFailure --value    # expect arcana-alert@...
-systemctl is-active arcana-tick-watchdog.timer          # expect active
+systemctl show arcana-cadence -p OnFailure --value      # expect arcana-alert@...
+systemctl is-active arcana-decision-watchdog.timer      # expect active
 /home/ubuntu/arcana/infra/alerting/arcana-notify.sh test
 ```
 

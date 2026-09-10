@@ -156,16 +156,20 @@ To change the cadence, edit the `[Timer] OnCalendar=` lines and the
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl restart arcana-scheduler.timer arcana-scoring-job.timer
+sudo systemctl restart arcana-cadence.timer arcana-scoring-job.timer
 ```
 
 ## Which competition is scheduled?
 
-`arcana-scheduler.service` hardcodes `COMPETITION_ID` (currently the running
-`human_vs_ai` competition). To add another competition, copy the unit, change
-the id and the lock path (`/tmp/arcana-scheduler.lock` → unique per unit), and
-re-run the installer. The scheduler itself no-ops safely on completed
-competitions.
+`arcana-cadence.service` hardcodes `COMPETITION_ID`. To add another
+competition, copy the unit, change the id and the lock path
+(`/tmp/arcana-cadence.lock` → unique per unit), and re-run the installer. The
+cadence no-ops safely on a completed competition, and on one whose interval
+has not elapsed.
+
+It also carries `CADENCE_INTERVAL`. Setting it below **4h** is refused at
+startup rather than clamped — see [cadence.md](./cadence.md) for why that is
+arithmetic rather than policy.
 
 ## Overlap protection
 
@@ -182,7 +186,7 @@ for the whole run:
 
 ```
 ExecStart=/usr/bin/flock -n /tmp/arcana-arca-reminder.lock /home/ubuntu/arcana/infra/systemd/arca-job.sh reminder ...
-ExecStart=/usr/bin/flock -n /tmp/arcana-scheduler.lock /home/ubuntu/arcana/scheduler-bin/scheduler -competition ... 
+ExecStart=/usr/bin/flock -n /tmp/arcana-cadence.lock /home/ubuntu/arcana/scheduler-bin/cadence -competition ... 
 ```
 
 If a run is already in progress the new one fails immediately (exit 1, visible

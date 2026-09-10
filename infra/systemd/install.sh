@@ -150,6 +150,19 @@ for installed in "$UNIT_DIR"/arcana-*.service "$UNIT_DIR"/arcana-*.timer; do
     echo "    removing $name (no longer in infra/systemd/)"
     sudo systemctl disable --now "$name" >/dev/null 2>&1 || true
     sudo rm -f "$installed"
+    # RESET THE FAILED STATE TOO, and this was missing.
+    #
+    # A unit that was in `failed` when its file was deleted keeps that state
+    # forever: `systemctl list-units --state=failed` shows
+    # "arcana-scheduler.service not-found failed", and every subsequent deploy
+    # reports a failure for a unit that no longer exists. Found the day the
+    # scheduler was retired — it had been failing on a missing vendor key, so
+    # it went out in exactly that state.
+    #
+    # Left alone, it is a permanent red line in the one place an operator
+    # looks to see whether anything is wrong. That is how a health check stops
+    # being read.
+    sudo systemctl reset-failed "$name" >/dev/null 2>&1 || true
   fi
 done
 
