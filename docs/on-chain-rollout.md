@@ -15,9 +15,9 @@ Two rules govern the order:
 | # | Phase | Status | Blocked on |
 |---|---|---|---|
 | 1 | Decisions and document corrections | **done** | — |
-| 2 | Chain guard — beacon and issuer-control monitor | next | — |
-| 3 | Infrastructure cleanup — Kafka and Redis off | | — |
-| 4 | Retire the code the direction change kills | | — |
+| 2 | Chain guard — beacon and issuer-control monitor | **done** | — |
+| 3 | Infrastructure cleanup — Kafka and Redis off | **done** | — |
+| 4 | Retire the code the direction change kills | next | — |
 | 5 | `MarketIndexService` — remove the per-snapshot round trip | | — |
 | 6 | Decider abstraction + DeepSeek, still on virtual money | | — |
 | 7 | Signer service, policy engine, router allowlist — no money | | — |
@@ -45,22 +45,33 @@ of it.
 **Verified by:** no claim of a permissioned chain survives in the repository;
 every superseded section names what replaces it and why.
 
-## Phase 2 — Chain guard
+## Phase 2 — Chain guard *(done)*
 
-A small Go service that watches the things the issuer controls and shouts when
-they move:
+`infra/alerting/arcana-chain-guard.mjs`, every four hours, watching the things
+the issuer controls: the beacon's `implementation()` (**the one that matters**),
+`paused()`, the routed pool's `liquidity()`, and — from phase 8 —
+`isBlocked()` for each ARCANA wallet. Alerts go through the existing
+`arcana-notify.sh`.
 
-- the Stock Token beacon's `implementation()` — **the one that matters**
-- `paused()` on each allowlisted token
-- `isBlocked()` for each ARCANA wallet, once wallets exist
-- the token's `totalSupply` and its pool's `liquidity()`, as a coarse liveness check
+Written as a script beside the other monitors rather than as a Go service,
+because that is where an operator looks and because it could then be tested
+against the live chain immediately. Its baseline is committed to git, not stored
+in the database: a monitor that remembers what it last saw adopts a change as
+normal and stays silent at the one moment it existed to speak.
 
-Alerts go through the existing `infra/alerting/arcana-notify.sh`, which already
-knows how to distinguish a real fault from a configured stand-down.
+**Verified:** `infra/verify/chain-guard-verify.sh`, ten cases against the live
+chain with drift injected through test hooks. The case that matters: a single
+forced implementation change alarms on **all nine tokens at once**, because they
+share one beacon — which is exactly what a real upgrade would look like.
 
-**Verified by:** pointing the guard at a recorded implementation address that
-differs from the live one and watching it alarm. A monitor that has never fired
-has not been tested — the same rule this project applies to gates.
+Two failures found while building it, both by running the suite repeatedly
+rather than once: a fallback RPC that served `eth_chainId` and refused
+`eth_call`, and a missing retry that turned one dropped connection into a
+false "monitor fault". Both are written up in
+[alerting.md](./alerting.md#layer-3--the-chain-guard).
+
+Also fixed on the way: `install.sh` copied nine timer files and enabled five.
+The four left disabled were backup, backup-verify, tick-watchdog and this guard.
 
 ## Phase 3 — Infrastructure cleanup
 
@@ -71,8 +82,10 @@ consumer, no cache. Services talk over HTTP; batches run on systemd timers.
 Turn both off in `infra/docker/docker-compose.yml`, measure RAM before and after
 on the 2 GB VPS, and record the number.
 
-**Verified by:** six services still healthy, timers still firing, and a
-before/after memory table with real figures rather than estimates.
+**Verified:** all six services `active`, all six `/healthz` returning 200, and
+the measured result recorded in [capacity.md](./capacity.md): RAM used 1279 MB
+→ 619 MB, swap 1175 MB → 442 MB. Nearly 1.4 GB of pressure removed from a
+1963 MB host, for components with no clients.
 
 ## Phase 4 — Retire what the change kills
 
