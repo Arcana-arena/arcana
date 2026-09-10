@@ -1,7 +1,7 @@
 # Authentication & Authorisation
 
 **Status:** live since 2026-09-09. Verified by `infra/verify/auth-verify.mjs`
-(63 checks, every one of which requires something to actually be refused).
+(75 checks, every one of which requires something to actually be refused).
 
 Until this work every ARCANA endpoint was open. Identity arrived as a field in
 the request — `creatorId` in a body, `userWallet` in a query — and was believed.
