@@ -39,8 +39,47 @@ const MIN_DECISIONS = 5;
  */
 const MIN_TRADES_FOR_TIMING = 5;
 
-/** Ticks either side of a trade used to place its price in local context. */
+/**
+ * Ticks either side of a trade used to place its price in local context.
+ *
+ * TICKS, NOT HOURS. The window is a count of neighbouring snapshots, so what
+ * it means in wall-clock terms follows the cadence: five ticks was five
+ * trading days under the daily calendar and is five decision intervals under
+ * the continuous cadence. That is the right unit for "how did this price
+ * compare to the prices around it", which is a question about the series, not
+ * about the clock.
+ */
 const TIMING_WINDOW = 5;
+
+/**
+ * The bounds of the contiguous run of ticks sharing a source, for every index.
+ *
+ * THE BUG THIS CLOSES, fixed before it could fire. The market series is
+ * ordered `(source, tick_time)`, and the timing window indexed it globally:
+ * `idx - 5 .. idx + 5` with no check that those neighbours came from the same
+ * source. With one source that is harmless, which is why it survived.
+ *
+ * The moment a second source exists — and pool snapshots are exactly that — a
+ * trade within five ticks of a source boundary would have its price placed in
+ * context against prices from **a completely different market**. The
+ * percentile would be arithmetically valid and describe nothing. Worse, it
+ * would be silent: no error, no null, just a confident number comparing a
+ * pool price to a vendor close.
+ *
+ * MarketIndexService already guards this for `market_return`, which is what
+ * made the omission here easy to miss — the neighbouring code was correct.
+ */
+export function sourceRuns(series: Array<{ source: string }>): Array<{ lo: number; hi: number }> {
+  const runs: Array<{ lo: number; hi: number }> = new Array(series.length);
+  let start = 0;
+  for (let i = 1; i <= series.length; i++) {
+    if (i === series.length || series[i].source !== series[start].source) {
+      for (let j = start; j < i; j++) runs[j] = { lo: start, hi: i - 1 };
+      start = i;
+    }
+  }
+  return runs;
+}
 
 interface AgentTick {
   ts: Date;
@@ -67,6 +106,10 @@ export class AutopsyService {
     const market = await this.marketIndex.load();
     const series = [...market.values()];
     const indexOfRef = new Map(series.map((t, i) => [t.ref, i]));
+    // Where each source's contiguous run starts and ends. Every window below
+    // is clamped to these, so a trade near a source boundary is never compared
+    // against prices from another market.
+    const runs = sourceRuns(series);
 
     // Prices are fetched per ref, so ask for exactly the ones this analysis
     // reads: the ticks this agent recorded, plus the +/-TIMING_WINDOW
@@ -78,8 +121,9 @@ export class AutopsyService {
       needed.add(t.ref);
       const idx = indexOfRef.get(t.ref);
       if (idx == null) continue;
-      const lo = Math.max(0, idx - TIMING_WINDOW);
-      const hi = Math.min(series.length - 1, idx + TIMING_WINDOW);
+      const run = runs[idx];
+      const lo = Math.max(run.lo, idx - TIMING_WINDOW);
+      const hi = Math.min(run.hi, idx + TIMING_WINDOW);
       for (let i = lo; i <= hi; i++) needed.add(series[i].ref);
     }
     await this.marketIndex.ensurePrices(market, needed);
@@ -110,7 +154,7 @@ export class AutopsyService {
       analysed: true,
       summary: this.summary(ticks, decisions, trades.length),
       allocation: this.allocation(ticks, market),
-      decision_timing: this.timing(trades, series, indexOfRef),
+      decision_timing: this.timing(trades, series, indexOfRef, runs),
       risk: this.risk(ticks),
       volatility: this.volatility(ticks, market, trades.length),
       market_regime: await this.regime(agentId),
@@ -263,6 +307,10 @@ export class AutopsyService {
     trades: AgentTick[],
     series: MarketTick[],
     indexOfRef: Map<string, number>,
+    // Required, not optional. An optional parameter here would let a future
+    // caller omit it and silently get the unclamped behaviour back — the bug
+    // this fixes, reintroduced by the shape of the fix.
+    runs: Array<{ lo: number; hi: number }>,
   ) {
     if (trades.length < MIN_TRADES_FOR_TIMING) {
       return {
@@ -294,8 +342,10 @@ export class AutopsyService {
       const price = series[idx].prices?.[t.symbol] ?? 0;
       if (!(price > 0)) continue;
 
-      const lo = Math.max(0, idx - TIMING_WINDOW);
-      const hi = Math.min(series.length - 1, idx + TIMING_WINDOW);
+      // CLAMPED TO THIS TICK'S OWN SOURCE. See sourceRuns().
+      const run = runs[idx];
+      const lo = Math.max(run.lo, idx - TIMING_WINDOW);
+      const hi = Math.min(run.hi, idx + TIMING_WINDOW);
       const window: number[] = [];
       for (let i = lo; i <= hi; i++) {
         const p = series[i].prices?.[t.symbol] ?? 0;
@@ -308,7 +358,11 @@ export class AutopsyService {
         percentile = round2((below / (window.length - 1)) * 100);
       }
 
-      const fwdIdx = Math.min(series.length - 1, idx + TIMING_WINDOW);
+      // The forward return is clamped the same way, and for a sharper reason:
+      // an unclamped fwdIdx could land on the FIRST tick of the next source,
+      // making "what happened after this trade" a comparison between two
+      // unrelated markets reported as a percentage change.
+      const fwdIdx = Math.min(run.hi, idx + TIMING_WINDOW);
       const fwdPrice = series[fwdIdx].prices?.[t.symbol] ?? 0;
       const forward =
         fwdIdx > idx && fwdPrice > 0 ? round4(((fwdPrice - price) / price) * 100) : null;
