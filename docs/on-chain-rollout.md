@@ -20,7 +20,7 @@ Two rules govern the order:
 | 4a | Retire the §10 payment subsystem — **partly held, see below** | **done** | — |
 | 5 | `MarketIndexService` — remove the per-snapshot round trip | **done** | — |
 | 4b–d | Retire strategy.go, session.go, the human path | **partly done** | session.go and the vendor path HELD — still carrying Polygon backfill; the human format is retired, the code is not. See below |
-| 6 | Decider abstraction + DeepSeek, still on virtual money | **done** | **owner: DeepSeek API key** |
+| 6 | Decider abstraction + LLM, still on virtual money | **done** | — **unblocked 2026-09-11**: Xiaomi MiMo, key supplied, decider ACTIVE |
 | 7 | Signer service, policy engine, router allowlist — no money | **done** | **owner: key custody (~$0.06–$1/mo)** |
 | 8 | **First real swap, $10, one wallet** | | **owner: approval to spend** |
 | 9 | Deposit, withdrawal, and the attack suite that proves it refuses | | — |
@@ -260,10 +260,15 @@ assumed one: **$11/month for 100 agents hourly, against a $22 estimate** — the
 estimate was conservative by ~2x, and it changes no decision, because cadence
 was never driven by inference cost.
 
-**Still waiting on the owner for a DeepSeek key.** Without it the service boots,
-serves /healthz, and every `llm` agent records a hold with `llm_unavailable`.
-There is deliberately no fallback. Full write-up in
-[decision-engine-llm.md](./decision-engine-llm.md).
+**Unblocked 2026-09-11 — Xiaomi MiMo, not DeepSeek.** The owner could not pay
+DeepSeek and supplied a MiMo key instead. It took no code change: a provider is
+three values, and this is the first time that claim was actually tested rather
+than asserted.
+
+Before the key arrived the service booted, served /healthz, and every `llm`
+agent recorded a hold with `llm_unavailable` — deliberately, with no fallback,
+so an agent never quietly became something other than what it declared. Full
+write-up in [decision-engine-llm.md](./decision-engine-llm.md).
 
 ## Phase 7 — The signer
 

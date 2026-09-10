@@ -36,15 +36,30 @@ before its replacement is proven.
 
 ## Provider abstraction
 
-A provider is three values: **base URL, model, key**. Switching from DeepSeek to
-anything speaking the OpenAI chat-completions shape is configuration.
+A provider is three values: **base URL, model, key**. Anything speaking the
+OpenAI chat-completions shape is configuration, not surgery.
 
 ```
-LLM_PROVIDER=deepseek
-LLM_BASE_URL=https://api.deepseek.com
-LLM_MODEL=deepseek-flash
+LLM_PROVIDER=mimo
+LLM_BASE_URL=https://api.xiaomimimo.com    # no /v1 — the client appends it
+LLM_MODEL=mimo-v2.5
 LLM_API_KEY=            # -> .env.llm, mode 600, never committed
 ```
+
+**Xiaomi MiMo since 2026-09-11**, replacing DeepSeek. The switch was made for
+cost and took **no code change** — which is the claim this abstraction was
+built to make good on, tested for the first time here.
+
+Verified by execution before anything was written down, not from
+documentation: `/v1/models` returned the model list, and a chat-completion
+with `response_format=json_object` came back as valid JSON carrying `usage`
+and `finish_reason` — the exact shape this engine sends and parses. Then a
+real decision was driven through the live engine and recorded with
+`provider=mimo`, `reason_code=none` (a free choice, not a fallback) and both
+evidence rows stored.
+
+`mimo-v2.5` rather than `mimo-v2.5-pro`: the move was about cost, so the
+cheaper model is the default. `-pro` is one variable away.
 
 This is not hypothetical tidiness. **`deepseek-chat` was named in the plan for
 this work and had already been retired on 2026-07-24 while the plan was being
@@ -168,7 +183,16 @@ from an assumed 2,200-token prompt. The prompt that is actually generated is
 **889 bytes of system prompt and 647 bytes of context at the current 2-symbol
 universe** — roughly a fifth of the assumption.
 
-Recomputed from the real prompt, at `deepseek-flash` rates:
+Recomputed from the real prompt, at `deepseek-flash` rates. **These figures
+are now stale in one dimension and only one:** the token counts below are
+measured from the real prompt and still hold, but the prices are DeepSeek's.
+MiMo's rates have not been measured, so the dollar columns are an upper-bound
+carried forward rather than a current fact — and they are left visible rather
+than deleted, because the token counts are the part that took work to
+establish.
+
+Re-measure the dollars before quoting them; do not re-derive them from an
+assumption, which is the mistake the first version of this table made.
 
 | Universe | In / out | Per call | 100 agents @4h | 100 agents @1h |
 |---|---|---|---|---|

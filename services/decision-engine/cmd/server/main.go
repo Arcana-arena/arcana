@@ -45,9 +45,24 @@ var buildCommit = "unknown"
 // was being written.
 func buildLLM() *llm.Client {
 	cfg := llm.Config{
-		Name:        envOr("LLM_PROVIDER", "deepseek"),
-		BaseURL:     envOr("LLM_BASE_URL", "https://api.deepseek.com"),
-		Model:       envOr("LLM_MODEL", "deepseek-flash"),
+		// XIAOMI MiMo since 2026-09-11. The defaults name the provider this
+		// platform actually has an account with — a default pointing at one it
+		// does not would be a default that cannot work, which is worse than no
+		// default because it looks configured.
+		//
+		// VERIFIED BY EXECUTION before being written here, not taken from
+		// documentation: /v1/models returned the model list, and a
+		// chat-completion with response_format=json_object came back as valid
+		// JSON carrying usage and finish_reason — the exact shape this engine
+		// sends and parses.
+		//
+		// No /v1 on the base URL: the client appends /v1/chat/completions.
+		Name:        envOr("LLM_PROVIDER", "mimo"),
+		BaseURL:     envOr("LLM_BASE_URL", "https://api.xiaomimimo.com"),
+		// mimo-v2.5 rather than mimo-v2.5-pro. The switch away from DeepSeek was
+		// about cost, so the cheaper model is the default; -pro is one variable
+		// away and needs no code change, which is the whole point of this shape.
+		Model:       envOr("LLM_MODEL", "mimo-v2.5"),
 		APIKey:      os.Getenv("LLM_API_KEY"),
 		Temperature: envFloat("LLM_TEMPERATURE", 0.2),
 		TopP:        envFloat("LLM_TOP_P", 0.9),
