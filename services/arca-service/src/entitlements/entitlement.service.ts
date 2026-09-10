@@ -1,6 +1,6 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ArcaTokenService } from '../payments/arca-token.service';
+import { Erc20Reader, GATING_TOKEN } from '../payments/arca-token.service';
 
 /**
  * $ARCA entitlement gating (architecture.md §2.7).
@@ -72,7 +72,9 @@ export class EntitlementService implements OnModuleInit {
   private readonly decimals: number;
 
   constructor(
-    private readonly token: ArcaTokenService,
+    // THE GATING TOKEN — $ARCA, still unlaunched. Deliberately NOT the
+    // marketplace payment token: holding USDG must never satisfy a $ARCA gate.
+    @Inject(GATING_TOKEN) private readonly token: Erc20Reader,
     config: ConfigService,
   ) {
     for (const action of GATED_ACTIONS) {

@@ -15,9 +15,11 @@
  *
  * Both are mounted here, for real.
  *
- * NO MONEY IS SPENT. $ARCA has not launched, so the verifier is pointed at
- * USDG — a real ERC-20 on the same chain — and driven with REAL TRANSACTIONS
- * that already exist. Every "does this transaction say what the claimer says it
+ * NO MONEY IS SPENT, AND THE TOKEN IS THE REAL ONE. The marketplace settles in
+ * USDG as of 2026-09-11, so this suite and production point at the same
+ * contract — the verification stopped being an analogy for a token that did
+ * not exist and became a test of the token that does. It is driven with REAL
+ * TRANSACTIONS that already exist. Every "does this transaction say what the claimer says it
  * says" check runs against a transaction somebody else made, months ago,
  * for their own reasons. The conditions the chain cannot supply on demand (a
  * reverted transaction, an unreadable node) come from a controlled RPC that
@@ -234,7 +236,18 @@ function startArca(extra = {}) {
   return spawn('node', ['dist/main.js'], {
     cwd: `${REPO}/services/arca-service`,
     env: { ...process.env, DATABASE_URL: DB, PORT: String(ARCA_PORT), INTERNAL_API_KEY: KEY,
-           ARCA_TOKEN_ADDRESS: USDG, ARCA_TOKEN_DECIMALS: '6',
+           // THE PRODUCTION TOKEN, not a stand-in for it.
+           //
+           // This used to set ARCA_TOKEN_ADDRESS to USDG because $ARCA did not
+           // exist and USDG was the closest real thing. The marketplace is now
+           // settled in USDG for real, so this suite and production are
+           // pointing at the same token — the verification is no longer an
+           // analogy.
+           //
+           // ARCA_TOKEN_DECIMALS is gone. Decimals come from the token's own
+           // decimals(), so the suite cannot accidentally test an assumption
+           // production does not make.
+           MARKETPLACE_PAYMENT_TOKEN: USDG,
            ARCA_RPC_URL: `http://127.0.0.1:${RPC_PORT}`,
            ARCA_CLAIM_MIN_CONFIRMATIONS: '1', ARCA_CLAIM_MAX_AGE_HOURS: '24', ...extra },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -339,7 +352,7 @@ try {
 
   // Wrong token: same transfer, a token address nobody configured.
   await stop();
-  proc = startArca({ ARCA_TOKEN_ADDRESS: '0x' + '2'.repeat(40) });
+  proc = startArca({ MARKETPLACE_PAYMENT_TOKEN: '0x' + '2'.repeat(40) });
   await waitUp();
   r = await claim(real.from, listingId, real.hash);
   check('a transfer of a DIFFERENT token → no_matching_transfer',
@@ -395,7 +408,7 @@ try {
     r.status === 503, `got ${r.status}`);
 
   await stop();
-  proc = startArca({ ARCA_TOKEN_ADDRESS: '' });
+  proc = startArca({ MARKETPLACE_PAYMENT_TOKEN: '' });
   await waitUp();
   r = await claim(real.from, listingId, real.hash);
   check('no token configured → payment_verification_unavailable',
@@ -450,6 +463,32 @@ try {
   // neither a crash nor a concurrent start can wedge this suite permanently.
   try { unlinkSync(LOCK); } catch { /* already gone; nothing to release */ }
   console.log('\nclaims-verify: fixtures removed');
+}
+
+console.log('\n=== The payment token is not the gating token ===');
+{
+  // THE MISTAKE THIS FORECLOSES. One variable served both purposes while both
+  // were $ARCA. They are different tokens now, and the expensive failure is
+  // not either one being wrong — it is the two being SWAPPED, which would let
+  // holding USDG satisfy a $ARCA gate, or price a listing in a token nobody
+  // can pay in. Neither would throw.
+  const unitFile = readFileSync(`${REPO}/infra/systemd/arcana-arca.service`, 'utf8');
+  const payment = /MARKETPLACE_PAYMENT_TOKEN=(\S*)/.exec(unitFile)?.[1] ?? '';
+  const gating = /^Environment=ARCA_TOKEN_ADDRESS=(\S*)$/m.exec(unitFile)?.[1] ?? '';
+
+  check('the payment token is configured', /^0x[0-9a-fA-F]{40}$/.test(payment), payment || '(empty)');
+  check('the payment token is USDG — the address phase zero and phase 11 both used',
+    payment.toLowerCase() === USDG, payment);
+  check('the two tokens are NOT the same value',
+    gating === '' || payment.toLowerCase() !== gating.toLowerCase(),
+    `payment=${payment} gating=${gating}`);
+
+  // And nothing may improvise a third source. Two providers, two variables.
+  const svc = readFileSync(
+    `${REPO}/services/arca-service/src/payments/arca-token.service.ts`, 'utf8');
+  const reads = [...svc.matchAll(/config\.get<string>\('([A-Z_]*TOKEN[A-Z_]*)'\)/g)].map((m) => m[1]);
+  check('no token address is read from the environment outside the two providers',
+    reads.length === 0, reads.join(', '));
 }
 
 console.log(`\n========================================`);

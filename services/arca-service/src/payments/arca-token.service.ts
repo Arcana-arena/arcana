@@ -3,16 +3,38 @@ import { ConfigService } from '@nestjs/config';
 import { createPublicClient, http, parseAbiItem } from 'viem';
 
 /**
- * Read-only client for the $ARCA ERC-20 token on the (permissioned) chain.
- * Only reads Transfer events + block numbers — arca-service never deploys or
- * writes contracts (constraint of §10).
+ * Read-only client for ONE ERC-20 token on Robinhood Chain.
+ *
+ * TWO TOKENS NOW, AND THEY ARE NOT THE SAME THING.
+ *
+ * There used to be one `ARCA_TOKEN_ADDRESS`, read by both the marketplace
+ * payment path and the $ARCA entitlement gate, because both happened to be
+ * $ARCA. They stopped being the same on 2026-09-11:
+ *
+ *   PAYMENT  — what a buyer sends a creator for a listing. Now USDG, which
+ *              exists on chain today and which the phase-11 verification was
+ *              already driven against, using real transfers other people made.
+ *   GATING   — what a creator must HOLD to create, compete, evolve or enter a
+ *              premium arena. Still $ARCA, still unlaunched.
+ *
+ * One variable for both is how they get swapped by accident: a day comes when
+ * somebody sets it for one purpose and silently changes the other. So this
+ * class takes its address as a CONSTRUCTOR ARGUMENT and is registered twice,
+ * under two names, from two variables. Nothing reads a token address from the
+ * environment any more except the two providers at the bottom of this file.
+ *
+ * Only reads — Transfer logs, receipts, block numbers, balances. arca-service
+ * never deploys or writes contracts.
  */
-@Injectable()
-export class ArcaTokenService {
-  private readonly logger = new Logger(ArcaTokenService.name);
+export class Erc20Reader {
+  private readonly logger: Logger;
   readonly tokenAddress: `0x${string}` | null;
   private readonly client;
   readonly chainName: string;
+  /** Which variable this instance came from, for boot logs and refusals. */
+  readonly configVar: string;
+  /** What this token is FOR, so a refusal can say which one is missing. */
+  readonly purpose: string;
   /**
    * Token decimals, once read FROM THE CHAIN. Null until then.
    *
@@ -28,17 +50,24 @@ export class ArcaTokenService {
    */
   private decimalsCache: number | null = null;
 
-  constructor(config: ConfigService) {
-    const rawAddress = config.get<string>('ARCA_TOKEN_ADDRESS');
+  constructor(config: ConfigService, configVar: string, purpose: string) {
+    this.configVar = configVar;
+    this.purpose = purpose;
+    this.logger = new Logger(`Erc20Reader(${purpose})`);
+
+    const rawAddress = config.get<string>(configVar);
     const rpc = config.get<string>('ARCA_RPC_URL');
     this.chainName = config.get<string>('ARCA_CHAIN_NAME') ?? 'robinhood';
 
+    // VALIDATED AS AN ADDRESS, never trusted as a name. A malformed value
+    // becomes null — which disables this reader loudly — rather than being
+    // passed to the chain to see what happens.
     this.tokenAddress = rawAddress?.match(/^0x[a-fA-F0-9]{40}$/)
       ? (rawAddress.toLowerCase() as `0x${string}`)
       : null;
 
     if (!rpc) {
-      this.logger.warn('ARCA_RPC_URL not set — token reads are disabled');
+      this.logger.warn(`ARCA_RPC_URL not set — ${purpose} token reads are disabled`);
       this.client = null;
       return;
     }
@@ -64,7 +93,9 @@ export class ArcaTokenService {
   async getDecimals(): Promise<number> {
     if (this.decimalsCache != null) return this.decimalsCache;
     if (!this.client || !this.tokenAddress) {
-      throw new Error('cannot read decimals(): ARCA_RPC_URL or ARCA_TOKEN_ADDRESS not set');
+      throw new Error(
+        `cannot read decimals(): ARCA_RPC_URL or ${this.configVar} not set ` +
+        `(this is the ${this.purpose} token)`);
     }
     // 0x313ce567 = keccak("decimals()")[0:4]. Called raw rather than through an
     // ABI helper so a token that returns a short word still decodes.
@@ -176,7 +207,7 @@ export class ArcaTokenService {
     toBlock: bigint,
   ): Promise<Array<{ txHash: string; blockNumber: bigint; from: string; to: string; value: bigint }>> {
     if (!this.client) throw new Error('ARCA_RPC_URL not configured');
-    if (!this.tokenAddress) throw new Error('ARCA_TOKEN_ADDRESS not configured');
+    if (!this.tokenAddress) throw new Error(`${this.configVar} not configured`);
 
     const logs = await this.client.getLogs({
       address: this.tokenAddress,
@@ -201,7 +232,7 @@ export class ArcaTokenService {
    */
   async balanceOf(address: string): Promise<bigint> {
     if (!this.client) throw new Error('ARCA_RPC_URL not configured');
-    if (!this.tokenAddress) throw new Error('ARCA_TOKEN_ADDRESS not configured');
+    if (!this.tokenAddress) throw new Error(`${this.configVar} not configured`);
     return this.client.readContract({
       address: this.tokenAddress,
       abi: [parseAbiItem('function balanceOf(address) view returns (uint256)')],
@@ -229,3 +260,44 @@ export class ArcaTokenService {
     return est * price;
   }
 }
+
+// ---------------------------------------------------------------------------
+// The two tokens, and the two names everything else asks for.
+// ---------------------------------------------------------------------------
+//
+// DI TOKENS RATHER THAN TWO SUBCLASSES. A subclass would let a consumer that
+// asks for the base type receive either one, which is exactly the confusion
+// this split exists to prevent. Asking for PAYMENT_TOKEN can only ever get the
+// payment token.
+
+/** What a buyer sends a creator for a listing. USDG today. */
+export const PAYMENT_TOKEN = 'ARCANA_PAYMENT_TOKEN';
+
+/** What a creator must HOLD to create, compete, evolve, or enter a premium arena. */
+export const GATING_TOKEN = 'ARCANA_GATING_TOKEN';
+
+export const paymentTokenProvider = {
+  provide: PAYMENT_TOKEN,
+  inject: [ConfigService],
+  useFactory: (config: ConfigService) =>
+    new Erc20Reader(config, 'MARKETPLACE_PAYMENT_TOKEN', 'marketplace payment'),
+};
+
+export const gatingTokenProvider = {
+  provide: GATING_TOKEN,
+  inject: [ConfigService],
+  useFactory: (config: ConfigService) =>
+    new Erc20Reader(config, 'ARCA_TOKEN_ADDRESS', '$ARCA gating'),
+};
+
+/**
+ * Kept as an alias so nothing outside this module had to be renamed in the
+ * same change that split the tokens.
+ *
+ * It resolves to the GATING token, which is what `ArcaTokenService` always
+ * meant: the $ARCA balance an entitlement is checked against. The payment path
+ * was moved to PAYMENT_TOKEN explicitly rather than left on this name — a
+ * consumer that keeps working while silently pointing at a different token is
+ * the failure this whole split is against.
+ */
+export type ArcaTokenService = Erc20Reader;

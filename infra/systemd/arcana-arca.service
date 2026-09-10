@@ -22,6 +22,38 @@ User=ubuntu
 WorkingDirectory=/home/ubuntu/arcana/services/arca-service
 Environment=DATABASE_URL=postgres://arcana:arcana@localhost:5432/arcana?sslmode=disable
 Environment=PORT=3004
+
+# --- TWO TOKENS, AND THEY ARE NOT THE SAME THING -----------------------------
+#
+# MARKETPLACE_PAYMENT_TOKEN  what a buyer sends a creator for a listing.
+# ARCA_TOKEN_ADDRESS         what a creator must HOLD to create, compete,
+#                            evolve, or enter a premium arena.
+#
+# They were one variable while both were $ARCA. Splitting them is what let the
+# marketplace go live: USDG exists on chain today, and the phase-11
+# verification was already driven against real USDG transfers other people
+# made — so the payment path is proven against exactly this token, not a
+# stand-in for it.
+#
+# USDG, 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168. The same address the
+# phase-zero go/no-go test and the phase-11 claim suite used. Its DECIMALS are
+# read from the chain via decimals(), never written here — a wrong guess scales
+# every price check by a factor of a trillion without erroring.
+#
+# symbol() is never consulted, by rule. On a permissionless chain a token's
+# symbol is attacker-written text; one token on this chain reports a symbol
+# several thousand characters long. Matching is on the address, which cannot
+# be forged.
+Environment=MARKETPLACE_PAYMENT_TOKEN=0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168
+
+# $ARCA has not launched. While this is empty, entitlement gating admits
+# everyone and SAYS SO in every response — it does not silently pass. It no
+# longer blocks the marketplace.
+Environment=ARCA_TOKEN_ADDRESS=
+
+# Read-only RPC. Both tokens use it.
+Environment=ARCA_RPC_URL=https://robinhood-rpc.publicnode.com
+Environment=ARCA_CHAIN_ID=4663
 # Secrets (AUTH_JWT_SIGNING_KEY, INTERNAL_API_KEY) come from this file at
 # mode 600. They are NEVER inline here: unit files are world-readable and
 # systemctl show prints Environment= to any user.

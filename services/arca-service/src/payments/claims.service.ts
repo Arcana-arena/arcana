@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -11,7 +12,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { PaymentClaim } from './payment-claim.entity';
 import { ListingRef } from './listing-ref.entity';
-import { ArcaTokenService } from './arca-token.service';
+import { Erc20Reader, PAYMENT_TOKEN } from './arca-token.service';
 import { SubscriptionsService } from './subscriptions.service';
 
 /**
@@ -67,7 +68,11 @@ export class ClaimsService {
   constructor(
     @InjectRepository(PaymentClaim) private readonly claims: Repository<PaymentClaim>,
     @InjectRepository(ListingRef) private readonly listings: Repository<ListingRef>,
-    private readonly token: ArcaTokenService,
+    // THE PAYMENT TOKEN, named explicitly. This path verifies what a buyer
+    // actually sent a creator, which is USDG — not the token an entitlement
+    // is gated on. Asking for PAYMENT_TOKEN can only ever get the payment
+    // token; a bare type could have received either.
+    @Inject(PAYMENT_TOKEN) private readonly token: Erc20Reader,
     private readonly subs: SubscriptionsService,
     private readonly db: DataSource,
     config: ConfigService,
@@ -81,6 +86,21 @@ export class ClaimsService {
     this.logger.log(
       `payment claims: ${this.minConfirmations} confirmations (~${seconds}s at 0.100 s/block), ` +
       `payments accepted up to ${this.maxAgeSeconds / 3600}h old`);
+
+    // NAMES THE TOKEN AT BOOT. The marketplace is paid in one token and gated
+    // on another, and the single most expensive mistake available here is the
+    // two being swapped without anyone noticing. An operator reading the
+    // journal should not have to infer which is which from a variable name.
+    if (this.token.enabled) {
+      this.logger.log(
+        `payments are settled in the token at ${this.token.tokenAddress} ` +
+        `(from ${this.token.configVar}). Its decimals are read from the chain, never assumed.`);
+    } else {
+      this.logger.warn(
+        `payment claims INACTIVE: ${this.token.configVar} or ARCA_RPC_URL is not set. ` +
+        'Every claim will refuse with 503 payment_verification_unavailable, which is ' +
+        'correct — nothing is being judged.');
+    }
   }
 
   /**
@@ -155,12 +175,12 @@ export class ClaimsService {
       throw new ServiceUnavailableException({
         code: 'payment_verification_unavailable',
         message:
-          'Payment verification is not configured (ARCA_TOKEN_ADDRESS / ARCA_RPC_URL). ' +
+          `Payment verification is not configured (${this.token.configVar} / ARCA_RPC_URL). ` +
           'This is not a judgement about your transaction — nothing was checked.',
       });
     }
 
-    let receipt: Awaited<ReturnType<ArcaTokenService['getReceipt']>>;
+    let receipt: Awaited<ReturnType<Erc20Reader['getReceipt']>>;
     let head: bigint;
     try {
       [receipt, head] = await Promise.all([

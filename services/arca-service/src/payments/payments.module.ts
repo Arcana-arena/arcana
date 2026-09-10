@@ -4,7 +4,13 @@ import { Subscription } from './subscription.entity';
 import { UserPushToken } from './user-push-token.entity';
 import { ListingRef } from './listing-ref.entity';
 import { PaymentClaim } from './payment-claim.entity';
-import { ArcaTokenService } from './arca-token.service';
+import {
+  Erc20Reader,
+  PAYMENT_TOKEN,
+  GATING_TOKEN,
+  paymentTokenProvider,
+  gatingTokenProvider,
+} from './arca-token.service';
 import { SubscriptionsService } from './subscriptions.service';
 import { PushService, ReminderService } from './reminder.service';
 import { ClaimsService } from './claims.service';
@@ -35,7 +41,11 @@ import { ArcaController } from './arca.controller';
   ],
   controllers: [ArcaController],
   providers: [
-    ArcaTokenService,
+    // TWO tokens, two names. See arca-token.service.ts — the marketplace is
+    // paid in USDG and the entitlement gate reads $ARCA, and one variable for
+    // both is how they get swapped by accident.
+    paymentTokenProvider,
+    gatingTokenProvider,
     SubscriptionsService,
     PushService,
     ReminderService,
@@ -43,7 +53,8 @@ import { ArcaController } from './arca.controller';
   ],
   exports: [
     SubscriptionsService,
-    ArcaTokenService,
+    PAYMENT_TOKEN,
+    GATING_TOKEN,
     ClaimsService,
   ],
 })
