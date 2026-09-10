@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Creator } from './creator.entity';
+import { Page, pageOf } from '../common/pagination';
 import { CreateCreatorDto } from './dto/create-creator.dto';
 import { UpdateCreatorDto } from './dto/update-creator.dto';
 
@@ -42,6 +43,24 @@ export class CreatorsService {
       origin: 'siwe',
     });
     return this.creators.save(creator);
+  }
+
+  async findAllPaged(opts: { page: number; pageSize: number; offset: number; q?: string }): Promise<Page<Creator>> {
+    const qb = this.creators.createQueryBuilder('c');
+    if (opts.q) {
+      // Escaped, not interpolated: % and _ are LIKE wildcards, so a search for
+      // "%" would otherwise return every row — the unbounded list coming back
+      // through the front door the page size just closed.
+      const pattern = `%${opts.q.replace(/[\\%_]/g, (ch) => '\\' + ch)}%`;
+      qb.andWhere("c.handle ILIKE :pattern ESCAPE '\\'", { pattern });
+    }
+    const [items, total] = await qb
+      .orderBy('c.created_at', 'DESC')
+      .addOrderBy('c.id', 'DESC')
+      .skip(opts.offset)
+      .take(opts.pageSize)
+      .getManyAndCount();
+    return pageOf(items, total, opts.page, opts.pageSize);
   }
 
   findAll(): Promise<Creator[]> {

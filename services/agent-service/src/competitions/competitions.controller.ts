@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { parsePage } from '../common/pagination';
 import { AdminGuard, InternalKeyGuard, JwtAuthGuard } from '@arcana/auth';
 import { CompetitionsService } from './competitions.service';
 import { ParseUuidAllPipe } from '../common/parse-uuid-all.pipe';
@@ -36,17 +37,46 @@ export class CompetitionsController {
 
   // --- 🌐 public: a competition's state is part of the public record --------
 
+  /**
+   * Competitions, paged and filterable.
+   *
+   * `seasonId` used to short-circuit to an unpaged `findBySeason`, so the one
+   * filter a caller was most likely to use was also the one that bypassed the
+   * page ceiling. It is now a filter like any other — same response shape,
+   * same limit — because a bound that a query parameter can step around is not
+   * a bound.
+   */
   @Get()
-  findAll(@Query('seasonId') seasonId?: string) {
-    if (seasonId) {
-      return this.competitions.findBySeason(seasonId);
-    }
-    return this.competitions.findAll();
+  findAll(
+    @Query('seasonId') seasonId?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('page_size') pageSize?: string,
+  ) {
+    const { page: p, pageSize: ps, offset } = parsePage(page, pageSize);
+    return this.competitions.findAllPaged({
+      page: p, pageSize: ps, offset,
+      seasonId: seasonId?.trim() || undefined,
+      status: status?.trim() || undefined,
+    });
   }
 
   @Get(':id')
   findOne(@Param('id', ParseUuidAllPipe) id: string) {
     return this.competitions.findOne(id);
+  }
+
+  /**
+   * 🌐 Standings for one competition — who is in it and who is ahead.
+   *
+   * Public, like every other read of the track record. Ranked by NAV rather
+   * than by ARCANA Score: see CompetitionsService.standings() for why those
+   * are different questions and why using the score here would let an agent
+   * lead a contest it is losing.
+   */
+  @Get(':id/standings')
+  standings(@Param('id', ParseUuidAllPipe) id: string) {
+    return this.competitions.standings(id);
   }
 
   @Get(':id/ticks')

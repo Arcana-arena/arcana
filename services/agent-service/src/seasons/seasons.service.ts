@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Season } from './season.entity';
+import { Page, pageOf } from '../common/pagination';
 import { CreateSeasonDto } from './dto/create-season.dto';
 import { UpdateSeasonDto } from './dto/update-season.dto';
 import { EntitlementClient, GateStatus } from '../entitlements/entitlement.client';
@@ -74,6 +75,23 @@ export class SeasonsService {
       accessTier: dto.accessTier ?? 'standard',
     });
     return this.withAccessAsync(await this.seasons.save(season));
+  }
+
+  async findAllPaged(opts: {
+    page: number;
+    pageSize: number;
+    offset: number;
+  }): Promise<Page<SeasonView>> {
+    const [rows, total] = await this.seasons.findAndCount({
+      order: { startAt: 'DESC', id: 'DESC' },
+      skip: opts.offset,
+      take: opts.pageSize,
+    });
+    // The gate lookup is per ACTION and covers the whole page, exactly as in
+    // findAll() below — paging changes how many rows are rendered, not how
+    // many times a threshold has to be asked for.
+    const statuses = await this.gateStatuses(rows.some((s) => s.accessTier === 'premium'));
+    return pageOf(rows.map((s) => this.withAccess(s, statuses)), total, opts.page, opts.pageSize);
   }
 
   async findAll(): Promise<SeasonView[]> {

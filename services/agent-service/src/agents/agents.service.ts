@@ -11,6 +11,7 @@ import { EvolveAgentDto } from './dto/evolve-agent.dto';
 import { UpdateAgentDto } from './dto/update-agent.dto';
 import { EntitlementClient } from '../entitlements/entitlement.client';
 import { OwnershipService } from '../auth/ownership.service';
+import { Page, pageOf } from '../common/pagination';
 import { MandateValidationError, renderMandate } from './mandate-templates';
 
 /**
@@ -116,8 +117,66 @@ export class AgentsService {
     }
   }
 
-  findAll(): Promise<Agent[]> {
-    return this.agents.find({ order: { createdAt: 'DESC' } });
+  /**
+   * The public agent list — paged, searchable, filterable.
+   *
+   * It returned every row, unbounded, to anyone. Fine at seven agents; phase 12
+   * opens creation to users, and an unbounded public list is one request
+   * serialising the whole table from a caller who never signed in.
+   *
+   * SEARCH IS A PREFIX-AND-CONTAINS MATCH ON NAME, deliberately dull. A
+   * full-text index would be the right answer at a scale this is nowhere near,
+   * and adding one now would be a second thing to keep in step with the table
+   * for no measurable gain. ILIKE with an escaped pattern is honest about what
+   * it is.
+   *
+   * The parameter is escaped rather than interpolated: `%` and `_` are
+   * wildcards in LIKE, so a user searching for a name containing an underscore
+   * would otherwise get a different query from the one they asked for — and a
+   * search for `%` would return everything, which is the unbounded list coming
+   * back through the front door.
+   */
+  async findAll(opts: {
+    page: number;
+    pageSize: number;
+    offset: number;
+    q?: string;
+    status?: string;
+    creatorId?: string;
+    strategyType?: string;
+  }): Promise<Page<Agent>> {
+    const qb = this.agents.createQueryBuilder('a');
+
+    if (opts.q) {
+      const pattern = `%${opts.q.replace(/[\\%_]/g, (c) => '\\' + c)}%`;
+      qb.andWhere("a.name ILIKE :pattern ESCAPE '\\'", { pattern });
+    }
+    if (opts.status) {
+      if (!['draft', 'active', 'retired'].includes(opts.status)) {
+        throw new BadRequestException({
+          code: 'invalid_status_filter',
+          message: `status must be one of: draft, active, retired. Got '${opts.status.slice(0, 20)}'.`,
+        });
+      }
+      qb.andWhere('a.status = :status', { status: opts.status });
+    }
+    if (opts.creatorId) qb.andWhere('a.creator_id = :creatorId', { creatorId: opts.creatorId });
+    if (opts.strategyType) {
+      qb.andWhere('a.strategy_type = :strategyType', { strategyType: opts.strategyType });
+    }
+
+    // Ordered by created_at DESC then id, because created_at is not unique and
+    // an unstable sort makes paging skip and repeat rows across pages — a bug
+    // that only appears at the boundary between two pages and is therefore
+    // never noticed in a list short enough to fit on one.
+    const [items, total] = await qb
+      .orderBy('a.created_at', 'DESC')
+      .addOrderBy('a.id', 'DESC')
+      .skip(opts.offset)
+      .take(opts.pageSize)
+      .getManyAndCount();
+
+    return pageOf(items, total, opts.page, opts.pageSize);
   }
 
   async findOne(id: string): Promise<Agent> {

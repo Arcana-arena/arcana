@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, UseGuards, Query } from '@nestjs/common';
+import { parsePage } from '../common/pagination';
 import { AdminGuard, JwtAuthGuard } from '@arcana/auth';
 import { SeasonsService } from './seasons.service';
 import { ParseUuidAllPipe } from '../common/parse-uuid-all.pipe';
@@ -24,8 +25,9 @@ export class SeasonsController {
   }
 
   @Get()
-  findAll() {
-    return this.seasons.findAll();
+  findAll(@Query('page') page?: string, @Query('page_size') pageSize?: string) {
+    const { page: p, pageSize: ps, offset } = parsePage(page, pageSize);
+    return this.seasons.findAllPaged({ page: p, pageSize: ps, offset });
   }
 
   @Get(':id')

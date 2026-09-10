@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { CurrentWallet, JwtAuthGuard, RateLimit } from '@arcana/auth';
@@ -22,6 +23,7 @@ import { ImportWalletDto } from './dto/import-wallet.dto';
 import { OwnershipService } from '../auth/ownership.service';
 import { DecisionClient } from '../decisions/decision.client';
 import { MANDATE_TEMPLATES, MANDATE_MAX_CHARS } from './mandate-templates';
+import { parsePage } from '../common/pagination';
 
 /**
  * Reads are public; writes require a session, and writes to a specific agent
@@ -102,9 +104,32 @@ export class AgentsController {
     };
   }
 
+  /**
+   * The public agent list — paged, searchable, filterable.
+   *
+   * Public and unauthenticated, because an inspectable track record is the
+   * product. That is also why it needed a ceiling: an unbounded public list is
+   * one request serialising the whole table from a caller who never signed in,
+   * and the rate limiter bounds how OFTEN that happens rather than how much it
+   * costs.
+   */
   @Get()
-  findAll() {
-    return this.agents.findAll();
+  findAll(
+    @Query('page') page?: string,
+    @Query('page_size') pageSize?: string,
+    @Query('q') q?: string,
+    @Query('status') status?: string,
+    @Query('creator_id') creatorId?: string,
+    @Query('strategy_type') strategyType?: string,
+  ) {
+    const { page: p, pageSize: ps, offset } = parsePage(page, pageSize);
+    return this.agents.findAll({
+      page: p, pageSize: ps, offset,
+      q: q?.trim() || undefined,
+      status: status?.trim() || undefined,
+      creatorId: creatorId?.trim() || undefined,
+      strategyType: strategyType?.trim() || undefined,
+    });
   }
 
   @Get(':id')

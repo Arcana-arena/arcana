@@ -268,10 +268,13 @@ var LeaderboardSortColumn = map[string]string{
 	// Rankable since strategy_score became a real measure (2026-09-09); it was
 	// omitted while every agent scored an identical placeholder 50.
 	"strategy": "strategy_score",
+	// Added 2026-09-11. `creator_score` has been a real column and a real factor
+	// in the composite since the score existed; it was simply never rankable, so
+	// the one dimension measuring the PERSON behind an agent had no board of its
+	// own. With users creating their own agents, that is the dimension most
+	// worth being able to sort by.
+	"creator": "creator_score",
 }
-
-// NOTE: `creator` is real too but still absent here — a pre-existing gap, left
-// alone rather than folded into an unrelated change.
 
 // Leaderboard returns the latest score per agent, sorted by the given column.
 // When seasonID is non-empty only scores EARNED in that season rank.

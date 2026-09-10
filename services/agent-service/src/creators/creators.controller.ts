@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { parsePage } from '../common/pagination';
 import { CurrentWallet, JwtAuthGuard } from '@arcana/auth';
 import { CreatorsService } from './creators.service';
 import { ParseUuidAllPipe } from '../common/parse-uuid-all.pipe';
@@ -23,8 +24,13 @@ export class CreatorsController {
 
   /** 🌐 Creator profiles are public — they are part of the track record. */
   @Get()
-  findAll() {
-    return this.creators.findAll();
+  findAll(
+    @Query('page') page?: string,
+    @Query('page_size') pageSize?: string,
+    @Query('q') q?: string,
+  ) {
+    const { page: p, pageSize: ps, offset } = parsePage(page, pageSize);
+    return this.creators.findAllPaged({ page: p, pageSize: ps, offset, q: q?.trim() || undefined });
   }
 
   @Get(':id')

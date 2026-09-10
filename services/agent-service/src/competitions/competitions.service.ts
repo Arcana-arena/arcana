@@ -6,6 +6,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Competition } from './competition.entity';
+import { Page, pageOf } from '../common/pagination';
 import { CompetitionTick } from './competition-tick.entity';
 import { CreateCompetitionDto } from './dto/create-competition.dto';
 import { EntitlementClient } from '../entitlements/entitlement.client';
@@ -116,6 +117,134 @@ export class CompetitionsService {
             'token is not launched, or no threshold is set for that action). This is ' +
             'a pass by default, not a verified entitlement.',
       },
+    };
+  }
+
+  async findAllPaged(opts: { page: number; pageSize: number; offset: number; seasonId?: string; status?: string }): Promise<Page<Competition>> {
+    const qb = this.competitions.createQueryBuilder('c');
+    if (opts.seasonId) qb.andWhere('c.season_id = :seasonId', { seasonId: opts.seasonId });
+    if (opts.status) qb.andWhere('c.status = :status', { status: opts.status });
+    const [items, total] = await qb
+      .orderBy('c.id', 'DESC')
+      .skip(opts.offset)
+      .take(opts.pageSize)
+      .getManyAndCount();
+    return pageOf(items, total, opts.page, opts.pageSize);
+  }
+
+  /**
+   * Standings for one competition: who is in it and how they are doing.
+   *
+   * WHY THIS DID NOT EXIST, AND WHY IT HAD TO. The leaderboard ranks agents
+   * across a season by score. A competition is a smaller thing — a fixed set
+   * of participants over a run of ticks — and the only way to see how one was
+   * going was to fetch every participant separately and compare their
+   * portfolios by hand. That is a join the client should never have been asked
+   * to do, and the two ways of doing it would have disagreed the first time
+   * anyone got it slightly wrong.
+   *
+   * RANKED BY NAV, NOT BY SCORE. Deliberate, and the distinction matters:
+   *
+   *   * the ARCANA Score measures an agent across everything it has ever done,
+   *     with risk, consistency, longevity and creator factors folded in. It is
+   *     a reputation, and it is season-scoped.
+   *   * a competition standing answers "who is ahead in THIS contest, right
+   *     now". That is what the money did, over these ticks, from a common
+   *     starting point.
+   *
+   * Ranking a competition by ARCANA Score would let an agent lead a contest it
+   * is losing, on the strength of history from outside it. Nothing here
+   * touches the scoring formula or regime_score — this reads portfolios.
+   *
+   * Every participant appears, including ones with no portfolio yet, marked
+   * rather than omitted. A participant silently missing from standings is
+   * indistinguishable from one that was never registered.
+   */
+  async standings(id: string) {
+    const competition = await this.findOne(id);
+
+    const rows: Array<{
+      agent_id: string;
+      name: string | null;
+      version: number | null;
+      status: string | null;
+      strategy_type: string | null;
+      creator_handle: string | null;
+      nav: string | null;
+      cash: string | null;
+      snapshot_at: Date | null;
+      decisions: string;
+    }> = await this.competitions.manager.query(
+      `WITH latest AS (
+         SELECT DISTINCT ON (agent_id) agent_id, nav, cash, ts
+           FROM portfolio_snapshots
+          WHERE agent_id = ANY($1::uuid[])
+          ORDER BY agent_id, ts DESC
+       )
+       SELECT a.id  AS agent_id,
+              a.name,
+              a.version,
+              a.status,
+              a.strategy_type,
+              c.handle AS creator_handle,
+              l.nav,
+              l.cash,
+              l.ts   AS snapshot_at,
+              (SELECT count(*) FROM decisions d WHERE d.agent_id = a.id) AS decisions
+         FROM unnest($1::uuid[]) AS p(id)
+         JOIN agents a   ON a.id = p.id
+         LEFT JOIN creators c ON c.id = a.creator_id
+         LEFT JOIN latest l   ON l.agent_id = a.id`,
+      [competition.participantIds ?? []],
+    );
+
+    // Sorted here rather than in SQL because a NULL nav must sort LAST
+    // regardless of direction, and "no portfolio yet" is not last place — it
+    // is not a place at all. Postgres would need an explicit NULLS LAST that
+    // is easy to lose in a later edit.
+    const ranked = [...rows].sort((x, y) => {
+      const nx = x.nav == null ? null : Number(x.nav);
+      const ny = y.nav == null ? null : Number(y.nav);
+      if (nx == null && ny == null) return 0;
+      if (nx == null) return 1;
+      if (ny == null) return -1;
+      return ny - nx;
+    });
+
+    const ticks = await this.ticks.count({ where: { competitionId: id } });
+
+    return {
+      competition: {
+        id: competition.id,
+        season_id: competition.seasonId,
+        type: competition.type,
+        status: competition.status,
+        ticks,
+      },
+      standings: ranked.map((r, i) => ({
+        // Rank is null for a participant with no portfolio: it has not placed,
+        // which is different from placing last.
+        rank: r.nav == null ? null : i + 1,
+        agent_id: r.agent_id,
+        name: r.name,
+        version: r.version,
+        status: r.status,
+        strategy_type: r.strategy_type,
+        creator_handle: r.creator_handle,
+        nav: r.nav,
+        cash: r.cash,
+        snapshot_at: r.snapshot_at,
+        decisions: Number(r.decisions),
+        note: r.nav == null
+          ? 'No portfolio snapshot yet — this agent has not been valued in this competition.'
+          : undefined,
+      })),
+      ranked_by: 'nav',
+      note:
+        'Ranked by NAV, not by ARCANA Score. The score is a season-wide reputation ' +
+        'including risk, consistency and longevity; a standing answers who is ahead ' +
+        'in this contest right now. Ranking a competition by score would let an agent ' +
+        'lead a contest it is losing, on the strength of history from outside it.',
     };
   }
 
