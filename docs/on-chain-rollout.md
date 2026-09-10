@@ -17,8 +17,9 @@ Two rules govern the order:
 | 1 | Decisions and document corrections | **done** | — |
 | 2 | Chain guard — beacon and issuer-control monitor | **done** | — |
 | 3 | Infrastructure cleanup — Kafka and Redis off | **done** | — |
-| 4 | Retire the code the direction change kills | next | — |
+| 4a | Retire the §10 payment subsystem (no live dependency) | next | — |
 | 5 | `MarketIndexService` — remove the per-snapshot round trip | | — |
+| 4b–d | Retire strategy.go, session.go, the human path | with 6, 10, 9 | each waits for its replacement |
 | 6 | Decider abstraction + DeepSeek, still on virtual money | | — |
 | 7 | Signer service, policy engine, router allowlist — no money | | — |
 | 8 | **First real swap, ~$20, one wallet** | | **owner: approval to spend** |
@@ -89,19 +90,48 @@ the measured result recorded in [capacity.md](./capacity.md): RAM used 1279 MB
 
 ## Phase 4 — Retire what the change kills
 
-Delete or clearly archive, each with a note saying what replaced it:
+> **Re-scoped 2026-09-10, before it was executed.** The first version of this
+> phase listed everything the direction change makes obsolete and proposed
+> deleting it in one pass. Checking the dependencies first showed that would
+> have broken the running system, contradicting this document's own opening
+> rule two screens above it:
+>
+> | Piece | Status when checked |
+> |---|---|
+> | `internal/session/` | **live** — imported by `market-data/cmd/server` and `snapshot_service.go`; it is what makes the daily tick work at all |
+> | `strategy.go` `decide()` | **live** — the only decider that exists; `engine.go:81` has no alternative until phase 6 |
+> | `ExecuteManual()` | **live** — wired at `decision-engine/cmd/server/main.go:54` and in agent-service's controller |
+>
+> Obsolete by decision is not the same as unreferenced in code. So retirement is
+> split by what a piece is still holding up, and each part now happens in the
+> phase that delivers its replacement.
 
-- `services/market-data/internal/session/` — trading-day resolution
-- vendor-as-calendar, `ErrMarketClosed`, the `/session/expected` endpoint
-- `infra/alerting/arcana-tick-watchdog.sh` and its timer
-- `services/decision-engine/internal/engine/strategy.go` — keeping
-  `RiskLimits` and `buyableQty()`, which become the policy engine
-- `ExecuteManual()` and the `human` strategy path
-- `services/arca-service/src/payments/` — the whole §10 subsystem, its two
-  timers, and the `deposit_addresses` machinery
+**4a — retire now (nothing live depends on these):**
 
-**Nothing that holds a record is deleted.** Retired agents, human participants,
-Season 1 and every decision ever recorded stay exactly where they are.
+- `services/arca-service/src/payments/` — the §10 subsystem, its two timers,
+  and the `deposit_addresses` machinery. It has been a no-op since it shipped:
+  every path refuses while `ARCA_TOKEN_ADDRESS` is unset. Its replacement is
+  tx-hash verification in phase 11.
+  **Check first:** `subscriptions` feeds the entitlement grace window, which
+  marketplace reads. The subscription lifecycle stays; the deposit/listener/
+  sweep/payout machinery goes.
+- `infra/k8s/` — an empty directory describing a topology that does not exist.
+
+**4b — with phase 6, when a decider replaces it:** `strategy.go`, keeping
+`RiskLimits` and `buyableQty()`, which become the policy engine.
+
+**4c — with phase 10, when continuous cadence replaces it:**
+`internal/session/`, vendor-as-calendar, `ErrMarketClosed`,
+`/session/expected`, `arcana-tick-watchdog.sh` and its timer.
+
+**4d — with phase 9, when Human vs AI has no live competition:**
+`ExecuteManual()` and the `human` strategy path. The decision to retire Human
+vs AI is already made and recorded; removing the code waits until the running
+`human_vs_ai` competition is closed rather than yanked.
+
+**Nothing that holds a record is deleted, in any of these.** Retired agents,
+human participants, Season 1 and every decision ever recorded stay where they
+are. What stops is accrual.
 
 **Verified by:** the services build and boot with the code gone; no timer
 references a removed unit; `docs/data-resets.md` gains an entry saying what was
