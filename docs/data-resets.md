@@ -369,3 +369,49 @@ removing anything found exactly **one** consumer in the entire codebase:
 `PaymentListenerService`, storing its block scan cursor. The general facility
 existed in the description, never in the code. It is retired with its only
 user rather than kept on the strength of its name.
+
+---
+
+## 2026-09-11 — one unbuyable listing deactivated
+
+**One row changed, nothing deleted.**
+
+`marketplace_listings.a4038a4a-8fd3-43e6-979b-510fe9434b23` (agent
+`momentum_bot`, creator `dummy_creator`, `origin = legacy_seed`) was active and
+could never be bought: its creator has no `wallet_address`, so every claim
+against it refused with `creator_has_no_wallet`.
+
+**That refusal was correct and the listing was still broken.** There was no
+address a buyer could pay and no address the platform could verify a payment
+against — so the listing advertised something nobody could purchase, and the
+only way to find that out was to try.
+
+### Why it existed
+
+Two creators have no wallet, both `legacy_seed`. They predate SIWE: a creator
+created through the API today takes its wallet from the caller's verified
+session, so it cannot be created without one, and `UpdateCreatorDto` has never
+accepted `walletAddress` — a wallet cannot be removed either. The hole was
+only ever "a listing published for a creator that never had one".
+
+### Why deactivating is not the fix
+
+It is the cleanup. The fix is that `ListingsService.create()` now refuses to
+publish for a creator with no wallet, and reactivating through `PATCH` runs the
+same check — a guard one PATCH can walk around is a formality. Cleaning up once
+fixes the row that exists and none of the ones somebody creates tomorrow.
+
+The check asks arca-service's `isPayable()`, which answers from
+`creatorWalletFor()` — the same lookup the payment verification uses. A local
+query against `creators` would have been a second definition of "can this be
+paid for".
+
+### Backup
+
+Taken immediately before, via `sudo systemctl start arcana-backup.service`.
+Nothing was deleted, so the backup is a precaution rather than a quarantine —
+but the rule is backup-before-changing-data, and a rule with an "unless it's
+only one row" clause is a rule that eventually meets the row that mattered.
+
+`claims-verify` now asserts that **no active listing has a creator without a
+wallet**, so this cannot silently come back.

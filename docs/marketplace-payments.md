@@ -5,7 +5,7 @@ verifies it against the chain and grants access. No deposit address, no
 treasury, no split, no contract.
 
 Implemented in `services/arca-service/src/payments/claims.service.ts`.
-Verified by `infra/verify/claims-verify.mjs` (26 checks, against real
+Verified by `infra/verify/claims-verify.mjs` (45 checks, against real
 transactions, in the token production actually settles in).
 
 Related: [on-chain-direction.md §g](./on-chain-direction.md#g-marketplace--tx-hash-confirmation),
@@ -154,7 +154,7 @@ The access-flow suite is still 11/11, unchanged.
 node infra/verify/claims-verify.mjs
 ```
 
-**26 checks. No money was spent.**
+**45 checks. No money was spent.**
 
 The verifier is pointed at **USDG — the token the marketplace actually settles
 in** — and driven with a **real transaction that somebody else made, for their
@@ -239,60 +239,126 @@ The §10 subsystem that used to appear here as item 3 was **retired on
 listener routes, and the marketplace `subscribe` route that called them. They
 were held through phase 4a because their replacement was not proven. This
 document is that proof, and the order was the point.
+## The listing states its own payee and price
+
+`GET /v1/marketplace/listings/:id/quote` — **public**, because a buyer needs
+both before signing in and neither is secret: the address is public on chain,
+the price is public on the listing.
+
+```json
+{
+  "pay_to": "0x…",
+  "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+  "amount": "12.50000000",
+  "amount_base_units": "12500000",
+  "decimals": 6,
+  "claim_within_hours": 24,
+  "min_confirmations": 600,
+  "warning": "You are paying the creator DIRECTLY. ARCANA never receives this money…"
+}
+```
+
+### The hole this closes
+
+Until this existed, **nothing in the API told a buyer which address to send
+to**, so the answer came from outside the platform — a chat message, a
+screenshot, a website. Anyone who could substitute an address in that path took
+the money, and ARCANA's verification then refused their claim **correctly, and
+too late**.
+
+A refusal that arrives after the loss is not a defence.
+
+### One source, and it is checked as one
+
+`pay_to` and `amount_base_units` come from `resolvePayable()` and
+`requiredBaseUnits()` — **the same calls `claim()` makes**, not a parallel
+query that agrees today. Marketplace proxies and computes nothing: not the
+address, not the amount, not the decimals. A "helpful" format in the proxy
+would be a second implementation wearing a different hat.
+
+`claims-verify` proves this **in the source**, not by comparing two outputs:
+exactly one `creatorWalletFor`, exactly one `baseUnits`, and both paths
+demonstrably routed through them. Comparing outputs would pass on every day
+they still agreed — which is every day until the one that matters.
+
+It also proves it end to end: the quote is taken **before** the claim, and the
+very same real transfer is then accepted. So the address a buyer would have
+been told is provably the address the accepted payment went to.
+
+## A listing with no payee cannot be published
+
+One creator had no `wallet_address` and an active listing. Every claim against
+it refused with `creator_has_no_wallet` — **the correct refusal, and a listing
+nobody could ever buy**. Refusing correctly is not the same as working.
+
+`create()` now asserts the creator is payable, and so does reactivating through
+`PATCH`: a guard one `PATCH` can walk around is a formality.
+
+The check asks arca-service's `isPayable()`, which answers from
+`creatorWalletFor()` — the same lookup the verification uses. A local query
+against `creators` would have been a second definition of "can this be paid
+for".
+
+**It refuses only on `creator_has_no_wallet`.** An unreachable arca-service or
+a missing internal key logs and publishes anyway. Making publication depend on
+another service being up is a worse property than a listing that has to be
+fixed later, and the claim path still refuses correctly regardless.
+
+## The payment you made but never claimed
+
+`GET /v1/marketplace/listings/:id/unclaimed-payments` — session required.
+
+Somebody pays, closes the tab before submitting the hash, and the money looks
+lost while the 24-hour window runs. This finds it.
+
+**It grants nothing**, which is why it opens no new surface. It returns
+candidate hashes for transfers whose **sender is the caller's own proven
+wallet** and whose recipient is this listing's creator; claiming one still goes
+through every check unchanged. It reveals transactions involving the caller's
+own wallet — which they can already see — and the creator's address, which the
+quote now states anyway. Already-claimed hashes are excluded rather than
+offered and then refused: offering a hash that cannot work is worse than not
+finding it, because the buyer acts on it.
+
+### The scan is bounded, and says so
+
+The freshness window is 24 hours — **864,000 blocks** at 0.100 s/block.
+Scanning that per request is not something to do to a node somebody else pays
+for. So it looks back about **thirty minutes**, reports how far it looked, and
+tells the buyer that an older payment is still claimable from their own wallet
+history — rather than returning an empty list that reads as *"no payment
+found"*.
+
+Filtered by the node through indexed topics, not pulled and filtered here.
+
+## Refunds: there are none, and the buyer is told first
+
+ARCANA never receives the payment, so there is nothing to refund. That is a
+direct consequence of a fee-free P2P marketplace and it is the right trade.
+
+What changed is **when** a buyer learns it. The warning is in the quote — the
+one moment they can still decide — rather than in a document they read after
+sending money to the wrong address.
 
 ## What is left before real users
 
-The marketplace is the first feature that can go live **without waiting on
-anything from the owner**. That is a real claim, so here is everything that is
-actually still between it and a stranger using it — stated as findings, not as
-a plan.
+**Nothing but a frontend.**
 
-### Blocking, and inside our control
+Every blocker that was in this section is closed:
 
-1. **Two creators have no `wallet_address`** (2 of 51). A listing whose creator
-   has no wallet refuses every claim with `creator_has_no_wallet`, which is the
-   correct refusal — there is no address to verify a payment against — but it
-   is a listing that can never be bought. The creators need a wallet, or their
-   listings need deactivating. **Refusing correctly is not the same as working.**
+| Was blocking | Now |
+|---|---|
+| creators without a wallet | listing refuses to publish; the one bad row is deactivated |
+| buyer could not learn the payee | `GET …/quote`, from the row the check reads |
+| buyer could not learn the price in the paid token | same quote, one conversion |
+| a paid-but-unclaimed payment was invisible | `GET …/unclaimed-payments` |
+| refunds not disclosed before payment | stated in the quote |
 
-2. **A buyer has no way to learn the creator's address.** The claim path
-   verifies a payment to the creator's wallet, and nothing in the API tells a
-   buyer what that address is. Today the answer would have to come from outside
-   the platform, which is exactly the sort of gap that gets filled by somebody
-   pasting an address into a chat window — and that is how payment redirection
-   attacks work. A listing needs to state its own payee, from the same row the
-   verification reads, so the two cannot disagree.
+Not blocking, and deliberately not done here:
 
-3. **A buyer has no way to learn the price in the token they will pay in.**
-   `arca_gate_amount` is a NUMERIC and the claim converts it with the token's
-   decimals. A listing should say "12.500000 USDG", from the same conversion
-   the check uses, rather than leaving a client to do that arithmetic — two
-   implementations of a price conversion is how somebody underpays by a factor
-   of a million and is told `insufficient_amount`.
-
-### Not blocking, but they will be asked about
-
-4. **A confirmed payment is invisible until claimed.** The buyer pays, then
-   submits the hash. If they close the tab in between, nothing anywhere knows
-   the payment happened, and the 24-hour freshness window is running. That is
-   survivable — the money is theirs, on chain, and the claim still works within
-   the window — but the failure is silent and the remedy is a support message.
-
-5. **A refunded or mistaken payment has no path.** ARCANA never held the money,
-   so there is nothing to refund; the buyer and creator must settle it between
-   themselves. That is a consequence of the fee-free P2P design and it is the
-   right trade, but it should be stated to a buyer before they pay rather than
-   discovered after.
-
-### Deliberately not blocking
-
-- **A frontend.** Not started, and not started here on purpose.
-- **$ARCA.** It gates entitlements — CREATE, COMPETE, EVOLVE, PREMIUM ARENA —
-  and no longer touches payment. Every gate currently admits everyone and says
-  so in its response rather than passing silently.
-- **KMS, the seed, and the $10 swap.** All three are about the *trading*
-  wallets ([signer.md](./signer.md)). The marketplace holds no key and moves no
-  money: the buyer pays the creator directly and ARCANA reads the chain.
-
-The first three are ordinary product work with no external dependency. Nothing
-on this list needs a credential, an approval, or a launch.
+- **A frontend.** Not started, on instruction.
+- **$ARCA.** Gates entitlements — CREATE, COMPETE, EVOLVE, PREMIUM ARENA — and
+  no longer touches payment. Every gate admits everyone today and says so in
+  its response rather than passing silently.
+- **KMS, the seed, the $10 swap.** All about the *trading* wallets
+  ([signer.md](./signer.md)). The marketplace holds no key and moves no money.
