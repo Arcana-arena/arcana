@@ -111,7 +111,42 @@ AWS KMS: $1/month per key plus $0.03 per 10,000 requests. GCP Cloud KMS: $0.06
 per key version per month plus $0.03 per 10,000 operations. At one decrypt per
 signer boot, request charges round to nothing in both.
 
-**Recommendation: B.** One KMS key wrapping one seed. C buys almost nothing over
+### DECIDED 2026-09-11: option A, deliberately
+
+**The seed stays a file on the host.** No KMS, no cloud account, no additional
+service. This is a considered choice for a phase with no money in it, recorded
+here so it reads as a decision rather than as something nobody got to.
+
+**What that accepts, in plain terms:**
+
+- **Host compromised → every wallet drained.** The seed can be copied by anyone
+  who gets root, and nothing about that would be logged or revocable.
+- **Seed lost → every wallet gone permanently.** No support path, no reset, no
+  partial recovery.
+
+Both are survivable today for exactly one reason: the wallets are empty.
+
+**Option B is a PRECONDITION of funding the first wallet, not an improvement to
+schedule later.** The moment real money is in an agent wallet, "an attacker who
+gets root can copy the key silently" stops being an accepted risk and becomes an
+unacceptable one. Because the seed is loaded through a single function, moving
+to a KMS-wrapped seed changes that function and nothing else — a swap, not a
+rewrite. That is why it was built this way rather than left until it was needed.
+
+**The seed must never move into Postgres.** It is the obvious-looking
+simplification and it would undo everything this component is for:
+
+- every service holding a database connection could read it, which is the exact
+  separation the Linux user, the 0700 directory and the 0400 file exist to
+  create;
+- and it would be carried into every database backup, including the off-site
+  archive, which is not encrypted at rest.
+
+A seed in a backup is a seed in however many copies of that backup exist, in
+whatever places they were copied to, for as long as they are retained.
+
+
+**Recommendation, for the record: B.** One KMS key wrapping one seed. C buys almost nothing over
 B — B's compromise scope is already "the seed" — for a hundred times the money.
 D is the strongest and is not available on a rented VPS.
 
