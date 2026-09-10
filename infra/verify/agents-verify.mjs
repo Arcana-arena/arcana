@@ -80,7 +80,14 @@ const psqlSafe = (sql) => {
   try { return psql(sql); } catch (e) { return 'ERROR: ' + String(e.message).slice(0, 120); }
 };
 
+// The suite's own sign-ins come out of the SAME per-IP nonce allowance the
+// flood below is testing. Counted rather than ignored: the first version
+// asserted a guessed range, got 14 where it expected 15-21, and the limiter
+// was right. An expectation you cannot derive is an expectation you are going
+// to have to keep loosening.
+let noncesSpent = 0;
 async function signIn(account) {
+  noncesSpent++;
   const nonce = (await req(`${AGENT}/v1/auth/nonce`)).body.nonce;
   const message = createSiweMessage({
     address: account.address, chainId: CHAIN_ID, domain: DOMAIN, nonce,
@@ -550,6 +557,7 @@ try {
 
     // THE ENDPOINT THIS WAS WRITTEN FOR. Unauthenticated, and it writes a row
     // per call. The limit is 20/min; 30 calls must therefore be stopped.
+    const spentBeforeFlood = noncesSpent;
     let limited = 0;
     let served = 0;
     let retryAfter = null;
@@ -560,8 +568,16 @@ try {
     }
     check('GET /v1/auth/nonce stops serving before 30 calls', limited > 0,
       `${served} served, ${limited} limited`);
-    check('it served roughly its allowance first, rather than refusing everything',
-      served >= 15 && served <= 21, `${served} served`);
+    // NONCE_LIMIT is the allowance declared on the route. What is left for the
+    // flood is that minus what this suite already spent signing in, and the
+    // check says so — a number derived from the configuration rather than
+    // eyeballed, so it stays true if either changes.
+    const NONCE_LIMIT = 20;
+    const expected = Math.max(0, NONCE_LIMIT - spentBeforeFlood);
+    check(`it served its REMAINING allowance first (${expected} left after ${spentBeforeFlood} sign-ins), not nothing`,
+      served === expected, `served ${served}, expected ${expected}`);
+    check('and everything else was refused rather than dropped',
+      served + limited === 30, `${served} + ${limited}`);
     check('the refusal carries Retry-After so a client can back off',
       retryAfter !== null && Number(retryAfter) > 0, String(retryAfter));
 
