@@ -63,6 +63,22 @@ const read = (p) => (existsSync(p) ? readFileSync(p, 'utf8') : '');
  */
 const splitLines = (text) => text.split(/\r?\n/);
 
+/**
+ * Words that turn a mention into a RECORD rather than a CLAIM.
+ *
+ * ONE VOCABULARY, used by every check here. There were two — the unit check
+ * and the deleted-service check each carried their own list — and they had
+ * already drifted: "replaced" counted as history in one and not the other, so
+ * the same sentence passed in one document and failed in another. A checker
+ * that answers the same question two ways is a checker whose failures nobody
+ * can predict, which is how one ends up switched off.
+ *
+ * Kept deliberately narrow. Every word here unambiguously means the thing
+ * named is no longer current; adding one that merely tends to appear near a
+ * retirement would quietly turn this into a check that passes everything.
+ */
+const HISTORY = /retired|removed|deleted|replaced|superseded|gone|no longer|was |used to|went|~~/i;
+
 // ---------------------------------------------------------------------------
 console.log('\n=== 1. auth.md lists the routes that exist, and only those ===');
 // ---------------------------------------------------------------------------
@@ -175,7 +191,7 @@ console.log('\n=== 2. scheduling.md and alerting.md match the installed units ==
   // A ghost named on a line that says it was retired is history, not a claim.
   const liveGhosts = ghosts.filter((u) => {
     const lines = `${scheduling}\n${alerting}`.split('\n').filter((l) => l.includes(u));
-    return !lines.every((l) => /retired|removed|deleted|gone|no longer|~~/i.test(l));
+    return !lines.every((l) => HISTORY.test(l));
   });
   check('no document names a unit that does not exist',
     liveGhosts.length === 0, liveGhosts.join(', '));
@@ -299,7 +315,7 @@ console.log('\n=== 4. No document names a source file that is gone ===');
     for (const unit of units) {
       for (const cls of GONE) {
         if (!unit.includes(cls)) continue;
-        if (/retired|removed|deleted|gone|no longer|was |used to|went|~~/i.test(unit)) continue;
+        if (HISTORY.test(unit)) continue;
         if (unit.trim().startsWith('>')) continue;   // a banner is a record
         offenders.push(`${doc}: ${unit.trim().slice(0, 90)}`);
       }
