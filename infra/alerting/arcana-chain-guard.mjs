@@ -47,8 +47,13 @@ const TIMEOUT_MS = Number(process.env.CHAIN_GUARD_TIMEOUT_MS || 15000);
 // Several endpoints, because one provider having a bad afternoon must not read
 // as "the issuer changed something". They are probed at startup (see preflight)
 // and any that cannot serve this workload is dropped rather than counted.
+//
+// robinhood.drpc.org is deliberately NOT in this list. It answers eth_chainId
+// and refuses eth_call and eth_getStorageAt on its free tier, so as a fallback
+// it satisfied the identity check and then failed every real read — redundancy
+// that made one point of failure look like two.
 const RPCS = (process.env.CHAIN_RPC_URLS ||
-  'https://robinhood-rpc.publicnode.com,https://robinhood.drpc.org'
+  'https://rpc.mainnet.chain.robinhood.com,https://robinhood-rpc.publicnode.com'
 ).split(',').map(s => s.trim()).filter(Boolean);
 
 // Test hooks. Used by the verification rig to prove each branch alarms; never
@@ -115,15 +120,21 @@ async function preflight() {
   ];
   const usable = [];
   for (const url of RPCS) {
-    let ok = true, why = '';
+    let ok = true, why = '', transportFails = 0;
     for (const [m, p] of probes) {
       try { await rpcOnce(url, m, p); }
       catch (e) {
         if (e.methodUnsupported) { ok = false; why = `does not serve ${m}`; break; }
-        // A transient failure during preflight is not a reason to drop an
-        // endpoint permanently — keep it and let the retry logic decide.
+        // A transient failure on ONE probe is not grounds to drop an endpoint —
+        // keep it and let the retry logic decide. Failing EVERY probe is
+        // different: the endpoint is unreachable from this host, and keeping it
+        // only spends the retry budget on something that will not answer.
+        // (This is how the official RPC behaves from a network whose ISP
+        // intercepts robinhood.com — it works fine from the VPS.)
+        transportFails++;
       }
     }
+    if (ok && transportFails === probes.length) { ok = false; why = 'unreachable from this host'; }
     if (ok) usable.push(url); else log(`endpoint dropped: ${url} — ${why}`);
   }
   endpoints = usable;
