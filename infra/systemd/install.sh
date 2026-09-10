@@ -170,9 +170,18 @@ echo "==> enabling long-running services"
 # quietly incomplete: it copied nine timers and enabled five, it never pruned
 # units removed from the repo, and it installed binaries nobody was told to
 # pick up.
+# FAILURES ARE COLLECTED, NOT FATAL — the third way this script was quietly
+# incomplete.
+#
+# With `set -e`, one service failing to restart aborted the whole run: the
+# services after it were never restarted, no timer was enabled, and the version
+# check at the end never ran. The result was a HALF-DEPLOYED host whose only
+# symptom was that the installer stopped printing. Every problem is now
+# reported at the end and the exit code still says something went wrong.
+FAILED_UNITS=""
 for u in arcana-agent arcana-marketdata arcana-decision arcana-scoring arcana-marketplace arcana-arca arcana-signer; do
-  sudo systemctl enable "$u.service" >/dev/null
-  sudo systemctl restart "$u.service"
+  sudo systemctl enable "$u.service" >/dev/null 2>&1 || FAILED_UNITS="$FAILED_UNITS $u(enable)"
+  sudo systemctl restart "$u.service" || FAILED_UNITS="$FAILED_UNITS $u(restart)"
 done
 
 # Enable every timer that was installed, derived from the files themselves.
@@ -191,7 +200,7 @@ done
 echo "==> enabling timers"
 for f in "$REPO"/infra/systemd/*.timer; do
   t="$(basename "$f")"
-  sudo systemctl enable --now "$t"
+  sudo systemctl enable --now "$t" || FAILED_UNITS="$FAILED_UNITS $t"
 done
 
 echo "==> done"
@@ -199,9 +208,48 @@ echo
 echo "installed timers (expect one line per .timer file in infra/systemd/):"
 systemctl list-timers --all --no-legend | grep arcana || true
 echo
+
+# Does docs/alerting.md still describe the units that actually alert?
+#
+# The table there lists every unit carrying OnFailure=. It had drifted in both
+# directions at once: it named arcana-arca-payout, deleted with the §10
+# retirement, and omitted arcana-chain-guard and arcana-signer, both of which
+# do alert. A monitoring document that names a unit which cannot fail, and
+# omits one that can, is worse than none — it is a list somebody will check
+# against and be reassured by.
+#
+# Derived from the unit files, so it cannot drift again without being said.
+echo
+echo "alerting doc vs units that actually declare OnFailure:"
+ALERT_DRIFT=0
+for f in "$REPO"/infra/systemd/*.service; do
+  n="$(basename "$f" .service)"
+  case "$n" in arcana-alert@) continue ;; esac
+  grep -q "^OnFailure=" "$f" || continue
+  if ! grep -q "\`$n\`" "$REPO/docs/alerting.md"; then
+    echo "    MISSING from docs/alerting.md: $n alerts on failure and is not listed"
+    ALERT_DRIFT=1
+  fi
+done
+for n in $(grep -oE '`arcana-[a-z@-]+`' "$REPO/docs/alerting.md" | tr -d '`' | sort -u); do
+  case "$n" in arcana-alert@) continue ;; esac
+  if [ ! -e "$REPO/infra/systemd/$n.service" ]; then
+    echo "    STALE in docs/alerting.md: $n has no unit file"
+    ALERT_DRIFT=1
+  fi
+done
+[ "$ALERT_DRIFT" = 0 ] && echo "    in step"
 sleep 5
 echo "deployed version check:"
 bash "$REPO/infra/verify/deployed-version-verify.sh" || true
 echo
 echo "any arcana unit in a failed state:"
 systemctl list-units --failed --no-legend | grep arcana || echo "  none"
+
+if [ -n "$FAILED_UNITS" ]; then
+  echo
+  echo "INSTALL INCOMPLETE — these did not come up:$FAILED_UNITS"
+  echo "The rest of the install still ran, so the host is not half-configured;"
+  echo "but something above needs looking at before this counts as deployed."
+  exit 1
+fi

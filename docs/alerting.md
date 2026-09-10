@@ -25,7 +25,7 @@ So there are two layers.
 
 ## Layer 1 — `OnFailure=` on every job
 
-Nine units declare `OnFailure=arcana-alert@%n.service`:
+Ten units declare `OnFailure=arcana-alert@%n.service`:
 
 | Unit | What it does |
 |---|---|
@@ -34,12 +34,19 @@ Nine units declare `OnFailure=arcana-alert@%n.service`:
 | `arcana-agent-dna` | DNA fingerprint batch |
 | `arcana-marketdata` | the market data service itself |
 | `arcana-arca-reminder` | subscription reminders |
-| `arcana-arca-payout` | creator payout batch |
+| `arcana-chain-guard` | Stock Token issuer-control drift (layer 3 below) |
+| `arcana-signer` | the isolated key-custody service |
 | `arcana-backup` | daily full backup |
 | `arcana-backup-verify` | weekly restore rehearsal |
 | `arcana-tick-watchdog` | layer 2 (below) — a monitor that cannot run is itself worth knowing about |
 
-One template rather than nine handlers, because a second copy would drift.
+One template rather than one handler per unit, because a second copy would
+drift — and this table has now drifted on its own, in both directions at once:
+it named `arcana-arca-payout` after that unit was deleted with the §10
+retirement, and omitted `arcana-chain-guard` and `arcana-signer`, both of which
+do alert. `install.sh` now derives the comparison from the unit files and says
+so, because a monitoring document that names a unit which cannot fail, and
+omits one that can, is a list somebody checks against and is reassured by.
 
 ### What an alert contains
 
