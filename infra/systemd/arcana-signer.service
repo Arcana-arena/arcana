@@ -61,6 +61,20 @@ PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=yes
 ReadOnlyPaths=/etc/arcana/signer
+# The ONE writable path this service gets, and it is a subdirectory rather than
+# the whole config directory.
+#
+# ProtectSystem=strict plus ReadOnlyPaths made /etc/arcana/signer read-only,
+# which is exactly right for the master seed and the allowlist: neither should
+# ever be written by the process that reads them. Owner-imported keys (phase
+# 12) are the one thing this service legitimately creates at runtime, and the
+# first import attempt failed with "read-only file system" — the hardening
+# working, caught by the verification suite rather than in production.
+#
+# Narrowed to the subdirectory so the seed and the allowlist stay unwritable.
+# A compromised signer still cannot rewrite the allowlist to admit a router of
+# its choosing, which is the property that matters most here.
+ReadWritePaths=/etc/arcana/signer/imported
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes

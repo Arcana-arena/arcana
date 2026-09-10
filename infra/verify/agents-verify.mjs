@@ -157,6 +157,11 @@ try {
   const idCap     = await newIdentity("cap");       // section 5
   const idFreeze  = await newIdentity("freeze");    // sections 6 and 8
   const idOther   = await newIdentity("other");     // the stranger, and section 10
+  // Minted here, not in section 10, because signing in NEEDS A NONCE and
+  // section 10 deliberately exhausts the nonce allowance. The first run of
+  // this suite created it afterwards and could not sign in — the rate limiter
+  // refusing the suite that proves the rate limiter refuses.
+  const idBurner  = await newIdentity("limit");     // section 10's create-limit check
   aliceToken = idMandate.token;
   bobToken = idOther.token;
   creatorId = idMandate.creatorId;
@@ -527,6 +532,22 @@ try {
   console.log('\n=== 10. Rate limiting actually refuses ===');
   // -------------------------------------------------------------------------
   {
+    // THE CREATE LIMIT MUST ALSO REFUSE. 10/hour per wallet: an eleventh
+    // create from one wallet has to be turned away. This is the limit that
+    // shaped this whole suite — the first draft ran everything on one wallet
+    // and was stopped by it — so it is asserted rather than merely worked
+    // around.
+    let createdOk = 0;
+    let createLimited = 0;
+    for (let i = 0; i < 13; i++) {
+      const r = await makeAgent(idBurner.token, `phase12-verify-limit-${i}`);
+      if (r.status === 429) createLimited++;
+      else if (ok2xx(r.status)) createdOk++;
+    }
+    check('agent creation stops at its allowance', createLimited > 0,
+      `${createdOk} created, ${createLimited} limited`);
+    check('it allowed roughly ten first', createdOk >= 8 && createdOk <= 10, `${createdOk} created`);
+
     // THE ENDPOINT THIS WAS WRITTEN FOR. Unauthenticated, and it writes a row
     // per call. The limit is 20/min; 30 calls must therefore be stopped.
     let limited = 0;
@@ -553,23 +574,6 @@ try {
     // BY-WALLET LIMITS MUST BE KEYED ON THE WALLET, not the IP. Both accounts
     // are on this one machine, so if the key were the IP, bob would inherit
     // alice's exhausted counter. Export is 3/hour and alice has used one.
-    // THE CREATE LIMIT MUST ALSO REFUSE. 10/hour per wallet: an eleventh
-    // create from one wallet has to be turned away. This is the limit that
-    // shaped this whole suite — the first draft ran everything on one wallet
-    // and was stopped by it — so it is asserted rather than merely worked
-    // around.
-    const burner = await newIdentity('limit');
-    let createdOk = 0;
-    let createLimited = 0;
-    for (let i = 0; i < 13; i++) {
-      const r = await makeAgent(burner.token, `phase12-verify-limit-${i}`);
-      if (r.status === 429) createLimited++;
-      else if (ok2xx(r.status)) createdOk++;
-    }
-    check('agent creation stops at its allowance', createLimited > 0,
-      `${createdOk} created, ${createLimited} limited`);
-    check('it allowed roughly ten first', createdOk >= 8 && createdOk <= 10, `${createdOk} created`);
-
     const bobAgent = await makeAgent(idOther.token, 'phase12-verify-bob');
     if (bobAgent.body?.id) {
       const bobEx = await req(`${AGENT}/v1/agents/${bobAgent.body.id}/wallet/export`, {
