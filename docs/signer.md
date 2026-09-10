@@ -81,7 +81,7 @@ kind of day on which things go wrong.
 registry that is not set — so today this refusal fires on the expected path. An
 unreadable blocklist is not an empty one.
 
-## Key custody — the decision that is not mine to make
+## Key custody
 
 Every agent's private key is **derived** from one master seed with HKDF-SHA512,
 keyed by the agent id. No per-agent private key is written anywhere. Deriving
@@ -146,21 +146,18 @@ A seed in a backup is a seed in however many copies of that backup exist, in
 whatever places they were copied to, for as long as they are retained.
 
 
-**Recommendation, for the record: B.** One KMS key wrapping one seed. C buys almost nothing over
-B — B's compromise scope is already "the seed" — for a hundred times the money.
-D is the strongest and is not available on a rented VPS.
-
-**This is a decision for the project owner, because it costs money and needs an
-account, so it is not made here.** What is built is the shape that makes it a
-swap rather than a rewrite: the seed is loaded through one function, and
-unwrapping it with KMS first changes that function and nothing else.
+For the record, the ranking behind that decision: **B** when money arrives. C
+buys almost nothing over B — B's compromise scope is already "the seed" — for
+a hundred times the money. D is the strongest and is not available on a rented
+VPS.
 
 ### What runs today, and its expiry
 
 A **phase-7 seed** exists at `/etc/arcana/signer/master.key`, generated on the
 host, owned `arcana-signer:arcana-signer` at mode `0400`.
 
-**It is for empty wallets only and must be replaced before anything is funded.**
+**It is for empty wallets only and must be replaced before anything is funded**,
+alongside the move to option B.
 It was created before the custody decision was made, which means it has never
 been protected by whatever that decision turns out to be. Treat it as a test
 fixture that happens to be real.

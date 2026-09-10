@@ -1,30 +1,82 @@
 {
   "chain_id": 4663,
   "reviewed_at": "2026-09-11",
-  "reviewed_by": "phase 7 — token and pool addresses from infra/alerting/chain-baseline.json, which was read from mainnet and cross-checked in docs/go-no-go-stock-tokens.md",
+  "reviewed_by": "phase 7a — SwapRouter02 verified on-chain rather than trusted: factory() returns this chain's factory, its bytecode carries exactInputSingle (0x04e45aaf), and the exact calldata the signer builds was executed against live pool state via eth_call, returning a real fill. Token and pool addresses from infra/alerting/chain-baseline.json.",
   "note": "An ALLOWLIST. The signer can only build transactions whose every address appears here. An address that is absent is refused — not because a rule forbids it, but because nothing permits it. Adding one is a reviewed, dated commit, never a runtime setting.",
-
   "quote_token": {
     "symbol": "USDG",
     "address": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
     "decimals": 6
   },
-
-  "routers": [],
-  "routers_note": "DELIBERATELY EMPTY until a router is proven to work against this chain's factory. The canonical UniversalRouter address exists on Robinhood Chain and is NOT wired to its factory: it fails with an empty revert (docs/go-no-go-stock-tokens.md, condition 5). An empty list means every swap is refused, which is the correct state for a phase that must not move money. Populating it is phase 8's job, from an address observed working in production.",
-
-  "tokens": [
-    { "symbol": "AAPL",  "address": "0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9", "decimals": 18, "pool": "0xaae0d815ee56e4092a5e5c2911e676fea50b2d6d", "pool_fee": 500 },
-    { "symbol": "NVDA",  "address": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC", "decimals": 18, "pool": "0xd4eb21209c4d6093f80b5b84f5c45cc093ea14a3", "pool_fee": 500 },
-    { "symbol": "GOOGL", "address": "0x2e0847E8910a9732eB3fb1bb4b70a580ADAD4FE3", "decimals": 18, "pool": "0x34d0dc122cf9a8eb296fc5e0d3a233625d7d19b7", "pool_fee": 500 },
-    { "symbol": "SPY",   "address": "0x117cc2133c37B721F49dE2A7a74833232B3B4C0C", "decimals": 18, "pool": "0xa7bb1ac63bbab0c44316e6c8c455213441689167", "pool_fee": 500 },
-    { "symbol": "QQQ",   "address": "0xD5f3879160bc7c32ebb4dC785F8a4F505888de68", "decimals": 18, "pool": "0xd60a5d14db690b7afad71f76b108071d7175597d", "pool_fee": 500 },
-    { "symbol": "TSLA",  "address": "0x322F0929c4625eD5bAd873c95208D54E1c003b2d", "decimals": 18, "pool": "0xf4acdaeeb7022862a763c9b1b885e11191c889e3", "pool_fee": 3000 },
-    { "symbol": "AMZN",  "address": "0x12f190a9F9d7D37a250758b26824B97CE941bF54", "decimals": 18, "pool": "0x8ac92da74ab5f3b1d024dc1943ad7e15dc4179ef", "pool_fee": 3000 },
-    { "symbol": "MSFT",  "address": "0xe93237C50D904957Cf27E7B1133b510C669c2e74", "decimals": 18, "pool": "0xeb60bcd1d920ad6e102690ccfc6fb488899e1510", "pool_fee": 3000 },
-    { "symbol": "META",  "address": "0xc0D6457C16Cc70d6790Dd43521C899C87ce02f35", "decimals": 18, "pool": "0x107a7cb40d8665360ba10e59471af06150a50922", "pool_fee": 3000 }
+  "routers": [
+    "0xcaf681a66d020601342297493863e78c959e5cb2"
   ],
-
+  "routers_note": "SwapRouter02. Published by Uniswap for Robinhood Chain, then VERIFIED rather than believed: eth_getCode returns 24497 bytes; factory() returns 0x1f7d7550b1b028f7571e69a784071f0205fd2efa, the same factory the pools in this file come from — derived independently from a pool during the go/no-go test, so the two agree without either having been told the other; and the bytecode carries exactInputSingle (0x04e45aaf), which is the selector this signer builds. A swap using the signer's own calldata was then executed against live state and returned 0.308992 AAPL for 100 USDG, while a control with an impossible minimum reverted — so the simulation is not a no-op. The canonical UniversalRouter address is deliberately NOT here: it exists on this chain and is not wired to this factory (go/no-go condition 5). Uniswap publishes a different UniversalRouter for this chain (0x8876789976decbfcbbbe364623c63652db8c0904); it is not listed either, because a router earns a place here only once the exact calldata this service produces has been proven against it, and the signer produces exactInputSingle.",
+  "tokens": [
+    {
+      "symbol": "AAPL",
+      "address": "0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9",
+      "decimals": 18,
+      "pool": "0xaae0d815ee56e4092a5e5c2911e676fea50b2d6d",
+      "pool_fee": 500
+    },
+    {
+      "symbol": "NVDA",
+      "address": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+      "decimals": 18,
+      "pool": "0xd4eb21209c4d6093f80b5b84f5c45cc093ea14a3",
+      "pool_fee": 500
+    },
+    {
+      "symbol": "GOOGL",
+      "address": "0x2e0847E8910a9732eB3fb1bb4b70a580ADAD4FE3",
+      "decimals": 18,
+      "pool": "0x34d0dc122cf9a8eb296fc5e0d3a233625d7d19b7",
+      "pool_fee": 500
+    },
+    {
+      "symbol": "SPY",
+      "address": "0x117cc2133c37B721F49dE2A7a74833232B3B4C0C",
+      "decimals": 18,
+      "pool": "0xa7bb1ac63bbab0c44316e6c8c455213441689167",
+      "pool_fee": 500
+    },
+    {
+      "symbol": "QQQ",
+      "address": "0xD5f3879160bc7c32ebb4dC785F8a4F505888de68",
+      "decimals": 18,
+      "pool": "0xd60a5d14db690b7afad71f76b108071d7175597d",
+      "pool_fee": 500
+    },
+    {
+      "symbol": "TSLA",
+      "address": "0x322F0929c4625eD5bAd873c95208D54E1c003b2d",
+      "decimals": 18,
+      "pool": "0xf4acdaeeb7022862a763c9b1b885e11191c889e3",
+      "pool_fee": 3000
+    },
+    {
+      "symbol": "AMZN",
+      "address": "0x12f190a9F9d7D37a250758b26824B97CE941bF54",
+      "decimals": 18,
+      "pool": "0x8ac92da74ab5f3b1d024dc1943ad7e15dc4179ef",
+      "pool_fee": 3000
+    },
+    {
+      "symbol": "MSFT",
+      "address": "0xe93237C50D904957Cf27E7B1133b510C669c2e74",
+      "decimals": 18,
+      "pool": "0xeb60bcd1d920ad6e102690ccfc6fb488899e1510",
+      "pool_fee": 3000
+    },
+    {
+      "symbol": "META",
+      "address": "0xc0D6457C16Cc70d6790Dd43521C899C87ce02f35",
+      "decimals": 18,
+      "pool": "0x107a7cb40d8665360ba10e59471af06150a50922",
+      "pool_fee": 3000
+    }
+  ],
   "limits": {
     "max_trade_notional_usd": 100,
     "max_approve_multiple_of_trade": 4,

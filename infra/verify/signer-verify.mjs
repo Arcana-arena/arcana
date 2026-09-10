@@ -69,16 +69,23 @@ chmodSync(seedPath, 0o400);
 
 const USDG = '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168';
 const AAPL = '0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9';
-const ROUTER = '0x1111111111111111111111111111111111111111';   // test-only, allowlisted below
+const ROUTER = '0xcaf681a66d020601342297493863e78c959e5cb2';   // the real SwapRouter02, in the shipped allowlist
 const OUTSIDER = '0xdEAD00000000000000000000000000000000BEEF';
 const UNLISTED_TOKEN = '0x00000000000000000000000000000000000000AA';
 
-// A test allowlist. Production's has NO routers on purpose — no router is yet
-// proven against this chain's factory — so a router is added here to prove the
-// accept path without weakening the shipped configuration.
-const allowPath = join(dir, 'allowlist.json');
-const prod = JSON.parse(readFileSync(`${REPO}/services/signer/allowlist/robinhood-mainnet.json`, 'utf8'));
-writeFileSync(allowPath, JSON.stringify({ ...prod, routers: [ROUTER] }, null, 2));
+// THE SHIPPED ALLOWLIST, USED UNMODIFIED.
+//
+// This used to copy production and splice in a test router, because production
+// had none: no router had been proven against this chain's factory. SwapRouter02
+// now has been, so the suite exercises what actually ships rather than a fixture
+// that resembles it — and if the shipped file ever loses that router, this fails
+// loudly instead of quietly testing something else.
+const allowPath = `${REPO}/services/signer/allowlist/robinhood-mainnet.json`;
+const prod = JSON.parse(readFileSync(allowPath, 'utf8'));
+if (!prod.routers.map((r) => r.toLowerCase()).includes(ROUTER.toLowerCase())) {
+  console.error(`signer-verify: ${ROUTER} is not in the shipped allowlist`);
+  process.exit(1);
+}
 
 // --- a chain that answers whatever this test needs --------------------------
 let paused = false, blocked = false, rpcCalls = 0;
