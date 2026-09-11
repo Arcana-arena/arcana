@@ -14,7 +14,7 @@ they share that shape, not because they are related.
 |---|---|---|---|
 | 1 | Google Drive authorisation | script, alarm, verification, retention | off-site backups |
 | ~~2~~ | ~~KMS decision + a new seed~~ | **SEED DONE 2026-09-11.** KMS deferred by the owner: option A (file-backed) stays for now | — |
-| 3 | **The transfer itself** | seed replaced, agent created, wallet derived and handed over | the first swap |
+| ~~3~~ | ~~The first mainnet swap~~ | **DONE 2026-09-11** — $2 executed on chain, filled exactly as simulated | — |
 | ~~4~~ | ~~`AUTH_ADMIN_WALLETS`~~ | **DONE 2026-09-11** — set, and proved from both sides: it refuses a non-admin AND admits a configured one | — |
 
 ---
@@ -296,6 +296,53 @@ curl -s -X POST -H "X-Internal-Key: $INTERNAL_KEY" \
 - ~~KMS is in place~~ — **deferred by the owner.** It was a stated precondition
   and it is no longer one; that is a decision, not an oversight, and section 2
   records what it costs
+
+### Executed 2026-09-11 — it worked, and what it cost
+
+The owner set the first swap at **$2**, not $10.
+
+| | |
+|---|---|
+| wallet | `0xD7b7477572051afbbcbF0695a4fD6e1eB915518B` |
+| funded with | 0.003 ETH (bridged from mainnet) + 11.7881 USDG (from Gate.io) |
+| approve | `0x451b7372…f34f0`, block 59858271, status `0x1`, 57,976 gas, 0.0000073563 ETH |
+| swap | `0xe089c139…ebbb`, block 59858620, status `0x1`, 163,371 gas, 0.0000206347 ETH |
+| filled | 2 USDG → **0.0061448329 AAPL**, $325.4767 per share |
+| **simulated vs actual** | `6144832876309440` vs `6144832876309440` — **0.000000% deviation** |
+| gas accounting | burned 20,634,737,526,000 wei; the balance fell by exactly that, so nothing else moved native funds |
+| custody drift | **zero rows** — see the caveat below |
+
+Both receipts were read back **from the chain**, not taken from the response.
+The control mattered: before spending, the same calldata with an impossible
+minimum was simulated and reverted, so the quote was not a no-op.
+
+**Pool and referee agreed before the trade**: pool $325.2573, Chainlink
+$326.4147, deviation 0.3546% against a 2% dispute tolerance.
+
+#### The caveat on "custody drift is zero"
+
+It is zero because **ARCANA recorded nothing to disagree with**. This agent
+has no `portfolios` row, no `decisions` row, and no snapshot: the swap was
+driven by hand, because nothing in the platform drives one. Zero drift here
+is the absence of a claim, not a reconciliation that succeeded, and reporting
+it as a passing check would be reading a green light off an unplugged lamp.
+
+#### What the first real transaction exposed
+
+1. **Nothing calls the signer.** The only caller of
+   `/internal/v1/signer/sign` anywhere in the repo is `signer-verify.mjs`.
+   `sendRawTransaction` appears nowhere. The execution path from a recorded
+   decision to a broadcast transaction does not exist — the gap is not the
+   scheduler, so turning on the cadence would not close it.
+2. **The signer could not sign at all**, because `isBlocked()` has no answer
+   on this chain. Fixed under option A; see `docs/signer.md`.
+3. **Step 4 of the procedure below was fiction** — `symbol`, `amount_usd` and
+   `dry_run` are not fields the signer accepts, and it has no simulation mode.
+   The real dry run is an `eth_call` of the same calldata, which is what was
+   actually done.
+
+The agent is still `draft` and in no competition, so the hourly cadence cannot
+reach it. Turning it on is the owner’s call and has not been made.
 
 ### Stop conditions
 
