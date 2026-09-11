@@ -247,8 +247,11 @@ try {
     check('a level that fired and was refused alarms, even with a healthy watcher',
       /VERDICT=alerted/.test(refused) && /exit was refused/.test(refused),
       refused.trim().split(String.fromCharCode(10)).slice(-2).join(' | '));
-    check('and the alert names the symbol and the reason',
-      /AAPL cost_budget_exceeded/.test(refused), refused.slice(-400));
+    // THE OWNER IS PART OF THE NAME NOW. One agent's levels can watch several
+    // wallets — its creator's and one per subscriber — so the alert says which,
+    // and an owner is no longer sent to look at a position that is not theirs.
+    check('and the alert names the symbol, whose wallet, and the reason',
+      /AAPL \[creator\] cost_budget_exceeded/.test(refused), refused.slice(-400));
     psql(`DELETE FROM position_guards WHERE agent_id = '${gid}'`);
 
     // THE CONTROL: with the refusal cleared, the same healthy watcher is quiet.
