@@ -13,8 +13,8 @@ they share that shape, not because they are related.
 | | What is waited on | What is already done | What it unblocks |
 |---|---|---|---|
 | 1 | Google Drive authorisation | script, alarm, verification, retention | off-site backups |
-| 2 | KMS decision + a new seed | interface, procedure, rotation steps | funding the first wallet |
-| 3 | Approval to spend $10 | full procedure, allowlist, simulation | phase 8 |
+| ~~2~~ | ~~KMS decision + a new seed~~ | **SEED DONE 2026-09-11.** KMS deferred by the owner: option A (file-backed) stays for now | — |
+| 3 | **The transfer itself** | seed replaced, agent created, wallet derived and handed over | the first swap |
 | ~~4~~ | ~~`AUTH_ADMIN_WALLETS`~~ | **DONE 2026-09-11** — set, and proved from both sides: it refuses a non-admin AND admits a configured one | — |
 
 ---
@@ -79,9 +79,17 @@ handled.
 
 ## 2. KMS, and replacing the phase-7 seed
 
-**Waiting on:** the owner's choice between two KMS shapes, and a decision to
-spend the small monthly cost. **Both are preconditions before the first wallet
-is funded** — that was decided when option A was chosen.
+**Status 2026-09-11: the seed is replaced. KMS is deferred, deliberately.**
+
+The owner chose to keep option A — the file-backed seed — rather than hold
+phase 8 for a KMS account. That reverses the earlier "both are preconditions
+before the first wallet is funded", and it is written down here rather than
+left implied: **the seed protecting real money is a plaintext file on one
+host.** Its blast radius today is one wallet holding $10. It stops being $10
+the moment anyone else funds an agent, and the KMS decision belongs before
+that, not before the first swap.
+
+The shapes below are unchanged and still the decision to make.
 
 ### The shape matters more than the provider
 
@@ -140,8 +148,17 @@ sudo systemctl start arcana-backup.service
 
 # 3. Generate a new seed AS THE SIGNER USER, directly into place.
 #    Never via a shell that logs, never through a file the app user can read.
-sudo -u arcana-signer install -m 0400 /dev/null /etc/arcana/signer/master.key.new
+#    MODE 0600 WHILE WRITING, sealed to 0400 after. 0400 is read-only for its
+#    OWNER too, so creating the file at 0400 and then writing to it fails with
+#    "Permission denied" — and tee reports that on stderr while the pipeline
+#    still exits 0, so the next line happily installs an EMPTY seed. That is
+#    how this procedure was first run: the signer came back up INACTIVE on a
+#    0-byte seed, and only the retired copy still existing made it recoverable.
+sudo -u arcana-signer install -m 0600 /dev/null /etc/arcana/signer/master.key.new
 openssl rand -hex 32 | sudo -u arcana-signer tee /etc/arcana/signer/master.key.new >/dev/null
+#    Refuse on an empty file here, rather than discovering it after the move.
+sudo -u arcana-signer test -s /etc/arcana/signer/master.key.new || exit 1
+sudo chmod 0400 /etc/arcana/signer/master.key.new
 
 # 4. Swap and restart.
 sudo mv /etc/arcana/signer/master.key /etc/arcana/signer/master.key.retired
@@ -155,8 +172,15 @@ journalctl -u arcana-signer -n 20 --no-pager     # expect "signer ACTIVE"
 docker exec arcana-postgres psql -U arcana -d arcana -c \
   "DELETE FROM agent_wallets WHERE provenance = 'derived'"
 
-# 6. Prove it took: an agent's address must have changed.
+# 6. Prove it took: the SAME agent id must derive a DIFFERENT address under
+#    the old seed and the new one. agents-verify alone cannot show this — with
+#    zero agent_wallets rows there is no "before" to compare against, and it
+#    passes just as happily on a seed that was never rotated. Build a throwaway
+#    binary against internal/keys, point it at each file, and compare:
+#      kr, _ := keys.LoadKeyring(os.Args[1]); kr.Address("<any fixed uuid>")
+#    Run it BEFORE step 7, while the retired seed still exists. Then:
 node infra/verify/agents-verify.mjs
+bash infra/verify/signer-isolation-verify.sh
 
 # 7. Only once everything above is green:
 sudo shred -u /etc/arcana/signer/master.key.retired
@@ -165,12 +189,49 @@ sudo shred -u /etc/arcana/signer/master.key.retired
 Step 1 is not a formality. It is the whole reason this is done before funding
 rather than after.
 
+### Executed 2026-09-11
+
+| | |
+|---|---|
+| agent wallets on record at step 1 | **0** — nothing could be stranded |
+| backup taken before touching the seed | `arcana-backup.service`, finished clean |
+| retired seed sha256 (first 24) | `ec4767c08ffa977534af3a49` |
+| new seed sha256 (first 24) | `dfd9e0b4d6e9fc3c7eb6563f` |
+| proof derivation moved | agent id `…00aa` derives `0x6b6200…` under the retired seed and `0xc41438…` under the new one |
+| verification | agents-verify 61/61, signer-verify 31/31, signer-isolation-verify 15/15, chain-guard-verify 10/10, deployed-version-verify 11/11 |
+| retired seed | `shred -u` after all of the above went green |
+
+The rotation **failed on its first attempt** and the failure is recorded in the
+corrected step 3 above. It was recoverable only because step 7 comes last: the
+retired seed still existed when the new one turned out to be empty. That
+ordering was not luck, but it was also not tested until this run.
+
 ---
 
 ## 3. The first mainnet swap — $10
 
-**Waiting on:** the owner's approval to spend. **$10**, set by the owner on
-2026-09-11.
+**Waiting on:** the transfer. Approval was given on 2026-09-11 (**$10**), the
+seed was replaced, and the wallet now exists and is empty.
+
+### The wallet, as of 2026-09-11
+
+| | |
+|---|---|
+| agent | `2dbc0eb1-fd2a-40a5-9322-3337dd1186d0` — "Phase 8 first swap", mandate `concentrated` |
+| address | `0xD7b7477572051afbbcbF0695a4fD6e1eB915518B` |
+| provenance | `derived` — from the new seed, through `GET /v1/agents/:id/wallet` |
+| custody | `shared` — the owner asked for the key and it was exported |
+| on chain | ETH `0x0`, USDG `0x0`, nonce `0x0` — never used |
+| status | `draft`, and in no competition, so the hourly cadence cannot reach it |
+
+**What to send:** `10` USDG (10000000 base units) and **0.001 ETH**. The ETH
+figure is set by EIP-1559's upfront reserve, not by what gets burned: the chain
+holds `maxFee × gasLimit` regardless of the actual fee, and the signer's
+defaults are 1 gwei and 250,000 gas, so each transaction reserves 0.00025 ETH.
+Approve plus swap is 0.0005 ETH, and 0.001 leaves room for a retry. At
+0.12685 gwei base fee the two together actually burn about 0.000025 ETH.
+
+Nothing else needs to be in the wallet.
 
 ### Already done
 
@@ -227,11 +288,14 @@ curl -s -X POST -H "X-Internal-Key: $INTERNAL_KEY" \
 
 ### What must be true before step 6, and is checked by nothing else
 
-- the agent's wallet is `platform_only`, or the owner accepts that a second
-  party can move these funds mid-trade
-- the seed has been replaced (section 2) — a phase-7 development seed must
-  never hold money
-- KMS is in place (section 2), which was the stated precondition for funding
+- ~~the agent's wallet is `platform_only`~~ — it is `shared`. The owner asked
+  for the key and holds it. ARCANA is no longer the only party that can move
+  these funds, including mid-trade, and reads the chain rather than trusting
+  its own record because of it. This is the accepted case, not the unexpected one.
+- ~~the seed has been replaced~~ — **done 2026-09-11**, see section 2
+- ~~KMS is in place~~ — **deferred by the owner.** It was a stated precondition
+  and it is no longer one; that is a decision, not an oversight, and section 2
+  records what it costs
 
 ### Stop conditions
 
