@@ -23,6 +23,18 @@ type DecisionEvidence struct {
 	ResponseBody string
 	ReasonCode   string
 	Thesis       map[string]any
+
+	// What the decision COST, as the provider reported it.
+	//
+	// Zero means the decision bought no inference -- a deterministic strategy,
+	// or a tick the rebalance band short-circuited before any call. Written as
+	// NULL in that case rather than 0, because "the provider said zero" and
+	// "nobody asked the provider" are different facts and a meter that adds
+	// them together is measuring the wrong thing.
+	PromptTokens     int
+	CompletionTokens int
+	CachedTokens     int
+	LatencyMS        int64
 }
 
 // StoreBody writes an evidence body and returns its hash.
@@ -75,11 +87,14 @@ func (s *Store) AttachEvidence(ctx context.Context, decisionID int64, agentID st
 		   decider = NULLIF($1,''), provider = NULLIF($2,''), model = NULLIF($3,''),
 		   model_version = NULLIF($4,''), params = $5,
 		   prompt_hash = NULLIF($6,''), response_hash = NULLIF($7,''),
-		   reason_code = NULLIF($8,''), thesis = $9
+		   reason_code = NULLIF($8,''), thesis = $9,
+		   prompt_tokens = $13, completion_tokens = $14, cached_tokens = $15, latency_ms = $16
 		 WHERE id = $10 AND agent_id = $11 AND ts = $12`,
 		ev.Decider, ev.Provider, ev.Model, ev.ModelVersion, jsonOrNil(ev.Params),
 		promptHash, responseHash, ev.ReasonCode, jsonOrNil(ev.Thesis),
-		decisionID, agentID, ts)
+		decisionID, agentID, ts,
+		nilIfZeroInt(ev.PromptTokens), nilIfZeroInt(ev.CompletionTokens),
+		nilIfZeroInt(ev.CachedTokens), nilIfZeroInt64(ev.LatencyMS))
 	if err != nil {
 		return fmt.Errorf("attach evidence to decision %d: %w", decisionID, err)
 	}
@@ -94,4 +109,20 @@ func jsonOrNil(m map[string]any) any {
 		return nil
 	}
 	return m
+}
+
+
+// nilIfZeroInt keeps "nobody asked" distinct from "the answer was zero".
+func nilIfZeroInt(v int) any {
+	if v == 0 {
+		return nil
+	}
+	return v
+}
+
+func nilIfZeroInt64(v int64) any {
+	if v == 0 {
+		return nil
+	}
+	return v
 }

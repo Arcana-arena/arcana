@@ -1,29 +1,49 @@
-# arcana-cadence.timer — look every hour, act every four.
+# arcana-cadence.timer — look every minute, act on the interval the owner set.
 #
-# HOURLY ON PURPOSE, against a four-hour cadence. The two numbers are not the
-# same thing and should not be:
+# THE TIMER AND THE INTERVAL ARE DIFFERENT THINGS, and that split is right:
 #
-#   * The TIMER decides how often the system asks "is it time yet". Hourly
-#     means a tick that should have landed at 12:00 and was missed — a reboot,
-#     a transient RPC failure, a node restart — lands at 13:00 instead of
-#     waiting until 16:00. Under a continuous cadence there is no market-closed
-#     excuse for a gap, and the backfill rule forbids filling a scored season
-#     backwards, so a missed interval is a permanent hole.
-#
+#   * The TIMER decides how often the system asks "is it time yet".
 #   * The BINARY decides whether anything happens, by measuring the age of the
-#     last recorded tick. Firing hourly cannot produce hourly decisions.
+#     last recorded tick. Firing every minute cannot produce minute decisions.
 #
-# Without the split, catching up from a missed interval would need either a
-# tighter cadence (which the fee schedule forbids) or a manual run.
+# IT USED TO LOOK HOURLY, AND THAT WAS A BUG WORTH ONE HOUR EVERY TIME IT HIT.
+#
+# Observed on 2026-09-11. The last tick was at 05:00:31Z, so the four-hour
+# cadence came due at 05:00:31Z. The timer fired at 05:00:30Z:
+#
+#   12:00:30 WIB  last decision was 4h0m0s ago; the cadence is 4h0m0s.
+#                 Nothing to do (next at ~2026-09-11T05:00:31Z).
+#
+# One second short, and then nothing until the next hourly firing. A four-hour
+# cadence checked hourly is a FIVE-hour cadence whenever it lands just before
+# the threshold — and because each late tick moves the threshold later, the miss
+# can repeat rather than self-correct.
+#
+# WHY EVERY MINUTE, and not five, or fifteen. The binary's floor is sixty
+# seconds, set by the pool snapshot identifier, which has minute resolution. The
+# rule is: THE TIMER MUST LOOK AT LEAST AS OFTEN AS THE SHORTEST INTERVAL THE
+# BINARY WILL ACCEPT. Any coarser and an owner who chooses a one-minute cadence
+# silently gets the timer's period instead, which is the same bug with a
+# different number.
+#
+# WHAT IT COSTS. A run that is not due exits after three cheap reads — the
+# competition, its open tick, and the last tick time — and `flock -n` means a
+# run that overlaps a long one is skipped rather than queued. The cost of
+# looking is small and fixed; the cost of not looking is an hour of an agent's
+# cadence, every time it lands on the wrong side of a second.
+#
+# RandomizedDelaySec is DELIBERATELY SMALL here. It was 90 seconds, which was
+# harmless against an hourly look and is nonsense against a one-minute one:
+# jitter larger than the period makes the schedule meaningless.
 #
 # Persistent=true so a machine that was off through an interval checks on the
-# next boot rather than waiting for the next hour.
+# next boot rather than waiting.
 [Unit]
-Description=Run the ARCANA continuous cadence hourly
+Description=Run the ARCANA continuous cadence check every minute
 
 [Timer]
-OnCalendar=*-*-* *:00:00 UTC
-RandomizedDelaySec=90
+OnCalendar=*-*-* *:*:00 UTC
+RandomizedDelaySec=5
 Persistent=true
 
 [Install]

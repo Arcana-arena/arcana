@@ -413,7 +413,14 @@ export class SeriesService {
       total = totalPoints;
       const rows = await this.db.query(
         `SELECT ps.ts, p.season_id, ps.nav, ps.cash,
-                jsonb_array_length(COALESCE(jsonb_path_query_array(ps.holdings, '$.keyvalue()'), '[]'::jsonb)) AS holdings_count
+                -- POSITIONS, NOT KEYS. Counting keys meant a wei of residue
+                -- left behind by an exit showed on the chart as a position the
+                -- agent was still carrying: the run that went flat at 06:01 on
+                -- 2026-09-11 read as holdings_count 1. The floor is DUST_FLOOR
+                -- in src/common/positions.ts, which is the precision of
+                -- decisions.quantity rather than a chosen cutoff.
+                (SELECT count(*) FROM jsonb_each_text(COALESCE(ps.holdings, '{}'::jsonb)) kv
+                  WHERE kv.value ~ '^-?[0-9.eE+-]+$' AND kv.value::float8 >= 1e-8)::int AS holdings_count
            FROM ${from}
           ORDER BY ps.ts ASC
           LIMIT $${baseParams.length + 1} OFFSET $${baseParams.length + 2}`,

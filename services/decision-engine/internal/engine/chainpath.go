@@ -51,13 +51,13 @@ func (e *Engine) settleOnChain(
 	recordedHoldings map[string]any,
 	recordedCash float64,
 	ev Evidence,
-) (string, string, *float64, map[string]any, float64, string, *int64, Evidence, error) {
+) (settlement, error) {
 
 	// 1. WHAT IS ACTUALLY THERE, before anything is attempted. One reading,
 	//    used for both the reconciliation and the snapshot.
 	before, err := e.broker.Read(ctx, wallet.Address)
 	if err != nil {
-		return "", "", nil, nil, 0, "", nil, ev, fmt.Errorf("read on-chain position: %w", err)
+		return settlement{Ev: ev}, fmt.Errorf("read on-chain position: %w", err)
 	}
 
 	// 2. Does it agree with what ARCANA last wrote down? This is the check that
@@ -68,16 +68,17 @@ func (e *Engine) settleOnChain(
 	holdings := toAnyMap(before.Holdings)
 
 	if intent.Action != "buy" && intent.Action != "sell" {
-		return "hold", "", nil, holdings, before.Cash, intent.Rationale, nil, ev, nil
+		return settlement{Action: "hold", Holdings: holdings, Cash: before.Cash, Rationale: intent.Rationale, Ev: ev}, nil
 	}
 
 	price := prices[intent.Symbol]
 	res, err := e.broker.Execute(ctx, execution.Request{
 		AgentID: req.AgentID, Wallet: wallet.Address,
 		Action: intent.Action, Symbol: intent.Symbol, Qty: intent.Quantity, Price: price,
+		ExactUnitsIn: e.exitUnits(intent, before),
 	})
 	if err != nil {
-		return "", "", nil, nil, 0, "", nil, ev, fmt.Errorf("execute: %w", err)
+		return settlement{Ev: ev}, fmt.Errorf("execute: %w", err)
 	}
 
 	// 3. The row goes in BEFORE the decision, so a crash leaves an orphan that
@@ -97,6 +98,8 @@ func (e *Engine) settleOnChain(
 		TxHash: res.TxHash, BlockNumber: res.BlockNumber,
 		GasUsed: res.GasUsed, GasPriceWei: res.GasPriceWei, GasCostWei: res.GasCostWei,
 		Status: res.Status, RefusalCode: res.RefusalCode, Note: res.Note,
+		FeeTier: res.FeeTier, PoolFeeUnits: res.PoolFeeUnits,
+		PoolFeeUSD: res.PoolFeeUSD, GasCostUSD: res.GasCostUSD, EthUSD: res.EthUSD,
 	})
 	if err != nil {
 		// The transaction may already be on chain. Losing the decision on top
@@ -122,6 +125,7 @@ func (e *Engine) settleOnChain(
 			AmountIn: ap.Amount,
 			TxHash: ap.TxHash, GasUsed: ap.GasUsed,
 			GasPriceWei: ap.GasPriceWei, GasCostWei: ap.GasCostWei,
+			GasCostUSD: ap.GasCostUSD, EthUSD: ap.EthUSD,
 			Status: ap.Status, Note: ap.Note,
 		}); aerr != nil {
 			log.Printf("ERROR agent %s: the approval %s was broadcast and its cost was not recorded: %v",
@@ -133,7 +137,7 @@ func (e *Engine) settleOnChain(
 	//    mined — this is what the agent holds now.
 	after, err := e.broker.Read(ctx, wallet.Address)
 	if err != nil {
-		return "", "", nil, nil, 0, "", nil, ev, fmt.Errorf("read on-chain position after execution: %w", err)
+		return settlement{Ev: ev}, fmt.Errorf("read on-chain position after execution: %w", err)
 	}
 	holdings = toAnyMap(after.Holdings)
 	afterCash := after.Cash
@@ -146,22 +150,200 @@ func (e *Engine) settleOnChain(
 		if !res.Moved() {
 			// Mined, succeeded, and moved nothing measurable. Rare, and not a
 			// trade: recording a position change here would invent one.
-			return ActionTradeFailed, res.Symbol, nil, holdings, afterCash, rationale, execPtr, ev, nil
+			return settlement{Action: ActionTradeFailed, Symbol: res.Symbol, Holdings: holdings, Cash: afterCash, Rationale: rationale, ExecID: execPtr, Ev: ev}, nil
 		}
 		shares := e.sharesTraded(res)
-		return res.IntentAction, res.Symbol, &shares, holdings, afterCash, rationale, execPtr, ev, nil
+		s := settlement{Action: res.IntentAction, Symbol: res.Symbol, Qty: &shares,
+			Holdings: holdings, Cash: afterCash, Rationale: rationale, ExecID: execPtr, Ev: ev}
+
+		switch res.IntentAction {
+		case "buy":
+			// THE ENTRY PRICE IS MEASURED, not quoted. Quote units actually
+			// spent divided by shares actually received, so a level set "5%
+			// below entry" is 5% below what the agent really paid — pool fee,
+			// slippage and all. Anchoring a stop to the price on the snapshot
+			// would put it 5% below a number that never existed.
+			fill := e.filledPrice(res)
+
+			// A TOP-UP IS A SECOND ENTRY, and "what you paid" then means the
+			// average across both. Anchoring the new levels to the latest fill
+			// alone would move an existing stop every time the agent added to a
+			// winner, which is the opposite of what a stop is for.
+			//
+			// Shares bought before any guard existed have no cost basis this
+			// system can see. Those are counted into the covered quantity and
+			// NAMED in the note, rather than silently priced at the new fill.
+			entry, qty, basis := e.blendEntry(ctx, req.AgentID, res.Symbol, fill, shares, before)
+
+			lv := resolveGuardLevels(intent.Guards, entry, e.broker.PoolFeeOf(res.Symbol))
+			if lv.any() || len(lv.Refusals) > 0 {
+				s.Rationale += guardSummary(lv, entry) + basis
+			}
+			if lv.any() {
+				s.Guard = &pendingGuard{
+					Symbol: res.Symbol, EntryPrice: entry, EntryQty: qty, Levels: lv, Basis: basis,
+				}
+			}
+		case "sell":
+			// The position left by the agent's own decision, so anything armed
+			// on it is no longer guarding a position. Cleared rather than left
+			// armed: a guard over nothing would fire on the next price tick and
+			// spend gas discovering that there is nothing to sell.
+			s.ClearGuard = res.Symbol
+		}
+		return s, nil
 
 	case execution.StatusUnresolved:
 		// NEITHER SUCCESS NOR NON-EVENT. The holdings above are the chain as it
 		// stands, which is the only honest thing to record, and the execution
 		// row keeps the hash so the outcome can be settled later.
-		return ActionTradeUnresolved, res.Symbol, nil, holdings, afterCash, rationale, execPtr, ev, nil
+		return settlement{Action: ActionTradeUnresolved, Symbol: res.Symbol, Holdings: holdings, Cash: afterCash, Rationale: rationale, ExecID: execPtr, Ev: ev}, nil
 
 	default:
 		// reverted, refused, quote_failed, blocked. The agent tried and no
 		// position resulted.
-		return ActionTradeFailed, res.Symbol, nil, holdings, afterCash, rationale, execPtr, ev, nil
+		return settlement{Action: ActionTradeFailed, Symbol: res.Symbol, Holdings: holdings, Cash: afterCash, Rationale: rationale, ExecID: execPtr, Ev: ev}, nil
 	}
+}
+
+// settlement is everything one on-chain attempt produced.
+//
+// A STRUCT RATHER THAN NINE RETURN VALUES, which is what this was. The protective
+// exit path needs the same shape, and two functions returning nine positional
+// values in the same order is a bug waiting for someone to reorder one of them.
+type settlement struct {
+	Action    string
+	Symbol    string
+	Qty       *float64
+	Holdings  map[string]any
+	Cash      float64
+	Rationale string
+	ExecID    *int64
+	Ev        Evidence
+
+	// Guard is a protective level to arm, once the decision it belongs to has
+	// an id. Nil when nothing was asked for or nothing was allowed.
+	Guard *pendingGuard
+	// ClearGuard names a symbol whose armed guard no longer guards anything,
+	// because the agent exited the position by its own decision.
+	ClearGuard string
+}
+
+// pendingGuard is a guard waiting for its decision id.
+type pendingGuard struct {
+	Symbol     string
+	EntryPrice float64
+	EntryQty   float64
+	Levels     armedLevels
+	// Basis records how the entry price was arrived at when it was not simply
+	// this fill: an average across two entries, or shares whose cost this
+	// system never saw.
+	Basis string
+}
+
+// blendEntry works out what the agent has paid for the position the new guard
+// will cover, and says plainly when part of it is unknown.
+//
+// Three cases, and the third is the one worth being careful about:
+//
+//	no prior shares       the fill is the whole story
+//	a guard already armed its entry price and quantity are ARCANA's own
+//	                      record of what the earlier shares cost, so the two
+//	                      entries are volume-weighted
+//	prior shares, no guard the agent held something this system never priced —
+//	                      bought before guards existed, or transferred in. The
+//	                      shares are covered (the exit sells the whole balance
+//	                      either way) and the note says their cost is unknown,
+//	                      because a stop that silently prices them at today's
+//	                      fill would claim a cost basis nobody measured.
+func (e *Engine) blendEntry(ctx context.Context, agentID, symbol string, fill, bought float64,
+	before *execution.Position) (entry, covered float64, basis string) {
+
+	prior := 0.0
+	if before != nil {
+		prior = unitsToShares(before.Units[symbol], e.broker.DecimalsOf(symbol))
+	}
+	if prior < DustFloor {
+		return fill, bought, ""
+	}
+
+	g, err := e.store.ArmedGuardFor(ctx, agentID, symbol)
+	if err != nil {
+		log.Printf("agent %s: could not read the existing guard on %s, pricing from this fill only: %v",
+			agentID, symbol, err)
+	}
+	if g != nil && g.EntryQty > 0 && g.EntryPrice > 0 {
+		covered = g.EntryQty + bought
+		entry = (g.EntryQty*g.EntryPrice + bought*fill) / covered
+		return entry, covered, fmt.Sprintf(
+			" | levels measured from the average of both entries: %.8f at %.6f and %.8f at %.6f",
+			g.EntryQty, g.EntryPrice, bought, fill)
+	}
+
+	return fill, prior + bought, fmt.Sprintf(
+		" | note: %.8f %s was already held with no cost basis on record, so the levels are "+
+			"measured from the %.8f bought now at %.6f; the exit will sell the whole position",
+		prior, symbol, bought, fill)
+}
+
+// filledPrice is what a buy actually paid per share.
+//
+// Both sides come from the execution: quote units sent, share units received.
+// Returns 0 when either is missing, and resolveGuardLevels refuses to arm
+// anything against a zero rather than inventing a level.
+func (e *Engine) filledPrice(res *execution.Result) float64 {
+	if res.AmountIn == nil || res.Filled == nil || res.Filled.Sign() <= 0 {
+		return 0
+	}
+	spent := unitsToShares(res.AmountIn, e.broker.QuoteDecimals())
+	got := unitsToShares(res.Filled, e.broker.DecimalsOf(res.Symbol))
+	if got <= 0 {
+		return 0
+	}
+	return spent / got
+}
+
+// exitUnits decides whether this sell is an EXIT, and if so returns the exact
+// integer balance to send.
+//
+// THE TEST IS WHETHER THE REMAINDER COULD BE RECORDED. If selling the requested
+// quantity would leave less than DustFloor behind, the remainder is not a
+// position the agent could ever act on again — it is a residue. The honest
+// thing is not to leave it and then teach every reader to ignore it: it is to
+// send the balance, as the integer the chain holds it as, so the position
+// actually closes.
+//
+// That is also the only construction immune to the bug that produced the
+// residue in the first place. The requested quantity arrives here as a float64
+// and cannot express an eighteen-decimal balance exactly; the balance can only
+// be emptied by an amount that was never a float.
+//
+// Returns nil for a partial sell, which is left to go through the ordinary
+// float conversion — a partial sell is not trying to reach zero.
+func (e *Engine) exitUnits(intent tradeIntent, before *execution.Position) *big.Int {
+	if intent.Action != "sell" || before == nil {
+		return nil
+	}
+	return exitAmount(before.Units[intent.Symbol], intent.Quantity, e.broker.DecimalsOf(intent.Symbol))
+}
+
+// exitAmount is the arithmetic, separated from the plumbing so it can be driven
+// with the balance that actually caused the problem rather than inferred from a
+// reading of the branches.
+func exitAmount(have *big.Int, wantShares float64, decimals int) *big.Int {
+	if have == nil || have.Sign() <= 0 {
+		return nil
+	}
+	want := toUnits(wantShares, decimals)
+	if want.Cmp(have) > 0 {
+		// Asking for more than is there. Sending the balance is both what the
+		// intent meant and the only amount that will not simply revert.
+		return new(big.Int).Set(have)
+	}
+	if new(big.Int).Sub(have, want).Cmp(dustUnits(decimals)) < 0 {
+		return new(big.Int).Set(have)
+	}
+	return nil
 }
 
 // sharesTraded converts the chain amounts back into shares.
@@ -209,10 +391,19 @@ func executionSummary(res *execution.Result) string {
 	return s
 }
 
+// toAnyMap turns a chain reading into the shape a snapshot is written in, and
+// DROPS DUST on the way.
+//
+// Cleaning at the write is what keeps new rows free of entries no reader should
+// have to defend itself against. It does not replace the readers defending
+// themselves: rows written before this existed are still in the table, and they
+// have to stay comparable with the rows written after it.
 func toAnyMap(in map[string]float64) map[string]any {
 	out := map[string]any{}
 	for k, v := range in {
-		out[k] = v
+		if v >= DustFloor {
+			out[k] = v
+		}
 	}
 	return out
 }

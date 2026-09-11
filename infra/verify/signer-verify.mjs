@@ -136,7 +136,10 @@ function start(extra = {}) {
     env: { ...process.env, PORT: String(PORT), INTERNAL_API_KEY: KEY,
            SIGNER_MASTER_SEED_FILE: seedPath, SIGNER_ALLOWLIST_FILE: allowPath,
            SIGNER_RPC_URLS: `http://127.0.0.1:${RPC_PORT}`,
-           SIGNER_CHAIN_CACHE_TTL_MS: '1', ...extra },
+           SIGNER_CHAIN_CACHE_TTL_MS: '1',
+           // Its OWN count file. Sharing the production one would let a test
+           // run exhaust a real agent's daily cap.
+           SIGNER_SIGNATURE_COUNT_FILE: join(dir, 'signatures.json'), ...extra },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 }
@@ -163,9 +166,9 @@ const sign = async (body) => {
 const code = (r) => r.body?.error?.code || '';
 const ok2 = (r) => r.status >= 200 && r.status < 300;
 const okSwap = (over = {}) => ({ intent: 'swap_exact_in', agent_id: AGENT, token_in: USDG,
-  token_out: AAPL, router: ROUTER, amount: '10000000', min_out: '1', price_usd: 1, nonce: 0, ...over });
+  token_out: AAPL, router: ROUTER, amount: '10000000', min_out: '1', nonce: 0, ...over });
 const okApprove = (over = {}) => ({ intent: 'approve', agent_id: AGENT, token_in: USDG,
-  router: ROUTER, amount: '50000000', price_usd: 1, nonce: 0, ...over });
+  router: ROUTER, amount: '50000000', nonce: 0, ...over });
 
 try {
   await new Promise((r) => rpc.listen(RPC_PORT, '127.0.0.1', r));
@@ -179,10 +182,10 @@ try {
   // === REFUSALS ===========================================================
   console.log('=== It refuses ===');
 
-  let r = await sign({ intent: 'transfer', agent_id: AGENT, token_in: USDG, router: OUTSIDER, amount: '1', price_usd: 1 });
+  let r = await sign({ intent: 'transfer', agent_id: AGENT, token_in: USDG, router: OUTSIDER, amount: '1' });
   check('an intent it does not recognise → unknown_intent', code(r) === 'unknown_intent', `${r.status} ${JSON.stringify(r.body)}`);
 
-  r = await sign({ intent: 'approve', agent_id: AGENT, token_in: USDG, router: ROUTER, amount: '1', price_usd: 1, to: OUTSIDER, data: '0xa9059cbb' });
+  r = await sign({ intent: 'approve', agent_id: AGENT, token_in: USDG, router: ROUTER, amount: '1', to: OUTSIDER, data: '0xa9059cbb' });
   check('a request carrying raw calldata → rejected outright, not ignored', r.status >= 400 && code(r) === 'bad_request', `${r.status} ${JSON.stringify(r.body)}`);
 
   r = await sign(okApprove({ router: OUTSIDER }));
@@ -194,11 +197,38 @@ try {
   r = await sign(okSwap({ token_out: UNLISTED_TOKEN }));
   check('a token nobody allowlisted → token_not_allowlisted', code(r) === 'token_not_allowlisted', code(r));
 
-  r = await sign(okSwap({ amount: '500000000', price_usd: 1 }));   // $500 > $100 cap
-  check('an amount over the signer-enforced cap → amount_over_cap', code(r) === 'amount_over_cap', code(r));
+  // THE SIZE CEILING IS GONE, and its absence is checked rather than assumed.
+  //
+  // max_trade_notional_usd capped a trade at 100 dollars and was
+  // removed on 2026-09-11: how much of their own money an owner commits to one
+  // trade is trading style, not a platform decision. A test that merely stopped
+  // asserting the refusal would leave the question open; this asserts that a
+  // large trade is SIGNED.
+  r = await sign(okSwap({ amount: '500000000' }));   // $500, far over the old $100 ceiling
+  check('a trade far larger than the old ceiling is signed, because the ceiling is gone',
+    ok2(r), `${r.status} ${code(r)}`);
 
+  r = await sign(okSwap({ amount: '100000000000000' }));  // $100,000,000
+  check('and so is an absurdly large one: the wallet balance bounds it, not a policy',
+    ok2(r), `${r.status} ${code(r)}`);
+
+  r = await sign(okSwap({ amount: '0' }));
+  check('zero is still refused, because it is not a trade',
+    code(r) === 'amount_not_positive', code(r));
+
+  // WHAT DID NOT GO WITH IT. An unlimited approval is not a large trade; it is
+  // a standing right for somebody else to empty the wallet, which is the thing
+  // the two-intent design exists to make inexpressible.
   r = await sign(okApprove({ amount: '0x' + 'f'.repeat(64) }));
-  check('an unlimited approval → amount_over_cap', code(r) === 'amount_over_cap', code(r));
+  check('an unlimited approval → unbounded_approval', code(r) === 'unbounded_approval', code(r));
+
+  r = await sign(okApprove({ amount: (2n ** 255n).toString() }));
+  check('2^255 exactly is refused: it is the idiom, not a quantity',
+    code(r) === 'unbounded_approval', code(r));
+
+  r = await sign(okApprove({ amount: (2n ** 255n - 1n).toString() }));
+  check('and one below it is signed, so the bound is on the number and not on size',
+    ok2(r), `${r.status} ${code(r)}`);
 
   r = await sign(okSwap({ token_out: USDG }));
   check('a swap from a token to itself → token_in_equals_token_out', code(r) === 'token_in_equals_token_out', code(r));
@@ -250,6 +280,79 @@ try {
     if (code(x) === 'daily_signature_cap') { capped = i; break; }
   }
   check('signing stops at the cap', capped !== null, 'the cap never fired');
+
+  // === AND IT SURVIVES A RESTART ==========================================
+  //
+  // THE CHECK THIS WHOLE CHANGE EXISTS FOR. The count used to be a map in
+  // memory, so a restart returned it to zero and three deploys in a day turned
+  // a cap of 24 into an effective 72 with nothing saying so. That was tolerable
+  // while the cadence was locked at four hours; it stopped being tolerable when
+  // the floor came off.
+  //
+  // Proved by RESTARTING THE PROCESS, not by reading the file.
+  console.log('\n=== The cap survives a restart ===');
+  {
+    const before = await (await fetch(`http://127.0.0.1:${PORT}/internal/v1/signer/signatures`,
+      { headers: { 'X-Internal-Key': KEY } })).json();
+    const usedBefore = before.counts?.[AGENT] ?? 0;
+    check('the count is readable without a database credential', usedBefore > 0,
+      `counts=${JSON.stringify(before.counts)}`);
+
+    await stop();
+    proc = start();
+    check('the signer came back up', await waitUp(), 'never became healthy');
+
+    const after = await (await fetch(`http://127.0.0.1:${PORT}/internal/v1/signer/signatures`,
+      { headers: { 'X-Internal-Key': KEY } })).json();
+    check('the count is exactly what it was before the restart',
+      (after.counts?.[AGENT] ?? 0) === usedBefore, `${after.counts?.[AGENT]} vs ${usedBefore}`);
+
+    const r2 = await sign(okApprove({ nonce: 999 }));
+    check('and the capped agent is STILL capped after restarting',
+      code(r2) === 'daily_signature_cap', code(r2));
+    check('the refusal explains that an approve and its swap are two signatures',
+      /two signatures/.test(JSON.stringify(r2.body)), JSON.stringify(r2.body).slice(0, 160));
+
+    // The cap is per agent. One exhausted agent must not silence the rest, or a
+    // single runaway takes the whole platform down with it.
+    const other = randomUUID();
+    const r3 = await sign(okApprove({ agent_id: other, nonce: 0 }));
+    check('a different agent is unaffected', ok2(r3), code(r3));
+  }
+
+  // === AN UNREADABLE COUNT REFUSES, IT DOES NOT RESET =====================
+  //
+  // Absent and corrupt are different facts. A missing file is a fresh install
+  // and must start at zero, or nothing could ever sign. A file that exists and
+  // cannot be parsed must refuse, because assuming zero there is the cap
+  // quietly refunding itself -- the same rule an unreadable isBlocked() follows.
+  console.log('\n=== An unreadable count refuses rather than resetting ===');
+  {
+    const corrupt = join(dir, 'signatures-corrupt.json');
+    writeFileSync(corrupt, 'this is not json at all');
+    await stop();
+    proc = start({ SIGNER_SIGNATURE_COUNT_FILE: corrupt });
+    check('the signer still boots and serves /healthz', await waitUp(), 'never became healthy');
+    const r = await sign(okApprove({ agent_id: randomUUID(), nonce: 0 }));
+    check('but every signature is refused', code(r) === 'daily_signature_cap', code(r));
+    check('and it says the brake could not be read, not that it was empty',
+      /could not be read/.test(JSON.stringify(r.body)), JSON.stringify(r.body).slice(0, 180));
+    const counts = await fetch(`http://127.0.0.1:${PORT}/internal/v1/signer/signatures`,
+      { headers: { 'X-Internal-Key': KEY } });
+    check('and the count endpoint reports the fault rather than zeros',
+      counts.status === 503, `${counts.status}`);
+
+    // A MISSING file is not corruption.
+    await stop();
+    proc = start({ SIGNER_SIGNATURE_COUNT_FILE: join(dir, 'does-not-exist-yet.json') });
+    check('a fresh install with no count file comes up', await waitUp(), 'never became healthy');
+    const fresh = await sign(okApprove({ agent_id: randomUUID(), nonce: 0 }));
+    check('and can sign, because absent is not corrupt', ok2(fresh), code(fresh));
+  }
+
+  await stop();
+  proc = start();
+  check('back on the normal count file', await waitUp(), 'never became healthy');
 
   // === THE POOL FEE COMES FROM THE PAIR, NOT FROM ONE SIDE ================
   //

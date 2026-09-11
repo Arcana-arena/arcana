@@ -25,7 +25,7 @@ So there are two layers.
 
 ## Layer 1 — `OnFailure=` on every job
 
-Ten units declare `OnFailure=arcana-alert@%n.service`:
+Thirteen units declare `OnFailure=arcana-alert@%n.service`:
 
 | Unit | What it does |
 |---|---|
@@ -37,16 +37,22 @@ Ten units declare `OnFailure=arcana-alert@%n.service`:
 | `arcana-chain-guard` | Stock Token issuer-control drift (layer 3 below) |
 | `arcana-cadence` | opens a pool-priced tick every four hours. Alerts on a failed run — and a tick where NO agent executed exits non-zero on purpose, because a tick that opened and closed with everyone failing is the silent fault this phase exists to make visible |
 | `arcana-decision-watchdog` | asks whether a DECISION has been recorded in the last twelve hours. Replaces the tick watchdog's question, which was about a market calendar that no longer exists |
+| `arcana-execution-watchdog` | asks whether the money is MOVING or just burning: repeated trade failures, a wallet that can no longer pay for gas, transactions the record has no row for. The decision watchdog cannot see any of these — the agent decides on time, the transaction reverts, and decisions keep being recorded |
+| `arcana-guard` | the take-profit / stop-loss watcher itself. It refuses to start without a signer rather than run as a process that can see a level cross and do nothing, so a failure to start is an alert and not a restart loop nobody reads |
+| `arcana-guard-watchdog` | asks whether that watcher is still WATCHING, by reading the heartbeat it writes on every scan. A stop loss is protection an owner stops thinking about, so the moment it stops working nothing changes visibly |
 | `arcana-signer` | the isolated key-custody service |
 | `arcana-backup` | daily full backup |
 | `arcana-backup-verify` | weekly restore rehearsal |
 | ~~`arcana-tick-watchdog`~~ | **RETIRED 2026-09-11.** Asked "was there a tick on a day the market was open" — a question about a calendar that no longer exists. Replaced by `arcana-decision-watchdog`, which asks whether a DECISION has been recorded in the last twelve hours. |
 
 One template rather than one handler per unit, because a second copy would
-drift — and this table has now drifted on its own, in both directions at once:
-it named `arcana-arca-payout` after that unit was deleted with the §10
-retirement, and omitted `arcana-chain-guard` and `arcana-signer`, both of which
-do alert. `install.sh` now derives the comparison from the unit files and says
+drift — and this table has now drifted on its own twice, in both directions. It
+named `arcana-arca-payout` after that unit was deleted with the §10 retirement,
+and omitted `arcana-chain-guard` and `arcana-signer`, both of which do alert.
+Then on 2026-09-11 it fell behind again, omitting `arcana-execution-watchdog`
+and the two new guard units — caught by the check below on the deploy that
+introduced them, which is the check working rather than the document being
+reliable. `install.sh` now derives the comparison from the unit files and says
 so, because a monitoring document that names a unit which cannot fail, and
 omits one that can, is a list somebody checks against and is reassured by.
 

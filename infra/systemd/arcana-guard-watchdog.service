@@ -1,0 +1,36 @@
+# arcana-guard-watchdog.service — is the position guard still watching?
+#
+# The one failure a stop loss cannot report for itself. A guard that has stopped
+# scanning produces no error, no missing row and no alert: the levels simply
+# never fire, and the first sign is a loss that should have been cut.
+#
+# It reads the guard's HEARTBEAT, which is a fact only the guard can produce.
+# `pgrep` cannot — it once matched its own command line and reported a watcher
+# alive that had been dead for hours. `systemctl is-active` answers a different
+# and weaker question: a guard wedged on an RPC call is active and blind. Both
+# readings are taken, because the combination is the diagnosis.
+#
+# READ-ONLY. Exit 1 means the check could not be performed, never "nothing
+# found", so this unit carries OnFailure= like the ones it watches.
+[Unit]
+Description=ARCANA position guard watchdog (is the stop-loss watcher alive)
+After=network-online.target docker.service
+Wants=network-online.target
+OnFailure=arcana-alert@%n.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+SyslogIdentifier=arcana-guard-watchdog
+WorkingDirectory=/home/ubuntu/arcana
+# Mirrors the guard's own interval. Staleness is derived from it rather than
+# chosen: four intervals plus a minute, so one slow chain read never alarms and
+# a wedged watcher is found inside two minutes.
+Environment=GUARD_SCAN_INTERVAL_SEC=15
+Environment=GUARD_UNIT=arcana-guard.service
+EnvironmentFile=-/home/ubuntu/arcana/.env.alerts
+ExecStart=/usr/bin/flock -n /tmp/arcana-guard-watchdog.lock /home/ubuntu/arcana/infra/alerting/arcana-guard-watchdog.sh
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

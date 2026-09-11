@@ -125,6 +125,9 @@ func buildBroker() (*execution.Broker, error) {
 	rpc := execution.NewRPC(urls, 20*time.Second)
 	signer := execution.NewSignerClient(signerURL, internalKey, execution.HTTPClient(120*time.Second))
 	b := execution.NewBroker(cfg, rpc, signer)
+	// The Chainlink ETH/USD feed on this chain, used to price gas at execution
+	// time. Verified live during phase 10b along with the 57 others.
+	b.EthUSDFeed = envOr("EXECUTION_ETH_USD_FEED", "0x78F3556b67E17Df817D51Ef5a990cDaF09E8d3A9")
 	if v := envFloat("EXECUTION_SLIPPAGE_BPS", 0); v > 0 {
 		b.SlippageBps = int64(v)
 	}
@@ -188,6 +191,56 @@ func main() {
 	// track record, which is the one thing this platform sells. Same shape as
 	// market-data's missing vendor key and arca-service's five warnings — a
 	// stand-down that is visible, not a substitution that is not.
+	// THE INFERENCE BUDGET, per agent per UTC day.
+	//
+	// 200,000 tokens is not a round number somebody liked. One decision was
+	// MEASURED at 767 prompt + 146 completion = 913 tokens, against a short
+	// mandate; a full-length one adds about 400 more. So the budget is roughly
+	// 150 to 220 decisions a day -- one every seven to ten minutes, sustained.
+	// That is far more than any strategy at a sane cadence needs, and about 25x
+	// what the old four-hour clock used.
+	//
+	// The estimate before it was measured was 1,400 tokens. The real figure is
+	// lower, and the number stays where it is: a budget set from a pessimistic
+	// estimate and then confirmed to be generous is in the right place.
+	//
+	// It exists because the cadence floor is going away. That floor bounded how
+	// often an agent could think in order to bound what it could spend, which is
+	// the wrong lever: most decisions are holds, and a hold pays a model and no
+	// fees. This bounds the spending directly, and an agent that exhausts it
+	// stands down with a recorded reason instead of going quiet.
+	budget := int64(envFloat("INFERENCE_TOKENS_PER_AGENT_PER_DAY", 200000))
+	eng = eng.WithTokenBudget(budget)
+	if budget > 0 {
+		log.Printf("inference meter ACTIVE: %d tokens per agent per UTC day", budget)
+	} else {
+		log.Printf("WARN: inference meter INACTIVE: INFERENCE_TOKENS_PER_AGENT_PER_DAY is 0, so " +
+			"nothing bounds how much one agent may spend on the model in a day.")
+	}
+
+	// THE TRANSACTION COST METER IS THE OWNER'S, so there is nothing to read
+	// from the environment here.
+	//
+	// Each agent supplies `cost_budget_monthly_pct` in its own risk_profile, or
+	// has no cost brake at all — and having none is the default. The meter
+	// itself is unchanged: it still measures gas and pool fees against the
+	// capital they are taken from, still refuses on an unreadable bill, and is
+	// still proved by being exceeded rather than by reading its branches.
+	//
+	// What used to be here was AGENT_COST_BUDGET_MONTHLY_PCT, one percentage
+	// applied to every agent regardless of book size. Costs are mostly FIXED per
+	// transaction, so that percentage means completely different things at
+	// different capital: measured at $0.065 per round trip, a 2% monthly budget
+	// permits about 3.6 transactions a month on an $11.76 book and about 900 on
+	// a $3,000 one. Setting one number for both is the platform deciding how
+	// expensive a trading style an owner is allowed to have.
+	//
+	// Removed rather than defaulted to zero, so no lever is left that could
+	// re-impose it by accident. That is the same failure class as a note telling
+	// somebody to lower a ceiling that no longer exists.
+	log.Printf("transaction cost meter: per agent, from risk_profile.cost_budget_monthly_pct; " +
+		"agents that set none are unmetered, which is the default")
+
 	client := buildLLM()
 	if client.Configured() {
 		eng = eng.WithLLM(engine.NewLLMDecider(client))

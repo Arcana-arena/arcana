@@ -310,11 +310,32 @@ export function renderMandate(
 }
 
 /**
- * Must equal `MandateMaxChars` in
- * services/decision-engine/internal/engine/decider_llm.go.
+ * The cap on the user-supplied half of the prompt.
  *
- * Two languages, one number, no shared config to hold it — so
- * `agents-verify.mjs` reads both files and asserts they agree, rather than
- * trusting a comment to be obeyed.
+ * IT IS A COST BOUND, NOT A SAFETY BOUND. It used to be 600 characters and the
+ * reason given was blast radius — the field belonged to somebody who might be
+ * trying to see what happens. That reason is retired: nothing a mandate can say
+ * reaches money. The decider returns an intent, buyableQty() clamps it, the
+ * signer speaks two named transaction shapes and no calldata, and every token
+ * must already be in a reviewed allowlist. A shorter cap bought no safety; it
+ * only stopped people describing what they wanted.
+ *
+ * What it does bound is the bill. 2000 characters is roughly 500 tokens, sent
+ * on EVERY decision:
+ *
+ *   6 decisions/day x 30 days   = 180 calls/month per agent
+ *   500 tokens x 180            = 90,000 prompt tokens/month, from the mandate alone
+ *
+ * The rest of the prompt — market table, portfolio, limits, system rules — is
+ * about 700 tokens, so a full-length mandate is roughly 40% of what an agent
+ * spends on inference. That is a real cost and it is the agent owner who pays
+ * it, which is the right person to pay it. 2000 leaves room for a strategy
+ * described in a paragraph or two; beyond that the marginal sentence is being
+ * re-read six times a day forever.
+ *
+ * Must equal `MandateMaxChars` in
+ * services/decision-engine/internal/engine/decider_llm.go. Two languages, one
+ * number, no shared config to hold it — so `agents-verify.mjs` reads both files
+ * and asserts they agree, rather than trusting a comment to be obeyed.
  */
-export const MANDATE_MAX_CHARS = 600;
+export const MANDATE_MAX_CHARS = 2000;

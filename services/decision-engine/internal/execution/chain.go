@@ -243,3 +243,47 @@ func (c *RPC) WaitReceipt(ctx context.Context, hash string, budget time.Duration
 		}
 	}
 }
+
+// EthUSD reads this chain's Chainlink ETH/USD feed.
+//
+// The gas bill is in wei and the cost meter measures dollars against capital,
+// so somebody has to convert. Doing it at execution time and STORING the rate
+// used means the conversion can be audited later; doing it at analysis time
+// would price a transaction from 2026 at whatever ETH costs when somebody runs
+// the query.
+//
+// A failure is returned rather than defaulted. A cost recorded with a made-up
+// exchange rate is worse than a cost recorded as unknown, because the meter
+// would act on it.
+func (c *RPC) EthUSD(ctx context.Context, feed string) (float64, error) {
+	raw, err := c.hexString(ctx, "eth_call",
+		[]any{map[string]string{"to": feed, "data": "0xfeaf968c"}, "latest"}) // latestRoundData()
+	if err != nil {
+		return 0, fmt.Errorf("eth/usd feed: %w", err)
+	}
+	body := strings.TrimPrefix(raw, "0x")
+	if len(body) < 64*5 {
+		return 0, fmt.Errorf("eth/usd feed: short answer (%d chars)", len(body))
+	}
+	answer, ok := new(big.Int).SetString(body[64:128], 16)
+	if !ok {
+		return 0, fmt.Errorf("eth/usd feed: unreadable answer")
+	}
+	decRaw, err := c.hexString(ctx, "eth_call",
+		[]any{map[string]string{"to": feed, "data": "0x313ce567"}, "latest"}) // decimals()
+	if err != nil {
+		return 0, fmt.Errorf("eth/usd decimals: %w", err)
+	}
+	dec, err := hexToBig(decRaw)
+	if err != nil {
+		return 0, fmt.Errorf("eth/usd decimals: %w", err)
+	}
+	if answer.Sign() <= 0 {
+		return 0, fmt.Errorf("eth/usd feed answered %s, which is not a price", answer)
+	}
+	scale := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), dec, nil))
+	f := new(big.Float).SetInt(answer)
+	f.Quo(f, scale)
+	out, _ := f.Float64()
+	return out, nil
+}

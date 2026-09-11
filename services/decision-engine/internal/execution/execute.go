@@ -32,6 +32,10 @@ func (b *Broker) Execute(ctx context.Context, req Request) (*Result, error) {
 	case "sell":
 		tokenIn, tokenOut = tok, quote
 		amountIn = baseUnits(req.Qty, tok.Decimals)
+		if req.ExactUnitsIn != nil && req.ExactUnitsIn.Sign() > 0 {
+			// An exit. Send the balance itself so nothing is left behind.
+			amountIn = new(big.Int).Set(req.ExactUnitsIn)
+		}
 	default:
 		return &Result{Status: StatusBlocked, IntentAction: req.Action, Symbol: req.Symbol,
 			Note: "only buy and sell can be executed"}, nil
@@ -126,7 +130,7 @@ func (b *Broker) Execute(ctx context.Context, req Request) (*Result, error) {
 		Intent: "swap_exact_in", AgentID: req.AgentID,
 		TokenIn: tokenIn.Address, TokenOut: tokenOut.Address, Router: b.cfg.Router(),
 		Amount: amountIn.String(), MinOut: minOut.String(),
-		PriceUSD: priceOfInput(req, tokenIn, quote), Nonce: nonce,
+		Nonce: nonce,
 		Gas: b.GasLimit, MaxFeeWei: b.MaxFeeWei.String(), TipWei: b.TipWei.String(),
 	})
 	if err != nil {
@@ -194,6 +198,12 @@ func (b *Broker) Execute(ctx context.Context, req Request) (*Result, error) {
 		res.Status = StatusReverted
 		res.Filled = big.NewInt(0)
 		res.Note = "mined and reverted: gas was paid and no funds moved"
+		// AND THEN ASK WHY. A receipt carries a status bit and no reason, so a
+		// swap stopped by its own min_out used to read exactly like a paused
+		// token or a bad allowance. Since the notional ceiling came off, min_out
+		// is the only thing bounding the price a trade fills at, and a
+		// load-bearing check has to be legible when it fires.
+		b.explainRevert(ctx, req, res, tokenIn, tokenOut, tok.PoolFee, amountIn, minOut)
 		return res, nil
 	}
 
@@ -207,6 +217,33 @@ func (b *Broker) Execute(ctx context.Context, req Request) (*Result, error) {
 	filled := new(big.Int).Sub(after, before)
 	res.Filled = filled
 	res.Status = StatusMined
+
+	// WHAT THE POOL TOOK. Uniswap V3 charges the fee on the input before
+	// swapping, and an exact-input swap consumes the whole input, so the fee is
+	// amountIn * feeTier / 1e6. Both terms are from the calldata that was
+	// actually sent, not from a table consulted afterwards.
+	res.FeeTier = tok.PoolFee
+	fee := new(big.Int).Mul(amountIn, new(big.Int).SetUint64(uint64(tok.PoolFee)))
+	fee.Div(fee, big.NewInt(1000000))
+	res.PoolFeeUnits = fee
+	res.PoolFeeUSD = unitsToFloat(fee, tokenIn.Decimals) * priceOfInput(req, tokenIn, quote)
+
+	// Gas in dollars, with the RATE STORED alongside it. A cost recorded
+	// without the price used to convert it cannot be checked later, and a cost
+	// converted at analysis time prices an old transaction at today's ETH.
+	//
+	// A feed that cannot be read leaves the dollar figures NULL rather than
+	// defaulting them. The meter refuses on unreadable cost; it must not be fed
+	// an invented one.
+	if b.EthUSDFeed != "" && res.GasCostWei != nil {
+		if px, ferr := b.rpc.EthUSD(ctx, b.EthUSDFeed); ferr == nil && px > 0 {
+			res.EthUSD = px
+			res.GasCostUSD = (float64(res.GasUsed) * bigToFloat(res.GasPriceWei) / 1e18) * px
+		} else if ferr != nil {
+			log.Printf("execution: agent=%s gas cost left unpriced, the ETH/USD feed could not be read: %v",
+				req.AgentID, ferr)
+		}
+	}
 
 	// Slippage against the QUOTE, not against the model price. The quote came
 	// from the same calldata moments earlier, so any difference is the pool
@@ -233,7 +270,7 @@ func (b *Broker) approve(ctx context.Context, req Request, tokenIn TokenCfg, amo
 	}
 	signed, err := b.signer.Sign(ctx, SignRequest{
 		Intent: "approve", AgentID: req.AgentID, TokenIn: tokenIn.Address,
-		Router: b.cfg.Router(), Amount: amount.String(), PriceUSD: 1.0, Nonce: nonce,
+		Router: b.cfg.Router(), Amount: amount.String(), Nonce: nonce,
 		Gas: b.GasLimit, MaxFeeWei: b.MaxFeeWei.String(), TipWei: b.TipWei.String(),
 	})
 	if err != nil {
@@ -281,6 +318,9 @@ func (b *Broker) approve(ctx context.Context, req Request, tokenIn TokenCfg, amo
 	if !rcpt.Succeeded() {
 		ar.Status = StatusReverted
 		ar.Note = "the approval was mined and reverted"
+		// A reverted approval still burned gas, and an unpriced cost row is
+		// read by the meter as an unreadable bill.
+		b.priceApproval(actx, ar)
 		res.Status = StatusReverted
 		res.TxHash = hash
 		res.Filled = big.NewInt(0)
@@ -289,6 +329,7 @@ func (b *Broker) approve(ctx context.Context, req Request, tokenIn TokenCfg, amo
 	}
 	ar.Status = StatusMined
 	ar.Note = "allowance granted so the swap could spend " + tokenIn.Symbol
+	b.priceApproval(actx, ar)
 	log.Printf("execution: agent=%s approval mined %s gas_wei=%v", req.AgentID, hash, ar.GasCostWei)
 	return nil
 }

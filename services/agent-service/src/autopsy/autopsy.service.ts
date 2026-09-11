@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { MarketIndexService, MarketTick } from '../market/market-index.service';
+import { positionsOf } from '../common/positions';
 
 /**
  * Agent Autopsy — why an agent performed the way it did, from its own record.
@@ -242,7 +243,11 @@ export class AutopsyService {
       const m1 = market.get(next.ref);
       if (!p0 || !m1) continue;
 
-      for (const [sym, qty] of Object.entries(cur.holdings)) {
+      // positionsOf, so a residue left behind by an exit does not appear in the
+      // per-symbol breakdown as a symbol the agent was still carrying. Its P&L
+      // contribution rounds to zero either way; its PRESENCE in the list is the
+      // thing that would be untrue.
+      for (const [sym, qty] of positionsOf(cur.holdings)) {
         const before = p0[sym];
         const after = m1.prices?.[sym] ?? 0;
         if (before > 0 && after > 0) {

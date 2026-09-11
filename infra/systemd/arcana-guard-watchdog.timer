@@ -1,0 +1,23 @@
+# arcana-guard-watchdog.timer — every two minutes.
+#
+# FAR MORE OFTEN THAN THE OTHER WATCHDOGS, because it is watching something
+# faster. The execution watchdog looks for a pattern that takes twelve hours to
+# form; this one looks for a process that should report every fifteen seconds.
+# Checking a fifteen-second heartbeat four times an hour would mean a stop loss
+# could be unwatched for a quarter of an hour before anyone was told, which is
+# most of the move it exists to catch.
+#
+# The check is two SQL reads and one systemctl call, so two minutes costs
+# nothing worth counting.
+[Unit]
+Description=Check every two minutes that the ARCANA position guard is still watching
+
+[Timer]
+OnBootSec=90s
+OnUnitActiveSec=2min
+# No RandomizedDelaySec: this is a liveness check, and jitter would only widen
+# the window in which a dead watcher goes unreported.
+Persistent=false
+
+[Install]
+WantedBy=timers.target

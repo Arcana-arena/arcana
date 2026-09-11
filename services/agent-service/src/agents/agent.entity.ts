@@ -36,10 +36,15 @@ export class Agent {
   assetUniverse: string;
 
   /**
-   * The rendered mandate the decision engine reads. Produced by a template
-   * (see mandate-templates.ts), never typed by a user — but nullable and TEXT,
-   * because agents created before phase 12 have none and the built-in
-   * deterministic strategies never will.
+   * The mandate the decision engine reads.
+   *
+   * It is now either rendered from a template (no user string reaches the
+   * model) or written by the owner in their own words. Which one is recorded in
+   * mandateSource rather than inferred, because NULL on mandateTemplate already
+   * means "predates templates" and must not quietly acquire a second meaning.
+   *
+   * Nullable and TEXT: agents created before phase 12 have none, and the
+   * built-in deterministic strategies never will.
    */
   @Column({ type: 'text', nullable: true })
   mandate: string | null;
@@ -49,6 +54,10 @@ export class Agent {
 
   @Column({ name: 'mandate_params', type: 'jsonb', nullable: true })
   mandateParams: Record<string, string | number> | null;
+
+  /** 'template' | 'free' | 'legacy'. See migration 0031. */
+  @Column({ name: 'mandate_source', type: 'varchar', length: 16, nullable: true })
+  mandateSource: string | null;
 
   @Column({ type: 'varchar', length: 20, default: 'draft' })
   status: string; // draft, active, retired

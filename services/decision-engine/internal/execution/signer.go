@@ -36,7 +36,6 @@ type SignRequest struct {
 	Router    string  `json:"router"`
 	Amount    string  `json:"amount"`
 	MinOut    string  `json:"min_out,omitempty"`
-	PriceUSD  float64 `json:"price_usd"`
 	Nonce     uint64  `json:"nonce"`
 	Gas       uint64  `json:"gas,omitempty"`
 	MaxFeeWei string  `json:"max_fee_wei,omitempty"`

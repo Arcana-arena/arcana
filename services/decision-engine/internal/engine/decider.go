@@ -34,6 +34,19 @@ type DeciderInput struct {
 	Cash     float64
 	NAV      float64
 	Limits   RiskLimits
+
+	// THE INFERENCE METER, read before anything is spent.
+	//
+	// TokensUsedToday is what this agent has already spent on the model since
+	// midnight UTC, summed from the decisions table rather than from a counter
+	// in memory -- a counter resets on every deploy, and a limit that quietly
+	// triples on a busy day is not a limit.
+	//
+	// TokenBudget of 0 means unmetered, which is the correct state for a
+	// deployment that has not configured one and for every deterministic
+	// strategy, since they buy no inference at all.
+	TokensUsedToday int64
+	TokenBudget     int64
 }
 
 // Evidence is what the decision record keeps about HOW a decision was reached.

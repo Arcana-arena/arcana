@@ -69,8 +69,33 @@ func (e *BlocklistException) Matches(observed string) bool {
 	return strings.EqualFold(strings.TrimSpace(observed), strings.TrimSpace(e.RevertData))
 }
 
+// Limits are the bounds the PLATFORM imposes, and after the notional cap came
+// off there is exactly one thing left in here that is about size — and it is
+// not about the size of a trade.
+//
+// WHAT WAS REMOVED AND WHY. max_trade_notional_usd capped a single trade at
+// $100. That is a statement about how large a position an owner may take, and
+// how large a position to take is trading style. The platform provides the
+// venue, executes, and measures; it does not decide how much of their own money
+// somebody may commit to one idea. A $100 ceiling on a $50,000 book is not
+// safety, it is the platform overruling the owner about their own strategy.
+//
+// WHAT DID NOT GO WITH IT, because these were never about size:
+//
+//	the two intents        this signer can build `approve` and `swap_exact_in`
+//	                       and nothing else. There is no `data`, no `to`, no
+//	                       `value`: a caller cannot express "send these tokens
+//	                       somewhere" because the words do not exist.
+//	the allowlist          only reviewed tokens, only reviewed routers.
+//	recipient_not_agent_wallet  proceeds may only go to the agent's own wallet.
+//	the signature cap      bounds how much of the PLATFORM's capacity one agent
+//	                       may consume. Not the owner's money — ours.
+//	unbounded approvals    see MaxApproveMultipleOfTrade below.
 type Limits struct {
-	MaxTradeNotionalUSD       float64 `json:"max_trade_notional_usd"`
+	// MaxApproveMultipleOfTrade is kept in the schema so an existing allowlist
+	// still loads, and is no longer multiplied by anything. The approval rule
+	// it used to take part in is now structural rather than monetary: see
+	// CheckApprove.
 	MaxApproveMultipleOfTrade float64 `json:"max_approve_multiple_of_trade"`
 	MaxSignaturesPerDay       int     `json:"max_signatures_per_agent_per_day"`
 }
@@ -161,7 +186,11 @@ const (
 	CodeRouterNotListed = "router_not_allowlisted"
 	CodeNoRouters      = "no_router_configured"
 	CodeRecipientNotSelf = "recipient_not_agent_wallet"
-	CodeAmountOverCap  = "amount_over_cap"
+	// amount_over_cap RETIRED 2026-09-11 with the trade notional ceiling. Kept
+	// out of this list deliberately: a code nothing emits is a brake somebody
+	// will build on. Two codes replace the two things it used to conflate.
+	CodeAmountNotPositive = "amount_not_positive"
+	CodeUnboundedApproval = "unbounded_approval"
 	CodeDailyCap       = "daily_signature_cap"
 	CodeSameToken      = "token_in_equals_token_out"
 	CodeWalletBlocked  = "wallet_blocked"
@@ -196,7 +225,7 @@ func (a *Allowlist) Router(addr string) *Refusal {
 }
 
 // CheckSwap validates every part of a swap that this service could get wrong.
-func (a *Allowlist) CheckSwap(router, tokenIn, tokenOut, recipient, agentWallet string, amountIn *big.Int, priceUSD float64) *Refusal {
+func (a *Allowlist) CheckSwap(router, tokenIn, tokenOut, recipient, agentWallet string, amountIn *big.Int) *Refusal {
 	if r := a.Router(router); r != nil {
 		return r
 	}
@@ -218,11 +247,30 @@ func (a *Allowlist) CheckSwap(router, tokenIn, tokenOut, recipient, agentWallet 
 			"recipient %s is not this agent's wallet %s; the signer will not send proceeds elsewhere",
 			recipient, agentWallet)
 	}
-	return a.checkNotional(in, amountIn, priceUSD)
+	// NO SIZE CEILING. How much of their own money an owner commits to one
+	// trade is their decision. What still bounds a swap is real rather than
+	// policy: the wallet's balance, and the min_out floor the transaction
+	// carries into the pool.
+	return checkPositive(in, amountIn, "trade")
 }
 
 // CheckApprove validates an allowance.
-func (a *Allowlist) CheckApprove(token, spender string, amount *big.Int, priceUSD float64) *Refusal {
+//
+// THE RULE IS STRUCTURAL NOW, NOT MONETARY. It used to be a dollar cap derived
+// from the trade ceiling, and when that ceiling came off this could have gone
+// with it. It should not: an unlimited approval is not a large trade, it is a
+// standing right for somebody else to take everything in the wallet, which is
+// the thing the two-intent design exists to make inexpressible.
+//
+// So the bound is on the SHAPE of the number rather than its value. The broker
+// approves exactly the amount of the swap it is about to send, so any real
+// allowance is a quantity of a token. 2^255 base units is about 5.8e58 whole
+// tokens at eighteen decimals — larger than the supply of anything that exists,
+// which is precisely why `type(uint256).max` and `2^255-1` are the two idioms
+// for "infinite". A number up there is not a quantity; it is a word.
+//
+// Everything below it is the owner's business.
+func (a *Allowlist) CheckApprove(token, spender string, amount *big.Int) *Refusal {
 	if r := a.Router(spender); r != nil {
 		return r
 	}
@@ -230,31 +278,25 @@ func (a *Allowlist) CheckApprove(token, spender string, amount *big.Int, priceUS
 	if r != nil {
 		return r
 	}
-	// An unlimited approval is the standard convenience and the standard way a
-	// compromised router drains a wallet. Bounded to a small multiple of one
-	// trade: the cost is an extra approval now and then.
-	cap := a.Limits.MaxTradeNotionalUSD * a.Limits.MaxApproveMultipleOfTrade
-	return a.checkNotionalAgainst(t, amount, priceUSD, cap,
-		"approval")
+	if ref := checkPositive(t, amount, "approval"); ref != nil {
+		return ref
+	}
+	if amount.Cmp(unboundedApproval) >= 0 {
+		return refuse(CodeUnboundedApproval,
+			"an approval of %s base units of %s is the infinite-allowance idiom, not a quantity: "+
+				"it is larger than the supply of any token that exists. The signer grants "+
+				"allowances for amounts, not standing rights",
+			amount.String(), t.Symbol)
+	}
+	return nil
 }
 
-func (a *Allowlist) checkNotional(t Token, amount *big.Int, priceUSD float64) *Refusal {
-	return a.checkNotionalAgainst(t, amount, priceUSD, a.Limits.MaxTradeNotionalUSD, "trade")
-}
+// unboundedApproval is 2^255. See CheckApprove for why this and not a dollar.
+var unboundedApproval = new(big.Int).Lsh(big.NewInt(1), 255)
 
-func (a *Allowlist) checkNotionalAgainst(t Token, amount *big.Int, priceUSD float64, capUSD float64, what string) *Refusal {
+func checkPositive(t Token, amount *big.Int, what string) *Refusal {
 	if amount == nil || amount.Sign() <= 0 {
-		return refuse(CodeAmountOverCap, "%s amount must be positive", what)
-	}
-	if capUSD <= 0 {
-		return refuse(CodeAmountOverCap, "no %s cap is configured; refusing rather than assuming one", what)
-	}
-	units := unitsOf(amount, t.Decimals)
-	notional := units * priceUSD
-	if notional > capUSD {
-		return refuse(CodeAmountOverCap,
-			"%s of %.6f %s is about $%.2f, over the $%.2f cap enforced at the signer",
-			what, units, t.Symbol, notional, capUSD)
+		return refuse(CodeAmountNotPositive, "%s amount must be positive", what)
 	}
 	return nil
 }

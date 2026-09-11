@@ -12,7 +12,7 @@ import { UpdateAgentDto } from './dto/update-agent.dto';
 import { EntitlementClient } from '../entitlements/entitlement.client';
 import { OwnershipService } from '../auth/ownership.service';
 import { Page, pageOf } from '../common/pagination';
-import { MandateValidationError, renderMandate } from './mandate-templates';
+import { MANDATE_MAX_CHARS, MandateValidationError, renderMandate } from './mandate-templates';
 
 /**
  * How many agents one creator may have ACTIVE at once.
@@ -48,7 +48,7 @@ export class AgentsService {
    * A new agent is ALWAYS 'draft'. Status is not settable here — see activate().
    */
   async create(dto: CreateAgentDto, creatorId: string): Promise<Agent> {
-    const m = this.buildMandate(dto.mandateTemplate, dto.mandateParams);
+    const m = this.buildMandate(dto.mandate, dto.mandateTemplate, dto.mandateParams);
 
     const latest = await this.agents.findOne({
       where: { creatorId, name: dto.name },
@@ -68,39 +68,77 @@ export class AgentsService {
       // nothing anywhere said so -- the agent simply was not what its own
       // record described. An explicit strategyType still wins, because asking
       // for a deterministic strategy is a real thing to want.
-      strategyType: dto.strategyType ?? (m.template ? 'llm' : null),
+      strategyType: dto.strategyType ?? (m.mandate ? 'llm' : null),
       riskProfile: dto.riskProfile ? JSON.parse(dto.riskProfile) : {},
       assetUniverse: dto.assetUniverse,
       mandate: m.mandate,
       mandateTemplate: m.template,
       mandateParams: m.params,
+      mandateSource: m.source,
       status: 'draft',
     });
     return this.agents.save(agent);
   }
 
   /**
-   * Turn a template id and a set of chosen values into the sentence the
-   * decision engine will read.
+   * Two ways to say what an agent is for, and they are exclusive.
    *
-   * No template is not an error. The built-in deterministic strategies have no
-   * mandate at all, and neither do agents created before phase 12; the engine
-   * simply omits the section. Requiring one would break every existing row for
-   * the sake of uniformity.
+   * A TEMPLATE renders a sentence from a closed set of enumerations and numeric
+   * ranges; no string the user typed reaches the model. FREE TEXT is the user's
+   * own words, bounded by length and fenced structurally in the prompt.
    *
-   * Parameters without a template ARE an error, and a loud one: it means the
-   * caller believes they have configured something that is going to be
-   * discarded. Silently dropping them is how somebody ends up watching an
-   * agent behave nothing like what they set up.
+   * Supplying both is refused rather than resolved. Picking one would mean an
+   * agent pursues something its owner can see they did not choose, and the
+   * whole point of recording mandate_source is that the answer to "where did
+   * this come from" is never a guess.
    */
   private buildMandate(
+    free: string | undefined,
     templateId: string | undefined,
     rawParams: Record<string, unknown> | undefined,
   ): {
     mandate: string | null;
     template: string | null;
     params: Record<string, string | number> | null;
+    source: 'template' | 'free' | null;
   } {
+    const freeText = free?.trim();
+
+    if (freeText && templateId) {
+      throw new BadRequestException({
+        code: 'mandate_and_template',
+        message:
+          'Supply either `mandate` (your own words) or `mandateTemplate` (a ' +
+          'parameterised form), not both. They are two answers to the same ' +
+          'question and there is no sensible way to combine them.',
+      });
+    }
+
+    if (freeText) {
+      if (rawParams && Object.keys(rawParams).length > 0) {
+        throw new BadRequestException({
+          code: 'mandate_params_without_template',
+          message:
+            'mandateParams only mean something alongside mandateTemplate. With a ' +
+            'free-text mandate there is nothing to interpret them against.',
+        });
+      }
+      if (freeText.length > MANDATE_MAX_CHARS) {
+        // Refused, never truncated. A silently shortened mandate is one the
+        // owner never sees the real version of, and they would be judging an
+        // agent on instructions they did not write.
+        throw new BadRequestException({
+          code: 'mandate_too_long',
+          message:
+            `The mandate is ${freeText.length} characters and the limit is ` +
+            `${MANDATE_MAX_CHARS}. The limit is about inference cost, not safety: ` +
+            'this text is sent on every decision, so a longer one is re-read six ' +
+            'times a day for as long as the agent runs.',
+        });
+      }
+      return { mandate: freeText, template: null, params: null, source: 'free' };
+    }
+
     if (!templateId) {
       if (rawParams && Object.keys(rawParams).length > 0) {
         throw new BadRequestException({
@@ -110,12 +148,12 @@ export class AgentsService {
             'template to interpret them against, so they would have been ignored.',
         });
       }
-      return { mandate: null, template: null, params: null };
+      return { mandate: null, template: null, params: null, source: null };
     }
 
     try {
       const { mandate, params } = renderMandate(templateId, rawParams);
-      return { mandate, template: templateId, params };
+      return { mandate, template: templateId, params, source: 'template' };
     } catch (e) {
       if (e instanceof MandateValidationError) {
         throw new BadRequestException({ code: e.code, message: e.message });
@@ -212,7 +250,7 @@ export class AgentsService {
     if (dto.name !== undefined) agent.name = dto.name;
     if (dto.strategyType !== undefined) agent.strategyType = dto.strategyType;
 
-    if (dto.mandateTemplate !== undefined || dto.mandateParams !== undefined) {
+    if (dto.mandate !== undefined || dto.mandateTemplate !== undefined || dto.mandateParams !== undefined) {
       // DRAFTS ONLY.
       //
       // An active agent's mandate is part of the conditions its track record
@@ -231,13 +269,21 @@ export class AgentsService {
             'to create a new version with a different mandate.',
         });
       }
+      // SWITCHING BETWEEN THE TWO FORMS IS ALLOWED ON A DRAFT, and the old
+      // form must not leak into the new one. Falling back to the stored
+      // template while the caller supplies free text would send both into
+      // buildMandate and trip its exclusivity check, reporting a conflict the
+      // caller did not create.
+      const switchingToFree = dto.mandate !== undefined && dto.mandate.trim() !== '';
       const m = this.buildMandate(
-        dto.mandateTemplate ?? agent.mandateTemplate ?? undefined,
-        dto.mandateParams ?? agent.mandateParams ?? undefined,
+        dto.mandate ?? (switchingToFree ? undefined : agent.mandateSource === 'free' ? agent.mandate ?? undefined : undefined),
+        switchingToFree ? undefined : dto.mandateTemplate ?? agent.mandateTemplate ?? undefined,
+        switchingToFree ? undefined : dto.mandateParams ?? agent.mandateParams ?? undefined,
       );
       agent.mandate = m.mandate;
       agent.mandateTemplate = m.template;
       agent.mandateParams = m.params;
+      agent.mandateSource = m.source;
     }
 
     return this.agents.save(agent);

@@ -1,0 +1,66 @@
+# position guard (Go) — take-profit and stop-loss, watched between decision ticks
+#
+# A LONG-RUNNING SERVICE, NOT A TIMER, and that is the point of it. Everything
+# else that trades here runs on the decision cadence; a stop loss that only
+# fires when the next tick happens is a stop loss plus one cadence interval,
+# which is not what its owner asked for.
+#
+# Restart=always, not on-failure. A watcher that exits cleanly is still a
+# watcher that is no longer watching, and there is no clean reason for this
+# process to stop while the machine is up.
+[Unit]
+Description=ARCANA Position Guard (take-profit / stop-loss)
+After=network-online.target docker.service arcana-marketdata.service arcana-signer.service
+Wants=network-online.target
+# It cannot do its job without the signer, and it refuses to start without a
+# broker rather than run as a watcher that can see a level cross and do nothing.
+Requires=arcana-signer.service
+# If it cannot even start — no signer, no allowlist — that is an alert, not a
+# restart loop nobody sees.
+#
+# IN [Unit], NOT [Service]. The first version put it under [Service] and systemd
+# logged `Unknown key name OnFailure in section Service, ignoring` and started
+# anyway: a unit that looked supervised and would have failed in silence. Found
+# by reading the journal after starting it, not by reading the file.
+OnFailure=arcana-alert@%n.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/arcana/services/decision-engine
+Environment=DATABASE_URL=postgres://arcana:arcana@localhost:5432/arcana?sslmode=disable
+Environment=MARKET_DATA_URL=http://localhost:8083
+
+# THE SAME FOUR VARIABLES THE DECISION ENGINE USES, pointing at the same signer
+# and the SAME allowlist file. Not a copy: a second list of token addresses
+# would drift from the one the signer enforces, and the first symptom would be
+# a protective exit the signer refuses at the worst possible moment.
+Environment=SIGNER_URL=http://127.0.0.1:8085
+Environment=EXECUTION_ALLOWLIST_FILE=/home/ubuntu/arcana/services/signer/allowlist/robinhood-mainnet.json
+Environment=EXECUTION_RPC_URLS=https://robinhood-rpc.publicnode.com,https://rpc.mainnet.chain.robinhood.com
+
+# How often a level is checked. See the derivation in cmd/guard/main.go: bounded
+# below by what an eth_call per guard costs a shared endpoint, above by the fact
+# that a stop loss checked every five minutes is a five-minute stop loss.
+Environment=GUARD_SCAN_INTERVAL=15s
+
+# NO COST BUDGET IS SET HERE, and that is deliberate rather than an omission.
+#
+# The transaction cost meter belongs to the OWNER: each agent carries
+# cost_budget_monthly_pct in its own risk_profile, or has no cost brake at all,
+# and having none is the default. A value here would be the platform handing a
+# brake to agents whose owners never asked for one — which is what was removed
+# on 2026-09-11.
+#
+# An agent that DID ask for one has it applied to its protective exits too: this
+# process reads the same risk_profile the decision cycle reads. An exit is a
+# transaction, and a brake with an exception is not a brake.
+
+EnvironmentFile=-/home/ubuntu/arcana/.env.auth
+
+ExecStart=/home/ubuntu/arcana/scheduler-bin/guard
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

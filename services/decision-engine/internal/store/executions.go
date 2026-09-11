@@ -34,6 +34,16 @@ type ExecutionInsert struct {
 	Status       string
 	RefusalCode  string
 	Note         string
+
+	// Cost, beyond gas. NULL when no swap executed: a refusal, a revert and an
+	// approval all pay no pool fee, and that is different from a swap that paid
+	// zero. The dollar columns are NULL when the price feed could not be read,
+	// which the meter treats as unreadable rather than as free.
+	FeeTier      uint32
+	PoolFeeUnits *big.Int
+	PoolFeeUSD   float64
+	GasCostUSD   float64
+	EthUSD       float64
 }
 
 func bigStr(v *big.Int) any {
@@ -71,14 +81,17 @@ func (s *Store) AppendExecution(ctx context.Context, e ExecutionInsert) (int64, 
 		   (agent_id, decision_id, ts, intent_action, symbol, token_in, token_out,
 		    amount_in, quoted_out, min_out, filled_out, slippage_bps,
 		    tx_hash, block_number, gas_used, gas_price_wei, gas_cost_wei,
-		    status, refusal_code, note)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+		    status, refusal_code, note,
+		    fee_tier, pool_fee_units, pool_fee_usd, gas_cost_usd, eth_usd)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
 		 RETURNING id`,
 		e.AgentID, e.DecisionID, e.TS, e.IntentAction, e.Symbol, e.TokenIn, e.TokenOut,
 		bigStr(e.AmountIn), bigStr(e.QuotedOut), bigStr(e.MinOut), bigStr(e.Filled), e.SlippageBps,
 		nilIfEmpty(e.TxHash), nilIfZero(e.BlockNumber), nilIfZero(e.GasUsed),
 		bigStr(e.GasPriceWei), bigStr(e.GasCostWei),
 		e.Status, nilIfEmpty(e.RefusalCode), nilIfEmpty(e.Note),
+		nilIfZeroInt(int(e.FeeTier)), bigStr(e.PoolFeeUnits),
+		nilIfZeroFloat(e.PoolFeeUSD), nilIfZeroFloat(e.GasCostUSD), nilIfZeroFloat(e.EthUSD),
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("append execution: %w", err)
@@ -165,4 +178,17 @@ func (s *Store) RecordCustodyDrift(ctx context.Context, agentID, tokenAddress, s
 		return fmt.Errorf("record custody drift: %w", err)
 	}
 	return nil
+}
+
+
+// nilIfZeroFloat keeps "not priced" distinct from "cost nothing".
+//
+// The difference decides what the cost meter does: an unreadable cost makes it
+// refuse, and a zero cost makes it carry on. Writing 0 for a price feed that
+// could not be read would turn a fault into a free trade.
+func nilIfZeroFloat(v float64) any {
+	if v == 0 {
+		return nil
+	}
+	return v
 }

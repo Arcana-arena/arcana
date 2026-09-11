@@ -15,23 +15,56 @@
 // enough TIME passed since the last decision", and it takes its prices from
 // the pool.
 //
-// THE FLOOR IS ARITHMETIC, NOT PREFERENCE
+// THE FLOOR IS TECHNICAL, AND IT USED TO BE ARITHMETIC
+//
+// It was four hours, derived from the fee schedule. The arithmetic was right and
+// the premise was wrong: it assumed DECIDING IS TRADING. It is not. Most
+// decisions are holds, a hold pays no fee at all, and the measured rate on the
+// first chain-backed agent was one trade in five decisions. The floor was
+// charging agents that rarely transact for the sins of agents that frequently
+// do.
+//
+// What actually bounds the two costs is now measured directly, which is both
+// more accurate and more honest:
+//
+//	TRANSACTIONS  max_signatures_per_agent_per_day, refused at the one process
+//	              that can sign
+//	INFERENCE     a per-agent daily token budget in the decision engine; an
+//	              agent that exhausts it stands down with a recorded reason
+//
+// So frequency is the owner's choice, and what remains here is the floor the
+// DATA MODEL imposes rather than one a policy prefers.
+//
+// SIXTY SECONDS, and the number is not a taste. A pool snapshot is identified by
+//
+//	"pool-" + t.UTC().Format("20060102T1504Z")
+//
+// which has MINUTE resolution, and decisions.market_snapshot_ref is a foreign
+// key into it. Two ticks inside one minute are two decisions claiming the same
+// immutable description of the market. Below a minute the record stops being
+// able to say what an agent saw.
+//
+// The old reasoning, kept because it is still true about FEES and still worth
+// knowing when choosing an interval:
 //
 // Every decision that trades pays the pool fee: 5 bp on the tight pools, 30 bp
 // on the rest. A round trip is therefore 10 to 60 bp of NAV, before slippage
 // and before gas. At one decision per hour a fully-traded agent gives up
 // roughly 0.1% to 0.6% per hour — 2.4% to 14% per day — and no edge survives
-// that. The floor is four hours because below it the fee schedule decides the
-// outcome and the agent does not.
+// that.
 //
-//	4h  ->  6 decisions/day  ->  0.6% to 3.6% daily cost if every one trades
-//	1h  -> 24 decisions/day  ->  2.4% to 14%  daily cost
+//	4h  ->  6 decisions/day  ->  0.6% to 3.6% daily cost IF EVERY ONE TRADES
+//	1h  -> 24 decisions/day  ->  2.4% to 14%  daily cost IF EVERY ONE TRADES
+//
+// The capitals are where the old floor went wrong. Those figures describe an
+// agent that trades on every tick, and nothing observed does. An owner choosing
+// an interval should read them as the worst case they are, not as the cost of
+// thinking.
 //
 // The floor is enforced here rather than documented, and enforced on the
 // MEASURED age of the last tick rather than on the timer's schedule, so a
-// timer misconfigured to fire every ten minutes cannot produce ten-minute
-// decisions. The timer decides how often this program looks; this program
-// decides whether anything happens.
+// misconfigured timer cannot produce sub-minute decisions. The timer decides how
+// often this program looks; this program decides whether anything happens.
 //
 // IDEMPOTENT BY CONSTRUCTION. Two runs inside one interval do nothing the
 // second time, and that matters more here than on a daily timer: a continuous
@@ -55,9 +88,12 @@ import (
 	"time"
 )
 
-// MinInterval is the shortest cadence this program will accept. See above; it
-// is a fee-schedule fact, not a policy that can be tuned by preference.
-const MinInterval = 4 * time.Hour
+// MinInterval is the shortest cadence this program will accept.
+//
+// See above: a property of the snapshot identifier, not a policy. A deployment
+// that changes the ref format to carry seconds may lower this; one that simply
+// dislikes the number may not.
+const MinInterval = time.Minute
 
 type config struct {
 	agentServiceURL   string
@@ -105,10 +141,11 @@ func main() {
 		// FATAL, not clamped. Silently raising a number somebody set means the
 		// system is running a cadence nobody chose, and the log line saying so
 		// scrolls away. Refusing to start is the only version that gets read.
-		log.Fatalf("interval %s is below the floor of %s. Below four hours the pool fee "+
-			"decides the outcome rather than the agent: a round trip costs 10-60 bp, so "+
-			"hourly decisions cost 2.4%%-14%% of NAV per day if they trade. Raise the "+
-			"interval or change the fee schedule; this is arithmetic, not a preference.",
+		log.Fatalf("interval %s is below the floor of %s. Pool snapshots are identified to the "+
+			"MINUTE (pool-20060102T1504Z) and decisions reference them by that id, so two ticks "+
+			"inside one minute would claim the same description of the market. This is a "+
+			"property of the record, not a policy: raise the interval, or change the snapshot "+
+			"ref format first.",
 			*interval, MinInterval)
 	}
 

@@ -49,8 +49,8 @@ decides what it wants; the signer decides what is possible.
 | Router allowlist | the contract being called is the transaction's whole meaning |
 | Token allowlist | ditto, for what moves |
 | **Recipient is the agent's own wallet** | a swap whose proceeds go elsewhere is a withdrawal wearing a swap's clothes. It is not a parameter |
-| Notional cap per trade | the last place a bad number can be stopped |
-| Approval cap | an unlimited approval is the standard convenience and the standard way a compromised router drains a wallet |
+| ~~Notional cap per trade~~ | **REMOVED 2026-09-11.** How much of their own money an owner commits to one trade is trading style, not a platform decision. What bounds a swap now is fact rather than policy: the wallet balance, and the `min_out` floor the transaction carries into the pool |
+| Unbounded approvals | an unlimited approval is not a large trade — it is a standing right for somebody else to empty the wallet. The rule is structural rather than monetary: an approval of 2^255 base units or more is refused as the infinite-allowance idiom, since it is larger than the supply of any token that exists. Everything below it is the owner's business |
 | Daily signature cap | bounds a runaway caller without needing to diagnose it first |
 | Chain id | a transaction signed for the wrong chain is replayable on it |
 | `value` is always zero | not a field. A field that is always zero is a field that can one day be set by mistake |

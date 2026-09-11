@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { MarketIndexService, MarketTick } from '../market/market-index.service';
+import { positionsOf } from '../common/positions';
 
 /**
  * Agent DNA — a behavioural fingerprint computed from what an agent actually
@@ -202,7 +203,12 @@ export class DnaService {
       // holding nothing are skipped rather than counted as concentrated —
       // holding no position is not a concentrated position.
       if (prices) {
-        const values = Object.entries(t.holdings)
+        // positionsOf, not Object.entries: a wei of residue left by an exit
+        // used to arrive here as a holding, and since a single positive value
+        // scores 1 on this index, a tick where the agent held NOTHING was
+        // recorded as maximally concentrated. That is the exact case the
+        // comment above says is skipped, defeated by a number too small to see.
+        const values = positionsOf(t.holdings)
           .map(([sym, qty]) => qty * (prices[sym] ?? 0))
           .filter((v) => v > 0);
         const total = values.reduce((a, b) => a + b, 0);

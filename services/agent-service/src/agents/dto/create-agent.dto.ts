@@ -7,6 +7,7 @@ import {
   IsUUID,
   MaxLength,
 } from 'class-validator';
+import { MANDATE_MAX_CHARS } from '../mandate-templates';
 
 /**
  * Note what is absent.
@@ -45,13 +46,52 @@ export class CreateAgentDto {
   parentAgentId?: string;
 
   /**
-   * Which mandate template to build this agent's intent from.
+   * The agent's instructions, in the owner's own words.
    *
-   * There is deliberately no field for the mandate TEXT. The text is rendered
-   * by ARCANA from the template and the parameters below; accepting it would
-   * make every other defence in this path decorative. A request that sends
-   * `mandate` gets a 400 from the global ValidationPipe's
-   * `forbidNonWhitelisted`, which is the correct answer and not a hostile one.
+   * THIS FIELD USED TO BE REFUSED, and the refusal is now retired. The argument
+   * against it was that a prompt can be jailbroken — true, and beside the
+   * point, because the prompt is not where the defence lives. The decider
+   * returns an INTENT; buyableQty() and applyIntent() stand between it and any
+   * position; the signer accepts two named transaction shapes and no calldata,
+   * so a raw transfer is not refused but unsayable; every token must already be
+   * in a reviewed allowlist; size, caps, the fee floor and the cadence are all
+   * outside the model's reach.
+   *
+   * So the most hostile mandate anybody can write commands a swap between
+   * allowlisted tokens inside limits somebody else set. What it can damage is
+   * that user's own capital, which is theirs to risk.
+   *
+   * It is fenced STRUCTURALLY rather than censored: it enters the prompt as an
+   * owner instruction inside ARCANA's frame, and the output contract, the
+   * symbol list and the obligation to state a thesis are restated after it. The
+   * model may be told anything about STRATEGY and nothing about its CONTRACT.
+   *
+   * Mutually exclusive with mandateTemplate — see AgentsService.buildMandate.
+   */
+  @IsOptional()
+  @IsString()
+  // THE MESSAGE CARRIES THE REASON. class-validator rejects before the service
+  // is reached, so the explanation written in AgentsService.buildMandate never
+  // reached anybody — the caller got "must be shorter than or equal to 2000
+  // characters" and no idea why the number is what it is. The early rejection
+  // is right (a 50,000-character body should not be processed); the silence
+  // about why was not.
+  @MaxLength(MANDATE_MAX_CHARS, {
+    message:
+      `A mandate may be at most ${MANDATE_MAX_CHARS} characters. The limit is about ` +
+      'inference cost, not safety: this text is sent on every decision, so a longer ' +
+      'one is re-read six times a day for as long as the agent runs.',
+  })
+  mandate?: string;
+
+  /**
+   * Which mandate template to build this agent's intent from, for owners who
+   * would rather choose than write.
+   *
+   * A template renders a sentence from a closed set of enumerations and numeric
+   * ranges, so no string the user typed reaches the model at all. That property
+   * is worth keeping even though free text is now allowed: it is a stronger
+   * guarantee, and some owners want it.
    */
   @IsOptional()
   @IsString()

@@ -52,6 +52,16 @@ mkdir -p "$BIN_DIR"
 echo "==> building cadence binary"
 (cd "$REPO/services/decision-engine" && /usr/local/go/bin/go build -ldflags "$LDFLAGS" -o "$BIN_DIR/cadence" ./cmd/cadence)
 
+# The position guard: take-profit and stop-loss between decision ticks.
+#
+# BUILT, like everything else here, and for the reason written on the decision
+# unit: `go run` execs the program as a child, so systemd would supervise the
+# compiler and not the watcher. For a watcher that is worse than for a service —
+# a supervised compiler whose child has died looks exactly like a healthy
+# watcher, which is the failure this project has already shipped three times.
+echo "==> building position guard binary"
+(cd "$REPO/services/decision-engine" && /usr/local/go/bin/go build -ldflags "$LDFLAGS" -o "$BIN_DIR/guard" ./cmd/guard)
+
 # Operator tool, not a scheduled job: it loads historical sessions into
 # market_snapshots so /previous and Agent DNA have depth from day one. Built
 # here so it is on hand rather than rebuilt from memory at the moment it is
@@ -110,6 +120,11 @@ sudo install -d -o arcana-signer -g arcana-signer -m 0700 /etc/arcana/signer
 # Creating key material remains a deliberate act, never a side effect of
 # running an installer.
 sudo install -d -o arcana-signer -g arcana-signer -m 0700 /etc/arcana/signer/imported
+
+# The signer's own state: today's per-agent signature counts. 0700 and owned
+# by the signer for the same reason as imported/ -- nothing else reads or
+# writes it, and a brake another process could edit is not a brake.
+sudo install -d -o arcana-signer -g arcana-signer -m 0700 /etc/arcana/signer/state
 # Nothing the signer needs may live under /home/ubuntu: it cannot traverse the
 # application users home, and that is the point rather than an obstacle.
 echo "==> building and installing the signer to system paths"

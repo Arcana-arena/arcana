@@ -75,6 +75,21 @@ ReadOnlyPaths=/etc/arcana/signer
 # A compromised signer still cannot rewrite the allowlist to admit a router of
 # its choosing, which is the property that matters most here.
 ReadWritePaths=/etc/arcana/signer/imported
+# The second writable path, and for the same reason as the first: something
+# this service legitimately creates at runtime and nobody else may touch.
+#
+# It holds the DAILY SIGNATURE COUNT. That count used to live in a map in
+# memory, so a restart returned it to zero -- three deploys in a day turned a
+# cap of 24 into an effective 72, silently. It is on disk now, and it is THIS
+# service's own record rather than a read of the executions table, because
+# executions describes what the decision engine did: two of the seven
+# signatures issued by the time this was written have no row there at all.
+#
+# A database connection was the alternative. It would have put a credential in
+# the environment of the one process holding the master seed, to install that
+# process's own brake. A separate directory is the smaller price.
+ReadWritePaths=/etc/arcana/signer/state
+Environment=SIGNER_SIGNATURE_COUNT_FILE=/etc/arcana/signer/state/signatures.json
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes

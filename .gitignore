@@ -45,3 +45,4 @@ services/*/backfill
 # The build stamp lives inside dist/ and is written by the installer.
 # Listed so a future dist/ ignore rule cannot silently take it with it.
 !services/*/dist/.build-commit
+.dust-verify-build/

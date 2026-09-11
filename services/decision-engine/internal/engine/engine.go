@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strconv"
@@ -33,6 +34,26 @@ type Engine struct {
 	// an agent WITH a wallet settling against snapshot prices in memory while
 	// its funds sit untouched on chain, so that combination refuses instead.
 	broker *execution.Broker
+
+	// tokenBudget caps what ONE AGENT may spend on inference per UTC day.
+	// Zero is unmetered, which is what every deployment had until now.
+	tokenBudget int64
+
+	// cost holds the SHAPE of the transaction cost meter -- how big a sample it
+	// needs, how far back it looks. The percentage itself is never stored here:
+	// it belongs to each agent risk_profile, so there is no field on this struct
+	// a deployment could set to impose one on everybody.
+	cost costMeter
+}
+
+// WithTokenBudget sets the per-agent daily inference cap.
+//
+// It is the guard that replaces the cadence floor. The floor limited how often
+// an agent could think in order to limit what it could spend; this limits the
+// spending, which is the thing that was actually meant.
+func (e *Engine) WithTokenBudget(tokens int64) *Engine {
+	e.tokenBudget = tokens
+	return e
 }
 
 // WithBroker attaches chain execution. Called at boot when a signer, an RPC
@@ -43,7 +64,9 @@ func (e *Engine) WithBroker(b *execution.Broker) *Engine {
 }
 
 func New(st *store.Store, md *marketdata.Client) *Engine {
-	return &Engine{store: st, md: md, deterministic: NewDeterministicDecider()}
+	// defaultCostMeter(0) is the meter UNMETERED: the sample rules are set, the
+	// budget is not. Each agent supplies its own or has none.
+	return &Engine{store: st, md: md, deterministic: NewDeterministicDecider(), cost: defaultCostMeter(0)}
 }
 
 // WithLLM attaches an LLM decider. Called at boot when a provider is
@@ -149,6 +172,24 @@ func (e *Engine) Execute(ctx context.Context, req ExecuteRequest) (int64, error)
 		limits.QtyStep = OnChainQtyStep
 	}
 
+	// What this agent has already spent on the model today. Read once, before
+	// the decider is asked anything, so the meter is checked against the record
+	// rather than against a number this process happens to remember.
+	//
+	// A failure to read it does NOT become a free pass. An unreadable meter is
+	// treated as exhausted, for the same reason an unreadable blocklist is
+	// treated as refusing: could not check is not the same as fine.
+	var usedToday int64
+	if e.tokenBudget > 0 {
+		u, uerr := e.store.TokensUsedToday(ctx, req.AgentID)
+		if uerr != nil {
+			log.Printf("agent %s: inference meter unreadable, treating the budget as spent: %v", req.AgentID, uerr)
+			usedToday = e.tokenBudget
+		} else {
+			usedToday = u
+		}
+	}
+
 	view := marketView{symbols: snap.Symbols, prices: prices, prev: prevPrices}
 	in := DeciderInput{
 		AgentID:  req.AgentID,
@@ -159,17 +200,47 @@ func (e *Engine) Execute(ctx context.Context, req ExecuteRequest) (int64, error)
 		Cash:     cash,
 		NAV:      nav,
 		Limits:   limits,
+
+		TokensUsedToday: usedToday,
+		TokenBudget:     e.tokenBudget,
 	}
+
+	// THE TRANSACTION COST METER, checked before the agent is asked anything.
+	//
+	// Before the decider, not after: an agent over its budget must not buy
+	// inference either, and a paused agent that still pays a model every tick
+	// is only half stopped.
+	//
+	// It produces a RECORDED HOLD with a reason, never silence. An agent that
+	// has gone quiet and an agent that has been stopped for spending look
+	// identical from outside unless the record says which.
+	cv := e.checkCost(ctx, req.AgentID, limits.CostBudgetMonthlyPct)
+	logCostVerdict(req.AgentID, cv)
 
 	var intent tradeIntent
 	var ev Evidence
 	d := e.deciderFor(agent.StrategyType)
-	if d == nil {
+
+	switch {
+	case cv.pause:
+		// A PAUSED AGENT FLOWS THROUGH THE NORMAL PATH. It is a hold, and the
+		// rest of this function already knows how to record one — including
+		// reading a chain-backed agent's real position, which is still worth
+		// recording while it is stood down. A separate path here would be a
+		// second copy of the persistence logic, and the two would drift.
+		intent = hold("cost budget exceeded: " + cv.detail)
+		ev = Evidence{ReasonCode: ReasonCostBudget}
+		if d != nil {
+			ev.Decider = d.Name()
+		}
+
+	case d == nil:
 		// An LLM agent with no provider configured. It holds, on the record,
 		// with the reason named — rather than trading as something it is not.
 		intent = hold("no LLM provider is configured; this agent cannot decide")
 		ev = Evidence{Decider: "llm", ReasonCode: ReasonLLMUnavailable}
-	} else {
+
+	default:
 		var derr error
 		intent, ev, derr = d.Decide(ctx, in)
 		if derr != nil {
@@ -180,6 +251,7 @@ func (e *Engine) Execute(ctx context.Context, req ExecuteRequest) (int64, error)
 	var action, symbol, rationale string
 	var qty *float64
 	var execID *int64
+	var set settlement
 	if wallet != nil {
 		if e.broker == nil {
 			return 0, fmt.Errorf(
@@ -187,12 +259,50 @@ func (e *Engine) Execute(ctx context.Context, req ExecuteRequest) (int64, error)
 					"settle its decision against snapshot prices while its funds sit on chain",
 				req.AgentID, wallet.Address)
 		}
+
+		// THE LEASE. Between here and the end of settlement this agent's funds
+		// belong to this cycle, so a protective exit crossing a level in the
+		// same second cannot also build a sell of the same position.
+		//
+		// NOBODY WAITS. If the guard already holds it, this tick becomes a
+		// recorded hold and says who has it. Queuing would produce exactly the
+		// thing being prevented: two transactions from one intent, a second
+		// apart, the second one discovering the position is gone.
+		//
+		// Taken here rather than at the top of the function because a virtual
+		// agent has no funds to contend over, and because a tick that is not
+		// going to touch the chain should not be able to block one that is.
+		lerr := e.store.AcquireLease(ctx, req.AgentID, leaseHolderCycle, LeaseTTL,
+			"decision cycle "+req.MarketSnapshotRef)
+		if errors.Is(lerr, store.ErrLeaseHeld) {
+			who, until, _, _ := e.store.LeaseHolder(ctx, req.AgentID)
+			intent = hold(fmt.Sprintf(
+				"stood down: %s is moving this agent's funds right now (lease held until %s). "+
+					"One intent must not become two transactions, so this tick records a hold "+
+					"rather than queueing behind it",
+				who, until.UTC().Format(time.RFC3339)))
+			ev.ReasonCode = ReasonPositionLocked
+		} else if lerr != nil {
+			// UNREADABLE LEASE PAUSES. Not knowing whether somebody else is
+			// mid-swap is not the same as knowing nobody is.
+			intent = hold("stood down: the execution lease could not be read (" + lerr.Error() +
+				"), so whether another actor is moving these funds is unknown")
+			ev.ReasonCode = ReasonPositionLocked
+		} else {
+			defer func() {
+				if rerr := e.store.ReleaseLease(context.WithoutCancel(ctx), req.AgentID, leaseHolderCycle); rerr != nil {
+					log.Printf("agent %s: lease not released early, it will expire: %v", req.AgentID, rerr)
+				}
+			}()
+		}
+
 		var cerr error
-		action, symbol, qty, holdings, cash, rationale, execID, ev, cerr =
-			e.settleOnChain(ctx, req, portfolio.ID, wallet, intent, prices, holdings, cash, ev)
+		set, cerr = e.settleOnChain(ctx, req, portfolio.ID, wallet, intent, prices, holdings, cash, ev)
 		if cerr != nil {
 			return 0, cerr
 		}
+		action, symbol, qty, holdings, cash, rationale, execID, ev =
+			set.Action, set.Symbol, set.Qty, set.Holdings, set.Cash, set.Rationale, set.ExecID, set.Ev
 	} else {
 		action, symbol, qty, holdings, cash, rationale = applyIntent(intent, prices, holdings, cash)
 	}
@@ -206,6 +316,12 @@ func (e *Engine) Execute(ctx context.Context, req ExecuteRequest) (int64, error)
 			log.Printf("ERROR execution %d recorded but not linked to decision %d: %v", *execID, decisionID, err)
 		}
 	}
+
+	// Protective levels are armed AFTER the decision exists, so the guard row
+	// can name the decision that opened the position. A failure here loses the
+	// protection and must be loud; failing the tick would lose the trade that
+	// has already happened on chain.
+	e.applyGuardChanges(ctx, req.AgentID, decisionID, set)
 
 	// Evidence is attached after the decision exists. A failure here loses the
 	// EXPLANATION, which is bad and is logged; failing the tick over it would
@@ -229,6 +345,11 @@ func toStoreEvidence(ev Evidence) store.DecisionEvidence {
 		ResponseBody: ev.ResponseBody,
 		ReasonCode:   ev.ReasonCode,
 		Thesis:       ev.Thesis,
+
+		PromptTokens:     ev.PromptTokens,
+		CompletionTokens: ev.CompletionTokens,
+		CachedTokens:     ev.CachedTokens,
+		LatencyMS:        ev.LatencyMS,
 	}
 }
 
@@ -290,19 +411,19 @@ func (e *Engine) ExecuteManual(ctx context.Context, req ExecuteManualRequest) (i
 			return 0, fmt.Errorf("insufficient cash: need %.2f have %.2f", cost, cash)
 		}
 		cash -= cost
-		holdings[symbol] = qtyFromHoldings(holdings, symbol) + qty
+		holdings[symbol] = HeldQty(holdings, symbol) + qty
 	case "sell":
 		price, ok := prices[symbol]
 		if !ok {
 			return 0, fmt.Errorf("symbol %s not in snapshot %s", symbol, req.MarketSnapshotRef)
 		}
-		have := qtyFromHoldings(holdings, symbol)
+		have := HeldQty(holdings, symbol)
 		if qty > have {
-			return 0, fmt.Errorf("insufficient holdings: have %.2f want to sell %.2f", have, qty)
+			return 0, fmt.Errorf("insufficient holdings: have %.8f want to sell %.8f", have, qty)
 		}
 		cash += qty * price
 		remaining := have - qty
-		if remaining <= 1e-9 {
+		if remaining < DustFloor {
 			delete(holdings, symbol)
 		} else {
 			holdings[symbol] = remaining

@@ -359,6 +359,169 @@ console.log('\n=== 5. Documented endpoints answer ===');
   }
 }
 
+// ---------------------------------------------------------------------------
+// The dust floor: one number, three files, and the column it comes from.
+//
+// "What counts as holding something" is answered in Go, in TypeScript and in
+// SQL, because two languages cannot share an import and a chart counts its
+// positions in the query. Three copies of a number is three chances for it to
+// drift, and the drift would be silent: each side would keep working and they
+// would quietly stop agreeing about what an agent holds.
+//
+// The number is not arbitrary, which is what makes it checkable. It is the
+// precision of decisions.quantity — numeric(20,8) — so this check re-derives it
+// from the migration rather than trusting any of the three copies.
+// ---------------------------------------------------------------------------
+{
+  console.log('\n=== The dust floor agrees with itself and with the column it comes from ===');
+
+  // The whole engine package, because the two constants that have to agree are
+  // declared in different files: OnChainQtyStep in chainpath.go carries the
+  // literal, DustFloor in position.go points at it.
+  const goDir = 'services/decision-engine/internal/engine';
+  let goSrc = '';
+  for (const f of readdirSync(goDir).filter((n) => n.endsWith('.go') && !n.endsWith('_test.go'))) {
+    goSrc += read(`${goDir}/${f}`);
+  }
+  const tsSrc = read('services/agent-service/src/common/positions.ts');
+  const seriesSrc = read('services/agent-service/src/series/series.service.ts');
+  const doc = read('docs/positions.md');
+
+  check('docs/positions.md exists', doc.length > 0, 'the definition has no document');
+
+  // The column, from whichever migration declares it. Everything else is
+  // compared against THIS, not against the other copies.
+  const migrations = readdirSync('packages/db-migrations/migrations')
+    .filter((f) => f.endsWith('.up.sql'))
+    .map((f) => read(`packages/db-migrations/migrations/${f}`))
+    .join('\n');
+  const colMatch = /quantity\s+numeric\((\d+),\s*(\d+)\)/i.exec(migrations);
+  check('decisions.quantity declares its precision in a migration', !!colMatch,
+    'no `quantity numeric(p,s)` found; this check has nothing to derive from');
+
+  if (colMatch) {
+    const scale = Number(colMatch[2]);
+    const expected = Number(`1e-${scale}`);
+    check(`the column is numeric(${colMatch[1]},${scale}), so the floor is 1e-${scale}`,
+      scale > 0, `scale ${scale}`);
+
+    const goFloor = /OnChainQtyStep\s*=\s*1e-(\d+)/.exec(goSrc)
+      || /DustFloor\s*=\s*1e-(\d+)/.exec(goSrc);
+    const tsFloor = /DUST_FLOOR\s*=\s*1e-(\d+)/.exec(tsSrc);
+
+    check('the engine derives its floor from that scale', !!goFloor && Number(goFloor[1]) === scale,
+      goFloor ? `engine says 1e-${goFloor[1]}, column says 1e-${scale}` : 'no floor found in position.go');
+    check('the agent service derives the same one', !!tsFloor && Number(tsFloor[1]) === scale,
+      tsFloor ? `agent service says 1e-${tsFloor[1]}, column says 1e-${scale}` : 'no DUST_FLOOR found');
+    check('and DustFloor is defined as OnChainQtyStep rather than retyped',
+      /DustFloor\s*=\s*OnChainQtyStep/.test(goSrc),
+      'two constants with the same origin should not be two literals');
+
+    // The chart counts positions in SQL, where no constant can reach.
+    const sqlFloors = [...seriesSrc.matchAll(/::float8\s*>=\s*1e-(\d+)/g)].map((m) => Number(m[1]));
+    check('the series query counts positions rather than keys', sqlFloors.length > 0,
+      'no dust floor in the holdings_count query; it is counting jsonb keys again');
+    // `.every` on an empty array is true, so the length is part of the
+    // assertion. Without it this check would pass by finding nothing, which is
+    // the one result a guard must never treat as success.
+    check('and the floor it uses is the same number',
+      sqlFloors.length > 0 && sqlFloors.every((s) => s === scale),
+      sqlFloors.length === 0 ? 'no floor found to compare' : `SQL uses 1e-${sqlFloors.join(', 1e-')}`);
+
+    check('the document states the floor the code uses',
+      doc.includes(`1e-${scale}`), `docs/positions.md does not mention 1e-${scale}`);
+    check('and says which column it comes from',
+      /numeric\(20,\s*8\)/.test(doc) && /decisions\.quantity/.test(doc),
+      'the derivation is not written down, so the next person will read it as a chosen cutoff');
+  }
+
+  // The readers must go through the shared helpers. A `> 0` that creeps back in
+  // is exactly how this bug happened the first time.
+  const engineDir = 'services/decision-engine/internal/engine';
+  let rawCompares = [];
+  try {
+    rawCompares = execFileSync('grep', ['-rn', 'qtyFromHoldings([^)]*)\\s*>\\s*0', engineDir],
+      { encoding: 'utf8' }).split('\n').filter(Boolean);
+  } catch { /* grep exits 1 when nothing matches, which is the passing case */ }
+  check('no engine reader compares a raw holdings quantity against zero',
+    rawCompares.length === 0, rawCompares.join(' | '));
+}
+
+// ---------------------------------------------------------------------------
+// Reason codes: the table must describe the code, not an intention.
+//
+// docs/on-chain-direction.md listed ten decision reason codes and SIX of them
+// existed nowhere in the system — price_implausible, balance_unreadable,
+// policy_refused, insufficient_gas, tx_failed, tx_timeout. It was written as a
+// design and read as an inventory, which is what arca-go-live.md did before it.
+// The cost is somebody building on a brake that is not there.
+//
+// Same shape as the unit-list check: derive the truth from the source, compare,
+// and fail on drift in either direction.
+// ---------------------------------------------------------------------------
+{
+  console.log('\n=== Reason codes in the docs match the ones the code emits ===');
+
+  const engineDir = 'services/decision-engine/internal/engine';
+  let engineSrc = '';
+  for (const f of readdirSync(engineDir).filter((n) => n.endsWith('.go') && !n.endsWith('_test.go'))) {
+    engineSrc += read(`${engineDir}/${f}`);
+  }
+  const engineCodes = [...engineSrc.matchAll(/Reason[A-Za-z]+\s*=\s*"([a-z_]+)"/g)].map((m) => m[1]);
+
+  // execution_<status> is built by concatenation rather than declared, so the
+  // statuses are read from where they ARE declared instead of being guessed.
+  const execSrc = read('services/decision-engine/internal/execution/broker.go');
+  const execCodes = [...execSrc.matchAll(/Status[A-Za-z]+\s*=\s*"([a-z_]+)"/g)]
+    .map((m) => `execution_${m[1]}`);
+
+  const policySrc = read('services/signer/internal/policy/policy.go');
+  const signerCodes = [...policySrc.matchAll(/Code[A-Za-z]+\s*=\s*"([a-z_]+)"/g)].map((m) => m[1]);
+
+  const emitted = [...new Set([...engineCodes, ...execCodes, ...signerCodes])].filter((c) => c !== 'execution_');
+  const doc = read('docs/on-chain-direction.md');
+
+  check('the source actually yielded reason codes to compare against',
+    emitted.length >= 15, `only found ${emitted.length}`);
+
+  const undocumented = emitted.filter((c) => !doc.includes('`' + c + '`'));
+  check('every reason code the system emits is documented',
+    undocumented.length === 0, undocumented.join(', '));
+
+  // The reverse, which is the failure that actually happened: a code named in
+  // the table that nothing emits. A line describing history is exempt — saying
+  // what used to exist is not a claim that it does.
+  // SCOPED TO THE REASON-CODE SECTION, not the whole document.
+  //
+  // The first version scanned every snake_case identifier in backticks and
+  // reported six field names from unrelated design sections. They are real doc
+  // drift and worth fixing, but they are not reason codes, and a check that
+  // mixes the two produces a failure nobody can act on — which is how a check
+  // gets ignored. One question per check.
+  const secStart = doc.indexOf('### Decision reason codes');
+  const secEnd = doc.indexOf('\n## ', secStart < 0 ? 0 : secStart);
+  const section = secStart < 0 ? '' : doc.slice(secStart, secEnd < 0 ? doc.length : secEnd);
+  check('the reason-code section is where it is expected', section.length > 0,
+    'the "### Decision reason codes" heading is gone; this check is scanning nothing');
+
+  const known = new Set(emitted);
+  const NOT_A_CLAIM = /never|not implemented|no equivalent|used to|previously/i;
+  const docCodes = [...new Set([...section.matchAll(/`([a-z][a-z0-9]*(?:_[a-z0-9]+)+)`/g)].map((m) => m[1]))];
+  const ghosts = docCodes.filter((c) => {
+    if (known.has(c)) return false;
+    // Config keys, column names and env vars live in backticks too. Anything
+    // that exists somewhere in the tree is one of those, not a ghost.
+    try {
+      execFileSync('grep', ['-rqI', c, 'services', 'infra', 'packages'], { encoding: 'utf8' });
+      return false;
+    } catch { /* grep exits 1 when it finds nothing, which is the interesting case */ }
+    const lines = doc.split('\n').filter((l) => l.includes('`' + c + '`'));
+    return !lines.every((l) => HISTORY.test(l) || NOT_A_CLAIM.test(l));
+  });
+  check('no document names a reason code that nothing emits',
+    ghosts.length === 0, ghosts.join(', '));
+}
+
 console.log('\n' + '='.repeat(40));
 console.log(`  PASS: ${pass}   FAIL: ${fail}`);
 console.log('='.repeat(40));

@@ -171,7 +171,7 @@ code, and it matters enormously *which* code.
 |---|---|---|---|
 | 1 | System prompt | intent, style, context | **No.** Never a control. |
 | 2 | JSON schema validation | `action ∈ {buy,sell,hold}`, `symbol ∈ allowlist`, `size ≤ 1` | rejects malformed output → `llm_invalid_output` |
-| 3 | Policy engine (Go, deterministic) | token allowlist, max notional, max position %, cash floor, max trades/day, no unknown tokens | **replayable**; this is where `risk_profile` already lives |
+| 3 | Policy engine (Go, deterministic) | token allowlist, and whatever the OWNER set in `risk_profile`: position %, cash floor, trade size, protective levels, cost budget. Max notional was **removed 2026-09-11** — trade size is trading style | **replayable**; this is where `risk_profile` already lives |
 | 4 | **Signer** | only `approve(router, amount)` and a swap on an allowlisted router, tokens from the allowlist, to and from the agent's own wallet. **Refuses any raw `transfer` to an arbitrary address.** | **Yes. This is the last line.** |
 | 5 | Wallet cap | deposits above the cap stop the agent and flag; excess is withdrawable, never auto-returned | an outbound transfer triggered by an inbound one is itself a vector |
 | 6 | On-chain | nothing | there is no contract. Say so out loud. |
@@ -252,7 +252,19 @@ The pool fee alone is 3.60% of capital per month and does not shrink with more
 capital, because it scales with capital. This is the single most useful number
 the go/no-go test produced.
 
-So: **minimum cadence is 4 hours**, `AGENT_MIN_CADENCE_HOURS=4`.
+So the four-hour floor this table produced, `AGENT_MIN_CADENCE_HOURS=4`.
+
+**RETIRED 2026-09-11, twice over.** First because the arithmetic answered the
+wrong question — it bounded how often an agent may THINK in order to bound what
+it may SPEND, and most decisions are holds that pay no fee at all. Then, when
+the cost budget became the owner's, because the column headed "minimum capital
+for ≤2%/mo" stopped being a requirement at all: 2% is a number an owner may pick
+or ignore.
+
+**The table is still the most useful thing the go/no-go test produced** — read
+it as what a cadence COSTS, which is a fact, rather than as what is permitted,
+which it no longer is. The only remaining floor is sixty seconds, and that comes
+from the minute resolution of a snapshot ref rather than from any of this.
 
 **"24/7" survives this intact, and it is worth being precise about what it
 means.** It means the market never closes — an agent can act at 03:00 on a
@@ -298,44 +310,51 @@ Full check list, and how each is proven to refuse, in
 
 ---
 
-## Capital: the caps, and the rule that sets them
+## Cost: measured by the platform, bounded by the owner
 
-**A single budget rule replaces guessing at a number:**
+**REVISED 2026-09-11.** This section used to set a platform-wide budget —
+`AGENT_COST_BUDGET_MONTHLY_PCT=2.0`, enforced on every agent, plus funding caps
+of $250 minimum and $1,000 maximum per agent. Those are gone.
 
-```
-projected monthly cost (gas + pool fee) ≤ 2% of the agent's funded capital
-```
+The reasoning that replaced them: **an agent is designed by its owner.** How
+large a position to take, how often to trade, and how much cost to tolerate are
+statements of trading style. The platform provides the venue, executes, and
+measures. It does not decide any of the three.
 
-`AGENT_COST_BUDGET_MONTHLY_PCT=2.0`. The platform shows the projection when the
-user picks a cadence, and refuses the combination if it breaks the rule, naming
-the capital that would satisfy it.
+One percentage applied to everybody was the clearest case. Costs are mostly
+**fixed per transaction**, so the same percentage means completely different
+things at different capital — measured at $0.065 per round trip, a 2% monthly
+budget permits about 3.6 transactions a month on an $11.76 book and about 900 on
+a $3,000 one. Setting one number for both is the platform overruling an owner
+about their own strategy.
 
-**2% a month is high, and saying so is part of the design.** It is roughly 24% a
-year in costs. That is the honest floor for retail-size on-chain trading, and a
-user must see it before they fund anything. Hiding it would make ARCANA a worse
-version of the thing it claims to be.
+**The meter was kept; only its owner changed.** It still measures gas and pool
+fees against the capital they are taken from, still refuses on an unreadable
+bill, still names the capital that would fit, and is still proved by being
+exceeded rather than by reading its branches. It is now
+`risk_profile.cost_budget_monthly_pct`, set by the owner, **unmetered by
+default**.
 
-**The projection is an estimate; the enforcement is a meter.** Actual cumulative
-gas and fees are accumulated per agent against the budget. Crossing it pauses
-the agent and alerts. A projection cannot refuse anybody — a meter can, and this
-project's rule is that a gate which has never refused anyone has not been
-tested.
+The arithmetic that used to justify the platform figure is still worth reading
+before funding anything — it is the honest floor for retail-size on-chain
+trading, and 2% a month is roughly 24% a year in costs. It is information for
+the owner, not a rule about them.
 
-| | Value | Why |
+### What the platform still bounds, and why each is ours rather than theirs
+
+| | Whose | Why |
 |---|---|---|
-| Minimum funding | **$250** | below this, fixed gas is an absurd share at any usable cadence |
-| Maximum per agent | **$1,000** | at 4h cadence: 1.42%/month, ~17%/year — visible, not absurd |
-| Platform total, phases 7–9 | **$5,000** | the number the owner can lose entirely without the project ending |
-| Platform total, public | to be raised deliberately | see the gates below |
+| inference token meter | **platform** | an LLM call spends the platform's money |
+| signature cap | **platform** | nonces, RPC calls and signer throughput are platform capacity |
+| two intents, token allowlist, recipient-is-self | **platform** | these stop an agent doing something that is not trading |
+| 60-second decision floor | **platform** | a data-model bound: snapshot refs have minute resolution |
+| trade size | **nobody** | removed. The wallet balance bounds it, and `min_out` bounds the price |
+| transaction cost | **owner** | `cost_budget_monthly_pct`, default none |
+| funding amount | **owner** | the caps below were removed with the rest |
 
-**Raising the caps requires all four**, then 10× and no more:
-
-1. 30 consecutive days with no unexplained difference between recorded NAV and
-   on-chain balance.
-2. The withdrawal attack suite passing, with every attack refused.
-3. A key-recovery drill passed — not documented, performed.
-4. At least one real incident where the system refused to trade rather than
-   traded wrongly.
+**What still bounds a trade, as fact rather than policy:** the wallet's balance,
+and the `min_out` floor the transaction carries into the pool. Neither is a rule
+somebody chose; both are things that are true.
 
 ---
 
@@ -388,21 +407,68 @@ monitor in the system.
 An agent that is unsure does not trade. Every refusal is recorded as a decision
 with a reason code; none is dropped, and none is silently a hold.
 
+### Decision reason codes, as the code actually emits them
+
+Six of the ten codes this table used to list did not exist anywhere in the
+system. It was written as a design and read as an inventory, which is the same
+failure `arca-go-live.md` had. `infra/verify/docs-verify.mjs` now checks this
+table against the constants in the engine, so the drift cannot come back
+quietly.
+
+| Code | Emitted by | Trigger |
+|---|---|---|
+| `no_material_move` | LLM decider | nothing moved beyond the rebalance band, so no inference was purchased |
+| `llm_unavailable` | LLM decider | timeout, 5xx, rate limit, or no provider configured |
+| `llm_invalid_output` | LLM decider | unparseable answer, unknown action, or a symbol not in the snapshot |
+| `inference_budget_exhausted` | engine | the agent has spent its daily token allowance; it stands down until midnight UTC |
+| `cost_budget_exceeded` | engine / position guard | gas plus pool fees crossed the share of capital the OWNER set in `risk_profile.cost_budget_monthly_pct`. Agents that set none are unmetered, which is the default |
+| `execution_mined` | engine | the swap was mined and filled |
+| `execution_reverted` | engine | mined and reverted: gas paid, nothing moved |
+| `execution_unresolved` | engine | broadcast and not mined inside the wait; neither success nor non-event |
+| `execution_refused` | engine | the signer declined; nothing was sent |
+| `execution_quote_failed` | engine | the simulation reverted; nothing was sent |
+| `execution_blocked` | engine | a precondition failed — balance, gas reserve, unknown symbol |
+| `stop_loss` | position guard | a stop level was crossed and the position was exited. `decider` is `protective`: no model decided this |
+| `take_profit` | position guard | a target level was crossed and the position was exited. `decider` is `protective` |
+| `position_locked` | engine / position guard | another actor held this agent's execution lease, so this one stood down rather than turning one intent into two transactions |
+
+The signer has its own refusal codes, returned to the caller rather than written
+on a decision. They appear in a decision's rationale via `execution_refused`:
+
 | Code | Trigger |
 |---|---|
-| `no_material_move` | nothing moved beyond the rebalance band — no inference purchased |
-| `llm_unavailable` | timeout, 5xx, rate limit |
-| `llm_invalid_output` | schema violation, unknown symbol, unparseable |
-| `price_implausible` | pool vs Chainlink deviation over threshold, or a single-tick jump over threshold |
-| `balance_unreadable` | RPC failed to read the wallet |
-| `policy_refused` | the policy engine rejected the requested trade |
-| `insufficient_gas` | ETH float below threshold |
-| `token_paused` | the issuer paused the Stock Token |
+| `unknown_intent` | an intent name this service cannot build |
+| `token_not_allowlisted` / `router_not_allowlisted` | an address nothing permits |
+| `no_router_configured` | no router has been proven against this chain |
+| `recipient_not_agent_wallet` | proceeds directed anywhere but the agent's own wallet |
+| ~~`amount_over_cap`~~ | **RETIRED 2026-09-11** with the trade notional ceiling. Nothing emits it |
+| `amount_not_positive` | an amount of zero or less, which is not a trade |
+| `unbounded_approval` | an approval of 2^255 base units or more — the infinite-allowance idiom rather than a quantity. An unlimited approval is not a large trade, it is a standing right for somebody else to empty the wallet |
+| `daily_signature_cap` | over `max_signatures_per_agent_per_day`, or the count could not be read |
+| `token_in_equals_token_out` | both sides of the swap are the same token |
+| `pool_fee_unknown` | neither side is the quote token, or the stock side has no `pool_fee` |
+| `token_paused` | the issuer paused the token |
 | `wallet_blocked` | the issuer blocked this wallet |
-| `cost_budget_exceeded` | the cost meter crossed the budget; agent paused |
-| `tx_failed` / `tx_timeout` | **not a hold.** The decision was made and executed; execution failed, and gas was spent |
+| `chain_state_unverifiable` | `paused()` or `isBlocked()` could not be read, or the recorded blocklist evidence no longer matches |
+| `chain_id_mismatch` | the allowlist is for a different chain than the caller asked for |
 
-**N consecutive refusals with the same reason pause the agent and alert.** A
+**What the old table promised and nothing delivered.** `price_implausible`,
+`balance_unreadable`, `policy_refused`, `insufficient_gas`, `tx_failed` and
+`tx_timeout` were never implemented. Three of them have real equivalents under
+different names — an unreadable balance and an unreadable chain both surface as
+`chain_state_unverifiable`, a failed transaction as `execution_reverted`, a
+timed-out one as `execution_unresolved` — and the names above are the ones the
+code uses. `price_implausible` has no equivalent at the decision layer: the
+pool-versus-Chainlink dispute check lives in market-data and marks the snapshot,
+it does not refuse a decision.
+
+**Repeated refusals are NOT yet a pause.** This document previously said "N
+consecutive refusals with the same reason pause the agent and alert", and no
+such rule exists. What does exist is `arcana-execution-watchdog`, which alarms
+on three failed executions in 24 hours and on a wallet that can no longer pay
+for gas — an alert, not a pause. The brake that genuinely stops an agent from
+the platform side is the inference token budget; the cost budget stops one only
+when its owner asked for it. A
 component that runs, exits cleanly and produces nothing is the failure
 `OnFailure=` cannot see — the reason `arcana-tick-watchdog.sh` had to exist
 (it was replaced on 2026-09-11 by the decision watchdog, which asks the same

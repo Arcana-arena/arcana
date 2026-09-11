@@ -1,4 +1,5 @@
 import { IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
+import { MANDATE_MAX_CHARS } from '../mandate-templates';
 
 /**
  * Descriptive edits only.
@@ -35,6 +36,12 @@ export class UpdateAgentDto {
    * Changing an active agent's intent is what evolve() is for — it creates a
    * version, and the version boundary is visible.
    */
+  /** Free-text mandate, drafts only. Mutually exclusive with mandateTemplate. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(MANDATE_MAX_CHARS)
+  mandate?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(64)

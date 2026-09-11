@@ -57,6 +57,34 @@ type RiskLimits struct {
 	// can be RECORDED: decisions.quantity is numeric(20,8), so trading finer
 	// than 1e-8 would write down a number that is not what happened.
 	QtyStep float64
+
+	// StopLossPct and TakeProfitPct are STANDING protective levels, armed on
+	// every position this agent opens unless the decider asks for its own.
+	//
+	// THEY ARE NOT LIMITS AND THEY CLAMP NOTHING. Everything else in this
+	// struct bounds what a decision may be; these describe what happens after
+	// one. They live here because risk_profile is where an owner already says
+	// how their agent should behave, and "get me out at 5% down" is that kind
+	// of statement. Zero means none.
+	StopLossPct   float64
+	TakeProfitPct float64
+
+	// CostBudgetMonthlyPct is the share of its own capital this agent may spend
+	// on gas and pool fees per 30 days before it stands down.
+	//
+	// THE OWNER'S LEVER, NOT THE PLATFORM'S, and it used to be the other way
+	// round. A cost meter the platform set and enforced was deciding for an
+	// owner how expensive a trading style they were allowed to have. On a small
+	// book the arithmetic it reports is true and useful — costs are mostly fixed
+	// per transaction, so a small book pays a large share of itself — but that
+	// is a fact for the owner to act on, not a reason for the platform to stop
+	// their agent.
+	//
+	// Zero is UNMETERED, and that is the default. An owner who wants their agent
+	// to stand down when its costs cross a threshold sets this; nobody sets it
+	// for them. The meter itself is unchanged, and is still proved by exceeding
+	// it rather than by reading its branches.
+	CostBudgetMonthlyPct float64
 }
 
 // Defaults for agents whose risk_profile does not say. Chosen to be active
@@ -100,6 +128,24 @@ func riskLimitsFrom(profile map[string]any) RiskLimits {
 	if v, ok := get("rebalance_band_pct", "rebalanceBandPct"); ok {
 		l.RebalanceBandPct = v
 	}
+	// STANDING TP/SL, for agents whose levels are part of how they are set up
+	// rather than something decided per trade. A deterministic strategy has no
+	// way to ask for a level, and a model may choose not to; this is how an
+	// owner says "always exit at 5% down" once instead of hoping.
+	//
+	// Not a risk limit, and it does not clamp anything. It is a standing
+	// instruction that a per-trade request overrides.
+	if v, ok := get("stop_loss_pct", "stopLossPct"); ok {
+		l.StopLossPct = v
+	}
+	if v, ok := get("take_profit_pct", "takeProfitPct"); ok {
+		l.TakeProfitPct = v
+	}
+	// The owner's own cost brake. Absent means unmetered, which is the default
+	// for every agent that has not asked for one.
+	if v, ok := get("cost_budget_monthly_pct", "costBudgetMonthlyPct"); ok {
+		l.CostBudgetMonthlyPct = v
+	}
 	// A trade that cannot fit under the position cap would never execute.
 	if l.TradeSizePct > l.MaxPositionPct {
 		l.TradeSizePct = l.MaxPositionPct
@@ -139,6 +185,12 @@ type tradeIntent struct {
 	Symbol    string
 	Quantity  float64
 	Rationale string
+
+	// Guards are the protective levels to arm if this intent opens a position.
+	// Carried on the intent rather than applied by the decider, because the
+	// levels have to be measured against the price the fill ACTUALLY got, and
+	// that is not known until the chain has answered.
+	Guards guardLevels
 }
 
 func hold(reason string) tradeIntent {
@@ -152,16 +204,23 @@ func hold(reason string) tradeIntent {
 // strategies existed (buy once, then sit). Failing closed into frantic
 // trading would be the wrong default for an agent nobody configured.
 func decide(strategyType string, view marketView, holdings map[string]any, cash, nav float64, l RiskLimits) tradeIntent {
+	var out tradeIntent
 	switch strategyType {
 	case "momentum":
-		return momentumStrategy(view, holdings, cash, nav, l)
+		out = momentumStrategy(view, holdings, cash, nav, l)
 	case "mean_reversion":
-		return meanReversionStrategy(view, holdings, cash, nav, l)
-	case "buy_and_hold", "":
-		return buyAndHoldStrategy(view, holdings, cash, nav, l)
+		out = meanReversionStrategy(view, holdings, cash, nav, l)
 	default:
-		return buyAndHoldStrategy(view, holdings, cash, nav, l)
+		// buy_and_hold, "", and anything unrecognised.
+		out = buyAndHoldStrategy(view, holdings, cash, nav, l)
 	}
+	// A coded strategy has no way to ask for protective levels, so its owner's
+	// standing ones are attached here. Applied at the dispatch rather than
+	// inside each strategy so a fourth strategy cannot forget.
+	if out.Action == "buy" {
+		out.Guards = guardLevels{StopLossPct: l.StopLossPct, TakeProfitPct: l.TakeProfitPct}
+	}
+	return out
 }
 
 // momentumStrategy chases the strongest mover and cuts positions that fall.
@@ -193,7 +252,7 @@ func momentumStrategy(view marketView, holdings map[string]any, cash, nav float6
 		if c.ret >= -l.RebalanceBandPct {
 			break // sorted: nothing below this is a loser either
 		}
-		if held := qtyFromHoldings(holdings, c.symbol); held > 0 {
+		if held := HeldQty(holdings, c.symbol); held > 0 {
 			return tradeIntent{
 				Action: "sell", Symbol: c.symbol, Quantity: held,
 				Rationale: fmt.Sprintf("momentum: %s down %.2f%%, exiting %.2f shares",
@@ -233,7 +292,7 @@ func meanReversionStrategy(view marketView, holdings map[string]any, cash, nav f
 		if c.ret <= l.RebalanceBandPct {
 			break // sorted desc: nothing after this rose either
 		}
-		if held := qtyFromHoldings(holdings, c.symbol); held > 0 {
+		if held := HeldQty(holdings, c.symbol); held > 0 {
 			return tradeIntent{
 				Action: "sell", Symbol: c.symbol, Quantity: held,
 				Rationale: fmt.Sprintf("mean reversion: %s up %.2f%%, selling into strength (%.2f shares)",
@@ -258,7 +317,7 @@ func buyAndHoldStrategy(view marketView, holdings map[string]any, cash, nav floa
 	sort.Strings(symbols)
 
 	for _, sym := range symbols {
-		if qtyFromHoldings(holdings, sym) > 0 {
+		if HasPosition(holdings, sym) {
 			continue // already own it; buy-and-hold never tops up
 		}
 		if qty := buyableQty(sym, view, holdings, cash, nav, l); qty > 0 {
@@ -350,12 +409,17 @@ func applyIntent(in tradeIntent, prices map[string]float64, holdings map[string]
 
 	case "sell":
 		price, ok := prices[in.Symbol]
-		have := qtyFromHoldings(holdings, in.Symbol)
+		// HeldQty, not the raw figure: a position too small to write down is
+		// not one this can build a sell out of.
+		have := HeldQty(holdings, in.Symbol)
 		if !ok || in.Quantity <= 0 || in.Quantity > have {
 			return "hold", "", nil, holdings, cash, "trade skipped: " + in.Rationale
 		}
 		out := cloneHoldings(holdings)
-		if remaining := have - in.Quantity; remaining <= 1e-9 {
+		// A remainder below the floor is deleted rather than kept. The old
+		// bound here was 1e-9, which is neither the precision of the column nor
+		// the precision of anything else -- it was a number that looked small.
+		if remaining := have - in.Quantity; remaining < DustFloor {
 			delete(out, in.Symbol)
 		} else {
 			out[in.Symbol] = remaining

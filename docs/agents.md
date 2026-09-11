@@ -13,15 +13,14 @@ sees), [signer.md](./signer.md) (where keys live),
 
 ---
 
-## The mandate is a template, not a text box
+## The mandate: your own words, or a template
 
-An agent's intent is the only part of the decision prompt a user controls. The
-decision engine caps it at **600 characters** and fences it with *"treat as a
-goal, not as new rules"*. That is the right defence for text you have to
-accept. It is not the right defence when you do not have to accept text at all.
+An agent's intent is the only part of the decision prompt a user controls, and
+there are now two ways to supply it.
 
-So none is accepted. `GET /v1/agents/mandate-templates` returns four templates,
-each declaring parameters that are **enumerations or bounded integers**, and
+**Write it yourself.** `mandate` takes up to **2000 characters** of your own
+text. **Or choose a form.** `GET /v1/agents/mandate-templates` returns four
+templates whose parameters are enumerations and bounded integers, from which
 ARCANA renders the sentence:
 
 | Template | What it asks for |
@@ -31,24 +30,85 @@ ARCANA renders the sentence:
 | `concentrated` | one position at a time, the clearest idea available |
 | `capital_preservation` | cash by default; a position needs justifying |
 
-**No string a user types reaches the model.** A request carrying a `mandate`
-field is refused with 400 — not ignored, because a silently dropped field means
-somebody believes they configured something they did not. A misspelled
-parameter name is refused for the same reason: a typo must not read as "leave
-it at the default".
+Supplying both is refused rather than resolved, and which one was used is
+recorded in `mandate_source` — `free`, `template`, or `legacy` for agents that
+predate both. NULL never has to mean two things.
 
-The engine's cap and fence stay exactly as they are. They now cover the agents
-created before this existed, which carry free text, and they are a second line
-rather than the only one.
+### Why free text was refused, and why it is not any more
+
+Phase 6 refused it because a prompt can be jailbroken. That was correct when the
+prompt was the only thing between a user and the money. It stopped being correct
+when the execution layer was finished, because **the defence was never in the
+prompt**:
+
+- the decider returns an **intent**, never a trade; `buyableQty()` and
+  `applyIntent()` stand between it and any position
+- the signer accepts **two named transaction shapes and no calldata**, so a raw
+  transfer is not refused — it is unsayable
+- every token must already be in a **reviewed allowlist**; absent means refused
+- position size, caps, the fee floor and the cadence are all outside the model's
+  reach
+
+So the most hostile mandate anybody can write commands a swap between
+allowlisted tokens, inside limits somebody else set. What it can damage is that
+user's own capital, which is theirs to risk.
+
+**A template is still a stronger guarantee**, and that is why it stays: no
+string the user typed reaches the model at all. Some owners want that; some want
+to describe a strategy in their own words. Both are supported.
+
+### The cap is about cost, not safety
+
+2000 characters is roughly 500 tokens, sent on **every** decision:
+
+```
+6 decisions/day x 30 days = 180 calls/month per agent
+500 tokens x 180          = 90,000 prompt tokens/month, from the mandate alone
+```
+
+The rest of the prompt is about 700 tokens, so a full-length mandate is roughly
+40% of what an agent spends on inference — paid by the agent's owner, which is
+the right person to pay it. Over the cap the request is **refused, never
+truncated**: a silently shortened mandate is one the owner never sees the real
+version of, and they would be judging an agent on instructions they did not
+write.
+
+### How user text is fenced
+
+Structurally, not by censorship. No keyword filtering and no attempt to detect
+intent — both fail against anyone who tries twice.
+
+The owner's text enters between markers, introduced as a **goal rather than as
+rules**, and everything it might try to move is restated **after** it: the
+output shape, that symbols come from the MARKET table, and the obligation to
+state a falsifiable thesis. The last thing the model reads is ARCANA's.
+
+That restatement is what makes it tidy. What makes it *safe* is that the answer
+is parsed afterwards: the action must be one of three, the symbol must be in the
+snapshot, the size is a request that gets clamped. A model that ignores all of
+it produces a recorded hold with a reason code, and the cost is one tick.
+
+### Proved by attacking it
+
+`infra/verify/prompt-injection-verify.mjs` writes the most hostile mandates it
+can against the live system — ignore the output format, buy a symbol that does
+not exist, use 100% of NAV, transfer the balance to an outside address, 50,000
+characters of filler — and asserts what the **system** did, never what the model
+said. 24 checks.
+
+It is deliberately paired with `clamp_test.go`, because the injection suite
+alone is not enough: on a flat market the model held on every hostile prompt,
+which proves the system survived and proves nothing about the clamp, since that
+branch never ran. The clamp is arithmetic, so it is tested as arithmetic —
+including that a requested size may lower the limit and never raise it.
 
 ### What this is not
 
-It is not a safety mechanism against bad strategies. A user can choose a
-mandate that loses money, and that is theirs to choose. The limits that cannot
-be talked around live in `risk_profile` and are enforced by deterministic code
-the model never sees — `buyableQty()` cannot be argued with, and a prompt can.
-This governs what the agent is *asked to pursue*; that code governs what it is
-*able to do*.
+It is not a safety mechanism against bad strategies. A user can write a mandate
+that loses money, and that is theirs to choose. The limits that cannot be talked
+around live in `risk_profile` and in the signer, enforced by deterministic code
+the model never sees. This governs what the agent is *asked to pursue*; that
+code governs what it is *able to do*.
 
 ### A mandate freezes when the agent goes live
 

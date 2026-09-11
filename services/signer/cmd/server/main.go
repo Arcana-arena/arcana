@@ -26,13 +26,13 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/arcana/internalauth"
 	"github.com/arcana/signer/internal/chain"
 	"github.com/arcana/signer/internal/keys"
 	"github.com/arcana/signer/internal/policy"
+	"github.com/arcana/signer/internal/sigcount"
 	"github.com/arcana/signer/internal/tx"
 )
 
@@ -48,14 +48,13 @@ type server struct {
 	chain   *chain.Client
 	dryRun  bool
 
-	mu    sync.Mutex
-	daily map[string]dayCount
+	// The DURABLE signature count. Nil when the count could not be read, which
+	// makes every signing request refuse: a brake that cannot be read is not a
+	// brake that is empty.
+	sigs    *sigcount.Store
+	sigsErr error
 }
 
-type dayCount struct {
-	day   string
-	count int
-}
 
 func main() {
 	port := envOr("PORT", "8085")
@@ -97,8 +96,32 @@ func main() {
 	srv := &server{
 		allow:  allow,
 		chain:  chain.New(rpcs, allow.ChainID, ttl),
-		daily:  map[string]dayCount{},
 		dryRun: os.Getenv("SIGNER_ALLOW_UNSAFE_SEED") == "",
+	}
+
+	// THE DAILY SIGNATURE COUNT, on disk and owned by this service.
+	//
+	// A missing file is a first boot and starts at zero. A file that exists and
+	// cannot be understood makes every signing request refuse — see
+	// countSignature. The distinction matters: refusing a fresh install would
+	// mean nothing could ever sign, and trusting a corrupt one would mean the
+	// cap silently reset.
+	//
+	// It is the signer's own record rather than a read of the executions table,
+	// because executions describes what the decision engine did. Two of the
+	// seven signatures this service had issued at the time of writing have no
+	// row there at all.
+	countPath := envOr("SIGNER_SIGNATURE_COUNT_FILE", "/etc/arcana/signer/state/signatures.json")
+	if sigs, serr := sigcount.Open(countPath); serr != nil {
+		srv.sigsErr = serr
+		log.Printf("WARN: signer CANNOT ENFORCE THE DAILY CAP: %v", serr)
+		log.Printf("WARN: every signing request will be refused. An unreadable brake is not an "+
+			"empty one. Inspect or delete %s deliberately, then restart.", countPath)
+	} else {
+		srv.sigs = sigs
+		day, counts := sigs.All()
+		log.Printf("signature count loaded for %s: %d agent(s) with signatures today (cap %d/agent)",
+			day, len(counts), allow.Limits.MaxSignaturesPerDay)
 	}
 
 	// The seed is loaded last, so a misconfiguration elsewhere fails before a
@@ -146,6 +169,11 @@ func main() {
 	})
 	mux.HandleFunc("GET /internal/v1/signer/wallets/{agentId}", guard.Wrap(srv.handleWallet))
 	mux.HandleFunc("POST /internal/v1/signer/sign", guard.Wrap(srv.handleSign))
+	// The count is on disk and owned by this user, so it cannot be read with
+	// SQL. This is how an operator or a watchdog sees it instead -- the answer
+	// to "why can a database credential not just be added" has to come with a
+	// way to get the same information without one.
+	mux.HandleFunc("GET /internal/v1/signer/signatures", guard.Wrap(srv.handleSignatureCounts))
 	mux.HandleFunc("POST /internal/v1/signer/wallets/{agentId}/export", guard.Wrap(srv.handleExport))
 	mux.HandleFunc("POST /internal/v1/signer/wallets/{agentId}/import", guard.Wrap(srv.handleImport))
 
@@ -188,7 +216,6 @@ type signRequest struct {
 	Router    string `json:"router"`
 	Amount    string `json:"amount"`     // base units, decimal or 0x-hex
 	MinOut    string `json:"min_out"`    // swap only
-	PriceUSD  float64 `json:"price_usd"` // of token_in, for the notional cap
 	Nonce     uint64 `json:"nonce"`
 	Gas       uint64 `json:"gas"`
 	MaxFeeWei string `json:"max_fee_wei"`
@@ -239,7 +266,7 @@ func (s *server) handleSign(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Intent {
 	case "approve":
-		if ref := s.allow.CheckApprove(req.TokenIn, req.Router, amount, req.PriceUSD); ref != nil {
+		if ref := s.allow.CheckApprove(req.TokenIn, req.Router, amount); ref != nil {
 			refuseCode(w, ref)
 			return
 		}
@@ -258,7 +285,7 @@ func (s *server) handleSign(w http.ResponseWriter, r *http.Request) {
 		}
 		// The recipient is not a parameter. It is the agent's own wallet, and
 		// there is no way for a caller to make it anything else.
-		if ref := s.allow.CheckSwap(req.Router, req.TokenIn, req.TokenOut, wallet, wallet, amount, req.PriceUSD); ref != nil {
+		if ref := s.allow.CheckSwap(req.Router, req.TokenIn, req.TokenOut, wallet, wallet, amount); ref != nil {
 			refuseCode(w, ref)
 			return
 		}
@@ -319,7 +346,11 @@ func (s *server) handleSign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.recordSignature(req.AgentID)
+	// Counted and persisted before the signed transaction leaves this function.
+	if ref := s.recordSignature(req.AgentID); ref != nil {
+		refuseCode(w, ref)
+		return
+	}
 	log.Printf("signed intent=%s agent=%s to=%s chain=%d", req.Intent, req.AgentID, to, s.allow.ChainID)
 
 	writeJSON(w, 200, map[string]any{
@@ -392,35 +423,55 @@ func (s *server) chainChecks(ctx context.Context, token, wallet string) *policy.
 	return nil
 }
 
+// countSignature is the daily cap, read from disk rather than from memory.
+//
+// It used to be an in-process map, which reset on every restart. That was
+// tolerable while the cadence was locked at four hours and a deploy or two a day
+// merely loosened a limit measured in tens. It stopped being tolerable when the
+// cadence floor came off and TP/SL added a second source of transactions that
+// can fire without a decision cycle: three deploys in a day turned a cap of 24
+// into an effective 72, and nothing said so.
 func (s *server) countSignature(agentID string) *policy.Refusal {
 	if s.allow.Limits.MaxSignaturesPerDay <= 0 {
 		return nil
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	today := time.Now().UTC().Format("2006-01-02")
-	c := s.daily[agentID]
-	if c.day != today {
-		c = dayCount{day: today}
-	}
-	if c.count >= s.allow.Limits.MaxSignaturesPerDay {
+	// AN UNREADABLE COUNT REFUSES. Assuming zero would silently reset the cap,
+	// which is the exact failure the durable count exists to remove — and it is
+	// the same rule an unreadable isBlocked() follows.
+	if s.sigs == nil {
 		return &policy.Refusal{Code: policy.CodeDailyCap, Detail: fmt.Sprintf(
-			"agent %s has already had %d signatures today, the cap enforced at the signer",
-			agentID, c.count)}
+			"the signature count could not be read (%v), so the daily cap cannot be "+
+				"enforced. Refusing rather than treating an unreadable brake as an empty one",
+			s.sigsErr)}
+	}
+	used := s.sigs.Count(agentID)
+	if used >= s.allow.Limits.MaxSignaturesPerDay {
+		return &policy.Refusal{Code: policy.CodeDailyCap, Detail: fmt.Sprintf(
+			"agent %s has already had %d signatures today and the cap is %d, enforced at the "+
+				"signer. Note that an approve and its swap are two signatures: the broker "+
+				"approves exactly the trade amount, so every swap needs a fresh allowance",
+			agentID, used, s.allow.Limits.MaxSignaturesPerDay)}
 	}
 	return nil
 }
 
-func (s *server) recordSignature(agentID string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	today := time.Now().UTC().Format("2006-01-02")
-	c := s.daily[agentID]
-	if c.day != today {
-		c = dayCount{day: today}
+// recordSignature persists BEFORE the signature is handed back.
+//
+// A crash between counting and returning costs the agent one signature it never
+// received. The other order loses one it DID receive, which is the cap refunding
+// itself — and that is worse, because nothing downstream would ever notice.
+//
+// A failure to persist refuses the signature outright for the same reason.
+func (s *server) recordSignature(agentID string) *policy.Refusal {
+	if s.allow.Limits.MaxSignaturesPerDay <= 0 || s.sigs == nil {
+		return nil
 	}
-	c.count++
-	s.daily[agentID] = c
+	if err := s.sigs.Record(agentID); err != nil {
+		return &policy.Refusal{Code: policy.CodeDailyCap, Detail: fmt.Sprintf(
+			"the signature could not be counted (%v), so it is not issued. A signature that "+
+				"is not counted is one the cap will never see", err)}
+	}
+	return nil
 }
 
 // --- helpers ---------------------------------------------------------------
@@ -566,5 +617,30 @@ func (s *server) handleImport(w http.ResponseWriter, r *http.Request) {
 			"allowlisted token, a capped size — but that is ARCANA restricting itself, " +
 			"not a property of the key you gave it. Do not import a wallet that holds " +
 			"anything you are not putting under this agent's control.",
+	})
+}
+
+// handleSignatureCounts reports today's per-agent signature usage.
+//
+// Read-only, internal-tier, and it reports the CAP alongside the counts so a
+// reader does not have to go and find the allowlist to know what the numbers
+// mean. An unreadable count answers with its error rather than with zeros,
+// because zeros here would read as "nothing has signed today".
+func (s *server) handleSignatureCounts(w http.ResponseWriter, _ *http.Request) {
+	if s.sigs == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"error": map[string]any{
+				"code":    "signature_count_unreadable",
+				"message": fmt.Sprintf("%v", s.sigsErr),
+			},
+		})
+		return
+	}
+	day, counts := s.sigs.All()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"day":                day,
+		"cap_per_agent":      s.allow.Limits.MaxSignaturesPerDay,
+		"counts":             counts,
+		"note":               "One approve and its swap are two signatures. The broker approves exactly the trade amount, so every swap needs a fresh allowance.",
 	})
 }

@@ -120,6 +120,26 @@ export class PassportService {
         total_decisions: participation.decisions,
         total_trades: participation.trades,
       },
+      // WHO DECIDED THE TRADES. A protective exit is a real trade with a real
+      // transaction, and it was not this agent's judgement — a level set when
+      // the position opened crossed, and a watcher with no model acted on it.
+      // Reading a track record without this split would credit an agent for
+      // being saved by its own stop loss.
+      decided_by: {
+        own: participation.own_trades,
+        protective: participation.protective_exits,
+        stop_loss: participation.stop_losses,
+        take_profit: participation.take_profits,
+        // Rows that predate the distinction. Not folded into either side:
+        // "we do not know" is a different statement from "the agent decided".
+        unattributed: participation.unattributed_trades,
+        note:
+          participation.protective_exits > 0
+            ? `${participation.protective_exits} of ${participation.trades} trades were protective exits ` +
+              `(${participation.stop_losses} stop loss, ${participation.take_profits} take profit), ` +
+              'decided by a level rather than by the agent.'
+            : 'Every trade was the agent\'s own decision.',
+      },
       season_records: seasons,
       score_history: {
         runs: scores.series.length,
@@ -162,13 +182,32 @@ export class PassportService {
   }
 
   private async loadParticipation(agentId: string) {
+    // WHO DECIDED, counted separately from WHAT HAPPENED.
+    //
+    // An agent that made money because its stop loss worked and an agent whose
+    // calls were good are two different agents, and until `decider` carried
+    // 'protective' the record could not tell them apart: both produced a row
+    // with action='sell'. The counts below are the whole point of that column.
+    //
+    // `decider IS NULL` is not folded into either bucket by accident: rows
+    // written before the distinction existed genuinely do not say, and putting
+    // them in the agent's own column would overstate what is known.
     const rows = await this.db.query(
       `SELECT COUNT(*)::int AS decisions,
-              COUNT(*) FILTER (WHERE action <> 'hold')::int AS trades
+              COUNT(*) FILTER (WHERE action <> 'hold')::int AS trades,
+              COUNT(*) FILTER (WHERE action <> 'hold'
+                                 AND decider = 'protective')::int AS protective_exits,
+              COUNT(*) FILTER (WHERE action <> 'hold'
+                                 AND decider IS NOT NULL
+                                 AND decider <> 'protective')::int AS own_trades,
+              COUNT(*) FILTER (WHERE action <> 'hold' AND decider IS NULL)::int AS unattributed_trades,
+              COUNT(*) FILTER (WHERE reason_code = 'stop_loss')::int AS stop_losses,
+              COUNT(*) FILTER (WHERE reason_code = 'take_profit')::int AS take_profits
        FROM decisions WHERE agent_id = $1`,
       [agentId],
     );
-    return rows[0] ?? { decisions: 0, trades: 0 };
+    return rows[0] ?? { decisions: 0, trades: 0, protective_exits: 0, own_trades: 0,
+      unattributed_trades: 0, stop_losses: 0, take_profits: 0 };
   }
 
   /**
