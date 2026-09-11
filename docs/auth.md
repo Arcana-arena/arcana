@@ -180,7 +180,15 @@ keep working when auth is misconfigured (§5).
 | `POST /v1/seasons` · `PATCH /v1/seasons/:id` | 👑 |
 | `POST /v1/competitions` · `POST /v1/competitions/:id/complete` | 👑 |
 | `POST /internal/v1/competitions/:id/ticks` · `/ticks/close` | ⚙️ |
+| `POST /v1/subscriptions/:id/wallet` | 🔒 buyer |
+| `GET /v1/subscriptions/:id/book` | 🔒 buyer |
+| `PATCH /v1/subscriptions/:id` | 🔒 buyer |
+| `POST /v1/subscriptions/:id/wallet/export` | 🔒 buyer |
 | `POST /internal/v1/agents/dna/compute` | ⚙️ |
+
+🔒 buyer is the `user_wallet` on the subscription, and NOT scoped by status: a
+lapsed buyer must still be able to read what they hold and take the key. See
+`docs/subscription-trading.md`.
 
 ### arca-service `:3004`
 

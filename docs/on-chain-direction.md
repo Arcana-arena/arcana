@@ -448,6 +448,24 @@ quietly.
 | `take_profit` | position guard | a target level was crossed and the position was exited. `decider` is `protective` |
 | `position_locked` | engine / position guard | another actor held this agent's execution lease, so this one stood down rather than turning one intent into two transactions |
 
+Two more are written on an **execution row rather than a decision**, because
+they belong to one wallet in a fan-out rather than to the agent's tick:
+
+| Code | Emitted by | Trigger |
+|---|---|---|
+| `insufficient_capital` | subscription fan-out | the buy was sized against this buyer's own book and their own limits, and came to nothing: an empty wallet, or a cash floor already reached |
+| `nothing_to_sell` | subscription fan-out | the agent exited a position this buyer does not hold |
+
+Neither reached the chain — nothing was signed and nothing was sent. They exist
+so that "this buyer was not traded for" is a **row** rather than a log line: a
+buyer whose wallet was empty previously got a book snapshot showing nothing and
+a line in the journal, which made "the agent decided nothing applied to me",
+"my wallet was empty" and "the fan-out never reached me" indistinguishable to
+the one person who needed to tell them apart. They are written into
+`executions` with `status = 'blocked'` and an amount of zero, not into a
+separate table, because the question a buyer asks is "what happened to me on
+this decision" and that should be one query.
+
 The signer has its own refusal codes, returned to the caller rather than written
 on a decision. They appear in a decision's rationale via `execution_refused`:
 

@@ -168,6 +168,7 @@ func (e *Engine) tradeForOne(
 				"nothing to buy under this subscription's own limits: cash %.2f, book %.2f, "+
 					"trade size %.0f%%, cash floor %.0f%%",
 				before.Cash, nav, limits.TradeSizePct*100, limits.CashFloorPct*100)
+			e.recordSubscriberDecline(ctx, req, decisionID, intent, sub, ReasonInsufficientCapital, res.Note)
 			e.recordSubscriberOutcome(ctx, sub, decisionID, intent, res)
 			return res
 		}
@@ -176,6 +177,7 @@ func (e *Engine) tradeForOne(
 		if qty <= 0 {
 			res.Status = "declined"
 			res.Note = "this subscription holds no " + intent.Symbol + " to sell"
+			e.recordSubscriberDecline(ctx, req, decisionID, intent, sub, ReasonNothingToSell, res.Note)
 			e.recordSubscriberOutcome(ctx, sub, decisionID, intent, res)
 			return res
 		}
@@ -371,5 +373,56 @@ func (e *Engine) applySubscriberGuard(ctx context.Context, agentID string, sub s
 		// armed on it is no longer guarding anything.
 		e.applyGuardChanges(ctx, agentID, &sub.ID, &decisionID,
 			settlement{ClearGuard: er.Symbol})
+	}
+}
+
+// Refusal codes for a wallet that was left out of a fan-out by its own limits.
+//
+// These are not chain refusals: nothing was signed and nothing was sent. They
+// exist so that "this buyer was not traded for" is a ROW rather than a log
+// line.
+const (
+	ReasonInsufficientCapital = "insufficient_capital"
+	ReasonNothingToSell       = "nothing_to_sell"
+)
+
+// recordSubscriberDecline writes the fact that one wallet was left out.
+//
+// WHY A ROW AND NOT JUST A LOG LINE. The rule is that one wallet failing must
+// not fail the others AND that each failure is recorded on its own. The first
+// half was true from the start; the second was not. A buyer whose wallet was
+// empty got a book snapshot showing nothing and a line in the journal — so
+// "the agent decided nothing applied to me", "my wallet was empty" and "the
+// fan-out never reached me" were indistinguishable to the only person who
+// needed to tell them apart.
+//
+// It is deliberately the SAME table as a real execution, with status 'blocked'
+// and an amount of zero. A separate table would be a second place to look, and
+// the question a buyer asks is "what happened to me on this decision" — one
+// query, one answer, whether or not anything moved.
+func (e *Engine) recordSubscriberDecline(ctx context.Context, req ExecuteRequest, decisionID int64,
+	intent tradeIntent, sub store.TradingSubscription, reason, note string) {
+
+	// ONCE, NOT ONCE PER TICK. See RecentRefusalFor: the cadence fires every
+	// minute and this condition can persist for days.
+	had, err := e.store.RecentRefusalFor(ctx, sub.ID, intent.Symbol, reason, 24*time.Hour)
+	if err != nil {
+		log.Printf("subscription %s: could not tell whether this refusal is new, recording it: %v",
+			sub.ID, err)
+	}
+	if had {
+		return
+	}
+
+	if _, err := e.store.AppendExecution(ctx, store.ExecutionInsert{
+		AgentID: req.AgentID, DecisionID: &decisionID, TS: req.Timestamp,
+		SubscriptionID: &sub.ID, Wallet: sub.Wallet, OnBehalfOf: "subscriber",
+		IntentAction: intent.Action, Symbol: intent.Symbol,
+		TokenIn: e.broker.QuoteAddress(), TokenOut: e.broker.AddressOf(intent.Symbol),
+		AmountIn: big.NewInt(0),
+		Status:   execution.StatusBlocked, RefusalCode: reason, Note: note,
+	}); err != nil {
+		log.Printf("ERROR subscription %s: the decision did not reach this wallet and the reason "+
+			"was not recorded: %v", sub.ID, err)
 	}
 }

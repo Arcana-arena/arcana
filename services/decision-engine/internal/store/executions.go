@@ -218,6 +218,32 @@ func nilIfZeroFloat(v float64) any {
 	}
 	return v
 }
+// RecentRefusalFor reports whether this wallet has already been told the same
+// thing recently.
+//
+// A PERSISTING CONDITION IS ONE FACT. The cadence fires every minute, and a
+// subscriber whose wallet is empty is refused on every one of them — 1,440
+// identical rows a day, each of them true and together a different kind of lie.
+// It is the same mistake the guard made (56 duplicate refusal decisions in
+// fifteen minutes) and it gets the same answer: record it once, restate it once
+// a day, so a buyer who has been unable to trade for a week sees that rather
+// than one row from last Tuesday.
+func (s *Store) RecentRefusalFor(ctx context.Context, subID, symbol, code string, within time.Duration) (bool, error) {
+	var n int
+	err := s.pool.QueryRow(ctx,
+		`SELECT count(*) FROM executions
+		  WHERE subscription_id = $1 AND symbol = $2 AND refusal_code = $3
+		    AND ts > now() - $4::interval`,
+		subID, symbol, code, within.String()).Scan(&n)
+	if err != nil {
+		// UNREADABLE MEANS RECORD IT. The cost of a duplicate row is noise; the
+		// cost of a missing one is a buyer who never finds out why nothing
+		// happened in their wallet.
+		return false, fmt.Errorf("read recent refusals for %s: %w", subID, err)
+	}
+	return n > 0, nil
+}
+
 // LinkExecutionToGuard attaches the level that fired, after the fact.
 //
 // The creator's protective path writes its execution row inside the ordinary

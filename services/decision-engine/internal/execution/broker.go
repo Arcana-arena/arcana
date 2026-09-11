@@ -304,3 +304,7 @@ func bigToFloat(v *big.Int) float64 {
 	out, _ := f.Float64()
 	return out
 }
+
+// QuoteAddress is the cash token's contract, for a record that must name both
+// sides of a trade that never happened.
+func (b *Broker) QuoteAddress() string { return b.cfg.QuoteToken.Address }
