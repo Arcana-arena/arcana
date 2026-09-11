@@ -16,6 +16,38 @@ is public — the Passport, the score series, the decision log, the DNA — so a
 subscription gated a door with nothing behind it. `access: true` meant the right
 to read what everyone could already read.
 
+## How you get one
+
+A P2P payment in $ARCA to the creator's own wallet, claimed at
+`POST /v1/arca/claim-payment` with the transaction hash. ARCANA never receives
+the money; it verifies the transfer on chain and grants the subscription.
+
+The grant binds **which agent trades for you**, read from the listing. That is a
+property of what was bought, never of what the buyer later asks for — and it is
+the line that makes a subscription do anything at all, because the fan-out finds
+who to trade for with `WHERE agent_id = ...`.
+
+> **It was missing, and it made the whole feature unreachable.** `grant()` wrote
+> the same four columns it had written before subscriptions traded, so a paying
+> customer got a row with a NULL `agent_id`, the fan-out never matched it, and
+> the agent never traded for them. Everything else worked: the wallet would
+> derive, the book would read, the limits would apply. It survived a 36-check
+> suite because every fixture in that suite set `agent_id` itself — a suite that
+> builds its own rows never exercises the code that builds the real ones. The
+> check now lives on the far side of a real payment in `claims-verify`, and a
+> standing invariant over the live table runs in `subscription-verify`.
+> Migration `0041` backfilled the rows that already existed.
+
+What the grant deliberately does **not** do is derive your trading wallet.
+arca-service holds no signer, and a wallet derived without being asked for is a
+custody arrangement nobody requested. You derive it, and you fund it.
+
+`GET /v1/subscriptions/:yourWallet` lists what you hold, and each entry says
+whether the agent is actually trading for you — the same four conditions the
+fan-out applies — plus one `next_step` sentence naming what is missing. A
+subscription can read `active` and be trading for nobody, so the status column
+is not allowed to be the whole answer.
+
 ## The wallet
 
 A subscription gets its own trading wallet, derived by the signer from the
@@ -148,7 +180,7 @@ Thirty days, and then:
 
 ## Verifying it
 
-`infra/verify/subscription-verify.mjs` — 36 checks, spends nothing. It covers
+`infra/verify/subscription-verify.mjs` — 41 checks, spends nothing. It covers
 who is traded for and who is not, what a buyer can reach and what a stranger
 cannot, whose wallet a level watches, and what happens to that level when the
 mandate ends. Every question is put to the code that decides it, through

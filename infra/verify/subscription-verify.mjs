@@ -39,6 +39,7 @@ const GO = process.env.GO_BIN || '/usr/local/go/bin/go';
 const PG = process.env.PG_CONTAINER || 'arcana-postgres';
 const DB = process.env.DATABASE_URL || 'postgres://arcana:arcana@localhost:5432/arcana?sslmode=disable';
 const SEASON = process.env.SEASON_ID || '00000002-0000-4000-8000-000000000002';
+const ARCA = process.env.ARCA_URL || 'http://127.0.0.1:3004';
 
 const env = Object.fromEntries(
   readFileSync(`${REPO}/.env.auth`, 'utf8').split('\n').filter((l) => l && !l.startsWith('#'))
@@ -504,6 +505,67 @@ try {
       (b.body?.protection?.armed || []).length === 0
       && /OPEN AND UNPROTECTED/.test(b.body?.protection?.note || ''),
       JSON.stringify(b.body?.protection));
+  }
+
+  // =====================================================================
+  console.log('\n=== 7. Every subscription that was sold names the agent it sold ===');
+  {
+    // THE STANDING INVARIANT, asked of the LIVE table rather than of a fixture.
+    //
+    // The fan-out finds who to trade for with `WHERE agent_id = $1`, so a
+    // subscription whose listing names an agent and which does not carry it is
+    // a customer who paid and is never traded for. That failure is completely
+    // silent: no error, no refusal, no row anywhere saying it should have
+    // happened — the agent simply never sees them.
+    //
+    // It existed. grant() in arca-service wrote the same four columns it had
+    // written before subscriptions traded, and migration 0041 backfilled what
+    // it missed. This is what stops it coming back.
+    const orphans = psql(
+      `SELECT count(*) FROM subscriptions s
+         JOIN marketplace_listings l ON l.id = s.listing_id
+        WHERE s.agent_id IS NULL AND l.agent_id IS NOT NULL`);
+    check('no sold subscription is missing the agent its listing names', orphans === '0',
+      `${orphans} subscription(s) were bought from a listing that names an agent and do not ` +
+      'carry it. Every one of them is somebody who paid and will never be traded for, and ' +
+      'nothing anywhere will say so');
+
+    // AND THE CHECK CAN FAIL. Without this the query above passes on an empty
+    // table, which is the failure this project keeps writing down: a
+    // verification that reports success because it found no data.
+    const a = await freshAgent('orphan');
+    const buyer = await freshWallet();
+    const listing = psql(
+      `INSERT INTO marketplace_listings (agent_id, access_type, arca_gate_amount, active)
+       VALUES ('${a.id}', 'subscription', 1, false) RETURNING id::text`);
+    const orphan = psql(
+      `INSERT INTO subscriptions (user_wallet, listing_id, status, expires_at)
+       VALUES ('${buyer.address}', '${listing}', 'active', now() + interval '30 days')
+       RETURNING id::text`);
+    subs.push(orphan);
+    const withOrphan = psql(
+      `SELECT count(*) FROM subscriptions s
+         JOIN marketplace_listings l ON l.id = s.listing_id
+        WHERE s.agent_id IS NULL AND l.agent_id IS NOT NULL`);
+    check('and it would notice one', withOrphan === '1',
+      `a deliberately unbound subscription was not found (${withOrphan}); the check above proves ` +
+      'nothing');
+
+    // The buyer can see it for themselves, and is told what it means.
+    const listed = await req(`${ARCA}/v1/subscriptions/${buyer.address}`, { headers: bearer(buyer.tk) });
+    const mine = ok2xx(listed.status) ? (listed.body || []).find((x) => x.id === orphan) : null;
+    check('a buyer can list their own subscriptions', !!mine,
+      `${ARCA}/v1/subscriptions/:wallet answered ${listed.status}: a buyer who cannot read what ` +
+      'they bought cannot find out that nothing is trading for them');
+    check('and is told plainly that nothing is trading for them',
+      mine && mine.trading === false, JSON.stringify(mine)?.slice(0, 200));
+    check('and told what is missing rather than left to infer it from a status column',
+      typeof mine?.next_step === 'string' && /listing names no agent/i.test(mine.next_step),
+      `next_step: ${mine?.next_step}. This subscription reads status='active' and is not being ` +
+      'traded for; a buyer who reads only the status concludes something untrue');
+
+    psql(`DELETE FROM subscriptions WHERE id = '${orphan}'`);
+    psql(`DELETE FROM marketplace_listings WHERE id = '${listing}'`);
   }
 
   console.log(`\n${pass} pass, ${fail} fail`);

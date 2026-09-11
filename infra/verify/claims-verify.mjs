@@ -460,6 +460,35 @@ try {
   const rows = sql(`SELECT count(*) FROM subscriptions WHERE user_wallet = '${real.from}' AND listing_id = '${listingId}'`);
   check('the subscription exists in the database', rows === '1', `${rows} rows`);
 
+  // WHAT THE PAYMENT ACTUALLY BOUGHT.
+  //
+  // A subscription now means the agent trades for the buyer's wallet too, and
+  // the fan-out finds who to trade for with `WHERE agent_id = ...`. grant()
+  // wrote user_wallet, listing_id, expires_at and status — exactly as it had
+  // before subscriptions traded — so the row came out with a NULL agent_id, the
+  // fan-out never matched it, and the customer paid for nothing. Every other
+  // part worked: the wallet would derive, the book would read, the limits would
+  // apply. The feature was complete and unreachable.
+  //
+  // It survived a 36-check suite because every fixture there sets agent_id
+  // itself. A suite that builds its own rows never exercises the code that
+  // builds the real ones — so the check belongs HERE, on the far side of a real
+  // payment, and not there.
+  const bound = sql(`SELECT coalesce(agent_id::text,'NULL') FROM subscriptions
+                      WHERE user_wallet = '${real.from}' AND listing_id = '${listingId}'`);
+  check('the payment bound the agent the listing sells', bound === agentId,
+    `the subscription carries agent_id=${bound} and the listing sells ${agentId}. A subscription ` +
+    'that does not name its agent is one the agent never trades for: the buyer pays, everything ' +
+    'else works, and nothing happens in their wallet');
+
+  // AND NOTHING THE BUYER MUST DO THEMSELVES WAS DONE FOR THEM. arca-service
+  // holds no signer, and a wallet derived without being asked for is a custody
+  // arrangement nobody requested. The buyer derives it and funds it.
+  const walletYet = sql(`SELECT coalesce(wallet_address,'NULL') FROM subscriptions
+                          WHERE user_wallet = '${real.from}' AND listing_id = '${listingId}'`);
+  check('and no trading wallet was derived on the buyer\'s behalf', walletYet === 'NULL',
+    `wallet_address=${walletYet}`);
+
   console.log('\n=== The replay surface ===');
   r = await claim(real.from, listingId, real.hash);
   check('the SAME hash on the SAME listing → tx_already_claimed',
