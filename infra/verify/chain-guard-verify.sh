@@ -76,6 +76,18 @@ check_body "implementation drift" "STOP funding new agent wallets" CHAIN_GUARD_F
 check_body "issuer pause"         "PAUSED by the issuer" CHAIN_GUARD_FORCE_PAUSED=NVDA
 
 echo
+echo "-- the blocklist exceptions are re-checked, and their drift alarms --"
+# The signer excepts every token from isBlocked() because no token on this
+# chain implements it. That exception is only safe while it keeps describing
+# reality, so the guard re-reads the evidence. These checks prove the two ways
+# it can stop describing reality both produce an alert -- a drift branch that
+# has never fired is a branch nobody has tested.
+check "healthy: the recorded evidence still matches the chain" 0
+check_body "exceptions are actually examined" "carry a blocklist exception; re-checking the evidence"
+check_body "payload drift" "reverts DIFFERENTLY than the recorded evidence" CHAIN_GUARD_FORCE_BLOCKDATA=AAPL:0xbaadf00d
+check_body "payload drift names the signer consequence" "signer will refuse" CHAIN_GUARD_FORCE_BLOCKDATA=AAPL:0xbaadf00d
+check_body "payload drift raises the critical alert, not the soft one" "VERDICT=alarm" CHAIN_GUARD_FORCE_BLOCKDATA=AAPL:0xbaadf00d
+echo
 echo "-- one forced change alarms on ALL tokens, because they share one beacon --"
 # Count the journal lines only. Each finding also appears in the alert body, so
 # an unanchored grep double-counts and the check would pass for the wrong reason.

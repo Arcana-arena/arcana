@@ -41,6 +41,13 @@ import { spawnSync } from 'node:child_process';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BASELINE = process.env.CHAIN_BASELINE || join(HERE, 'chain-baseline.json');
 const NOTIFY = process.env.ARCANA_NOTIFY || join(HERE, 'arcana-notify.sh');
+// The signer's allowlist, read directly. See check 7.
+const ALLOWLIST = process.env.SIGNER_ALLOWLIST_FILE ||
+  join(HERE, '..', '..', 'services', 'signer', 'allowlist', 'robinhood-mainnet.json');
+// Any address works for an isBlocked() probe whose purpose is to observe HOW
+// the call fails rather than what it answers. A constant is used so the guard
+// never needs to know a real wallet to run this check.
+const PROBE_WALLET = process.env.CHAIN_GUARD_PROBE_WALLET || '0x0000000000000000000000000000000000000001';
 const DRY_RUN = process.env.CHAIN_GUARD_DRY_RUN === '1';
 const TIMEOUT_MS = Number(process.env.CHAIN_GUARD_TIMEOUT_MS || 15000);
 
@@ -66,6 +73,13 @@ const RPCS = (process.env.CHAIN_RPC_URLS ||
 // set in the installed unit.
 const FORCE_IMPL = process.env.CHAIN_GUARD_FORCE_IMPL || '';
 const FORCE_PAUSED = process.env.CHAIN_GUARD_FORCE_PAUSED || '';
+// SYMBOL:0xpayload — pretends isBlocked() returned that payload for one token,
+// so the drift branch can be proven to alarm instead of assumed to.
+const FORCE_BLOCKDATA = (() => {
+  const raw = process.env.CHAIN_GUARD_FORCE_BLOCKDATA || '';
+  const i = raw.indexOf(':');
+  return i > 0 ? { symbol: raw.slice(0, i), data: raw.slice(i + 1) } : null;
+})();
 
 const log = (...a) => console.log('chain-guard:', ...a);
 const verdict = (v, why) => console.log(`chain-guard: VERDICT=${v} REASON=${why}`);
@@ -95,6 +109,11 @@ async function rpcOnce(url, method, params) {
     const j = await res.json();
     if (j.error) {
       const e = new Error(`${j.error.message} (${j.error.code})`);
+      // The revert PAYLOAD, kept rather than flattened. The signer excepts a
+      // token from the isBlocked() check by recording exactly what that call
+      // returns, so this guard can only notice the exception going stale if
+      // it can see the same thing the signer sees.
+      e.revertData = typeof j.error.data === 'string' ? j.error.data : null;
       // -32601 is "method not supported": a permanent property of the endpoint,
       // not a transient fault. Retrying it wastes the budget.
       e.methodUnsupported = j.error.code === -32601;
@@ -178,7 +197,7 @@ async function ethCall(to, data) {
     return { ok: true, result: r };
   } catch (e) {
     if (e.unreachable) throw e;
-    return { ok: false, error: e.message };
+    return { ok: false, error: e.message, revertData: e.revertData ?? null };
   }
 }
 
@@ -335,6 +354,56 @@ async function main() {
     }
   }
 
+  // 7. Do the signer's blocklist exceptions still describe reality?
+  //
+  // No token on this chain implements isBlocked(), so the signer allowlist
+  // records that per token, with the revert payload that proves it. The signer
+  // re-checks that payload on every signature and refuses when it changes, so
+  // trading is already safe without this check. What this adds is NOTICE: a
+  // silent change would otherwise first surface as a refused trade at the worst
+  // possible moment, and an exception that quietly stopped matching is exactly
+  // how a temporary workaround becomes a permanent one nobody revisits.
+  //
+  // It reads the SIGNER'S OWN allowlist, not a copy. A second copy of the
+  // evidence would drift from the first, and then this check would be
+  // faithfully monitoring the copy.
+  let allow = null;
+  try {
+    allow = JSON.parse(readFileSync(ALLOWLIST, 'utf8'));
+  } catch (e) {
+    log(`blocklist-exception check SKIPPED: cannot read ${ALLOWLIST}: ${e.message}`);
+  }
+  if (allow) {
+    const excepted = [allow.quote_token, ...(allow.tokens || [])]
+      .filter((t) => t && t.blocklist_unreadable);
+    log(`${excepted.length} token(s) carry a blocklist exception; re-checking the evidence`);
+    for (const t of excepted) {
+      const ex = t.blocklist_unreadable;
+      const arg = PROBE_WALLET.replace(/^0x/, '').toLowerCase().padStart(64, '0');
+      const r = await ethCall(t.address, SEL.isBlocked + arg);
+      let observed = r.ok
+        ? '(it answered)'
+        : (r.revertData ?? '(revert with no payload)');
+      if (FORCE_BLOCKDATA && FORCE_BLOCKDATA.symbol === t.symbol) observed = FORCE_BLOCKDATA.data;
+      if (observed === '(it answered)') {
+        findings.push({
+          sev: 'warning', symbol: t.symbol,
+          what: 'isBlocked() now ANSWERS. The exception recorded for this token has expired and the '
+              + 'full check applies again — remove it from the signer allowlist',
+          was: `reverts with ${ex.revert_data}`,
+          now: 'answers',
+        });
+      } else if (observed.toLowerCase() !== String(ex.revert_data).toLowerCase()) {
+        findings.push({
+          sev: 'critical', symbol: t.symbol,
+          what: 'isBlocked() reverts DIFFERENTLY than the recorded evidence. The signer will refuse '
+              + 'to sign for this token until the allowlist is re-verified',
+          was: `${ex.revert_data} (verified ${ex.verified_at})`,
+          now: observed,
+        });
+      }
+    }
+  }
   // --- report ---------------------------------------------------------------
 
   if (findings.length === 0) {
