@@ -1,0 +1,47 @@
+# arcana-execution-watchdog.service — is the money moving, or just burning?
+#
+# The decision watchdog asks whether anything DECIDED lately. Under a cadence
+# that misses the failure that matters: the agent decides on time, the
+# transaction reverts, gas burns, and four hours later it does it again.
+# Decisions are being recorded, so that watchdog is right to stay quiet, and
+# ETH drains with nothing watching.
+#
+# The pool-fee bug was exactly this shape — every sell reverted for ~30k gas —
+# and it was found only because a person was looking at the record. Under a
+# cadence nobody is looking.
+#
+# READ-ONLY, like the watchdog it sits beside: it reads the database and the
+# chain and writes neither.
+#
+# Exit 1 means the CHECK could not be performed, never "nothing found", so this
+# unit carries OnFailure= like the ones it watches.
+[Unit]
+Description=ARCANA execution watchdog (repeated trade failures, gas exhaustion)
+After=network-online.target docker.service
+Wants=network-online.target
+OnFailure=arcana-alert@%n.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+SyslogIdentifier=arcana-execution-watchdog
+WorkingDirectory=/home/ubuntu/arcana
+# Three failures in a day. One revert is ordinary — a pool moves between the
+# quote and the send. Two can be coincidence. Three at a four-hour cadence is
+# twelve hours of a repeating fault, which is a pattern and not luck. The three
+# reverted swaps cost about 0.00001 ETH between them; that is the price of not
+# waking anyone for the first one.
+Environment=FAIL_THRESHOLD=3
+Environment=FAIL_WINDOW_HOURS=24
+# Mirrors the broker's own reserve. Below 2 x maxFee x gasLimit it refuses to
+# sign, so below that an agent is already unable to trade.
+Environment=EXECUTION_MAX_FEE_WEI=1000000000
+Environment=EXECUTION_GAS_LIMIT=250000
+Environment=GAS_WARN_MULTIPLE=4
+Environment=EXECUTION_RPC_URL=https://robinhood-rpc.publicnode.com
+EnvironmentFile=-/home/ubuntu/arcana/.env.alerts
+ExecStart=/usr/bin/flock -n /tmp/arcana-execution-watchdog.lock /home/ubuntu/arcana/infra/alerting/arcana-execution-watchdog.sh
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

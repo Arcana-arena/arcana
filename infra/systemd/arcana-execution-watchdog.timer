@@ -1,0 +1,22 @@
+# arcana-execution-watchdog.timer — every four hours, matching the cadence.
+#
+# Chosen against what it measures, not against the clock. The failure threshold
+# is three failures, which at a four-hour cadence takes twelve hours to reach;
+# checking every four hours sees the condition within a third of the window it
+# describes, and a run of failures is caught on the cycle after it completes
+# rather than up to six hours later.
+#
+# It runs OFFSET from the cadence rather than alongside it: firing at the same
+# minute would sometimes read the database while a cycle is mid-flight, and a
+# half-written cycle is exactly the kind of transient a monitor must not report
+# as a fault.
+[Unit]
+Description=Run the ARCANA execution watchdog every four hours
+
+[Timer]
+OnCalendar=*-*-* 02,06,10,14,18,22:40:00 UTC
+RandomizedDelaySec=120
+Persistent=true
+
+[Install]
+WantedBy=timers.target

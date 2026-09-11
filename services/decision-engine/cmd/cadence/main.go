@@ -122,7 +122,22 @@ func main() {
 		log.Fatal("INTERNAL_API_KEY is required: taking a pool tick is a machine-tier write")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	// THE BUDGET FOR THE WHOLE TICK, and it has to accommodate the slowest
+	// participant rather than the average one.
+	//
+	// Five minutes was ample while every agent settled in memory: load state,
+	// decide, insert. A CHAIN-BACKED agent reads ten balances, may send an
+	// approval, sends a swap, and waits for two receipts — the decision engine
+	// allows it four minutes, alone. One such agent in a field of five would
+	// have left under a minute for the other four, and the ones at the end of
+	// the list would have been starved by a neighbour rather than by anything
+	// wrong with them.
+	//
+	// Participants run sequentially, so this scales with how many of them can
+	// reach the chain. Ten minutes covers one slow chain agent plus a field of
+	// fast ones; a second chain agent needs this raised again, which is a
+	// deliberate act and not a surprise.
+	ctx, cancel := context.WithTimeout(context.Background(), envDuration("CADENCE_TICK_BUDGET", 10*time.Minute))
 	defer cancel()
 	now := time.Now().UTC()
 
@@ -461,4 +476,19 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// envDuration reads a Go duration, and REFUSES a malformed one rather than
+// quietly using the fallback. A tick budget that silently reverted to its
+// default because somebody typed "10min" would be a limit nobody could see.
+func envDuration(key string, fallback time.Duration) time.Duration {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		log.Fatalf("%s=%q is not a duration (try 10m): %v", key, v, err)
+	}
+	return d
 }
