@@ -167,6 +167,77 @@ physically separate places, and a **recovery drill that is performed rather than
 documented** — the precedent being `arcana-restore-test.sh`, which proves the
 database restores instead of claiming it.
 
+## The blocklist exception, and why it is not a flag
+
+The signer asks every token two questions before it will sign: **are you
+paused?** and **is this wallet blocked?** It refuses if either cannot be read,
+on the principle that *could not check* is not the same as *fine*.
+
+On Robinhood Chain the second question has no answer. Measured 2026-09-11
+across all ten allowlisted tokens:
+
+| | `paused()` | `isBlocked(address)` |
+|---|---|---|
+| USDG | `false` | reverts, `0x800ab12c` |
+| the nine Stock Tokens | `false` | reverts, empty payload |
+
+So the refusal applied to every trade the platform could ever make. The signer
+was not conservative; it was inert. Nothing had noticed, because the only
+caller of `/internal/v1/signer/sign` was the verification suite, and what that
+suite proved was that refusals refuse.
+
+### What the control selector settles
+
+A revert is not by itself evidence that a function is missing — a function that
+exists can revert too. So each token was also called with `0xdeadbeef`, a
+selector that exists nowhere, and returned **the same payload**:
+
+- Stock Tokens: empty for both, so `isBlocked` is simply absent.
+- USDG: `0x800ab12c` for both. That is the decisive one — a typed custom error
+  reads like a contract deliberately saying something, and only the control
+  shows it is this proxy's unknown-selector error.
+
+### The exception is per-token, and carries its evidence
+
+Each entry in the allowlist may carry `blocklist_unreadable` with
+`verified_at`, `revert_data`, `control_selector`, `control_revert_data` and a
+note. **The signer refuses to start** if any of those is missing, or if the
+two payloads differ — an exception whose control disagrees with it is not
+evidence of absence, and a note nobody can re-check is how a workaround
+becomes permanent.
+
+There is deliberately **no flag**. A boolean "skip the blocklist check" would
+be one line disabling a control everywhere, forever, with nothing to re-check.
+A token nobody has examined is still refused, exactly as before.
+
+### How it expires without anyone remembering to expire it
+
+The exception is not trusted from the file. On **every signature** the signer
+still calls `isBlocked()` and compares what happens:
+
+| what the chain does | what the signer does |
+|---|---|
+| reverts with the recorded payload | the exception applies — sign |
+| **answers** | the exception is irrelevant; a `true` refuses as `wallet_blocked` |
+| reverts with a **different** payload | refuse — the evidence no longer describes the contract |
+| unreachable | refuse — a network failure is not evidence about a blocklist |
+
+So the day a token starts answering, it is checked normally that same second,
+with no file to edit and no date to remember. `arcana-chain-guard` re-reads
+the same allowlist every four hours and alarms on both drift cases, so the
+change surfaces as an alert rather than as a refused trade at a bad moment.
+
+### What this costs, stated plainly
+
+`paused()` is **not** relaxed — it answers on all ten tokens and is still
+enforced, including on excepted tokens.
+
+What is given up is failing early and cheaply. If an issuer blocklist appears
+later and blocks an ARCANA wallet, the signer would sign and the transfer
+would revert on chain. The loss is a gas fee, not the position: a blocked
+wallet cannot move funds either way. That is the trade — and it is the reason
+this was judged acceptable when refusing everything was not.
+
 ## Process isolation
 
 Every other ARCANA service runs as `ubuntu`. The signer does not.
