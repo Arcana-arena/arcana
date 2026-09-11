@@ -246,9 +246,8 @@ try {
   // records the absence per token, with the revert payload proving it. These
   // checks exist because an exception that is never re-examined is how a
   // workaround becomes permanent — so the interesting cases are not "does it
-  // sign", they are the three ways the exception must STOP applying.
-  console.log('
-=== The blocklist exception, and the four ways it stops applying ===');
+  // sign", they are the ways the exception must STOP applying.
+  console.log('\n=== The blocklist exception, and the four ways it stops applying ===');
   await stop();
   proc = start();
   check('signer came up on the shipped allowlist', await waitUp(), 'never became healthy');
@@ -284,8 +283,7 @@ try {
   // A token that is allowlisted but NOT marked must still be refused. The
   // shipped file marks every token, so this needs its own allowlist — and
   // that is the point: the exception is per-token, not a switch.
-  console.log('
-=== A token nobody examined is still refused ===');
+  console.log('\n=== A token nobody examined is still refused ===');
   const unmarked = JSON.parse(JSON.stringify(prod));
   delete unmarked.quote_token.blocklist_unreadable;
   const unmarkedPath = join(dir, 'allowlist-unmarked.json');
@@ -300,8 +298,7 @@ try {
 
   // Evidence is not optional. An exception without its control is a note
   // nobody can re-check, so the signer must refuse to load it at all.
-  console.log('
-=== An exception without evidence does not load ===');
+  console.log('\n=== An exception without evidence does not load ===');
   const noEvidence = JSON.parse(JSON.stringify(prod));
   noEvidence.quote_token.blocklist_unreadable = { verified_at: '2026-09-11', revert_data: '0x800ab12c' };
   const noEvidencePath = join(dir, 'allowlist-no-evidence.json');
