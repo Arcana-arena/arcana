@@ -268,10 +268,14 @@ func (s *server) handleSign(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		tok, _ := s.allow.Token(req.TokenOut)
+		fee, ref := s.allow.PoolFeeFor(req.TokenIn, req.TokenOut)
+		if ref != nil {
+			refuseCode(w, ref)
+			return
+		}
 		to = req.Router
 		data = tx.EncodeExactInputSingle(tx.SwapParams{
-			TokenIn: req.TokenIn, TokenOut: req.TokenOut, Fee: tok.PoolFee,
+			TokenIn: req.TokenIn, TokenOut: req.TokenOut, Fee: fee,
 			Recipient: wallet, AmountIn: amount, MinOut: minOut,
 		})
 

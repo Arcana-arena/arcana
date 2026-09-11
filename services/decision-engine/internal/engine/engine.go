@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/arcana/decision-engine/internal/execution"
 	"github.com/arcana/decision-engine/internal/marketdata"
 	"github.com/arcana/decision-engine/internal/store"
 )
@@ -25,6 +26,20 @@ type Engine struct {
 	// deterministic strategy, because an agent that quietly stops being what it
 	// says it is is the worst outcome available here.
 	llmDecider Decider
+
+	// broker is nil unless chain execution is configured. Nil is not a
+	// degraded mode: it is the mode every agent ran in before phase 8, and an
+	// agent with no wallet stays in it regardless. What must never happen is
+	// an agent WITH a wallet settling against snapshot prices in memory while
+	// its funds sit untouched on chain, so that combination refuses instead.
+	broker *execution.Broker
+}
+
+// WithBroker attaches chain execution. Called at boot when a signer, an RPC
+// and an allowlist are all configured; left alone when any of them is missing.
+func (e *Engine) WithBroker(b *execution.Broker) *Engine {
+	e.broker = b
+	return e
 }
 
 func New(st *store.Store, md *marketdata.Client) *Engine {
@@ -37,6 +52,11 @@ func (e *Engine) WithLLM(d Decider) *Engine {
 	e.llmDecider = d
 	return e
 }
+
+// HasBroker reports whether chain execution is attached. The HTTP layer asks
+// because a chain-backed cycle waits for receipts and needs a deadline that
+// reflects it.
+func (e *Engine) HasBroker() bool { return e.broker != nil }
 
 // deciderFor picks who decides this tick.
 //
@@ -139,11 +159,44 @@ func (e *Engine) Execute(ctx context.Context, req ExecuteRequest) (int64, error)
 		}
 	}
 
-	action, symbol, qty, holdings, cash, rationale := applyIntent(intent, prices, holdings, cash)
+	// WHICH SETTLEMENT LAYER. An agent that has a wallet settles on the chain,
+	// because that is where its money is. Everyone else settles the way they
+	// always have. The check is the presence of the wallet row rather than a
+	// flag, so there is no configuration under which an agent can have funds on
+	// chain and a portfolio computed from arithmetic.
+	wallet, werr := e.store.ChainWalletFor(ctx, req.AgentID)
+	if werr != nil {
+		return 0, werr
+	}
+
+	var action, symbol, rationale string
+	var qty *float64
+	var execID *int64
+	if wallet != nil {
+		if e.broker == nil {
+			return 0, fmt.Errorf(
+				"agent %s holds a wallet at %s but chain execution is not configured; refusing to "+
+					"settle its decision against snapshot prices while its funds sit on chain",
+				req.AgentID, wallet.Address)
+		}
+		var cerr error
+		action, symbol, qty, holdings, cash, rationale, execID, ev, cerr =
+			e.settleOnChain(ctx, req, portfolio.ID, wallet, intent, prices, holdings, cash, ev)
+		if cerr != nil {
+			return 0, cerr
+		}
+	} else {
+		action, symbol, qty, holdings, cash, rationale = applyIntent(intent, prices, holdings, cash)
+	}
 
 	decisionID, err := e.persist(ctx, req, portfolio.ID, action, symbol, qty, holdings, cash, prices, rationale)
 	if err != nil {
 		return 0, err
+	}
+	if execID != nil {
+		if err := e.store.LinkExecutionToDecision(ctx, *execID, decisionID); err != nil {
+			log.Printf("ERROR execution %d recorded but not linked to decision %d: %v", *execID, decisionID, err)
+		}
 	}
 
 	// Evidence is attached after the decision exists. A failure here loses the
@@ -368,10 +421,21 @@ func qtyFromHoldings(h map[string]any, sym string) float64 {
 	return 0
 }
 
+// moneyPtr formats a traded QUANTITY for decisions.quantity.
+//
+// It used to write "%.2f", which is right for whole shares of a US equity and
+// wrong for anything fractional. A chain-backed agent sold 0.00614483287630944
+// AAPL and the row said 0.01 — a number that is not what the model asked for,
+// not what the chain filled, and larger than the agent's entire holding. The
+// column is numeric(20,8) and always was; only the writer was rounding.
+//
+// Eight decimals, matching the column. Beyond that the value would be silently
+// truncated by Postgres, and a quantity that does not match the execution row
+// is the whole failure this path exists to prevent.
 func moneyPtr(v *float64) *string {
 	if v == nil {
 		return nil
 	}
-	s := fmt.Sprintf("%.2f", *v)
+	s := strconv.FormatFloat(*v, 'f', 8, 64)
 	return &s
 }

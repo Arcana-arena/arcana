@@ -94,17 +94,29 @@ let paused = false, blocked = false, rpcCalls = 0;
 // needs both, because the whole point of the exception is that answering and
 // reverting-as-recorded lead to different outcomes.
 let blockedRevert = null;
+const recordedRevertFor = (addr) => {
+  const all = [prod.quote_token, ...prod.tokens];
+  const t = all.find((x) => x.address.toLowerCase() === String(addr).toLowerCase());
+  return t?.blocklist_unreadable?.revert_data ?? '0x';
+};
 const word = (v) => '0x' + (v ? '1' : '0').padStart(64, '0');
 const rpc = createServer((req, res) => {
   let b = ''; req.on('data', (c) => (b += c));
   req.on('end', () => {
     rpcCalls++;
     let id = 1, data = '';
-    try { const j = JSON.parse(b); id = j.id; data = j.params?.[0]?.data || ''; } catch {}
+    let to = '';
+    try { const j = JSON.parse(b); id = j.id; data = j.params?.[0]?.data || ''; to = j.params?.[0]?.to || ''; } catch {}
     res.writeHead(200, { 'content-type': 'application/json' });
     if (data.startsWith('0xfbac3951') && blockedRevert !== null) {
+      // 'auto' reverts with whatever the ALLOWLIST records for this token, which
+      // is what the real chain does — USDG returns a custom error and the stock
+      // tokens return nothing. One payload for every token would make the
+      // exception refuse correctly and for the wrong reason, and then every
+      // check downstream of it would be testing the refusal instead of itself.
+      const payload = blockedRevert === 'auto' ? recordedRevertFor(to) : blockedRevert;
       res.end(JSON.stringify({ jsonrpc: '2.0', id,
-        error: { code: 3, message: 'execution reverted', data: blockedRevert } }));
+        error: { code: 3, message: 'execution reverted', data: payload } }));
       return;
     }
     let result = word(false);
@@ -238,6 +250,40 @@ try {
     if (code(x) === 'daily_signature_cap') { capped = i; break; }
   }
   check('signing stops at the cap', capped !== null, 'the cap never fired');
+
+  // === THE POOL FEE COMES FROM THE PAIR, NOT FROM ONE SIDE ================
+  //
+  // Read from token_out, the fee is right for a BUY (token_out is the stock
+  // token, which carries pool_fee) and zero for a SELL (token_out is the quote
+  // token, whose entry has none). A fee of zero is not a fee tier: the router
+  // derives a pool address from it, finds no contract, and reverts with no
+  // message for about 30k gas. Two real sells did exactly that before this was
+  // found, both costing gas and moving nothing.
+  console.log('\n=== The pool fee is resolved from the pair ===');
+  const feeOf = (raw) => {
+    const d = raw.slice(2);
+    // selector(4) then tokenIn, tokenOut, fee, ...
+    return BigInt('0x' + d.slice(8 + 64 * 2, 8 + 64 * 3));
+  };
+  const stockFee = BigInt(prod.tokens.find((t) => t.symbol === 'AAPL').pool_fee);
+  // The calldata is recovered from the signed transaction, not from the
+  // response, so what is checked is what would actually be broadcast.
+  const txDataOf = (res) => viem.parseTransaction(res.body.raw).data;
+
+  paused = false; blocked = false; blockedRevert = 'auto';
+  r = await sign(okSwap({ agent_id: randomUUID() }));
+  const buyFee = ok2(r) ? feeOf(txDataOf(r)) : null;
+  check('a BUY carries the stock token fee tier',
+    buyFee === stockFee, `${code(r)} fee=${buyFee}`);
+
+  r = await sign(okSwap({ agent_id: randomUUID(), token_in: AAPL, token_out: USDG, amount: '1000000000000000' }));
+  const sellFee = ok2(r) ? feeOf(txDataOf(r)) : null;
+  check('a SELL carries the SAME fee tier, not zero',
+    sellFee === stockFee, `${code(r)} fee=${sellFee} — zero here is a pool that does not exist`);
+
+  r = await sign(okSwap({ agent_id: randomUUID(), token_in: USDG, token_out: USDG }));
+  check('quote token on both sides is refused',
+    code(r) === 'token_in_equals_token_out', code(r));
 
   // === THE BLOCKLIST EXCEPTION ============================================
   //

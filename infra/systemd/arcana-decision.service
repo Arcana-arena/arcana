@@ -11,6 +11,18 @@ WorkingDirectory=/home/ubuntu/arcana/services/decision-engine
 Environment=DATABASE_URL=postgres://arcana:arcana@localhost:5432/arcana?sslmode=disable
 Environment=PORT=8081
 Environment=MARKET_DATA_URL=http://localhost:8083
+
+# Chain execution. All four or none: two of them would boot a service where an
+# agent has a wallet and no way to trade from it, and the symptom would be a
+# portfolio drifting further from its own funds every tick.
+#
+# The allowlist is the SIGNER'S file, not a copy. A second list of token
+# addresses would drift from the one the signer enforces, and the first symptom
+# would be the engine building swaps the signer refuses.
+Environment=SIGNER_URL=http://127.0.0.1:8085
+Environment=EXECUTION_ALLOWLIST_FILE=/home/ubuntu/arcana/services/signer/allowlist/robinhood-mainnet.json
+Environment=EXECUTION_RPC_URLS=https://robinhood-rpc.publicnode.com,https://rpc.mainnet.chain.robinhood.com
+Environment=EXECUTION_SLIPPAGE_BPS=100
 # Secrets (AUTH_JWT_SIGNING_KEY, INTERNAL_API_KEY) come from this file at
 # mode 600. They are NEVER inline here: unit files are world-readable and
 # systemctl show prints Environment= to any user.

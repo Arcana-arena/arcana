@@ -168,6 +168,7 @@ const (
 	CodeTokenPaused    = "token_paused"
 	CodeChainUnverifiable = "chain_state_unverifiable"
 	CodeChainMismatch  = "chain_id_mismatch"
+	CodeNoPoolFee      = "pool_fee_unknown"
 )
 
 // Token returns an allowlisted token, or a refusal naming the address.
@@ -264,4 +265,51 @@ func unitsOf(amount *big.Int, decimals int) float64 {
 	div := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil))
 	v, _ := new(big.Float).Quo(f, div).Float64()
 	return v
+}
+
+// PoolFeeFor resolves the fee tier of the pool a swap must route through.
+//
+// THE FEE BELONGS TO THE PAIR, NOT TO ONE SIDE. The first version read it from
+// token_out, which is correct for a buy — token_out is the stock token, and
+// that is where pool_fee is recorded — and silently wrong for a SELL, where
+// token_out is the quote token and its allowlist entry has no pool_fee at all.
+// A fee of 0 is not a fee tier: the router derives the pool address from it,
+// derives an address with no contract at it, and reverts with no message for
+// about 30k gas. Every sell this service ever signed would have done that, and
+// the only reason nobody noticed is that the first real trade was a buy.
+//
+// So the fee is taken from whichever side is NOT the quote token, and a pair
+// that does not have exactly one such side is refused rather than guessed at.
+func (a *Allowlist) PoolFeeFor(tokenIn, tokenOut string) (uint32, *Refusal) {
+	q := norm(a.QuoteToken.Address)
+	inIsQuote, outIsQuote := norm(tokenIn) == q, norm(tokenOut) == q
+
+	var side string
+	switch {
+	case inIsQuote && outIsQuote:
+		return 0, refuse(CodeSameToken, "both sides of this swap are the quote token")
+	case inIsQuote:
+		side = tokenOut
+	case outIsQuote:
+		side = tokenIn
+	default:
+		return 0, refuse(CodeNoPoolFee,
+			"neither %s nor %s is the quote token %s, so there is no pool this service knows how "+
+				"to route through. Stock-to-stock swaps are not something the allowlist describes",
+			tokenIn, tokenOut, a.QuoteToken.Address)
+	}
+
+	t, ref := a.Token(side)
+	if ref != nil {
+		return 0, ref
+	}
+	if t.PoolFee == 0 {
+		// Refusing rather than signing. A transaction built on a fee tier of
+		// zero is guaranteed to revert, and signing it would spend the agent's
+		// gas to discover something knowable here for free.
+		return 0, refuse(CodeNoPoolFee,
+			"%s has no pool_fee in the allowlist, so the pool to route through is unknown. "+
+				"Refusing rather than signing a transaction that would revert", t.Symbol)
+	}
+	return t.PoolFee, nil
 }

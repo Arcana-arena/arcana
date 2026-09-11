@@ -61,7 +61,14 @@ export class AgentsService {
       name: dto.name,
       version,
       parentAgentId: dto.parentAgentId ?? null,
-      strategyType: dto.strategyType ?? null,
+      // A MANDATE IMPLIES A MODEL. The mandate is prose addressed to an LLM;
+      // the deterministic strategies never read it. An agent built from a
+      // template and left with no strategy_type therefore ran momentum or
+      // mean-reversion while its mandate sat in the row doing nothing, and
+      // nothing anywhere said so -- the agent simply was not what its own
+      // record described. An explicit strategyType still wins, because asking
+      // for a deterministic strategy is a real thing to want.
+      strategyType: dto.strategyType ?? (m.template ? 'llm' : null),
       riskProfile: dto.riskProfile ? JSON.parse(dto.riskProfile) : {},
       assetUniverse: dto.assetUniverse,
       mandate: m.mandate,
