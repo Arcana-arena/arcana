@@ -113,6 +113,40 @@ func New(urls []string, chainID int64, ttl time.Duration) *Client {
 // ErrUnverifiable means the chain could not be read. The caller must refuse.
 var ErrUnverifiable = fmt.Errorf("chain state could not be read")
 
+// RevertError is a call that reached the chain and was rejected BY THE
+// CONTRACT, carrying whatever the contract returned.
+//
+// WHY THE DATA IS KEPT rather than flattened into a message. A revert with an
+// empty payload and a revert with a custom-error selector are different facts
+// about a contract, and one of them is how you tell "this function does not
+// exist" from "this function said no". The allowlist can record the exact
+// payload a token is known to produce, and the signer can then check that the
+// token STILL produces it — which is the only way an exception can expire on
+// its own instead of outliving its reason. Flattening the payload into prose
+// would make that comparison impossible.
+//
+// It is still an ErrUnverifiable: a caller that does not care about the
+// payload keeps refusing exactly as before.
+type RevertError struct {
+	Message string
+	Data    string
+}
+
+func (e *RevertError) Error() string {
+	if e.Data != "" {
+		return fmt.Sprintf("%v: %s (revert data %s)", ErrUnverifiable, e.Message, e.Data)
+	}
+	return fmt.Sprintf("%v: %s (revert with no data)", ErrUnverifiable, e.Message)
+}
+
+func (e *RevertError) Unwrap() error { return ErrUnverifiable }
+
+// isRevert distinguishes the contract saying no from the network failing to
+// ask. Node implementations word it differently; all of them say "revert".
+func isRevert(msg string) bool {
+	return strings.Contains(strings.ToLower(msg), "revert")
+}
+
 func (c *Client) call(ctx context.Context, to, data string) (string, error) {
 	body, _ := json.Marshal(map[string]any{
 		"jsonrpc": "2.0", "id": 1, "method": "eth_call",
@@ -137,6 +171,7 @@ func (c *Client) call(ctx context.Context, to, data string) (string, error) {
 			Result string `json:"result"`
 			Error  *struct {
 				Message string `json:"message"`
+				Data    string `json:"data"`
 			} `json:"error"`
 		}
 		if err := json.Unmarshal(raw, &parsed); err != nil {
@@ -144,6 +179,14 @@ func (c *Client) call(ctx context.Context, to, data string) (string, error) {
 			continue
 		}
 		if parsed.Error != nil {
+			// A REVERT IS NOT A REASON TO ASK ANOTHER NODE. It is the
+			// contract's own answer and every honest node returns it, so
+			// retrying elsewhere only blurs a deterministic contract fact into
+			// what looks like a transport problem. Transport failures still
+			// fall through to the next URL below.
+			if isRevert(parsed.Error.Message) {
+				return "", &RevertError{Message: parsed.Error.Message, Data: parsed.Error.Data}
+			}
 			lastErr = fmt.Errorf("%s", parsed.Error.Message)
 			continue
 		}

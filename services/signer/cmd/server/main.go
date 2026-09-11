@@ -17,6 +17,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -346,9 +347,36 @@ func (s *server) chainChecks(ctx context.Context, token, wallet string) *policy.
 	}
 	blocked, err := s.chain.Blocked(ctx, token, wallet)
 	if err != nil {
-		// isBlocked() reverts on these tokens today (see the go/no-go test), so
-		// this is the expected path. It is still a refusal: an unreadable
-		// blocklist is not an empty one.
+		// AN UNREADABLE BLOCKLIST IS STILL NOT AN EMPTY ONE. The default here
+		// is refusal, and it stays refusal for every token that has not been
+		// examined and written down.
+		//
+		// What changes it is a per-token record in the allowlist saying this
+		// token HAS no isBlocked() — with the revert payload proving it, and a
+		// control selector that exists nowhere returning the same payload. The
+		// exception is checked against the chain right here, on every
+		// signature, rather than trusted from the file: if the token starts
+		// answering, err is nil and this branch is not even reached; if it
+		// reverts differently, the recorded evidence no longer describes the
+		// contract and the exception is void. That is how it expires without
+		// anybody remembering to expire it.
+		tok, listErr := s.allow.Token(token)
+		if listErr == nil && tok.BlocklistUnreadable != nil {
+			var rev *chain.RevertError
+			if errors.As(err, &rev) {
+				if tok.BlocklistUnreadable.Matches(rev.Data) {
+					return nil
+				}
+				return &policy.Refusal{Code: policy.CodeChainUnverifiable, Detail: fmt.Sprintf(
+					"%s records isBlocked() as absent, reverting with %q when verified %s — it now reverts "+
+						"with %q. The contract changed, so the recorded evidence no longer describes it and "+
+						"the exception does not apply. Re-verify and update the allowlist",
+					tok.Symbol, tok.BlocklistUnreadable.RevertData, tok.BlocklistUnreadable.VerifiedAt, rev.Data)}
+			}
+			return &policy.Refusal{Code: policy.CodeChainUnverifiable, Detail: fmt.Sprintf(
+				"%s records isBlocked() as absent, but the call did not reach the contract at all: %v. "+
+					"A network failure is not evidence about a blocklist", tok.Symbol, err)}
+		}
 		return &policy.Refusal{Code: policy.CodeChainUnverifiable, Detail: fmt.Sprintf(
 			"could not read isBlocked(%s) on %s: %v. Refusing rather than assuming the wallet is clear",
 			wallet, token, err)}

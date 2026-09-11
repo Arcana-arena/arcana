@@ -30,6 +30,43 @@ type Token struct {
 	Decimals int    `json:"decimals"`
 	Pool     string `json:"pool"`
 	PoolFee  uint32 `json:"pool_fee"`
+
+	// BlocklistUnreadable, when present, records that THIS token has no
+	// readable isBlocked(), with the evidence for it. Absent means the check
+	// applies in full, which is what every token gets by default.
+	BlocklistUnreadable *BlocklistException `json:"blocklist_unreadable,omitempty"`
+}
+
+// BlocklistException is a per-token, evidence-carrying record that a token's
+// isBlocked() cannot be read — and the exact chain behaviour that says so.
+//
+// WHY THIS IS NOT A FLAG. "Skip the blocklist check" as a boolean would be one
+// line that disables a safety control everywhere, forever, with nothing to
+// re-check and nothing to expire. This is the opposite shape: it names one
+// token, it carries the payload that token is known to return, and the signer
+// compares against that payload EVERY TIME IT SIGNS. The day the token starts
+// answering, the exception stops applying on its own, because the recorded
+// behaviour no longer matches what the chain does.
+//
+// WHY A CONTROL SELECTOR IS REQUIRED for an empty-data revert. A revert with
+// no payload is exactly what a contract returns for a function that does not
+// exist — and also what a real function could return. Calling a selector that
+// certainly exists nowhere (0xdeadbeef) and observing the SAME payload is what
+// turns "isBlocked reverted" into "this contract has no such function". For a
+// custom-error payload the control is just as necessary: USDG returns
+// 0x800ab12c for 0xdeadbeef too, which is how that payload was shown to be its
+// unknown-selector error rather than a blocklist answer.
+type BlocklistException struct {
+	VerifiedAt        string `json:"verified_at"`
+	RevertData        string `json:"revert_data"`
+	ControlSelector   string `json:"control_selector"`
+	ControlRevertData string `json:"control_revert_data"`
+	Note              string `json:"note"`
+}
+
+// Matches reports whether an observed revert payload is the one recorded.
+func (e *BlocklistException) Matches(observed string) bool {
+	return strings.EqualFold(strings.TrimSpace(observed), strings.TrimSpace(e.RevertData))
 }
 
 type Limits struct {
@@ -67,6 +104,33 @@ func Load(path string) (*Allowlist, error) {
 		a.byToken[norm(t.Address)] = t
 	}
 	a.byToken[norm(a.QuoteToken.Address)] = a.QuoteToken
+
+	// An exception without its evidence is a note nobody can re-check later,
+	// which is how a temporary workaround becomes permanent. Refusing to load
+	// is the only response that cannot be ignored.
+	for _, t := range a.byToken {
+		ex := t.BlocklistUnreadable
+		if ex == nil {
+			continue
+		}
+		switch {
+		case strings.TrimSpace(ex.VerifiedAt) == "":
+			return nil, fmt.Errorf("allowlist: %s carries a blocklist exception with no verified_at date", t.Symbol)
+		case strings.TrimSpace(ex.RevertData) == "":
+			return nil, fmt.Errorf(
+				"allowlist: %s carries a blocklist exception with no revert_data. The recorded payload is "+
+					"what makes the exception expire on its own; without it there is nothing to compare against", t.Symbol)
+		case strings.TrimSpace(ex.ControlSelector) == "" || strings.TrimSpace(ex.ControlRevertData) == "":
+			return nil, fmt.Errorf(
+				"allowlist: %s carries a blocklist exception with no control. A revert only proves the function "+
+					"is absent if a selector that exists nowhere returns the same payload", t.Symbol)
+		case !strings.EqualFold(ex.RevertData, ex.ControlRevertData):
+			return nil, fmt.Errorf(
+				"allowlist: %s records isBlocked() reverting with %s but its control selector %s reverting with %s. "+
+					"Different payloads mean isBlocked() is answering something, not missing", t.Symbol,
+				ex.RevertData, ex.ControlSelector, ex.ControlRevertData)
+		}
+	}
 	a.byRouter = map[string]bool{}
 	for _, r := range a.Routers {
 		a.byRouter[norm(r)] = true
