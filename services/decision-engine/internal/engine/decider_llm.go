@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 
@@ -78,8 +79,8 @@ const decisionSchema = `{
   "action": "buy" | "sell" | "hold",
   "symbol": "<one of the symbols listed above, or null when holding>",
   "size_pct": <0.0-1.0, fraction of NAV to commit; 0 when holding>,
-  "stop_loss_pct": <0.0-0.95, exit automatically if this falls that far below your entry; 0 for none>,
-  "take_profit_pct": <0.0+, exit automatically if this rises that far above your entry; 0 for none>,
+  "stop_loss_fraction": <0.0-0.95, a FRACTION and not a percentage: 0.0015 means 0.15%, 0.05 means 5%. Exit automatically if the price falls that far below your entry. 0 for none>,
+  "take_profit_fraction": <0.0+, the same scale: 0.0015 means 0.15%, 0.05 means 5%. Exit automatically if the price rises that far above your entry. 0 for none>,
   "rationale": "<why this, now, in one or two sentences>",
   "thesis": {
     "claim": "<what you expect to happen, specifically>",
@@ -97,13 +98,26 @@ RULES, which are enforced in code after you answer — breaking them wastes the 
 - If nothing is worth doing, hold. Holding is a decision, not a failure, and an
   agent that trades on every tick pays fees on every tick.
 
-PROTECTIVE LEVELS. On a BUY you may set stop_loss_pct and take_profit_pct.
+PROTECTIVE LEVELS. On a BUY you may set stop_loss_fraction and
+take_profit_fraction.
+
+THEY ARE FRACTIONS, NOT PERCENTAGES, and the difference is a hundredfold:
+
+    an owner asking for 0.15%  ->  0.0015
+    an owner asking for 5%     ->  0.05
+    an owner asking for 15%    ->  0.15
+
+Read the mandate's number carefully and convert it. 0.15 is a valid answer and
+means fifteen percent; if the owner wrote "0.15%" and you answer 0.15, the
+position is guarded a hundred times more loosely than they asked for and
+nothing can tell that it was a mistake.
+
 They are watched continuously between ticks by a separate process, so they can
 fire long before you are asked again — that is what they are for. They are
 measured from the price you actually pay, not the price you see now. A level
 inside the round trip of the pool you are trading is refused, because it would
-fire on the cost of your own entry rather than on a move: that is 0.1% on the
-tight pools and 0.6% on the wide ones. Both are optional; set 0 for none. They
+fire on the cost of your own entry rather than on a move: that is 0.001 on the
+tight pools and 0.006 on the wide ones. Both are optional; set 0 for none. They
 are ignored on a sell or a hold.
 
 You must state a THESIS: what you expect to happen, over how many ticks, and
@@ -233,11 +247,16 @@ func (d *llmDecider) Decide(ctx context.Context, in DeciderInput) (tradeIntent, 
 		// risk_profile apply when the model does not ask for its own — a model
 		// that says nothing about stops must not silently remove the ones its
 		// owner configured.
-		g := guardLevels{StopLossPct: parsed.StopLossPct, TakeProfitPct: parsed.TakeProfitPct}
-		if g.StopLossPct <= 0 {
+		sl, slAsked := pickFraction(in.AgentID, "stop_loss", parsed.StopLossFraction, parsed.StopLossPct)
+		tp, tpAsked := pickFraction(in.AgentID, "take_profit", parsed.TakeProfitFraction, parsed.TakeProfitPct)
+		g := guardLevels{StopLossPct: sl, TakeProfitPct: tp}
+		// THE STANDING INSTRUCTION APPLIES ONLY WHEN THE MODEL SAID NOTHING.
+		// An explicit 0 is an answer — "no level here" — and overriding it with
+		// the owner's standing one would arm something the model declined.
+		if !slAsked {
 			g.StopLossPct = in.Limits.StopLossPct
 		}
-		if g.TakeProfitPct <= 0 {
+		if !tpAsked {
 			g.TakeProfitPct = in.Limits.TakeProfitPct
 		}
 		return tradeIntent{Action: "buy", Symbol: parsed.Symbol, Quantity: qty,
@@ -415,11 +434,33 @@ func buildPrompt(in DeciderInput) string {
 // ---------------------------------------------------------------------------
 
 type llmDecision struct {
-	Action        string  `json:"action"`
-	Symbol        string  `json:"symbol"`
-	SizePct       float64 `json:"size_pct"`
-	StopLossPct   float64 `json:"stop_loss_pct"`
-	TakeProfitPct float64 `json:"take_profit_pct"`
+	Action  string  `json:"action"`
+	Symbol  string  `json:"symbol"`
+	SizePct float64 `json:"size_pct"`
+
+	// PROTECTIVE LEVELS, UNDER TWO NAMES.
+	//
+	// `stop_loss_pct` was the original field, ranged 0.0-0.95, and it was a
+	// FRACTION with "pct" in its name. On two consecutive live ticks the same
+	// mandate — "get out if it drops 0.15% below what you paid" — produced
+	// 0.0015 and then 0.15: the correct level, and then one a hundred times
+	// wider. Nothing could catch the second, because 0.15 is a perfectly valid
+	// fraction. There is no downstream truth to check it against; the only
+	// thing that can be fixed is the contract itself.
+	//
+	// So the field is now `stop_loss_fraction`, the prompt carries a worked
+	// example, and the old name is STILL READ — a model that answers in it must
+	// not silently arm nothing, which would be a stop loss that does not exist.
+	// When the old name arrives it is logged, because a name nobody is told is
+	// deprecated is a name that never goes away.
+	//
+	// Pointers, so "absent" is distinguishable from "zero": an explicit 0 means
+	// NO LEVEL and must not be overridden by the owner's standing instruction,
+	// while absence means the model said nothing and the standing one applies.
+	StopLossFraction   *float64 `json:"stop_loss_fraction"`
+	TakeProfitFraction *float64 `json:"take_profit_fraction"`
+	StopLossPct        *float64 `json:"stop_loss_pct"`
+	TakeProfitPct      *float64 `json:"take_profit_pct"`
 	Rationale     string  `json:"rationale"`
 	Confidence    float64 `json:"confidence"`
 	Thesis     struct {
@@ -477,4 +518,30 @@ func parseDecision(text string) (llmDecision, error) {
 		return d, errors.New("no action field")
 	}
 	return d, nil
+}
+
+// pickFraction resolves a protective level that may arrive under either name.
+//
+// Returns the value and whether the model ASKED AT ALL. The second return is
+// what keeps an explicit zero — "no level on this trade" — from being quietly
+// replaced by the owner's standing instruction: both are legitimate answers and
+// they mean opposite things.
+//
+// The retired name still works, and its arrival is logged. A deprecated field
+// that nobody is told about is a field that never goes away, and this one is
+// worth retiring: `stop_loss_pct` was a fraction with "pct" in its name, and on
+// two consecutive live ticks one mandate produced 0.0015 and then 0.15 — the
+// level the owner asked for, and then one a hundred times wider.
+func pickFraction(agentID, which string, fresh, retired *float64) (float64, bool) {
+	if fresh != nil {
+		return *fresh, true
+	}
+	if retired != nil {
+		log.Printf("agent %s: the model answered in the retired field %s_pct (%.6f). It is read as "+
+			"a FRACTION, so this is %.4f%%. Answer in %s_fraction instead — the name is the only "+
+			"thing that can tell a level apart from one a hundred times wider",
+			agentID, which, *retired, *retired*100, which)
+		return *retired, true
+	}
+	return 0, false
 }

@@ -24,7 +24,7 @@ import { OwnershipService } from '../auth/ownership.service';
 import { DecisionClient } from '../decisions/decision.client';
 import { MANDATE_TEMPLATES, MANDATE_MAX_CHARS } from './mandate-templates';
 import { parsePage } from '../common/pagination';
-import { unrecognisedRiskKeys } from './risk-profile';
+import { ambiguousRiskKeys, unrecognisedRiskKeys } from './risk-profile';
 
 /**
  * The agent, plus every risk_profile key nothing will read.
@@ -38,16 +38,38 @@ import { unrecognisedRiskKeys } from './risk-profile';
  */
 function withRiskWarnings<T extends { riskProfile?: unknown }>(agent: T) {
   const unknown = unrecognisedRiskKeys(agent.riskProfile);
-  if (unknown.length === 0) return agent;
-  return {
-    ...agent,
-    risk_profile_unrecognised: unknown,
-    risk_profile_note:
+  const ambiguous = ambiguousRiskKeys(agent.riskProfile);
+  if (unknown.length === 0 && ambiguous.length === 0) return agent;
+
+  const out: Record<string, unknown> = { ...agent };
+  if (unknown.length > 0) {
+    out.risk_profile_unrecognised = unknown;
+    out.risk_profile_note =
       unknown.length +
       ' key(s) in risk_profile are not read by the decision engine and will have no ' +
       'effect: ' + unknown.join(', ') + '. Nothing was refused and the values are stored ' +
-      'as given; see docs/agents.md for the keys that are read.',
-  };
+      'as given; see docs/agents.md for the keys that are read.';
+  }
+  // A RETIRED KEY IS NOT AN UNREAD ONE, and folding the two together would
+  // tell an owner their working stop loss does nothing. It works; it is just
+  // named in a way that has already cost somebody a hundredfold.
+  if (ambiguous.length > 0) {
+    out.risk_profile_ambiguous = ambiguous.map((a) => a.key);
+    out.risk_profile_ambiguous_note = ambiguous
+      .map((a) =>
+        `${a.key} is read as a FRACTION, so ${a.value} means ` +
+        asPercent(a.value) +
+        `. It still works; write ${a.use} instead so the number cannot be misread.`)
+      .join(' ');
+  }
+  return out;
+}
+
+/** 0.0015 -> "0.15%". Trailing zeros trimmed so the number reads like a number. */
+function asPercent(v: unknown): string {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return String(v);
+  return n.toFixed(4).replace(/0+$/, '').replace(/\.$/, '') + '%';
 }
 
 /**

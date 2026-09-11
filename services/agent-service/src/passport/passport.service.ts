@@ -70,6 +70,7 @@ export class PassportService {
     const dna = await this.loadDna(agentId);
     const lineage = await this.loadLineage(agentId, agent.version);
     const badges = ranked ? await this.loadBadges(agentId, seasons, scores.series) : [];
+    const protection = await this.loadProtection(agentId);
 
     // Only agents that actually have a lineage pay for the evolution read: it
     // loads the market index, and most agents are a single version with nothing
@@ -140,6 +141,21 @@ export class PassportService {
               'decided by a level rather than by the agent.'
             : 'Every trade was the agent\'s own decision.',
       },
+      // WHAT IS WATCHING THE OPEN POSITIONS, AND AT WHAT NUMBER.
+      //
+      // Until now an armed level existed only inside the rationale of the
+      // decision that opened the position — true, and findable only by someone
+      // who already suspected something. That is how an owner who wrote "get
+      // out if it drops 0.15%" ended up with a stop 15% away and no way to see
+      // it: both numbers are legitimate, the record stated the one that was
+      // armed, and nobody was ever shown the two side by side.
+      //
+      // THIS IS VISIBILITY, NOT A LIMIT. A 15% stop is a perfectly good stop if
+      // that is what its owner wanted; what was wrong was that it was not what
+      // they asked for. Nothing here refuses a wide level, and nothing here
+      // refuses a narrow one — the percentage is simply stated, in words, where
+      // the owner is already looking.
+      protection,
       season_records: seasons,
       score_history: {
         runs: scores.series.length,
@@ -179,6 +195,99 @@ export class PassportService {
     );
     if (rows.length === 0) throw new NotFoundException(`Agent ${agentId} not found`);
     return rows[0];
+  }
+
+  /**
+   * Armed levels and unprotected positions, as one answer.
+   *
+   * Both statuses in one query and one block, because the question an owner has
+   * is "what is watching my positions" and the honest answer includes the
+   * positions nothing is watching. Splitting them would let the empty half go
+   * unnoticed, which is the failure mode this exists for.
+   */
+  private async loadProtection(agentId: string) {
+    const rows = await this.db.query(
+      `SELECT id, symbol, status,
+              entry_price::float8        AS entry_price,
+              entry_qty::float8          AS entry_qty,
+              stop_loss::float8          AS stop_loss,
+              take_profit::float8        AS take_profit,
+              stop_loss_pct::float8      AS stop_loss_fraction,
+              take_profit_pct::float8    AS take_profit_fraction,
+              min_acceptable_pct::float8 AS min_acceptable_fraction,
+              set_at, last_refusal_at, last_refusal_reason, note
+         FROM position_guards
+        WHERE agent_id = $1 AND subscription_id IS NULL AND status IN ('armed', 'refused')
+        ORDER BY set_at DESC`,
+      [agentId],
+    );
+    const pct = (v: number | null) =>
+      v === null || v === undefined ? null : Number((v * 100).toFixed(4));
+    const armed = rows
+      .filter((g: any) => g.status === 'armed')
+      .map((g: any) => ({
+        symbol: g.symbol,
+        entry_price: g.entry_price,
+        stop_loss: g.stop_loss,
+        take_profit: g.take_profit,
+        // BOTH SCALES, NAMED. The fraction is what the agent asked for and what
+        // the engine stores; the percent is what a person reads. Printing only
+        // one of them is how 0.15 and 0.15% became the same thing.
+        stop_loss_fraction: g.stop_loss_fraction,
+        stop_loss_percent: pct(g.stop_loss_fraction),
+        take_profit_fraction: g.take_profit_fraction,
+        take_profit_percent: pct(g.take_profit_fraction),
+        set_at: g.set_at,
+        held_back_since: g.last_refusal_at,
+        held_back_because: g.last_refusal_reason,
+      }));
+    const unprotected = rows
+      .filter((g: any) => g.status === 'refused')
+      .map((g: any) => ({
+        symbol: g.symbol,
+        entry_price: g.entry_price,
+        smallest_accepted_fraction: g.min_acceptable_fraction,
+        smallest_accepted_percent: pct(g.min_acceptable_fraction),
+        because: g.note,
+      }));
+    return { armed, unprotected, note: this.protectionNote(armed, unprotected) };
+  }
+
+  /** One sentence stating the numbers, so a wrong one is visible rather than findable. */
+  private protectionNote(armed: any[], unprotected: any[]): string {
+    const parts: string[] = [];
+    for (const g of armed) {
+      const bits: string[] = [];
+      if (g.stop_loss_percent !== null) {
+        bits.push(`a stop ${g.stop_loss_percent}% below the ${g.entry_price} paid (${g.stop_loss})`);
+      }
+      if (g.take_profit_percent !== null) {
+        bits.push(`a target ${g.take_profit_percent}% above it (${g.take_profit})`);
+      }
+      if (bits.length) parts.push(`${g.symbol} is watched by ${bits.join(' and ')}.`);
+      if (g.held_back_since) {
+        parts.push(`${g.symbol} crossed a level and the exit was NOT taken: ${g.held_back_because}.`);
+      }
+    }
+    for (const g of unprotected) {
+      parts.push(
+        `${g.symbol} is OPEN AND UNPROTECTED` +
+        (g.smallest_accepted_percent !== null
+          ? ` — the smallest level its pool accepts is ${g.smallest_accepted_percent}%`
+          : '') + '.');
+    }
+    if (parts.length === 0) {
+      return 'No protective levels are set. That is not a failure — a level is armed only when ' +
+        'one is asked for — but nothing is watching these positions between ticks.';
+    }
+    // SAID IN WORDS, because the whole point is that a number in a field is
+    // easy to skim past and a sentence naming it is not.
+    parts.push(
+      'These are the levels actually armed, measured from the price actually paid. If one of ' +
+      'them is not the number you asked for in the mandate or the risk profile, it is the ' +
+      'number that will fire: write the level as a FRACTION (0.0015 is 0.15%, 0.05 is 5%) ' +
+      'under stop_loss_fraction or take_profit_fraction.');
+    return parts.join(' ');
   }
 
   private async loadParticipation(agentId: string) {

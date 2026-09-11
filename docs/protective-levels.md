@@ -48,12 +48,12 @@ decided".
 Two routes, and the second is the one the free prompt opened.
 
 **The risk profile**, for an owner who wants a standing rule:
-`risk_profile.stop_loss_pct` / `take_profit_pct`. Applied to every position the
-agent opens, including those a coded strategy opens — a deterministic strategy
-has no way to ask for a level.
+`risk_profile.stop_loss_fraction` / `take_profit_fraction`. Applied to every
+position the agent opens, including those a coded strategy opens — a
+deterministic strategy has no way to ask for a level.
 
-**The model**, per trade. The output contract gained `stop_loss_pct` and
-`take_profit_pct`, so a mandate written in the owner's own words —
+**The model**, per trade. The output contract gained `stop_loss_fraction` and
+`take_profit_fraction`, so a mandate written in the owner's own words —
 
 > get out if it drops 0.15% below what you paid, and take the profit if it rises
 > 0.15% above
@@ -63,6 +63,33 @@ field. The model turns the sentence into a request and the code decides what is
 allowed, which is the same division that makes free prompts safe everywhere
 else: a prompt can be talked out of its instructions, and `resolveGuardLevels`
 cannot.
+
+### The number is a fraction, and the name used to lie about it
+
+The fields were `stop_loss_pct` and `take_profit_pct`, ranged 0.0–0.95, and they
+were **fractions**. On 2026-09-11, two consecutive live ticks from the mandate
+above produced `0.0015` and then `0.15`: the level the owner asked for, and then
+one a hundred times wider, armed at 219.18 against an entry of 257.85.
+
+**Nothing downstream could have caught it.** There is no comparison to make:
+0.15 is a valid fraction, a 15% stop is a legitimate thing to want, and the
+mandate is free text that names no field. The record did not lie — the rationale
+said "15.00% below the 257.8547 paid" — but the instruction was not honoured and
+no refusal said so.
+
+So the only thing that could be fixed was the contract:
+
+* the fields are `stop_loss_fraction` and `take_profit_fraction`;
+* the prompt carries a worked example — 0.15% → 0.0015, 5% → 0.05, 15% → 0.15 —
+  and says plainly what answering 0.15 to a "0.15%" mandate would do;
+* the retired names are **still read**, because a model answering in the old
+  field must not silently arm nothing, and each use is logged;
+* the armed percentage now reaches the owner in `protection` on the Passport
+  rather than living only inside one decision's rationale.
+
+**No width limit was added.** The 15% stop was valid; it simply was not what was
+asked for. Fencing the width would refuse legitimate levels and would still not
+have caught this one.
 
 A per-trade level overrides the standing one. A model that says nothing about
 stops keeps the ones its owner configured.
@@ -291,6 +318,27 @@ position becomes a `refused` row the buyer can read and the watchdog alarms on.
 A *pause* stands the level down temporarily and leaves it armed. An agent nobody
 is paying must not keep signing; a level that will never fire must not keep
 looking like protection.
+
+## Where an owner sees what is armed
+
+`GET /v1/agents/:id/passport` → `protection`:
+
+```json
+"protection": {
+  "armed": [{ "symbol": "AMZN", "entry_price": 257.85468,
+              "stop_loss": 219.17648, "stop_loss_fraction": 0.15, "stop_loss_percent": 15,
+              "take_profit": 296.53288, "take_profit_fraction": 0.15, "take_profit_percent": 15 }],
+  "unprotected": [{ "symbol": "MSFT", "smallest_accepted_percent": 0.6 }],
+  "note": "AMZN is watched by a stop 15% below the 257.85468 paid (219.17648) and a target 15% above it (296.53288). MSFT is OPEN AND UNPROTECTED — the smallest level its pool accepts is 0.6%. These are the levels actually armed…"
+}
+```
+
+Both scales are printed on purpose. The fraction is what the agent asked for and
+what the engine stores; the percent is what a person reads. Printing one of them
+is how 0.15 and 0.15% became the same thing.
+
+A subscriber sees the same shape for their own wallet at
+`GET /v1/subscriptions/:id/book` → `protection`.
 
 ## Files
 

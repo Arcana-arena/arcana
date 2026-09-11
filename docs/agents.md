@@ -133,15 +133,41 @@ patch time.
 | `max_position_pct` | ceiling on one symbol as a fraction of NAV | 0.35 |
 | `cash_floor_pct` | fraction of NAV never spent | 0.05 |
 | `rebalance_band_pct` | price move required before the agent acts at all | 0.003 |
-| `stop_loss_pct` | exit automatically this far below the price paid | none |
-| `take_profit_pct` | exit automatically this far above the price paid | none |
+| `stop_loss_fraction` | exit automatically this far below the price paid — **a fraction: 0.0015 is 0.15%** | none |
+| `take_profit_fraction` | exit automatically this far above the price paid — same scale | none |
 | `cost_budget_monthly_pct` | stand down when gas and pool fees cross this share of capital per 30 days | none — **unmetered** |
 
-`stop_loss_pct` and `take_profit_pct` are standing levels, armed on every
-position the agent opens. A model that asks for its own on a particular buy
-overrides them for that position; a model that says nothing keeps them. A level
-inside the round trip of the pool being traded is refused with the reason named
-— see [protective-levels.md](./protective-levels.md).
+`stop_loss_fraction` and `take_profit_fraction` are standing levels, armed on
+every position the agent opens. A model that asks for its own on a particular
+buy overrides them for that position; a model that says nothing keeps them. A
+level inside the round trip of the pool being traded is refused with the reason
+named — see [protective-levels.md](./protective-levels.md).
+
+**They are fractions, and the old names said otherwise.** `stop_loss_pct` and
+`take_profit_pct` were the original spellings: a fraction with "pct" in the
+name. On 2026-09-11 that cost a real position — a mandate asking for a stop
+**0.15%** below entry armed one **15%** below, because 0.15 is a perfectly valid
+fraction and nothing downstream can tell which was meant. Two consecutive ticks
+from the same mandate produced both numbers.
+
+The old keys **still work and still arm levels** — renaming a key must never
+silently unprotect an agent that set one months ago — and the create and patch
+responses now name them back in `risk_profile_ambiguous`, stating the
+percentage the platform thinks it was given:
+
+```json
+"risk_profile_ambiguous": ["stop_loss_pct"],
+"risk_profile_ambiguous_note": "stop_loss_pct is read as a FRACTION, so 0.15 means 15%. It still works; write stop_loss_fraction instead so the number cannot be misread."
+```
+
+That is deliberately separate from `risk_profile_unrecognised`: a retired key is
+not an unread one, and folding them together would tell an owner their working
+stop loss does nothing.
+
+**No width limit was added, and none will be.** A 15% stop is a perfectly good
+stop if that is what its owner wanted. What was wrong was not the width but that
+it was not what they asked for, so what was built is visibility — see
+`protection` on the Passport — rather than a fence.
 
 `cost_budget_monthly_pct` was a platform setting until 2026-09-11, applied to
 every agent at 2%. It is now yours and defaults to none. The arithmetic is worth

@@ -30,12 +30,49 @@ export const RISK_PROFILE_KEYS: readonly string[] = [
   'cash_floor_pct', 'cashFloorPct',
   // The move required before acting at all.
   'rebalance_band_pct', 'rebalanceBandPct',
-  // Standing protective levels, armed on every position opened.
+  // Standing protective levels, armed on every position opened. FRACTIONS:
+  // 0.0015 is 0.15%, 0.05 is 5%. Both spellings are read; see AMBIGUOUS_RISK_KEYS.
+  'stop_loss_fraction', 'stopLossFraction',
+  'take_profit_fraction', 'takeProfitFraction',
   'stop_loss_pct', 'stopLossPct',
   'take_profit_pct', 'takeProfitPct',
   // The owner's own transaction cost brake. Absent means unmetered.
   'cost_budget_monthly_pct', 'costBudgetMonthlyPct',
 ];
+
+/**
+ * Keys that still work and should not be used.
+ *
+ * WHY A SECOND LIST RATHER THAN A REMOVAL. `stop_loss_pct` is a FRACTION with
+ * "pct" in its name, and the hundredfold ambiguity that produced is not
+ * theoretical: one mandate asking for a 0.15% stop armed a live position at 15%,
+ * and nothing could catch it because 0.15 is a perfectly valid fraction.
+ *
+ * Removing the key would silently unprotect every agent that already set one,
+ * which is strictly worse than the ambiguity. Leaving it in the whitelist alone
+ * would deprecate it in silence, and a name nobody is told about is a name that
+ * never goes away. So it keeps working, and it is named back to whoever used it.
+ */
+export const AMBIGUOUS_RISK_KEYS: Readonly<Record<string, string>> = {
+  stop_loss_pct: 'stop_loss_fraction',
+  stopLossPct: 'stopLossFraction',
+  take_profit_pct: 'take_profit_fraction',
+  takeProfitPct: 'takeProfitFraction',
+};
+
+/**
+ * Retired keys present in this profile, with what to write instead.
+ *
+ * They are READ and they WORK. This is not a warning that something is broken;
+ * it is the platform saying out loud which number it thinks it was given.
+ */
+export function ambiguousRiskKeys(profile: unknown): { key: string; use: string; value: unknown }[] {
+  if (!profile || typeof profile !== 'object' || Array.isArray(profile)) return [];
+  const p = profile as Record<string, unknown>;
+  return Object.keys(p)
+    .filter((k) => k in AMBIGUOUS_RISK_KEYS)
+    .map((k) => ({ key: k, use: AMBIGUOUS_RISK_KEYS[k], value: p[k] }));
+}
 
 /**
  * Keys in this profile that nothing will read.

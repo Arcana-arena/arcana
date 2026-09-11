@@ -135,10 +135,27 @@ func riskLimitsFrom(profile map[string]any) RiskLimits {
 	//
 	// Not a risk limit, and it does not clamp anything. It is a standing
 	// instruction that a per-trade request overrides.
+	// BOTH NAMES ARE READ, AND THE UNAMBIGUOUS ONE WINS.
+	//
+	// These are FRACTIONS: 0.0015 is 0.15%, 0.05 is 5%. The original names said
+	// "pct" and meant a fraction, and that hundredfold ambiguity produced a
+	// live position guarded at 15% by an owner who had written 0.15%.
+	//
+	// The retired names keep working — an agent that set one months ago must
+	// not silently stop being protected because the platform renamed a key —
+	// and they are read FIRST so that an owner who has written both gets the
+	// unambiguous one. agents.controller.ts names the old key back to whoever
+	// used it, so it is deprecated out loud rather than quietly.
 	if v, ok := get("stop_loss_pct", "stopLossPct"); ok {
 		l.StopLossPct = v
 	}
+	if v, ok := get("stop_loss_fraction", "stopLossFraction"); ok {
+		l.StopLossPct = v
+	}
 	if v, ok := get("take_profit_pct", "takeProfitPct"); ok {
+		l.TakeProfitPct = v
+	}
+	if v, ok := get("take_profit_fraction", "takeProfitFraction"); ok {
 		l.TakeProfitPct = v
 	}
 	// The owner's own cost brake. Absent means unmetered, which is the default
