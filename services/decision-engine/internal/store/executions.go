@@ -17,6 +17,29 @@ type ExecutionInsert struct {
 	AgentID      string
 	DecisionID   *int64
 	TS           time.Time
+
+	// WHOSE FUNDS MOVED. One decision can reach several wallets — the creator's
+	// and one per subscriber — and an execution that cannot say which is one
+	// nobody can reconcile against a balance.
+	//
+	// The agent's score, DNA and Autopsy read only the creator's; a
+	// subscriber's own record reads theirs. Same shape as decisions.decider
+	// separating a protective exit from the agent's own call: the record must
+	// not lie about who an action was for.
+	SubscriptionID *string
+	Wallet         string
+	OnBehalfOf     string // creator | subscriber; empty on rows that predate this
+
+	// GuardID names the armed level that produced this execution.
+	//
+	// WHY THE EXECUTION CARRIES IT RATHER THAN ONLY THE GUARD CARRYING THE
+	// DECISION. A creator's protective exit has a decision row to point at; a
+	// subscriber's has none, because a stop firing in one buyer's wallet at a
+	// price only that wallet crossed is not something the agent decided. The
+	// level is what decided, the level is a row in position_guards, and this is
+	// the link that makes an exit in somebody's wallet traceable to the
+	// instruction that caused it. NULL on every ordinary trade.
+	GuardID *int64
 	IntentAction string
 	Symbol       string
 	TokenIn      string
@@ -82,8 +105,10 @@ func (s *Store) AppendExecution(ctx context.Context, e ExecutionInsert) (int64, 
 		    amount_in, quoted_out, min_out, filled_out, slippage_bps,
 		    tx_hash, block_number, gas_used, gas_price_wei, gas_cost_wei,
 		    status, refusal_code, note,
-		    fee_tier, pool_fee_units, pool_fee_usd, gas_cost_usd, eth_usd)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
+		    fee_tier, pool_fee_units, pool_fee_usd, gas_cost_usd, eth_usd,
+		    subscription_id, wallet, on_behalf_of, guard_id)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,
+		         $26,$27,$28,$29)
 		 RETURNING id`,
 		e.AgentID, e.DecisionID, e.TS, e.IntentAction, e.Symbol, e.TokenIn, e.TokenOut,
 		bigStr(e.AmountIn), bigStr(e.QuotedOut), bigStr(e.MinOut), bigStr(e.Filled), e.SlippageBps,
@@ -92,6 +117,7 @@ func (s *Store) AppendExecution(ctx context.Context, e ExecutionInsert) (int64, 
 		e.Status, nilIfEmpty(e.RefusalCode), nilIfEmpty(e.Note),
 		nilIfZeroInt(int(e.FeeTier)), bigStr(e.PoolFeeUnits),
 		nilIfZeroFloat(e.PoolFeeUSD), nilIfZeroFloat(e.GasCostUSD), nilIfZeroFloat(e.EthUSD),
+		e.SubscriptionID, nilIfEmpty(e.Wallet), nilIfEmpty(e.OnBehalfOf), e.GuardID,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("append execution: %w", err)
@@ -191,4 +217,19 @@ func nilIfZeroFloat(v float64) any {
 		return nil
 	}
 	return v
+}
+// LinkExecutionToGuard attaches the level that fired, after the fact.
+//
+// The creator's protective path writes its execution row inside the ordinary
+// settlement, which knows nothing about guards, and closes the guard
+// afterwards. Rather than thread a guard id through a path that has no other
+// use for one, the link is made here — the same shape, and for the same reason,
+// as LinkExecutionToDecision.
+func (s *Store) LinkExecutionToGuard(ctx context.Context, executionID, guardID int64) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE executions SET guard_id = $1 WHERE id = $2`, guardID, executionID)
+	if err != nil {
+		return fmt.Errorf("link execution %d to guard %d: %w", executionID, guardID, err)
+	}
+	return nil
 }

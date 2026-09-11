@@ -327,7 +327,21 @@ func (e *Engine) Execute(ctx context.Context, req ExecuteRequest) (int64, error)
 	// can name the decision that opened the position. A failure here loses the
 	// protection and must be loud; failing the tick would lose the trade that
 	// has already happened on chain.
-	e.applyGuardChanges(ctx, req.AgentID, decisionID, set)
+	e.applyGuardChanges(ctx, req.AgentID, nil, &decisionID, set)
+
+	// AND THE SAME DECISION, IN EVERY SUBSCRIBER'S WALLET.
+	//
+	// After the decision is persisted, so each execution can name the decision
+	// it came from; after the creator's leg, so a subscriber never delays it.
+	// Failures are per wallet and never reach here — a buyer out of gas is that
+	// buyer's outcome, not the tick's.
+	//
+	// The INTENT is passed, not the creator's executed quantity: the creator
+	// chose a direction, and each wallet sizes it against its own capital under
+	// its own limits.
+	if wallet != nil {
+		e.tradeForSubscribers(ctx, req, decisionID, intent, prices)
+	}
 
 	// Evidence is attached after the decision exists. A failure here loses the
 	// EXPLANATION, which is bad and is logged; failing the tick over it would

@@ -250,6 +250,48 @@ So:
   purpose in `guard-verify`. The delivery path was fired for real through ntfy
   (HTTP 200) before this was called finished.
 
+## A level in somebody else's wallet
+
+Since subscriptions trade, one agent's levels can watch several accounts: its
+creator's and one per buyer. A guard therefore belongs to a **wallet**, not to
+an agent, and `position_guards.subscription_id` says which.
+
+Everything follows from that one fact.
+
+**Each wallet gets its own levels, from its own fill.** The agent names
+percentages; each wallet turns them into absolute prices against the price *it*
+paid, in the pool it traded. The creator's absolute levels are never copied
+across — the fills genuinely differ, and a stop anchored to a price your wallet
+never paid is not the stop you asked for. A level the pool refuses is refused
+for the buyer too, and lands in their book rather than only in a log.
+
+**The scoping is in the index, not in the discipline.** Migration `0039`
+replaced the single `(agent_id, symbol)` unique index with two partial ones —
+one for creator guards, one for subscriber guards — and every query carries
+`subscription_id IS NOT DISTINCT FROM $n`. `=` will not do: a creator's guard
+carries NULL there, `NULL = NULL` is not true, and the comparison would match
+nothing. Before this, one customer buying the same stock would have silently
+stood down the owner's stop loss. `TestASubscriberGuardDoesNotDisarmTheCreators`
+fails on the old query.
+
+**The lease is per wallet too** (`0040`). Keyed by agent, one buyer's exit would
+block every other buyer's, and a buyer's stop could never fire while the agent
+was trading for anybody at all.
+
+**A subscriber's exit writes no row in `decisions`.** That is the one place
+this path deliberately differs from the creator's, and the reasoning is in
+`docs/subscription-trading.md`: `decisions` is the agent's competition record,
+and a stop firing in one buyer's wallet at a price only that wallet crossed is
+not something the agent decided. What decided is the level; the level has a row;
+the execution carries `guard_id`, `subscription_id` and `on_behalf_of`.
+
+**When the mandate ends, the level comes down.** A subscription that has expired
+or been cancelled stands its guards down *permanently*, and the now-unprotected
+position becomes a `refused` row the buyer can read and the watchdog alarms on.
+A *pause* stands the level down temporarily and leaves it armed. An agent nobody
+is paying must not keep signing; a level that will never fire must not keep
+looking like protection.
+
 ## Files
 
 | what | where |
@@ -262,3 +304,5 @@ So:
 | schema | `packages/db-migrations/migrations/0034_position_guards.up.sql` |
 | unit + watchdog | `infra/systemd/arcana-guard*.{service,timer}` |
 | verification | `infra/verify/guard-verify.mjs`, `internal/engine/guard_test.go` |
+| a level in a buyer's wallet | `internal/engine/protective_subscriber.go`, `0039_subscriber_guards`, `0040_lease_by_wallet` |
+| its verification | `infra/verify/subscription-verify.mjs` §5-6, `internal/store/guards_test.go` |

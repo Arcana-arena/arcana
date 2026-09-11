@@ -178,7 +178,7 @@ func TestArmingReplacesTheGuardItTopsUp(t *testing.T) {
 		t.Fatalf("top up: %v", err)
 	}
 
-	g, err := s.ArmedGuardFor(ctx, agentID, symbol)
+	g, err := s.ArmedGuardFor(ctx, agentID, nil, symbol)
 	if err != nil {
 		t.Fatalf("read armed: %v", err)
 	}
@@ -195,5 +195,92 @@ func TestArmingReplacesTheGuardItTopsUp(t *testing.T) {
 	}
 	if old != "cleared" {
 		t.Fatalf("the replaced guard is %q, not cleared — its history was lost or it is still armed", old)
+	}
+}
+
+// TestASubscriberGuardDoesNotDisarmTheCreatorS proves the wallet scoping.
+//
+// WHAT IT WOULD HAVE CAUGHT. Every guard query was keyed on (agent_id, symbol)
+// because, until subscriptions traded, an agent had exactly one wallet. Arming a
+// buyer's level on a symbol the creator also holds would then have run
+//
+//	UPDATE position_guards SET status='cleared' WHERE agent_id=$1 AND symbol=$2
+//
+// and silently stood down the CREATOR's stop loss — one customer buying the same
+// stock disarming the owner's protection, with nothing in the record to say why.
+// The fix is `subscription_id IS NOT DISTINCT FROM $n`; `=` would not do,
+// because NULL = NULL is not true and the creator's own top-up would then stop
+// clearing its own previous guard.
+//
+// The assertions run in both directions on purpose: a scoping bug that only
+// leaked one way would still be a stop loss watching the wrong money.
+func TestASubscriberGuardDoesNotDisarmTheCreators(t *testing.T) {
+	s, agentID := testStore(t)
+	ctx := context.Background()
+	const symbol = "GUARDTEST4"
+
+	var subID string
+	err := s.pool.QueryRow(ctx,
+		`INSERT INTO subscriptions (user_wallet, expires_at, status, agent_id)
+		 VALUES ('0xguardtest', now() + interval '30 days', 'active', $1) RETURNING id::text`,
+		agentID).Scan(&subID)
+	if err != nil {
+		t.Skipf("could not create a test subscription: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = s.pool.Exec(ctx, `DELETE FROM position_guards WHERE symbol = $1`, symbol)
+		_, _ = s.pool.Exec(ctx, `DELETE FROM subscriptions WHERE id = $1`, subID)
+	})
+	_, _ = s.pool.Exec(ctx, `DELETE FROM position_guards WHERE symbol = $1`, symbol)
+
+	sl := 95.0
+	creator, err := s.ArmGuard(ctx, GuardInsert{
+		AgentID: agentID, Symbol: symbol, EntryPrice: 100, EntryQty: 1, StopLoss: &sl})
+	if err != nil {
+		t.Fatalf("arm the creator's guard: %v", err)
+	}
+	sl2 := 47.5
+	buyer, err := s.ArmGuard(ctx, GuardInsert{
+		AgentID: agentID, SubscriptionID: &subID, Symbol: symbol,
+		EntryPrice: 50, EntryQty: 3, StopLoss: &sl2})
+	if err != nil {
+		t.Fatalf("arm the subscriber's guard: %v", err)
+	}
+
+	status := func(id int64) string {
+		var st string
+		if err := s.pool.QueryRow(ctx, `SELECT status FROM position_guards WHERE id = $1`, id).Scan(&st); err != nil {
+			t.Fatalf("read guard %d: %v", id, err)
+		}
+		return st
+	}
+	if st := status(creator); st != "armed" {
+		t.Fatalf("the creator's guard is %q after a subscriber armed one on the same symbol; "+
+			"one customer disarmed the owner's stop loss", st)
+	}
+	if st := status(buyer); st != "armed" {
+		t.Fatalf("the subscriber's guard is %q, want armed", st)
+	}
+
+	// Each side reads back its own level and not the other's.
+	g, err := s.ArmedGuardFor(ctx, agentID, nil, symbol)
+	if err != nil || g == nil || g.ID != creator {
+		t.Fatalf("the creator reads back %v, want guard %d: %v", g, creator, err)
+	}
+	g, err = s.ArmedGuardFor(ctx, agentID, &subID, symbol)
+	if err != nil || g == nil || g.ID != buyer {
+		t.Fatalf("the subscriber reads back %v, want guard %d: %v", g, buyer, err)
+	}
+
+	// And clearing one leaves the other watching.
+	if err := s.ClearGuards(ctx, agentID, &subID, symbol, "the subscriber exited"); err != nil {
+		t.Fatalf("clear the subscriber's guard: %v", err)
+	}
+	if st := status(creator); st != "armed" {
+		t.Fatalf("the creator's guard is %q after the SUBSCRIBER exited; the exit cleared the "+
+			"wrong wallet's protection", st)
+	}
+	if st := status(buyer); st != "cleared" {
+		t.Fatalf("the subscriber's guard is %q, want cleared", st)
 	}
 }

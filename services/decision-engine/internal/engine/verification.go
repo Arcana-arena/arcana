@@ -87,8 +87,21 @@ func (e *Engine) refuseIfVerificationWouldSpend(ctx context.Context, isVerificat
 		return fmt.Errorf("refusing: this request is marked as a verification and whether agent %s "+
 			"holds a wallet could not be read (%w)", agentID, err)
 	}
-	if wallet == nil {
-		return nil
+	if wallet != nil {
+		return &ErrVerificationWouldSpend{AgentID: agentID, Wallet: wallet.Address}
 	}
-	return &ErrVerificationWouldSpend{AgentID: agentID, Wallet: wallet.Address}
+
+	// AND THE WALLETS THE AGENT ROW CANNOT SEE. One decision now reaches every
+	// subscriber's wallet, so an agent with no wallet of its own can still move
+	// somebody else's money. Checking only agent_wallets would have left the
+	// whole fan-out outside the rule that was just paid for.
+	subWallet, has, serr := e.store.AnyFundedSubscriptionWallet(ctx, agentID)
+	if serr != nil {
+		return fmt.Errorf("refusing: this request is marked as a verification and whether agent %s "+
+			"has subscriber wallets could not be read (%w)", agentID, serr)
+	}
+	if has {
+		return &ErrVerificationWouldSpend{AgentID: agentID, Wallet: subWallet}
+	}
+	return nil
 }

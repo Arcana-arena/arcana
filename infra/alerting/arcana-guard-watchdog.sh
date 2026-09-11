@@ -224,9 +224,15 @@ fi
 # One row per stuck guard, however many times it has been refused: the refusal
 # is recorded once and remembered on the guard, which is what makes this
 # checkable at all rather than drowned in 240 identical decisions an hour.
+# WHOSE WALLET, NAMED. One agent's levels can now watch several accounts — its
+# creator's and one per subscriber — and an alert that does not say which sends
+# an owner to look at a position that is not theirs.
 REFUSED=$(psql "
   SELECT count(*) || '|' || COALESCE(string_agg(
-           g.symbol || ' ' || COALESCE(g.last_refusal_reason,'?') ||
+           g.symbol || ' [' ||
+             CASE WHEN g.subscription_id IS NULL THEN 'creator'
+                  ELSE 'subscription ' || left(g.subscription_id::text, 8) END || '] ' ||
+           COALESCE(g.last_refusal_reason,'?') ||
            ' (' || round(extract(epoch FROM now() - g.last_refusal_at)/60) || 'm ago)', ', '), '')
     FROM position_guards g
    WHERE g.status = 'armed'
@@ -274,10 +280,23 @@ if [ -n "$FORCE_UNGUARDED" ]; then
   # suite means nothing.
   UNGUARDED="${FORCE_UNGUARDED}|forced by the verification rig"
 else
+  # EVERY COUNTED ROW IS ALSO NAMED.
+  #
+  # The previous version built each name with `|| round(min_acceptable_pct...)`,
+  # and in SQL anything concatenated with NULL is NULL — which string_agg then
+  # skips. A refusal with no minimum on it (a level stood down when a
+  # subscription ended, rather than one the pool rejected at entry) was counted
+  # and not listed: the alert said "2 positions" and named one. An alarm whose
+  # count and list disagree is an alarm nobody trusts twice.
   UNGUARDED=$(psql "
     SELECT count(*) || '|' || COALESCE(string_agg(
-             g.symbol || ' (asked for protection; smallest this pool accepts is ' ||
-             round(g.min_acceptable_pct * 100, 3) || '%)', ', '), '')
+             g.symbol || ' [' ||
+               CASE WHEN g.subscription_id IS NULL THEN 'creator'
+                    ELSE 'subscription ' || left(g.subscription_id::text, 8) END || '] ' ||
+             CASE WHEN g.min_acceptable_pct IS NULL
+                  THEN '(no level is watching it; ' || COALESCE(left(g.note, 90), 'reason not recorded') || ')'
+                  ELSE '(asked for protection; smallest this pool accepts is ' ||
+                       round(g.min_acceptable_pct * 100, 3) || '%)' END, ', '), '')
       FROM position_guards g
      WHERE g.status = 'refused'")
 fi

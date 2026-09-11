@@ -11,6 +11,7 @@ import { CreatorsModule } from './creators/creators.module';
 import { SeasonsModule } from './seasons/seasons.module';
 import { DnaModule } from './dna/dna.module';
 import { PassportModule } from './passport/passport.module';
+import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { EvolutionModule } from './evolution/evolution.module';
 import { AutopsyModule } from './autopsy/autopsy.module';
 
@@ -35,6 +36,7 @@ import { AutopsyModule } from './autopsy/autopsy.module';
     CompetitionsModule,
     DnaModule,
     PassportModule,
+    SubscriptionsModule,
     EvolutionModule,
     AutopsyModule,
   ],

@@ -19,6 +19,10 @@ import (
 type Guard struct {
 	ID         int64
 	AgentID    string
+	// SubscriptionID is nil for the creator's own position. A subscriber's
+	// guard watches a different wallet, is armed from a different fill price,
+	// and exits through a different signer identity.
+	SubscriptionID *string
 	Symbol     string
 	EntryPrice float64
 	EntryQty   float64
@@ -28,12 +32,16 @@ type Guard struct {
 	SLPct      *float64
 	SetAt      time.Time
 	SetBy      *int64
+	// Status is armed | triggered | cleared | expired | refused. Carried only
+	// by the by-id read: the scan reads armed rows and has no use for it.
+	Status     string
 }
 
 // GuardInsert arms a guard. Percentages are carried alongside the absolute
 // levels so a level can be explained later rather than only restated.
 type GuardInsert struct {
 	AgentID    string
+	SubscriptionID *string
 	Symbol     string
 	EntryPrice float64
 	EntryQty   float64
@@ -62,12 +70,18 @@ func (s *Store) ArmGuard(ctx context.Context, in GuardInsert) (int64, error) {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// SCOPED TO ONE WALLET. `IS NOT DISTINCT FROM` rather than `=`, because a
+	// creator's guard carries NULL here and NULL = NULL is not true — an
+	// unqualified comparison would quietly match nothing and leave the previous
+	// guard armed alongside the new one, which is two stop losses over one
+	// position. Same reason migration 0039 splits the unique index in two.
 	if _, err := tx.Exec(ctx,
 		`UPDATE position_guards
 		    SET status = 'cleared',
 		        note = coalesce(note, '') || ' | replaced by a new entry'
-		  WHERE agent_id = $1 AND symbol = $2 AND status = 'armed'`,
-		in.AgentID, in.Symbol); err != nil {
+		  WHERE agent_id = $1 AND symbol = $2 AND status = 'armed'
+		    AND subscription_id IS NOT DISTINCT FROM $3::uuid`,
+		in.AgentID, in.Symbol, in.SubscriptionID); err != nil {
 		return 0, fmt.Errorf("clear previous guard: %w", err)
 	}
 
@@ -75,11 +89,12 @@ func (s *Store) ArmGuard(ctx context.Context, in GuardInsert) (int64, error) {
 	err = tx.QueryRow(ctx,
 		`INSERT INTO position_guards
 		   (agent_id, symbol, entry_price, entry_qty, take_profit, stop_loss,
-		    take_profit_pct, stop_loss_pct, set_by_decision_id, status, note)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'armed',$10)
+		    take_profit_pct, stop_loss_pct, set_by_decision_id, status, note, subscription_id)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'armed',$10,$11::uuid)
 		 RETURNING id`,
 		in.AgentID, in.Symbol, in.EntryPrice, in.EntryQty,
-		in.TakeProfit, in.StopLoss, in.TPPct, in.SLPct, in.DecisionID, nullStr(in.Note)).Scan(&id)
+		in.TakeProfit, in.StopLoss, in.TPPct, in.SLPct, in.DecisionID, nullStr(in.Note),
+		in.SubscriptionID).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("arm guard: %w", err)
 	}
@@ -95,7 +110,7 @@ func (s *Store) ArmGuard(ctx context.Context, in GuardInsert) (int64, error) {
 // An agent with no armed guard costs nothing at all: no row, no call.
 func (s *Store) ArmedGuards(ctx context.Context) ([]Guard, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT g.id, g.agent_id, g.symbol,
+		`SELECT g.id, g.agent_id, g.subscription_id::text, g.symbol,
 		        g.entry_price::text, g.entry_qty::text,
 		        g.take_profit::text, g.stop_loss::text,
 		        g.take_profit_pct::text, g.stop_loss_pct::text,
@@ -114,7 +129,7 @@ func (s *Store) ArmedGuards(ctx context.Context) ([]Guard, error) {
 		var g Guard
 		var entry, qty string
 		var tp, sl, tpPct, slPct *string
-		if err := rows.Scan(&g.ID, &g.AgentID, &g.Symbol, &entry, &qty,
+		if err := rows.Scan(&g.ID, &g.AgentID, &g.SubscriptionID, &g.Symbol, &entry, &qty,
 			&tp, &sl, &tpPct, &slPct, &g.SetAt, &g.SetBy); err != nil {
 			return nil, fmt.Errorf("scan guard: %w", err)
 		}
@@ -146,11 +161,12 @@ func (s *Store) ArmedGuards(ctx context.Context) ([]Guard, error) {
 // Used when the position left by a route other than the guard itself — the
 // agent sold it, or it turned out not to be there. A guard over nothing would
 // fire on the next price tick and spend gas finding out.
-func (s *Store) ClearGuards(ctx context.Context, agentID, symbol, note string) error {
+func (s *Store) ClearGuards(ctx context.Context, agentID string, subID *string, symbol, note string) error {
 	_, err := s.pool.Exec(ctx,
 		`UPDATE position_guards SET status = 'cleared', note = $3
-		  WHERE agent_id = $1 AND symbol = $2 AND status = 'armed'`,
-		agentID, symbol, nullStr(note))
+		  WHERE agent_id = $1 AND symbol = $2 AND status = 'armed'
+		    AND subscription_id IS NOT DISTINCT FROM $4::uuid`,
+		agentID, symbol, nullStr(note), subID)
 	if err != nil {
 		return fmt.Errorf("clear guards for %s %s: %w", agentID, symbol, err)
 	}
@@ -162,21 +178,22 @@ func (s *Store) ClearGuards(ctx context.Context, agentID, symbol, note string) e
 //
 // Read when a position is TOPPED UP, so the new levels can be anchored to what
 // the agent paid across both entries rather than only to the latest one.
-func (s *Store) ArmedGuardFor(ctx context.Context, agentID, symbol string) (*Guard, error) {
+func (s *Store) ArmedGuardFor(ctx context.Context, agentID string, subID *string, symbol string) (*Guard, error) {
 	var g Guard
 	var entry, qty string
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, entry_price::text, entry_qty::text
 		   FROM position_guards
-		  WHERE agent_id = $1 AND symbol = $2 AND status = 'armed'`,
-		agentID, symbol).Scan(&g.ID, &entry, &qty)
+		  WHERE agent_id = $1 AND symbol = $2 AND status = 'armed'
+		    AND subscription_id IS NOT DISTINCT FROM $3::uuid`,
+		agentID, symbol, subID).Scan(&g.ID, &entry, &qty)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read armed guard for %s %s: %w", agentID, symbol, err)
 	}
-	g.AgentID, g.Symbol = agentID, symbol
+	g.AgentID, g.Symbol, g.SubscriptionID = agentID, symbol, subID
 	if g.EntryPrice, err = strconv.ParseFloat(entry, 64); err != nil {
 		return nil, fmt.Errorf("guard %d entry_price %q: %w", g.ID, entry, err)
 	}
@@ -445,6 +462,7 @@ func (s *Store) ClearRefusal(ctx context.Context, guardID int64) error {
 // did not get it.
 type RefusedGuardInsert struct {
 	AgentID          string
+	SubscriptionID   *string
 	Symbol           string
 	EntryPrice       float64
 	EntryQty         float64
@@ -473,23 +491,25 @@ func (s *Store) RecordRefusedGuard(ctx context.Context, in RefusedGuardInsert) e
 		`UPDATE position_guards
 		    SET status = 'cleared',
 		        note = coalesce(note,'') || ' | superseded by an entry whose levels were refused'
-		  WHERE agent_id = $1 AND symbol = $2 AND status = 'armed'`,
-		in.AgentID, in.Symbol); err != nil {
+		  WHERE agent_id = $1 AND symbol = $2 AND status = 'armed'
+		    AND subscription_id IS NOT DISTINCT FROM $3::uuid`,
+		in.AgentID, in.Symbol, in.SubscriptionID); err != nil {
 		return fmt.Errorf("clear armed guard before recording a refusal: %w", err)
 	}
 	if _, err := tx.Exec(ctx,
 		`DELETE FROM position_guards
-		  WHERE agent_id = $1 AND symbol = $2 AND status = 'refused'`,
-		in.AgentID, in.Symbol); err != nil {
+		  WHERE agent_id = $1 AND symbol = $2 AND status = 'refused'
+		    AND subscription_id IS NOT DISTINCT FROM $3::uuid`,
+		in.AgentID, in.Symbol, in.SubscriptionID); err != nil {
 		return fmt.Errorf("replace previous refusal: %w", err)
 	}
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO position_guards
 		   (agent_id, symbol, entry_price, entry_qty, status, min_acceptable_pct,
-		    set_by_decision_id, note)
-		 VALUES ($1,$2,$3,$4,'refused',$5,$6,$7)`,
+		    set_by_decision_id, note, subscription_id)
+		 VALUES ($1,$2,$3,$4,'refused',$5,$6,$7,$8::uuid)`,
 		in.AgentID, in.Symbol, in.EntryPrice, in.EntryQty,
-		in.MinAcceptablePct, in.DecisionID, nullStr(in.Reason)); err != nil {
+		in.MinAcceptablePct, in.DecisionID, nullStr(in.Reason), in.SubscriptionID); err != nil {
 		return fmt.Errorf("record refused guard: %w", err)
 	}
 	return tx.Commit(ctx)
@@ -497,12 +517,51 @@ func (s *Store) RecordRefusedGuard(ctx context.Context, in RefusedGuardInsert) e
 
 // ClearRefusedGuard removes the refusal when the position is gone, so an
 // unprotected position that has been closed stops being reported as one.
-func (s *Store) ClearRefusedGuard(ctx context.Context, agentID, symbol string) error {
+func (s *Store) ClearRefusedGuard(ctx context.Context, agentID string, subID *string, symbol string) error {
 	_, err := s.pool.Exec(ctx,
 		`DELETE FROM position_guards
-		  WHERE agent_id = $1 AND symbol = $2 AND status = 'refused'`, agentID, symbol)
+		  WHERE agent_id = $1 AND symbol = $2 AND status = 'refused'
+		    AND subscription_id IS NOT DISTINCT FROM $3::uuid`, agentID, symbol, subID)
 	if err != nil {
 		return fmt.Errorf("clear refused guard for %s %s: %w", agentID, symbol, err)
 	}
 	return nil
+}
+
+// GuardByID reads one guard whatever its status.
+//
+// Used by the read-only inspection binary, which has to be able to look at a
+// guard that has already been stood down — "it is not armed" is an answer, and
+// a lookup that returned nothing would make it indistinguishable from a guard
+// that never existed.
+func (s *Store) GuardByID(ctx context.Context, id int64) (*Guard, error) {
+	var g Guard
+	var entry, qty string
+	var tp, sl, tpPct, slPct *string
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, agent_id::text, subscription_id::text, symbol, status,
+		        entry_price::text, entry_qty::text,
+		        take_profit::text, stop_loss::text,
+		        take_profit_pct::text, stop_loss_pct::text,
+		        set_at, set_by_decision_id
+		   FROM position_guards WHERE id = $1`, id).
+		Scan(&g.ID, &g.AgentID, &g.SubscriptionID, &g.Symbol, &g.Status,
+			&entry, &qty, &tp, &sl, &tpPct, &slPct, &g.SetAt, &g.SetBy)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("guard %d does not exist", id)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read guard %d: %w", id, err)
+	}
+	if g.EntryPrice, err = strconv.ParseFloat(entry, 64); err != nil {
+		return nil, fmt.Errorf("guard %d entry_price %q: %w", id, entry, err)
+	}
+	if g.EntryQty, err = strconv.ParseFloat(qty, 64); err != nil {
+		return nil, fmt.Errorf("guard %d entry_qty %q: %w", id, qty, err)
+	}
+	g.TakeProfit, _ = parseNullFloat(tp)
+	g.StopLoss, _ = parseNullFloat(sl)
+	g.TPPct, _ = parseNullFloat(tpPct)
+	g.SLPct, _ = parseNullFloat(slPct)
+	return &g, nil
 }

@@ -91,6 +91,9 @@ func (e *Engine) settleOnChain(
 	defer wrelease()
 	execID, err := e.store.AppendExecution(wctx, store.ExecutionInsert{
 		AgentID: req.AgentID, TS: req.Timestamp,
+		// The creator's own wallet. Named rather than left to be inferred from a
+		// NULL subscription_id: an execution should say whose funds it moved.
+		Wallet: wallet.Address, OnBehalfOf: "creator",
 		IntentAction: res.IntentAction, Symbol: res.Symbol,
 		TokenIn: res.TokenIn, TokenOut: res.TokenOut,
 		AmountIn: res.AmountIn, QuotedOut: res.QuotedOut, MinOut: res.MinOut,
@@ -120,6 +123,7 @@ func (e *Engine) settleOnChain(
 	if ap := res.Approve; ap != nil {
 		if _, aerr := e.store.AppendExecution(wctx, store.ExecutionInsert{
 			AgentID: req.AgentID, DecisionID: nil, TS: req.Timestamp,
+			Wallet: wallet.Address, OnBehalfOf: "creator",
 			IntentAction: "approve", Symbol: res.Symbol,
 			TokenIn: ap.Token, TokenOut: ap.Token,
 			AmountIn: ap.Amount,
@@ -173,7 +177,7 @@ func (e *Engine) settleOnChain(
 			// Shares bought before any guard existed have no cost basis this
 			// system can see. Those are counted into the covered quantity and
 			// NAMED in the note, rather than silently priced at the new fill.
-			entry, qty, basis := e.blendEntry(ctx, req.AgentID, res.Symbol, fill, shares, before)
+			entry, qty, basis := e.blendEntry(ctx, req.AgentID, nil, res.Symbol, fill, shares, before)
 
 			lv := resolveGuardLevels(intent.Guards, entry, e.broker.PoolFeeOf(res.Symbol))
 			if lv.any() || len(lv.Refusals) > 0 {
@@ -267,7 +271,8 @@ type pendingGuard struct {
 //	                      either way) and the note says their cost is unknown,
 //	                      because a stop that silently prices them at today's
 //	                      fill would claim a cost basis nobody measured.
-func (e *Engine) blendEntry(ctx context.Context, agentID, symbol string, fill, bought float64,
+func (e *Engine) blendEntry(ctx context.Context, agentID string, subID *string,
+	symbol string, fill, bought float64,
 	before *execution.Position) (entry, covered float64, basis string) {
 
 	prior := 0.0
@@ -278,10 +283,10 @@ func (e *Engine) blendEntry(ctx context.Context, agentID, symbol string, fill, b
 		return fill, bought, ""
 	}
 
-	g, err := e.store.ArmedGuardFor(ctx, agentID, symbol)
+	g, err := e.store.ArmedGuardFor(ctx, agentID, subID, symbol)
 	if err != nil {
-		log.Printf("agent %s: could not read the existing guard on %s, pricing from this fill only: %v",
-			agentID, symbol, err)
+		log.Printf("%s: could not read the existing guard on %s, pricing from this fill only: %v",
+			guardWho(agentID, subID), symbol, err)
 	}
 	if g != nil && g.EntryQty > 0 && g.EntryPrice > 0 {
 		covered = g.EntryQty + bought

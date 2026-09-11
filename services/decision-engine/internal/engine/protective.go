@@ -71,18 +71,29 @@ func (e *Engine) ExecuteProtective(ctx context.Context, t Trigger) (ProtectiveOu
 		return ProtectiveOutcome{}, errors.New("chain execution is not configured; a protective exit has nowhere to go")
 	}
 
-	wallet, err := e.store.ChainWalletFor(ctx, g.AgentID)
-	if err != nil {
-		return ProtectiveOutcome{}, fmt.Errorf("wallet for %s: %w", g.AgentID, err)
+	// WHOSE POSITION IS THIS, asked once and never asked again.
+	//
+	// A guard now watches either the creator's wallet or one buyer's, and every
+	// step after this — the lease key, the balance, the price, the cost budget,
+	// the signer identity — belongs to that one account. A question answered
+	// twice is a question that can be answered differently, and the difference
+	// here would be a stop loss selling the wrong person's position.
+	subj, stand, serr := e.guardSubjectFor(ctx, g)
+	if serr != nil {
+		return ProtectiveOutcome{}, serr
 	}
-	if wallet == nil {
-		// A guard on an agent with no wallet cannot be acted on and should not
-		// have been armed. Expire it rather than leaving a row that will be
-		// re-examined on every scan forever.
-		_, _ = e.store.CloseGuard(ctx, g.ID, "expired", "", nil, nil,
-			"the agent has no chain wallet, so this guard could never be acted on")
-		return ProtectiveOutcome{Status: "expired", Note: "no wallet"}, nil
+	if stand != nil {
+		return e.standDown(ctx, g, *stand)
 	}
+	if g.SubscriptionID != nil {
+		// A BUYER'S EXIT TAKES ITS OWN PATH, because the creator's one settles
+		// into the agent's competition record: a portfolio, a decision, a
+		// snapshot the Scoring Engine reads. None of those are the buyer's, and
+		// writing a buyer's exit into them would move the agent's number for a
+		// reason that has nothing to do with its judgement.
+		return e.exitForSubscriber(ctx, t, *subj)
+	}
+	wallet := subj.Chain
 
 	// 1. THE LEASE, before anything is read and long before anything is signed.
 	//
@@ -90,10 +101,10 @@ func (e *Engine) ExecuteProtective(ctx context.Context, t Trigger) (ProtectiveOu
 	// moved and the position this guard is watching may be part of that. The
 	// guard stands down and leaves the level armed: a stop loss that fires on
 	// the next scan is a stop loss; a position sold twice is not recoverable.
-	if lerr := e.store.AcquireLease(ctx, g.AgentID, leaseHolderGuard, LeaseTTL,
+	if lerr := e.store.AcquireLease(ctx, subj.SignerID, leaseHolderGuard, LeaseTTL,
 		fmt.Sprintf("%s on %s", t.Side, g.Symbol)); lerr != nil {
 		if errors.Is(lerr, store.ErrLeaseHeld) {
-			who, until, _, _ := e.store.LeaseHolder(ctx, g.AgentID)
+			who, until, _, _ := e.store.LeaseHolder(ctx, subj.SignerID)
 			return ProtectiveOutcome{Status: "stood_down", Note: fmt.Sprintf(
 				"%s holds the execution lease until %s; the guard stays armed",
 				who, until.UTC().Format(time.RFC3339))}, nil
@@ -101,7 +112,7 @@ func (e *Engine) ExecuteProtective(ctx context.Context, t Trigger) (ProtectiveOu
 		return ProtectiveOutcome{}, fmt.Errorf("lease: %w", lerr)
 	}
 	defer func() {
-		if rerr := e.store.ReleaseLease(context.WithoutCancel(ctx), g.AgentID, leaseHolderGuard); rerr != nil {
+		if rerr := e.store.ReleaseLease(context.WithoutCancel(ctx), subj.SignerID, leaseHolderGuard); rerr != nil {
 			log.Printf("agent %s: guard lease not released early, it will expire: %v", g.AgentID, rerr)
 		}
 	}()
@@ -162,14 +173,9 @@ func (e *Engine) ExecuteProtective(ctx context.Context, t Trigger) (ProtectiveOu
 	// THE OWNER'S BUDGET, READ FROM THE OWNER'S PROFILE. An agent that set no
 	// cost brake has none here either: a protective exit must not be subject to
 	// a limit its owner never asked for, and must not escape one they did.
-	var budgetPct float64
-	if ag, aerr := e.store.GetActiveAgent(ctx, g.AgentID); aerr == nil && ag != nil {
-		budgetPct = riskLimitsFrom(ag.RiskProfile).CostBudgetMonthlyPct
-	} else if aerr != nil {
-		log.Printf("agent %s: risk profile unreadable for the cost check, treating the agent as "+
-			"unmetered: %v", g.AgentID, aerr)
-	}
-	cv := e.checkCost(ctx, g.AgentID, budgetPct)
+	// Resolved with the subject above, so the brake and the wallet it guards
+	// always come from the same place.
+	cv := e.checkCostFor(ctx, subj.Meter, subj.Budget)
 	if cv.pause {
 		// RECORDED ONCE, NOT ONCE PER SCAN.
 		//
@@ -276,6 +282,16 @@ func (e *Engine) ExecuteProtective(ctx context.Context, t Trigger) (ProtectiveOu
 	// marking it triggered would quietly disarm a stop loss because one
 	// transaction failed.
 	if set.Action == "sell" {
+		// The execution names the instruction that caused it. The creator's
+		// settlement path has no use for a guard id and is not taught one; the
+		// link is made here, once the guard is known to have fired, the same way
+		// the decision id is attached after the fact.
+		if set.ExecID != nil {
+			if lerr := e.store.LinkExecutionToGuard(ctx, *set.ExecID, g.ID); lerr != nil {
+				log.Printf("ERROR agent %s: execution %d not linked to guard %d: %v",
+					g.AgentID, *set.ExecID, g.ID, lerr)
+			}
+		}
 		ok, cerr := e.store.CloseGuard(ctx, g.ID, "triggered", t.Side, &t.Price, &id, fmt.Sprintf(
 			"%s exit executed at %.6f against a level of %.6f", t.Side, t.Price, levelOf(g, t.Side)))
 		if cerr != nil {
@@ -407,14 +423,32 @@ func (e *Engine) ScanOnce(ctx context.Context) (armed int, fired int, firstErr e
 	armed = len(guards)
 
 	for _, g := range guards {
-		wallet, werr := e.store.ChainWalletFor(ctx, g.AgentID)
-		if werr != nil || wallet == nil {
+		// THE WALLET IS PER GUARD, not per agent. One agent's armed guards can
+		// now name several different accounts, and pricing a buyer's level
+		// against the creator's balance would be a stop loss watching a position
+		// that is not the one it protects.
+		subj, stand, serr := e.guardSubjectFor(ctx, g)
+		if serr != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("resolve guard %d: %w", g.ID, serr)
+			}
 			continue
 		}
-		units, uerr := e.broker.UnitsOf(ctx, wallet.Address, g.Symbol)
+		if stand != nil {
+			// Acted on HERE rather than left for the trigger path: a mandate
+			// that has ended must stop a level from watching whether or not a
+			// price ever crosses it, and a scan that skipped it silently would
+			// leave an armed row over a wallet nobody is allowed to sign for.
+			out, _ := e.standDown(ctx, g, *stand)
+			if out.Status == "expired" {
+				armed--
+			}
+			continue
+		}
+		units, uerr := e.broker.UnitsOf(ctx, subj.Wallet, g.Symbol)
 		if uerr != nil {
 			if firstErr == nil {
-				firstErr = fmt.Errorf("read %s for %s: %w", g.Symbol, g.AgentID, uerr)
+				firstErr = fmt.Errorf("read %s for %s: %w", g.Symbol, subj.Who, uerr)
 			}
 			continue
 		}
@@ -428,10 +462,10 @@ func (e *Engine) ScanOnce(ctx context.Context) (armed int, fired int, firstErr e
 			armed--
 			continue
 		}
-		price, perr := e.broker.RealizablePrice(ctx, wallet.Address, g.Symbol, units)
+		price, perr := e.broker.RealizablePrice(ctx, subj.Wallet, g.Symbol, units)
 		if perr != nil {
 			if firstErr == nil {
-				firstErr = fmt.Errorf("price %s for %s: %w", g.Symbol, g.AgentID, perr)
+				firstErr = fmt.Errorf("price %s for %s: %w", g.Symbol, subj.Who, perr)
 			}
 			continue
 		}
@@ -440,11 +474,12 @@ func (e *Engine) ScanOnce(ctx context.Context) (armed int, fired int, firstErr e
 			continue
 		}
 
-		log.Printf("guard %d: %s %s crossed at %.6f (entry %.6f)", g.ID, g.Symbol, side, price, g.EntryPrice)
+		log.Printf("guard %d (%s): %s %s crossed at %.6f (entry %.6f)",
+			g.ID, subj.Who, g.Symbol, side, price, g.EntryPrice)
 		out, xerr := e.ExecuteProtective(ctx, Trigger{Guard: g, Side: side, Price: price})
 		if xerr != nil {
 			if firstErr == nil {
-				firstErr = fmt.Errorf("exit %s for %s: %w", g.Symbol, g.AgentID, xerr)
+				firstErr = fmt.Errorf("exit %s for %s: %w", g.Symbol, subj.Who, xerr)
 			}
 			continue
 		}

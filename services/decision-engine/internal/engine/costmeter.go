@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"time"
+
+	"github.com/arcana/decision-engine/internal/store"
 )
 
 // The transaction cost meter.
@@ -83,6 +85,53 @@ type costVerdict struct {
 // ReasonCostBudget is recorded on a decision the meter paused.
 const ReasonCostBudget = "cost_budget_exceeded"
 
+// costSubject is WHOSE money the meter is measuring.
+//
+// ONE PIECE OF ARITHMETIC, TWO SUBJECTS. A creator's wallet and a buyer's
+// wallet are metered the same way — spend over a window, projected against
+// capital — and the only differences are which rows count as spending and which
+// snapshot is the capital. Duplicating the projection for subscribers would
+// eventually mean two meters disagreeing about what a runaway is, and the
+// disagreement would be somebody's money.
+type costSubject struct {
+	// noun is how the refusal refers to whoever is being metered.
+	noun string
+	// hint names where the budget that refused this can be changed. It is the
+	// owner's own setting in both cases, never the platform's.
+	hint    string
+	cost    func(context.Context, time.Time) (store.CostWindow, error)
+	capital func(context.Context) (float64, bool, error)
+}
+
+// agentSubject meters the creator's own wallet.
+func (e *Engine) agentSubject(agentID string) costSubject {
+	return costSubject{
+		noun: "this agent",
+		hint: "raise cost_budget_monthly_pct in this agent's risk_profile",
+		cost: func(ctx context.Context, since time.Time) (store.CostWindow, error) {
+			return e.store.CostSince(ctx, agentID, since)
+		},
+		capital: func(ctx context.Context) (float64, bool, error) {
+			return e.store.CapitalOf(ctx, agentID)
+		},
+	}
+}
+
+// subscriptionSubject meters one buyer's wallet, against one buyer's book.
+func (e *Engine) subscriptionSubject(subID string) costSubject {
+	return costSubject{
+		noun: "this subscription",
+		hint: "raise cost_budget_monthly_pct in this subscription's risk_profile, " +
+			"or add funds to the wallet",
+		cost: func(ctx context.Context, since time.Time) (store.CostWindow, error) {
+			return e.store.CostSinceSubscription(ctx, subID, since)
+		},
+		capital: func(ctx context.Context) (float64, bool, error) {
+			return e.store.CapitalOfSubscription(ctx, subID)
+		},
+	}
+}
+
 // checkCost asks whether this agent may still spend.
 //
 // AN UNREADABLE COST PAUSES. If an execution moved funds and its dollar cost
@@ -94,6 +143,11 @@ const ReasonCostBudget = "cost_budget_exceeded"
 // read from the Engine so there is no way to apply one agent's brake to another,
 // and no configuration under which the platform supplies one nobody asked for.
 func (e *Engine) checkCost(ctx context.Context, agentID string, pct float64) costVerdict {
+	return e.checkCostFor(ctx, e.agentSubject(agentID), pct)
+}
+
+// checkCostFor is the meter itself, for whichever wallet it is pointed at.
+func (e *Engine) checkCostFor(ctx context.Context, subj costSubject, pct float64) costVerdict {
 	m := e.cost
 	m.MonthlyPct = pct
 	if m.MonthlyPct <= 0 {
@@ -102,14 +156,14 @@ func (e *Engine) checkCost(ctx context.Context, agentID string, pct float64) cos
 		return costVerdict{}
 	}
 
-	w, err := e.store.CostSince(ctx, agentID, time.Now().Add(-m.Window))
+	w, err := subj.cost(ctx, time.Now().Add(-m.Window))
 	if err != nil {
 		return costVerdict{
 			pause:  true,
 			reason: ReasonCostBudget,
-			detail: fmt.Sprintf("the cost record could not be read (%v), so what this agent has "+
+			detail: fmt.Sprintf("the cost record could not be read (%v), so what %s has "+
 				"already spent is unknown. Refusing rather than treating an unreadable bill as a "+
-				"paid one", err),
+				"paid one", err, subj.noun),
 		}
 	}
 	if w.Unpriced > 0 {
@@ -123,7 +177,7 @@ func (e *Engine) checkCost(ctx context.Context, agentID string, pct float64) cos
 		}
 	}
 
-	capital, ok, cerr := e.store.CapitalOf(ctx, agentID)
+	capital, ok, cerr := subj.capital(ctx)
 	if cerr != nil {
 		// UNREADABLE CAPITAL PAUSES. The first version discarded this error and
 		// fell through to the no-snapshot branch, which permits -- so a meter
@@ -132,8 +186,8 @@ func (e *Engine) checkCost(ctx context.Context, agentID string, pct float64) cos
 		return costVerdict{
 			pause:  true,
 			reason: ReasonCostBudget,
-			detail: fmt.Sprintf("the capital this agent is being measured against could not be "+
-				"read (%v), so no budget can be applied to it", cerr),
+			detail: fmt.Sprintf("the capital %s is being measured against could not be "+
+				"read (%v), so no budget can be applied to it", subj.noun, cerr),
 		}
 	}
 	if !ok {
@@ -148,7 +202,7 @@ func (e *Engine) checkCost(ctx context.Context, agentID string, pct float64) cos
 
 	// RUNAWAY: a month's allowance gone inside a day.
 	monthlyBudget := capital * m.MonthlyPct / 100
-	day, err := e.store.CostSince(ctx, agentID, time.Now().Add(-24*time.Hour))
+	day, err := subj.cost(ctx, time.Now().Add(-24*time.Hour))
 	if err == nil && monthlyBudget > 0 && day.USD > monthlyBudget {
 		v.pause = true
 		v.reason = ReasonCostBudget
@@ -156,9 +210,9 @@ func (e *Engine) checkCost(ctx context.Context, agentID string, pct float64) cos
 		v.detail = fmt.Sprintf(
 			"spent $%.4f in the last 24h against a monthly budget of $%.4f (%.1f%% of $%.2f "+
 				"capital). A month's allowance in a day is not a rate to project, it is one to stop. "+
-				"Add capital, lengthen the cadence, or raise cost_budget_monthly_pct in this "+
-				"agent's risk_profile. The budget is the owner's; the platform sets none",
-			day.USD, monthlyBudget, m.MonthlyPct, capital)
+				"Add capital, lengthen the cadence, or %s. The budget is the owner's; the platform "+
+				"sets none",
+			day.USD, monthlyBudget, m.MonthlyPct, capital, subj.hint)
 		return v
 	}
 

@@ -35,17 +35,23 @@ const ReasonPositionLocked = "position_locked"
 // and nothing is. It cannot fail the tick — the trade already happened on chain
 // — so it logs at ERROR and the decision's rationale already says what was
 // meant to be armed.
-func (e *Engine) applyGuardChanges(ctx context.Context, agentID string, decisionID int64, s settlement) {
+// subID is nil for the creator's own position and set for a subscriber's. It is
+// carried on every call rather than inferred, because a guard scoped to the
+// wrong wallet is a stop loss watching somebody else's money.
+func (e *Engine) applyGuardChanges(ctx context.Context, agentID string, subID *string,
+	decisionID *int64, s settlement) {
+
+	who := guardWho(agentID, subID)
 	if s.ClearGuard != "" {
-		if err := e.store.ClearGuards(ctx, agentID, s.ClearGuard,
+		if err := e.store.ClearGuards(ctx, agentID, subID, s.ClearGuard,
 			"the agent exited this position by its own decision"); err != nil {
-			log.Printf("ERROR agent %s: guard on %s not cleared after an exit: %v", agentID, s.ClearGuard, err)
+			log.Printf("ERROR %s: guard on %s not cleared after an exit: %v", who, s.ClearGuard, err)
 		}
 		// A position that is gone is not an unprotected position. Leaving the
 		// refusal behind would keep alarming about something that no longer exists,
 		// which is how an alarm stops being read.
-		if err := e.store.ClearRefusedGuard(ctx, agentID, s.ClearGuard); err != nil {
-			log.Printf("ERROR agent %s: refusal on %s not cleared after an exit: %v", agentID, s.ClearGuard, err)
+		if err := e.store.ClearRefusedGuard(ctx, agentID, subID, s.ClearGuard); err != nil {
+			log.Printf("ERROR %s: refusal on %s not cleared after an exit: %v", who, s.ClearGuard, err)
 		}
 	}
 	if s.RefusedGuard == nil && s.Guard == nil {
@@ -54,35 +60,61 @@ func (e *Engine) applyGuardChanges(ctx context.Context, agentID string, decision
 	if s.RefusedGuard != nil {
 		g := s.RefusedGuard
 		if err := e.store.RecordRefusedGuard(ctx, store.RefusedGuardInsert{
-			AgentID: agentID, Symbol: g.Symbol,
+			AgentID: agentID, SubscriptionID: subID, Symbol: g.Symbol,
 			EntryPrice: g.EntryPrice, EntryQty: g.EntryQty,
 			MinAcceptablePct: g.Levels.MinAcceptablePct,
-			DecisionID:       &decisionID,
+			DecisionID:       decisionID,
 			Reason:           strings.Join(g.Levels.Refusals, " | "),
 		}); err != nil {
-			log.Printf("ERROR agent %s: %s opened UNPROTECTED and the refusal was not recorded, "+
-				"so nothing can alarm on it: %v", agentID, g.Symbol, err)
+			log.Printf("ERROR %s: %s opened UNPROTECTED and the refusal was not recorded, "+
+				"so nothing can alarm on it: %v", who, g.Symbol, err)
 			return
 		}
-		log.Printf("agent %s: %s opened UNPROTECTED — levels were asked for and refused; the "+
-			"smallest this pool accepts is %.3f%%", agentID, g.Symbol, g.Levels.MinAcceptablePct*100)
+		log.Printf("%s: %s opened UNPROTECTED — levels were asked for and refused; the "+
+			"smallest this pool accepts is %.3f%%", who, g.Symbol, g.Levels.MinAcceptablePct*100)
 		return
 	}
 	g := s.Guard
 	id, err := e.store.ArmGuard(ctx, store.GuardInsert{
-		AgentID: agentID, Symbol: g.Symbol,
+		AgentID: agentID, SubscriptionID: subID, Symbol: g.Symbol,
 		EntryPrice: g.EntryPrice, EntryQty: g.EntryQty,
 		TakeProfit: g.Levels.TakeProfit, StopLoss: g.Levels.StopLoss,
 		TPPct: g.Levels.TPPct, SLPct: g.Levels.SLPct,
-		DecisionID: &decisionID, Note: g.Basis,
+		DecisionID: decisionID, Note: g.Basis,
 	})
 	if err != nil {
-		log.Printf("ERROR agent %s: protective levels for %s were NOT armed and the position is "+
-			"unguarded: %v", agentID, g.Symbol, err)
+		log.Printf("ERROR %s: protective levels for %s were NOT armed and the position is "+
+			"unguarded: %v", who, g.Symbol, err)
 		return
 	}
-	log.Printf("agent %s: guard %d armed on %s, entry %.6f%s", agentID, id, g.Symbol,
+	log.Printf("%s: guard %d armed on %s, entry %.6f%s", who, id, g.Symbol,
 		g.EntryPrice, guardSummary(g.Levels, g.EntryPrice))
+}
+
+// guardWho names whose position a log line is about. A subscriber's guard and a
+// creator's guard on the same symbol produce otherwise identical lines, and
+// reading one as the other is exactly the confusion this whole feature has to
+// avoid.
+func guardWho(agentID string, subID *string) string {
+	if subID == nil {
+		return "agent " + agentID
+	}
+	return "subscription " + *subID
+}
+
+// leaseKeyFor is the id whose WALLET is being moved.
+//
+// The signer derives a wallet from an opaque id — the agent id for a creator's
+// position, the subscription id for a buyer's — so that id names exactly one
+// account, which is what the lease is about. Keying by agent would make one
+// subscriber's exit block every other subscriber's, and would make a
+// subscriber's stop loss unable to fire at all while the agent was trading for
+// anybody. See migration 0040.
+func leaseKeyFor(agentID string, subID *string) string {
+	if subID == nil {
+		return agentID
+	}
+	return *subID
 }
 
 // Take-profit and stop-loss levels, as the agent may ask for them and as the
