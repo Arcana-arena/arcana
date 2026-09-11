@@ -114,6 +114,11 @@ async function rpcOnce(url, method, params) {
       // returns, so this guard can only notice the exception going stale if
       // it can see the same thing the signer sees.
       e.revertData = typeof j.error.data === 'string' ? j.error.data : null;
+      // A REVERT IS THE CONTRACT ANSWERING, not the endpoint failing. Retrying
+      // it across every provider burns the whole budget and then reports the
+      // contract's own reply as "all RPC endpoints failed" — which is how a
+      // readable chain looks unreachable. Marked here so rpc() stops at once.
+      e.isRevert = /revert/i.test(j.error.message || '');
       // -32601 is "method not supported": a permanent property of the endpoint,
       // not a transient fault. Retrying it wastes the budget.
       e.methodUnsupported = j.error.code === -32601;
@@ -175,6 +180,10 @@ async function rpc(method, params = []) {
         return r;
       } catch (e) {
         if (e.methodUnsupported) continue;
+        // Deterministic: every honest endpoint returns the same revert, so the
+        // first one is the answer. Asking the rest changes nothing except how
+        // long it takes to report it wrongly.
+        if (e.isRevert) { liveRpc = url; throw e; }
         errors.push(`${url}: ${e.message}`);
       }
     }
