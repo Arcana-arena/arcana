@@ -89,6 +89,11 @@ if (!prod.routers.map((r) => r.toLowerCase()).includes(ROUTER.toLowerCase())) {
 
 // --- a chain that answers whatever this test needs --------------------------
 let paused = false, blocked = false, rpcCalls = 0;
+// null = isBlocked() ANSWERS (with `blocked`). A string = it REVERTS with that
+// payload, which is what every token on this chain actually does. The suite
+// needs both, because the whole point of the exception is that answering and
+// reverting-as-recorded lead to different outcomes.
+let blockedRevert = null;
 const word = (v) => '0x' + (v ? '1' : '0').padStart(64, '0');
 const rpc = createServer((req, res) => {
   let b = ''; req.on('data', (c) => (b += c));
@@ -96,11 +101,16 @@ const rpc = createServer((req, res) => {
     rpcCalls++;
     let id = 1, data = '';
     try { const j = JSON.parse(b); id = j.id; data = j.params?.[0]?.data || ''; } catch {}
+    res.writeHead(200, { 'content-type': 'application/json' });
+    if (data.startsWith('0xfbac3951') && blockedRevert !== null) {
+      res.end(JSON.stringify({ jsonrpc: '2.0', id,
+        error: { code: 3, message: 'execution reverted', data: blockedRevert } }));
+      return;
+    }
     let result = word(false);
     if (data.startsWith('0x5c975abb')) result = word(paused);          // paused()
     else if (data.startsWith('0xfbac3951')) result = word(blocked);    // isBlocked(address)
     else if (data === '') result = '0x1237';
-    res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ jsonrpc: '2.0', id, result }));
   });
 });
@@ -139,6 +149,7 @@ const sign = async (body) => {
   return { status: r.status, body: await r.json().catch(() => null) };
 };
 const code = (r) => r.body?.error?.code || '';
+const ok2 = (r) => r.status >= 200 && r.status < 300;
 const okSwap = (over = {}) => ({ intent: 'swap_exact_in', agent_id: AGENT, token_in: USDG,
   token_out: AAPL, router: ROUTER, amount: '10000000', min_out: '1', price_usd: 1, nonce: 0, ...over });
 const okApprove = (over = {}) => ({ intent: 'approve', agent_id: AGENT, token_in: USDG,
@@ -227,6 +238,84 @@ try {
     if (code(x) === 'daily_signature_cap') { capped = i; break; }
   }
   check('signing stops at the cap', capped !== null, 'the cap never fired');
+
+  // === THE BLOCKLIST EXCEPTION ============================================
+  //
+  // No token on chain 4663 implements isBlocked(). Refusing on that basis
+  // refused every trade the platform could ever make, so the allowlist now
+  // records the absence per token, with the revert payload proving it. These
+  // checks exist because an exception that is never re-examined is how a
+  // workaround becomes permanent — so the interesting cases are not "does it
+  // sign", they are the three ways the exception must STOP applying.
+  console.log('
+=== The blocklist exception, and the four ways it stops applying ===');
+  await stop();
+  proc = start();
+  check('signer came up on the shipped allowlist', await waitUp(), 'never became healthy');
+
+  const excepted = prod.quote_token.blocklist_unreadable;
+  check('the shipped allowlist records USDG as having no readable blocklist',
+    !!excepted && excepted.revert_data === '0x800ab12c', JSON.stringify(excepted));
+  check('and it carries a control selector whose payload is identical',
+    !!excepted && excepted.control_revert_data === excepted.revert_data,
+    'a revert only proves absence if an impossible selector reverts the same way');
+
+  paused = false; blocked = false;
+  blockedRevert = '0x800ab12c';
+  r = await sign(okApprove({ agent_id: randomUUID() }));
+  check('isBlocked() reverting EXACTLY as recorded → signs', ok2(r), code(r) || r.status);
+
+  blockedRevert = '0xbaadf00d';
+  r = await sign(okApprove({ agent_id: randomUUID() }));
+  check('reverting with a DIFFERENT payload → refused, the evidence no longer describes the contract',
+    code(r) === 'chain_state_unverifiable', code(r));
+
+  blockedRevert = null; blocked = true;
+  r = await sign(okApprove({ agent_id: randomUUID() }));
+  check('isBlocked() ANSWERING true → wallet_blocked, so the exception expired on its own',
+    code(r) === 'wallet_blocked', code(r));
+
+  blockedRevert = '0x800ab12c'; blocked = false; paused = true;
+  r = await sign(okApprove({ agent_id: randomUUID() }));
+  check('paused() true on an excepted token → still token_paused, paused() was NOT relaxed',
+    code(r) === 'token_paused', code(r));
+  paused = false;
+
+  // A token that is allowlisted but NOT marked must still be refused. The
+  // shipped file marks every token, so this needs its own allowlist — and
+  // that is the point: the exception is per-token, not a switch.
+  console.log('
+=== A token nobody examined is still refused ===');
+  const unmarked = JSON.parse(JSON.stringify(prod));
+  delete unmarked.quote_token.blocklist_unreadable;
+  const unmarkedPath = join(dir, 'allowlist-unmarked.json');
+  writeFileSync(unmarkedPath, JSON.stringify(unmarked, null, 2));
+  await stop();
+  proc = start({ SIGNER_ALLOWLIST_FILE: unmarkedPath });
+  check('signer came up on an allowlist with USDG unmarked', await waitUp(), 'never became healthy');
+  blockedRevert = '0x800ab12c';
+  r = await sign(okApprove({ agent_id: randomUUID() }));
+  check('the SAME revert, on a token with no exception → refused',
+    code(r) === 'chain_state_unverifiable', code(r));
+
+  // Evidence is not optional. An exception without its control is a note
+  // nobody can re-check, so the signer must refuse to load it at all.
+  console.log('
+=== An exception without evidence does not load ===');
+  const noEvidence = JSON.parse(JSON.stringify(prod));
+  noEvidence.quote_token.blocklist_unreadable = { verified_at: '2026-09-11', revert_data: '0x800ab12c' };
+  const noEvidencePath = join(dir, 'allowlist-no-evidence.json');
+  writeFileSync(noEvidencePath, JSON.stringify(noEvidence, null, 2));
+  await stop();
+  proc = start({ SIGNER_ALLOWLIST_FILE: noEvidencePath });
+  let bootErr = '';
+  proc.stderr.on('data', (c) => (bootErr += c));
+  const cameUp = await waitUp(8000);
+  check('an exception with no control selector → the signer refuses to start',
+    !cameUp, 'it started, so an unverifiable note would have been trusted');
+  check('and it says why', /control/i.test(bootErr), bootErr.slice(0, 200) || '(no stderr)');
+
+  blockedRevert = null; blocked = false;
 
   // === A CHAIN IT CANNOT READ =============================================
   console.log('\n=== A chain it cannot read ===');
