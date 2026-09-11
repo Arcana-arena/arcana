@@ -265,13 +265,30 @@ func (b *Broker) approve(ctx context.Context, req Request, tokenIn TokenCfg, amo
 			"an allowance that may or may not exist"
 		return fmt.Errorf("approval unresolved")
 	}
+	// Record the approval's own cost BEFORE deciding whether it worked. Its gas
+	// was spent either way, and a reverted approval that leaves no trace of what
+	// it cost is the same gap in a worse disguise.
+	ar := &ApproveRecord{TxHash: hash, Token: tokenIn.Address, Amount: amount}
+	if gu, ok := new(big.Int).SetString(trim0x(rcpt.GasUsed), 16); ok {
+		ar.GasUsed = gu.Int64()
+		if gp, ok2 := new(big.Int).SetString(trim0x(rcpt.EffGasPrice), 16); ok2 {
+			ar.GasPriceWei = gp
+			ar.GasCostWei = new(big.Int).Mul(gu, gp)
+		}
+	}
+	res.Approve = ar
+
 	if !rcpt.Succeeded() {
+		ar.Status = StatusReverted
+		ar.Note = "the approval was mined and reverted"
 		res.Status = StatusReverted
 		res.TxHash = hash
 		res.Filled = big.NewInt(0)
 		res.Note = "the approval reverted, so the swap was never attempted"
 		return fmt.Errorf("approval reverted")
 	}
-	log.Printf("execution: agent=%s approval mined %s", req.AgentID, hash)
+	ar.Status = StatusMined
+	ar.Note = "allowance granted so the swap could spend " + tokenIn.Symbol
+	log.Printf("execution: agent=%s approval mined %s gas_wei=%v", req.AgentID, hash, ar.GasCostWei)
 	return nil
 }

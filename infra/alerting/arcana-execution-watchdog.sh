@@ -75,6 +75,8 @@ WARN_MULTIPLE="${GAS_WARN_MULTIPLE:-4}"
 # set in the installed unit.
 FORCE_FAILS="${WATCHDOG_FORCE_FAILS:-}"      # pretend this many recent failures
 FORCE_BALANCE="${WATCHDOG_FORCE_BALANCE:-}"  # pretend this wei balance
+FORCE_NONCE_GAP="${WATCHDOG_FORCE_NONCE_GAP:-}" # pretend this many unrecorded transactions
+FORCE_CUSTODY="${WATCHDOG_FORCE_CUSTODY:-}"     # pretend this custody, so BOTH branches can be fired
 DRY_RUN="${WATCHDOG_DRY_RUN:-0}"
 
 psql() {
@@ -171,7 +173,7 @@ FLOOR=$(( MAX_FEE_WEI * GAS_LIMIT * 2 ))
 WARN=$(( FLOOR * WARN_MULTIPLE ))
 
 ADDRS=$(psql "
-  SELECT a.name || '|' || w.address
+  SELECT a.name || '|' || w.address || '|' || w.key_custody || '|' || a.id
     FROM agent_wallets w JOIN agents a ON a.id = w.agent_id
    WHERE a.status = 'active'")
 if [ -z "$ADDRS" ]; then
@@ -179,8 +181,9 @@ if [ -z "$ADDRS" ]; then
   exit 1
 fi
 
-while IFS='|' read -r name addr; do
+while IFS='|' read -r name addr custody agent; do
   [ -z "$addr" ] && continue
+  [ -n "$FORCE_CUSTODY" ] && custody="$FORCE_CUSTODY"
   if [ -n "$FORCE_BALANCE" ]; then
     BAL_DEC="$FORCE_BALANCE"
   else
@@ -207,6 +210,52 @@ while IFS='|' read -r name addr; do
     add "[LOW GAS] ${name} (${addr})
      holds ${ETH} ETH, under ${WARN_MULTIPLE}x the ${FLOOR} wei the broker
      reserves per pair of transactions. It still trades; it will stop soon."
+  fi
+
+  # --- 3. is every transaction this wallet sent accounted for? --------------
+  #
+  # The nonce is how many transactions the wallet has EVER sent, and ARCANA
+  # should hold a row for each one. When it does not, something was broadcast
+  # and its cost was discarded — which is exactly what happened to the ERC-20
+  # approval: the swap's receipt overwrote the gas fields, and 26% of one
+  # agent's gas spend had no row anywhere. Nothing alarmed, because nothing was
+  # asking this question.
+  #
+  # Gas is an operating cost rather than a trading result, so it stays out of
+  # NAV and out of the score. An operating cost still has to be ACCOUNTABLE:
+  # one that is not recorded cannot be budgeted, and the first symptom of that
+  # is a wallet which has quietly stopped being able to trade.
+  #
+  # ON A SHARED-CUSTODY WALLET this is reported, not alarmed at. The owner holds
+  # the key too and is entitled to send their own transactions, which raise the
+  # nonce and correctly have no ARCANA row.
+  if [ -z "$FORCE_BALANCE" ]; then
+    NONCE_HEX=$(curl -s --max-time 20 -X POST "$RPC_URL" \
+      -H 'content-type: application/json' \
+      -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getTransactionCount\",\"params\":[\"${addr}\",\"latest\"]}" \
+      | grep -oP '(?<="result":")[^"]*')
+    if [ -z "$NONCE_HEX" ]; then
+      echo "execution-watchdog: could not read the nonce of ${addr}; the check was NOT performed" >&2
+      exit 1
+    fi
+    NONCE=$(( NONCE_HEX ))
+    ROWS=$(psql "SELECT count(*) FROM executions WHERE agent_id = '${agent}' AND tx_hash IS NOT NULL")
+    if [ -z "$ROWS" ]; then
+      echo "execution-watchdog: could not count executions for ${agent}" >&2
+      exit 1
+    fi
+    [ -n "$FORCE_NONCE_GAP" ] && NONCE=$(( ROWS + FORCE_NONCE_GAP ))
+    if [ "$NONCE" -gt "$ROWS" ]; then
+      GAP=$(( NONCE - ROWS ))
+      if [ "$custody" = "shared" ]; then
+        echo "execution-watchdog: ${name} sent ${NONCE} transactions and ARCANA recorded ${ROWS}; ${GAP} unrecorded, and the owner holds this key too, so they may be theirs."
+      else
+        add "[UNRECORDED SPEND] ${name} (${addr})
+     the wallet has sent ${NONCE} transactions; ARCANA has rows for ${ROWS}.
+     ${GAP} were broadcast with their cost discarded. Only ARCANA can sign for
+     this wallet, so there is no other explanation."
+      fi
+    fi
   fi
 done <<< "$ADDRS"
 

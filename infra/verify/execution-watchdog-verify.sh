@@ -81,6 +81,20 @@ check_body    "and distinguishes low from empty" "LOW GAS" WATCHDOG_FORCE_BALANC
 check_verdict "a wallet well above the reserve is quiet" healthy WATCHDOG_FORCE_BALANCE=10000000000000000
 
 echo
+echo "=== Unrecorded spend ==="
+# The nonce says how many transactions the wallet sent; ARCANA should have a row
+# for each. This check would have caught the discarded approval immediately:
+# nonce 2, rows 1. It did not exist, so nothing did.
+check_verdict "a wallet whose nonce matches its rows is quiet" healthy
+check_verdict "one unrecorded transaction is reported" healthy WATCHDOG_FORCE_NONCE_GAP=1
+check_body    "and named, because the owner may own the gap" "unrecorded" WATCHDOG_FORCE_NONCE_GAP=1
+# On a PLATFORM_ONLY wallet there is no other explanation, so it must alarm.
+# Agent 3 is shared-custody today, so without this hook the alarming branch
+# would never be exercised -- and a branch that has never fired is untested.
+check_verdict "on a platform-only wallet it ALARMS instead" alarm WATCHDOG_FORCE_NONCE_GAP=1 WATCHDOG_FORCE_CUSTODY=platform_only
+check_body    "and says nothing else could have signed it" "no other explanation" WATCHDOG_FORCE_NONCE_GAP=1 WATCHDOG_FORCE_CUSTODY=platform_only
+
+echo
 echo "=== It refuses rather than guessing ==="
 # A check that cannot run must never report health. Exit 1 is what OnFailure=
 # turns into its own alert.

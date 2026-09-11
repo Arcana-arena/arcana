@@ -41,6 +41,11 @@ type Result struct {
 	GasCostWei   *big.Int
 	RefusalCode  string
 	Note         string
+
+	// Approve is set when the broker had to grant an allowance first. It is a
+	// separate transaction with its own hash, nonce and gas bill, so it is
+	// reported separately rather than averaged into the swap.
+	Approve *ApproveRecord
 }
 
 // Moved reports whether funds actually changed hands.
@@ -171,4 +176,30 @@ func (b *Broker) Read(ctx context.Context, wallet string) (*Position, error) {
 		}
 	}
 	return p, nil
+}
+
+// ApproveRecord is the ERC-20 approval the broker sent before a swap.
+//
+// IT GETS ITS OWN ROW because it is its own transaction: it is broadcast, it
+// consumes a nonce, and it costs real gas. The first version folded it into
+// nothing at all — the swap's receipt overwrote the Result's gas fields and the
+// approval's cost vanished. Measured on the first cadence-era agent, that was
+// 7,295,400,482,000 wei, 26% of everything it had spent, with no row anywhere.
+//
+// Gas is an operating cost rather than a trading result, so it stays out of NAV
+// and out of the score. An operating cost still has to be RECORDED: one that is
+// not cannot be budgeted, and the first sign of it is a wallet that has quietly
+// stopped being able to trade.
+//
+// Filled is meaningless here and is left NULL rather than zero — an approval
+// moves nothing by design, which is different from a swap that moved nothing.
+type ApproveRecord struct {
+	TxHash      string
+	Status      string
+	GasUsed     int64
+	GasPriceWei *big.Int
+	GasCostWei  *big.Int
+	Amount      *big.Int
+	Token       string
+	Note        string
 }

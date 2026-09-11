@@ -108,6 +108,27 @@ func (e *Engine) settleOnChain(
 		execPtr = &execID
 	}
 
+	// THE APPROVAL GETS ITS OWN ROW. It is its own transaction: its own hash,
+	// its own nonce, its own gas bill. Folding it into the swap lost 26% of one
+	// agent gas spend with no row anywhere to find it in.
+	//
+	// filled_out stays NULL: an approval moves nothing BY DESIGN, which is a
+	// different fact from a swap that moved nothing, and zero would conflate them.
+	if ap := res.Approve; ap != nil {
+		if _, aerr := e.store.AppendExecution(wctx, store.ExecutionInsert{
+			AgentID: req.AgentID, DecisionID: nil, TS: req.Timestamp,
+			IntentAction: "approve", Symbol: res.Symbol,
+			TokenIn: ap.Token, TokenOut: ap.Token,
+			AmountIn: ap.Amount,
+			TxHash: ap.TxHash, GasUsed: ap.GasUsed,
+			GasPriceWei: ap.GasPriceWei, GasCostWei: ap.GasCostWei,
+			Status: ap.Status, Note: ap.Note,
+		}); aerr != nil {
+			log.Printf("ERROR agent %s: the approval %s was broadcast and its cost was not recorded: %v",
+				req.AgentID, ap.TxHash, aerr)
+		}
+	}
+
 	// 4. Read the position again. Whatever happened — filled, reverted, never
 	//    mined — this is what the agent holds now.
 	after, err := e.broker.Read(ctx, wallet.Address)
