@@ -146,3 +146,47 @@ spends the agent's gas to discover something knowable for free.
 
 Two real sells cost gas and moved nothing before this was found. Both are in the
 record as `trade_failed`, which is how it was found.
+
+## The quantity step, and how it blocked every buy
+
+`buyableQty()` floored the quantity to a hundredth of a share and refused
+anything smaller. That constant was written while capital was imaginary, where
+it is invisible: on a 100,000 book, a hundredth of a share is nothing.
+
+On 11.79 of real money it forbade **every purchase of anything expensive**. A
+budget of 5.89 against SPY at ~660 is 0.0089 shares, which floors to zero. The
+model asked to buy SPY, then QQQ, and was refused both times before the intent
+reached the chain — and the record said *"buy declined by risk limits"*, which
+reads as the agent choosing restraint when it was arithmetic nobody had
+revisited.
+
+Two changes:
+
+- **The step is a property of the asset**, carried on `RiskLimits.QtyStep`.
+  Virtual agents keep the hundredth-of-a-share convention every season has run
+  on; a chain-backed agent gets `1e-8`. The bound is not the chain's — tokens
+  divide to eighteen decimals — it is what can be **recorded**, because
+  `decisions.quantity` is `numeric(20,8)` and trading finer would write down a
+  number that is not what happened.
+- **The refusal names which constraint**: the cash floor, the position cap, a
+  missing price, or a budget that buys less than the smallest tradable size,
+  with that size and its value in the message.
+
+### The buy leg, closed
+
+| | |
+|---|---|
+| decision | `1425` — buy GOOGL, quantity `0.01770487` |
+| model's reason | *"GOOGL shows the strongest upward momentum (+0.17%) among individual stocks, aligning with the owner's momentum strategy"* |
+| mandate | momentum, conviction **aggressive** — *"Take a position whenever you can articulate a reason. Standing aside has a cost too."* |
+| tx | `0x9288a397cbb69d268dc813dd8a7045a978868b1abafab6b1d54a244e4a7a8c91` |
+| block / gas | 59,907,658 · 164,837 · status `0x1` |
+| **fee tier sent** | **500**, in production — the field that was `0` on every sell |
+| in / quoted / filled | 5,894,999 USDG · 17,704,874,344,043,495 · **17,704,874,344,043,495** |
+| slippage | **0.0000 bps** |
+| chain balance after | `17704874344043495` — identical to the recorded fill |
+| custody drift | zero rows, against a claim that now includes a position |
+
+The decision came from the model. The mandate was the lever — which is only
+possible because a mandate now implies an LLM agent; before that fix the mandate
+sat in the row while a deterministic strategy ran.

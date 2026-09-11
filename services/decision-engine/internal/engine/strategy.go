@@ -37,6 +37,26 @@ type RiskLimits struct {
 	// separates a strategy that reacts to noise from one that waits for a
 	// real move.
 	RebalanceBandPct float64
+
+	// QtyStep is the smallest quantity the asset can actually be traded in.
+	//
+	// IT IS A PROPERTY OF THE ASSET, NOT A RISK LIMIT, and it lives here
+	// because buyableQty is where it bites. It used to be the constant 0.01
+	// written into that function, which was invisible while capital was
+	// imaginary: on a 100,000 book a hundredth of a share is nothing.
+	//
+	// On 11.79 of real money it silently forbade every purchase of anything
+	// expensive. A budget of 5.89 against SPY at ~660 is 0.0089 shares, which
+	// floors to zero — and the decision was recorded as "buy declined by risk
+	// limits", language that reads as a deliberate risk decision rather than as
+	// arithmetic nobody had revisited since capital became real. The model
+	// asked to buy twice and was refused both times before the intent ever
+	// reached the chain.
+	//
+	// Tokens on chain divide to eighteen decimals. The binding limit is what
+	// can be RECORDED: decisions.quantity is numeric(20,8), so trading finer
+	// than 1e-8 would write down a number that is not what happened.
+	QtyStep float64
 }
 
 // Defaults for agents whose risk_profile does not say. Chosen to be active
@@ -46,6 +66,9 @@ var defaultLimits = RiskLimits{
 	TradeSizePct:     0.20,
 	CashFloorPct:     0.05,
 	RebalanceBandPct: 0.003,
+	// A hundredth of a share, which is what every virtual season has run on.
+	// Chain-backed agents are given the finer step in Execute.
+	QtyStep: 0.01,
 }
 
 // riskLimitsFrom reads the limits out of the agent's risk_profile.
@@ -298,8 +321,12 @@ func buyableQty(symbol string, view marketView, holdings map[string]any, cash, n
 	}
 
 	budget := math.Min(math.Min(nav*l.TradeSizePct, spendable), headroom)
-	qty := math.Floor(budget/price*100) / 100
-	if qty < 0.01 {
+	step := l.QtyStep
+	if step <= 0 {
+		step = defaultLimits.QtyStep
+	}
+	qty := math.Floor(budget/price/step) * step
+	if qty < step {
 		return 0
 	}
 	return qty

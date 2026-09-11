@@ -131,6 +131,24 @@ func (e *Engine) Execute(ctx context.Context, req ExecuteRequest) (int64, error)
 		}
 	}
 
+	// WHICH SETTLEMENT LAYER, decided before anything else asks a question that
+	// depends on it. The presence of a wallet row is the whole test; there is no
+	// flag, so no configuration exists under which an agent holds funds on chain
+	// and has its portfolio computed from arithmetic.
+	wallet, werr := e.store.ChainWalletFor(ctx, req.AgentID)
+	if werr != nil {
+		return 0, werr
+	}
+
+	limits := riskLimitsFrom(agent.RiskProfile)
+	if wallet != nil {
+		// Tokens divide to eighteen decimals; the recorded quantity holds eight.
+		// The default hundredth-of-a-share step is a convention from simulated
+		// equities, and on a small real book it forbids every purchase of an
+		// expensive symbol without saying so.
+		limits.QtyStep = OnChainQtyStep
+	}
+
 	view := marketView{symbols: snap.Symbols, prices: prices, prev: prevPrices}
 	in := DeciderInput{
 		AgentID:  req.AgentID,
@@ -140,7 +158,7 @@ func (e *Engine) Execute(ctx context.Context, req ExecuteRequest) (int64, error)
 		Holdings: holdings,
 		Cash:     cash,
 		NAV:      nav,
-		Limits:   riskLimitsFrom(agent.RiskProfile),
+		Limits:   limits,
 	}
 
 	var intent tradeIntent
@@ -157,16 +175,6 @@ func (e *Engine) Execute(ctx context.Context, req ExecuteRequest) (int64, error)
 		if derr != nil {
 			return 0, fmt.Errorf("decide: %w", derr)
 		}
-	}
-
-	// WHICH SETTLEMENT LAYER. An agent that has a wallet settles on the chain,
-	// because that is where its money is. Everyone else settles the way they
-	// always have. The check is the presence of the wallet row rather than a
-	// flag, so there is no configuration under which an agent can have funds on
-	// chain and a portfolio computed from arithmetic.
-	wallet, werr := e.store.ChainWalletFor(ctx, req.AgentID)
-	if werr != nil {
-		return 0, werr
 	}
 
 	var action, symbol, rationale string

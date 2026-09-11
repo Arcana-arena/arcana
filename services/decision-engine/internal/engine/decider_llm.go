@@ -174,7 +174,11 @@ func (d *llmDecider) Decide(ctx context.Context, in DeciderInput) (tradeIntent, 
 		}
 		qty := buyableQty(parsed.Symbol, in.View, in.Holdings, in.Cash, in.NAV, limits)
 		if qty <= 0 {
-			return hold("buy declined by risk limits: " + parsed.Rationale), ev, nil
+			// NAME WHICH LIMIT. "risk limits" covered the cash floor, the position
+			// cap and a quantity that rounded to nothing, and the third of those is
+			// not a risk decision at all. It read as the agent choosing restraint
+			// while it was actually arithmetic, and that cost two cycles to find.
+			return hold(declineReason(parsed.Symbol, in, limits) + ": " + parsed.Rationale), ev, nil
 		}
 		return tradeIntent{Action: "buy", Symbol: parsed.Symbol, Quantity: qty, Rationale: parsed.Rationale}, ev, nil
 	}
@@ -188,6 +192,28 @@ func (d *llmDecider) Decide(ctx context.Context, in DeciderInput) (tradeIntent, 
 		qty = held * parsed.SizePct
 	}
 	return tradeIntent{Action: "sell", Symbol: parsed.Symbol, Quantity: qty, Rationale: parsed.Rationale}, ev, nil
+}
+
+// declineReason says which constraint made the quantity zero, so the record
+// distinguishes a risk decision from a rounding floor.
+func declineReason(symbol string, in DeciderInput, l RiskLimits) string {
+	price, ok := in.View.prices[symbol]
+	if !ok || price <= 0 {
+		return "buy declined: no price for " + symbol
+	}
+	if in.Cash-in.NAV*l.CashFloorPct <= 0 {
+		return "buy declined: spending it would break the cash floor"
+	}
+	if in.NAV*l.MaxPositionPct-qtyFromHoldings(in.Holdings, symbol)*price <= 0 {
+		return "buy declined: the position cap for " + symbol + " is already full"
+	}
+	step := l.QtyStep
+	if step <= 0 {
+		step = defaultLimits.QtyStep
+	}
+	return fmt.Sprintf(
+		"buy declined: the budget buys less than the smallest tradable size (%g of %s, worth %.2f)",
+		step, symbol, step*price)
 }
 
 // materialMove reports whether anything moved enough to be worth an opinion.

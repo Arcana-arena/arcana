@@ -28,6 +28,13 @@ const (
 	ActionTradeUnresolved = "trade_unresolved"
 )
 
+// OnChainQtyStep is the smallest quantity a chain-backed agent may trade.
+//
+// Set by what can be RECORDED, not by what the chain can carry: tokens divide
+// to eighteen decimals, and decisions.quantity is numeric(20,8). Trading finer
+// than this would write down a number that is not what happened.
+const OnChainQtyStep = 1e-8
+
 // settleOnChain runs one intent against real funds and reports what happened.
 //
 // It returns the values persist() needs, and the holdings and cash it returns
