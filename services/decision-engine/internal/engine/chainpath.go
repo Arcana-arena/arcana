@@ -183,6 +183,12 @@ func (e *Engine) settleOnChain(
 				s.Guard = &pendingGuard{
 					Symbol: res.Symbol, EntryPrice: entry, EntryQty: qty, Levels: lv, Basis: basis,
 				}
+			} else if lv.Asked() {
+				// ASKED FOR AND NOT GIVEN. The position is open and unprotected,
+				// and that is now a row rather than a sentence in a rationale.
+				s.RefusedGuard = &pendingGuard{
+					Symbol: res.Symbol, EntryPrice: entry, EntryQty: qty, Levels: lv, Basis: basis,
+				}
 			}
 		case "sell":
 			// The position left by the agent's own decision, so anything armed
@@ -227,6 +233,11 @@ type settlement struct {
 	// ClearGuard names a symbol whose armed guard no longer guards anything,
 	// because the agent exited the position by its own decision.
 	ClearGuard string
+	// RefusedGuard is a position whose owner ASKED for protection and did not
+	// get it. Recorded as a state rather than left in the rationale, because an
+	// owner who wrote a stop loss into their prompt will otherwise believe they
+	// have one.
+	RefusedGuard *pendingGuard
 }
 
 // pendingGuard is a guard waiting for its decision id.

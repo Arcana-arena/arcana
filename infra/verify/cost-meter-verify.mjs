@@ -81,7 +81,7 @@ async function up(ms = 40000) {
 }
 async function cycle(agentId, ref) {
   const r = await fetch(`http://127.0.0.1:${PORT}/internal/v1/decisions/execute`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Internal-Key': KEY },
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Internal-Key': KEY, 'X-Arcana-Verification': '1' },
     body: JSON.stringify({ agent_id: agentId, season_id: SEASON, market_snapshot_ref: ref }),
   });
   return { status: r.status, body: await r.json().catch(() => null) };

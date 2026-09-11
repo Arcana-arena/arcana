@@ -10,6 +10,11 @@ type ExecuteRequest struct {
 	Timestamp time.Time `json:"timestamp"`
 	// MarketSnapshotRef points to the immutable market snapshot used for this tick.
 	MarketSnapshotRef string `json:"market_snapshot_ref"`
+
+	// IsVerification is set from the X-Arcana-Verification header, never from
+	// the body. A caller cannot grant itself this; it can only ever cost it
+	// permissions. See internal/engine/verification.go.
+	IsVerification bool `json:"-"`
 }
 
 // ManualTrade is one human-submitted order for a human_vs_ai session.

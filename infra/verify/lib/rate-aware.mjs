@@ -53,8 +53,29 @@ export const sleep = (seconds) => new Promise((r) => setTimeout(r, seconds * 100
  * 429 back. agents-verify's flood section uses this deliberately; nothing else
  * should.
  */
+/**
+ * EVERY REQUEST A SUITE MAKES CARRIES THE VERIFICATION MARKER.
+ *
+ * Added here rather than at each call site, because a marker somebody has to
+ * remember is a marker somebody forgets. The decision engine reads it and
+ * refuses to act on any agent that holds a wallet — so a suite pointed at a
+ * funded agent fails its check instead of spending money.
+ *
+ * It can only ever cost the caller permissions. There is no request this makes
+ * succeed that would otherwise fail, so adding it unconditionally is safe even
+ * for the suites that never go near the chain.
+ *
+ * The rule this enforces was bought: on 2026-09-11 a suite drove the cadence
+ * past a floor that had been deliberately removed, opened a real tick, and
+ * bought $5.96 of MSFT. See services/decision-engine/internal/engine/verification.go.
+ */
+export const VERIFICATION_HEADER = { 'X-Arcana-Verification': '1' };
+
 export async function req(url, opts = {}) {
-  const res = await fetch(url, opts);
+  const res = await fetch(url, {
+    ...opts,
+    headers: { ...VERIFICATION_HEADER, ...(opts.headers ?? {}) },
+  });
   const text = await res.text();
   let body;
   try {

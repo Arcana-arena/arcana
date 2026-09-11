@@ -160,7 +160,14 @@ async function up(ms = 60000) {
 }
 async function cycle(agentId, ref) {
   const r = await fetch(`http://127.0.0.1:${PORT}/internal/v1/decisions/execute`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Internal-Key': KEY },
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json', 'X-Internal-Key': KEY,
+      // The engine refuses to act on an agent that holds a wallet when this is
+      // set. This suite's agents have none, and that is not the protection —
+      // this header is.
+      'X-Arcana-Verification': '1',
+    },
     body: JSON.stringify({ agent_id: agentId, season_id: SEASON, market_snapshot_ref: ref }),
   });
   return { status: r.status, body: await r.json().catch(() => null) };

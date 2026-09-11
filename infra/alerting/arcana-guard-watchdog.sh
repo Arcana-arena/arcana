@@ -63,6 +63,7 @@ STALE_AFTER_SEC="${GUARD_STALE_AFTER_SEC:-$(( SCAN_INTERVAL_SEC * 4 + 60 ))}"
 FORCE_AGE="${WATCHDOG_FORCE_AGE:-}"        # pretend the heartbeat is this many seconds old
 FORCE_UNIT="${WATCHDOG_FORCE_UNIT:-}"      # pretend is-active said this
 FORCE_ERROR="${WATCHDOG_FORCE_ERROR:-}"    # pretend the heartbeat carries this error
+FORCE_UNGUARDED="${WATCHDOG_FORCE_UNGUARDED:-}" # pretend this many unprotected positions
 DRY_RUN="${WATCHDOG_DRY_RUN:-0}"
 
 psql() {
@@ -250,6 +251,57 @@ Until then the position is unprotected in practice.
   SELECT * FROM position_guards WHERE status = 'armed' AND last_refusal_at IS NOT NULL;
   journalctl -u $UNIT -n 50"
     verdict alerted "$N guard(s) crossed and refused: $WHICH"
+    exit 0
+  fi
+fi
+
+# --- 5. a position whose owner asked for protection and has none -------------
+#
+# QUIETER STILL THAN A REFUSED EXIT. There is no crossing, no attempt, nothing
+# in any log: the owner wrote a stop loss into their mandate, the level was
+# inside the pool's round trip, it was refused with the reason named — and the
+# position sits open and unprotected. Everything behaved correctly and the owner
+# believes something untrue.
+#
+# The alert names the level that WOULD be accepted, because "no" without "then
+# what" is half an answer. Same shape as the cost meter naming the capital that
+# would fit.
+if [ -n "$FORCE_UNGUARDED" ]; then
+  # The suite's healthy cases run against a live database that may legitimately
+  # hold an unprotected position — and one does. Without a way to say "ask this
+  # question of nothing", those cases would fail whenever production was in a
+  # state the alarm is right about, which teaches whoever reads them that a red
+  # suite means nothing.
+  UNGUARDED="${FORCE_UNGUARDED}|forced by the verification rig"
+else
+  UNGUARDED=$(psql "
+    SELECT count(*) || '|' || COALESCE(string_agg(
+             g.symbol || ' (asked for protection; smallest this pool accepts is ' ||
+             round(g.min_acceptable_pct * 100, 3) || '%)', ', '), '')
+      FROM position_guards g
+     WHERE g.status = 'refused'")
+fi
+
+if [ -n "$UNGUARDED" ]; then
+  U=${UNGUARDED%%|*}
+  UWHICH=${UNGUARDED#*|}
+  if [ "${U:-0}" != "0" ]; then
+    alert "ARCANA: an open position has no protection, and its owner asked for some" \
+"$U position(s) were opened with protective levels that could not be armed:
+
+  $UWHICH
+
+Nothing failed. The level asked for was inside the round trip of the pool the
+symbol trades in, so it would have fired on the cost of its own entry, and it
+was refused with that reason recorded on the decision.
+
+The position is open and unprotected, and its owner wrote a stop loss into their
+mandate. Raise the level past the figure above, or accept the position is
+unguarded — but the choice should be made rather than discovered.
+
+  SELECT symbol, entry_price, min_acceptable_pct, note
+    FROM position_guards WHERE status = 'refused';"
+    verdict alerted "$U unprotected position(s): $UWHICH"
     exit 0
   fi
 fi

@@ -72,7 +72,10 @@ try {
       } catch (e) { return String(e.stderr || e.message); }
     };
     check('a guard with neither level is refused',
-      /position_guards_has_a_level/.test(bad('note', `'x'`) || ''), 'a guard that can never fire was accepted');
+      /position_guards_armed_has_a_level/.test(bad('note', `'x'`) || ''),
+      'a guard that can never fire was accepted. The constraint was renamed when migration ' +
+      '0037 narrowed it to ARMED rows: a REFUSED guard has no level by definition, because it ' +
+      'records protection that was asked for and could not be given');
     check('a stop above its target is refused',
       /position_guards_ordered/.test(bad('stop_loss, take_profit', '120, 110') || ''),
       'both levels would fire at once and the order would silently decide which');
@@ -202,7 +205,10 @@ try {
           VALUES (1, now(), 10, 1, 0, 'verify')
           ON CONFLICT (id) DO UPDATE SET last_scan_at = now(), last_error = NULL, version = 'verify'`);
 
-    const fresh = run({ WATCHDOG_FORCE_UNIT: 'active' });
+    // FORCED TO ZERO, because this case is about the heartbeat and the live
+    // database may hold a genuinely unprotected position — it does. Leaving it
+    // unforced would make this case fail for a reason it is not about.
+    const fresh = run({ WATCHDOG_FORCE_UNIT: 'active', WATCHDOG_FORCE_UNGUARDED: '0' });
     check('a fresh heartbeat with an active unit is healthy',
       /VERDICT=healthy/.test(fresh), fresh.trim().split('\n').slice(-2).join(' | '));
 
@@ -237,7 +243,7 @@ try {
             VALUES ('${id}','AAPL',100,1,95, now() - interval '3 minutes', 'cost_budget_exceeded')`);
       return id;
     });
-    const refused = run({ WATCHDOG_FORCE_UNIT: 'active' });
+    const refused = run({ WATCHDOG_FORCE_UNIT: 'active', WATCHDOG_FORCE_UNGUARDED: '0' });
     check('a level that fired and was refused alarms, even with a healthy watcher',
       /VERDICT=alerted/.test(refused) && /exit was refused/.test(refused),
       refused.trim().split(String.fromCharCode(10)).slice(-2).join(' | '));
@@ -246,7 +252,7 @@ try {
     psql(`DELETE FROM position_guards WHERE agent_id = '${gid}'`);
 
     // THE CONTROL: with the refusal cleared, the same healthy watcher is quiet.
-    const quiet = run({ WATCHDOG_FORCE_UNIT: 'active' });
+    const quiet = run({ WATCHDOG_FORCE_UNIT: 'active', WATCHDOG_FORCE_UNGUARDED: '0' });
     check('and with nothing refused it goes back to healthy',
       /VERDICT=healthy/.test(quiet), quiet.trim().split(String.fromCharCode(10)).slice(-1).join(''));
 

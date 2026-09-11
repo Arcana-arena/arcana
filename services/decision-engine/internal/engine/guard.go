@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/arcana/decision-engine/internal/store"
@@ -40,8 +41,31 @@ func (e *Engine) applyGuardChanges(ctx context.Context, agentID string, decision
 			"the agent exited this position by its own decision"); err != nil {
 			log.Printf("ERROR agent %s: guard on %s not cleared after an exit: %v", agentID, s.ClearGuard, err)
 		}
+		// A position that is gone is not an unprotected position. Leaving the
+		// refusal behind would keep alarming about something that no longer exists,
+		// which is how an alarm stops being read.
+		if err := e.store.ClearRefusedGuard(ctx, agentID, s.ClearGuard); err != nil {
+			log.Printf("ERROR agent %s: refusal on %s not cleared after an exit: %v", agentID, s.ClearGuard, err)
+		}
 	}
-	if s.Guard == nil {
+	if s.RefusedGuard == nil && s.Guard == nil {
+		return
+	}
+	if s.RefusedGuard != nil {
+		g := s.RefusedGuard
+		if err := e.store.RecordRefusedGuard(ctx, store.RefusedGuardInsert{
+			AgentID: agentID, Symbol: g.Symbol,
+			EntryPrice: g.EntryPrice, EntryQty: g.EntryQty,
+			MinAcceptablePct: g.Levels.MinAcceptablePct,
+			DecisionID:       &decisionID,
+			Reason:           strings.Join(g.Levels.Refusals, " | "),
+		}); err != nil {
+			log.Printf("ERROR agent %s: %s opened UNPROTECTED and the refusal was not recorded, "+
+				"so nothing can alarm on it: %v", agentID, g.Symbol, err)
+			return
+		}
+		log.Printf("agent %s: %s opened UNPROTECTED — levels were asked for and refused; the "+
+			"smallest this pool accepts is %.3f%%", agentID, g.Symbol, g.Levels.MinAcceptablePct*100)
 		return
 	}
 	g := s.Guard
@@ -136,7 +160,18 @@ type armedLevels struct {
 	// the worst possible failure of this feature: the owner believes they are
 	// protected and nothing is watching.
 	Refusals []string
+	// MinAcceptablePct is the smallest level this pool would have taken — its
+	// round trip. Carried so a refusal can say what to ask for instead, rather
+	// than only what was wrong, the way the cost meter names the capital that
+	// would fit.
+	MinAcceptablePct float64
 }
+
+// Asked reports whether the decider wanted any protection at all. The
+// difference between "asked and refused" and "never asked" is the whole point
+// of recording a refusal: only the first leaves an owner believing something
+// untrue.
+func (a armedLevels) Asked() bool { return a.any() || len(a.Refusals) > 0 }
 
 func (a armedLevels) any() bool { return a.TakeProfit != nil || a.StopLoss != nil }
 
@@ -153,6 +188,7 @@ func resolveGuardLevels(req guardLevels, entry float64, feeTier uint32) armedLev
 		return out
 	}
 	rt := roundTripPct(feeTier)
+	out.MinAcceptablePct = rt
 
 	if req.StopLossPct > 0 {
 		switch {

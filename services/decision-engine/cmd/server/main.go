@@ -321,6 +321,12 @@ func (s *server) handleExecute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// FROM THE HEADER, NOT THE BODY. A verification marks itself in transport;
+	// putting it in the payload would let a body that happens to carry the
+	// field change behaviour, and would let a caller UNSET it by omission after
+	// a proxy added it.
+	req.IsVerification = r.Header.Get(engine.VerificationHeader) != ""
+
 	decisionID, err := s.engine.Execute(ctx, req)
 	if err != nil {
 		writeError(w, http.StatusUnprocessableEntity, "execute_failed", err.Error())

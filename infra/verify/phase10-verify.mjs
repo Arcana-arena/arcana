@@ -231,26 +231,62 @@ console.log('\n=== 4. The pool answers, and every quote says who refereed it ===
 }
 
 // ---------------------------------------------------------------------------
-console.log('\n=== 5. The cadence floor refuses, and the cadence is idempotent ===');
+console.log('\n=== 5. The cadence refuses, and it cannot spend doing so ===');
 // ---------------------------------------------------------------------------
 //
-// The floor is arithmetic: a round trip costs 10-60 bp of pool fee, so hourly
-// decisions cost 2.4%-14% of NAV per day if they trade. A limit that has never
-// turned anything away has not been tested, so it is driven past.
+// THIS SECTION USED TO COST MONEY, and it is the reason the verification
+// marker exists.
+//
+// It drove the cadence with a one-hour interval to prove the four-hour floor
+// refused it. That floor was deliberately retired — it bounded how often an
+// agent could THINK in order to bound what it could SPEND, and most decisions
+// are holds that pay no fee. Nothing told this check. So the run was not
+// refused: it opened a real tick, all five participants decided, and the
+// chain-backed one bought $5.96 of MSFT for $0.079 in gas and fees, into a
+// position that could not be guarded.
+//
+// Two things changed as a result, and this section exercises both.
+//
+//   The floor it tests is the one that actually applies: SIXTY SECONDS, which
+//   comes from the minute resolution of a pool snapshot ref rather than from
+//   any policy. Below it, two ticks would be two decisions claiming the same
+//   immutable description of the market.
+//
+//   Every path is driven UNDER ARCANA_VERIFICATION, so the binary refuses to
+//   open a tick at all. The refusal is structural: it lives in the cadence, not
+//   in this file, because a suite that has to remember is a suite that forgets.
 {
   const BIN = process.env.CADENCE_BIN || 'scheduler-bin/cadence';
   const COMP = process.env.CADENCE_COMPETITION || 'd0653071-67e5-4302-ac78-afe2e1130d89';
+
+  // THE CLAIM IS ABOUT THE DATABASE, so it is checked against the database.
+  //
+  // An earlier version asserted that the word "opening a tick" was absent from
+  // the output — and the refusal message contains that phrase, because it says
+  // what it is refusing to do. The check matched its own evidence and reported
+  // failure. Third time this session that a check has been satisfied or
+  // defeated by its own text; a count of rows cannot do either.
+  const tickCount = () => Number(execFileSync('docker',
+    ['exec', process.env.PG_CONTAINER || 'arcana-postgres', 'psql', '-U', 'arcana', '-d', 'arcana',
+     '-qtAc', `SELECT count(*) FROM competition_ticks WHERE competition_id = '${COMP}'`],
+    { encoding: 'utf8' }).trim());
+  const ticksBefore = tickCount();
 
   // STDERR IS MERGED IN, and it has to be: Go's log package writes to stderr,
   // and execFileSync returns only stdout on success. The first version of this
   // check read an empty string for a run that had succeeded and printed four
   // informative lines — a check failing because it was looking in the wrong
   // place, which is worse than no check.
+  //
+  // ARCANA_VERIFICATION IS SET FOR EVERY RUN IN THIS SECTION, including the
+  // ones expected to fail earlier for other reasons. There is no ordering in
+  // which this suite can reach a tick.
   function run(args, env = {}) {
     const quoted = args.map((a) => `'${String(a).replace(/'/g, `'\\''`)}'`).join(' ');
     try {
       const out = execFileSync('bash', ['-c', `${BIN} ${quoted} 2>&1`], {
-        encoding: 'utf8', env: { ...process.env, ...env },
+        encoding: 'utf8',
+        env: { ...process.env, ARCANA_VERIFICATION: '1', ...env },
       });
       return { code: 0, out };
     } catch (e) {
@@ -258,12 +294,34 @@ console.log('\n=== 5. The cadence floor refuses, and the cadence is idempotent =
     }
   }
 
-  const below = run(['-competition', COMP, '-interval', '1h']);
-  check('a cadence below the four-hour floor is REFUSED',
-    below.code !== 0 && /below the floor/i.test(below.out), below.out.slice(0, 140));
-  check('and the refusal explains the arithmetic rather than just saying no',
-    /round trip costs|bp|NAV/i.test(below.out), below.out.slice(0, 140));
+  // --- the floor that actually applies -------------------------------------
+  const below = run(['-competition', COMP, '-interval', '30s']);
+  check('a cadence below the sixty-second floor is REFUSED',
+    below.code !== 0 && /below the floor/i.test(below.out), below.out.slice(0, 200));
+  check('and the refusal explains the data model rather than just saying no',
+    /minute|snapshot|resolution/i.test(below.out), below.out.slice(0, 260));
+  check('the floor refusal happens BEFORE anything is opened',
+    !/opening a tick|pool tick/i.test(below.out), below.out.slice(0, 200));
 
+  // The boundary itself is accepted, so the floor is a floor rather than a
+  // band nobody can reach.
+  const atFloor = run(['-competition', COMP, '-interval', '60s']);
+  check('sixty seconds exactly is accepted by the floor',
+    !/below the floor/i.test(atFloor.out), atFloor.out.slice(0, 200));
+
+  // --- and it cannot spend, whatever it is asked for -----------------------
+  check('a verification run refuses to open a tick',
+    atFloor.code !== 0 && /ARCANA_VERIFICATION/.test(atFloor.out), atFloor.out.slice(0, 260));
+  check('the refusal names what it was protecting',
+    /spend real funds|broadcast/i.test(atFloor.out), atFloor.out.slice(0, 300));
+  check('and no tick exists that did not exist before',
+    tickCount() === ticksBefore, `${ticksBefore} before, ${tickCount()} now`);
+
+  const long = run(['-competition', COMP, '-interval', '4h']);
+  check('even a perfectly ordinary interval is refused under verification',
+    long.code !== 0 && /ARCANA_VERIFICATION/.test(long.out), long.out.slice(0, 200));
+
+  // --- the other refusals still work ---------------------------------------
   const noKey = run(['-competition', COMP, '-interval', '4h'], { INTERNAL_API_KEY: '' });
   check('a cadence with no internal key refuses rather than half-running',
     noKey.code !== 0 && /INTERNAL_API_KEY/i.test(noKey.out), noKey.out.slice(0, 140));
@@ -271,16 +329,21 @@ console.log('\n=== 5. The cadence floor refuses, and the cadence is idempotent =
   const noComp = run(['-interval', '4h']);
   check('a cadence with no competition refuses', noComp.code !== 0, noComp.out.slice(0, 100));
 
-  // IDEMPOTENT. A second run inside the interval must do nothing and exit 0.
-  // This matters more on a continuous cadence than a daily one: retries
-  // overlap normal operation rather than being an exception.
-  const again = run(['-competition', COMP, '-interval', '4h']);
-  check('a second run inside the interval does nothing and succeeds',
-    again.code === 0 && /Nothing to do|already completed/i.test(again.out),
-    again.out.slice(-160));
+  // THE CONTROL. Every check above passes if the binary refuses everything, so
+  // one run must get PAST the verification gate — proving the gate is what
+  // stopped the others rather than a binary that cannot start at all.
+  const withoutMarker = run(['-interval', '4h'], { ARCANA_VERIFICATION: '' });
+  check('without the marker it gets past the gate and fails on its own merits',
+    !/ARCANA_VERIFICATION/.test(withoutMarker.out) && /-competition is required/i.test(withoutMarker.out),
+    withoutMarker.out.slice(0, 200));
+
+  // THE WHOLE SECTION, not just one run of it. Seven invocations of a binary
+  // whose job is to open ticks, and the competition must hold exactly as many
+  // ticks at the end as it did at the start.
+  check('the whole section opened no tick at all',
+    tickCount() === ticksBefore, `${ticksBefore} before, ${tickCount()} after seven runs`);
 }
 
-// ---------------------------------------------------------------------------
 console.log('\n=== 6. The watchdog asks about decisions, and can still alarm ===');
 // ---------------------------------------------------------------------------
 //

@@ -440,3 +440,69 @@ func (s *Store) ClearRefusal(ctx context.Context, guardID int64) error {
 	}
 	return nil
 }
+
+// RefusedGuardInsert records a position whose owner asked for protection and
+// did not get it.
+type RefusedGuardInsert struct {
+	AgentID          string
+	Symbol           string
+	EntryPrice       float64
+	EntryQty         float64
+	MinAcceptablePct float64
+	DecisionID       *int64
+	Reason           string
+}
+
+// RecordRefusedGuard writes the absence of protection as a fact.
+//
+// ONE ROW PER POSITION, not one per attempt: re-entering the same symbol
+// replaces the previous refusal rather than stacking, so a count of unprotected
+// positions is a count of positions and not of buys.
+//
+// It also clears any ARMED guard on the symbol first. An agent that had a valid
+// level, then topped up with one this pool refuses, is no longer protected on
+// the terms it thinks it is — and leaving the old row armed would say otherwise.
+func (s *Store) RecordRefusedGuard(ctx context.Context, in RefusedGuardInsert) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("record refused guard: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE position_guards
+		    SET status = 'cleared',
+		        note = coalesce(note,'') || ' | superseded by an entry whose levels were refused'
+		  WHERE agent_id = $1 AND symbol = $2 AND status = 'armed'`,
+		in.AgentID, in.Symbol); err != nil {
+		return fmt.Errorf("clear armed guard before recording a refusal: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM position_guards
+		  WHERE agent_id = $1 AND symbol = $2 AND status = 'refused'`,
+		in.AgentID, in.Symbol); err != nil {
+		return fmt.Errorf("replace previous refusal: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO position_guards
+		   (agent_id, symbol, entry_price, entry_qty, status, min_acceptable_pct,
+		    set_by_decision_id, note)
+		 VALUES ($1,$2,$3,$4,'refused',$5,$6,$7)`,
+		in.AgentID, in.Symbol, in.EntryPrice, in.EntryQty,
+		in.MinAcceptablePct, in.DecisionID, nullStr(in.Reason)); err != nil {
+		return fmt.Errorf("record refused guard: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
+// ClearRefusedGuard removes the refusal when the position is gone, so an
+// unprotected position that has been closed stops being reported as one.
+func (s *Store) ClearRefusedGuard(ctx context.Context, agentID, symbol string) error {
+	_, err := s.pool.Exec(ctx,
+		`DELETE FROM position_guards
+		  WHERE agent_id = $1 AND symbol = $2 AND status = 'refused'`, agentID, symbol)
+	if err != nil {
+		return fmt.Errorf("clear refused guard for %s %s: %w", agentID, symbol, err)
+	}
+	return nil
+}

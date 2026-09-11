@@ -107,7 +107,7 @@ const latestRef = () => psql('SELECT ref FROM market_snapshots ORDER BY tick_tim
 
 async function runCycle(agentId, ref) {
   const r = await fetch(`${ENGINE}/internal/v1/decisions/execute`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Internal-Key': KEY },
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Internal-Key': KEY, 'X-Arcana-Verification': '1' },
     body: JSON.stringify({ agent_id: agentId, season_id: SEASON, market_snapshot_ref: ref }),
   });
   const body = await r.json().catch(() => null);
@@ -233,7 +233,7 @@ try {
     ];
     for (const s of shapes) {
       const sr = await fetch(`${SIGNER}/internal/v1/signer/sign`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Internal-Key': KEY },
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Internal-Key': KEY, 'X-Arcana-Verification': '1' },
         body: JSON.stringify({ agent_id: made[made.length - 1], nonce: 0, ...s }),
       });
       const sb = await sr.json().catch(() => null);

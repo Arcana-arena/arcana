@@ -89,6 +89,15 @@ func main() {
 	dbURL := mustEnv("DATABASE_URL")
 	interval := envDuration("GUARD_SCAN_INTERVAL", defaultScanInterval)
 
+	// A VERIFICATION MAY NOT RUN THE WATCHER. It broadcasts protective exits on
+	// its own clock, with no request to attach a marker to, so the only place to
+	// refuse is at the start.
+	if os.Getenv("ARCANA_VERIFICATION") != "" {
+		log.Fatalf("refusing: ARCANA_VERIFICATION is set and this process exits positions with " +
+			"real funds on its own schedule. A verification that wants to exercise the guard " +
+			"drives ScanOnce directly against agents with no wallet")
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 

@@ -23,6 +23,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { createServer } from 'node:http';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, '..', '..');
@@ -116,19 +117,91 @@ for (const c of components) {
   check(`${c.name} has at least two working endpoints`, working >= 2, `only ${working} working`);
 }
 
-// And the negative control: the two known-bad providers must STILL be bad, so
-// that a passing run means the probe distinguishes them rather than passing
-// everything.
+// --- the negative control ---------------------------------------------------
+//
+// THE TRAP THIS SUITE EXISTS FOR: an endpoint that answers eth_chainId happily
+// and cannot serve eth_call. It looks alive to anything that checks liveness
+// and is useless to anything that reads state.
+//
+// A control needs a subject that behaves that way. It used to name two real
+// providers, and on 2026-09-12 one of them — robinhood.drpc.org — started
+// answering eth_call as well. The control reported that it could no longer tell
+// them apart, which was the honest answer and left the suite with nothing
+// proving the probe works.
+//
+// A CONTROL WHOSE SUBJECT CAN HEAL ITSELF IS NOT A CONTROL. The trap is now
+// built here, in a server this file starts and stops: it answers eth_chainId
+// and refuses eth_call, exactly and forever, because that is what it is for.
+// The real providers are still probed below — as EVIDENCE about the internet,
+// which is worth having and is not the same thing as a control.
 console.log('\n=== negative control: the trap must still be detectable ===');
+{
+  // A chain that answers liveness and nothing else.
+  const trap = createServer((rq, rs) => {
+    let body = '';
+    rq.on('data', (c) => (body += c));
+    rq.on('end', () => {
+      let method = '';
+      try { method = JSON.parse(body).method ?? ''; } catch {}
+      rs.setHeader('Content-Type', 'application/json');
+      if (method === 'eth_chainId') {
+        rs.end(JSON.stringify({ jsonrpc: '2.0', id: 1, result: '0x1237' }));
+        return;
+      }
+      // The shape a real one of these returns: a JSON-RPC error, not a hang and
+      // not an HTTP failure, which is precisely why liveness checks miss it.
+      rs.end(JSON.stringify({
+        jsonrpc: '2.0', id: 1,
+        error: { code: -32601, message: 'the method eth_call does not exist/is not available' },
+      }));
+    });
+  });
+  await new Promise((r) => trap.listen(0, '127.0.0.1', r));
+  const trapURL = `http://127.0.0.1:${trap.address().port}`;
+
+  const chain = await probe(trapURL, 'eth_chainId');
+  const call = await probe(trapURL, 'eth_call');
+  check('a chainId-only endpoint is detected as such by the probe',
+    chain.ok && !call.ok, `chainId=${chain.ok} call=${call.ok}`);
+
+  // AND THE OTHER HALF. A control that only proves the probe can say "bad"
+  // would pass just as well if the probe said "bad" to everything.
+  const good = createServer((rq, rs) => {
+    let body = '';
+    rq.on('data', (c) => (body += c));
+    rq.on('end', () => {
+      let method = '';
+      try { method = JSON.parse(body).method ?? ''; } catch {}
+      rs.setHeader('Content-Type', 'application/json');
+      rs.end(JSON.stringify({
+        jsonrpc: '2.0', id: 1,
+        result: method === 'eth_chainId' ? '0x1237' : '0x' + '0'.repeat(64),
+      }));
+    });
+  });
+  await new Promise((r) => good.listen(0, '127.0.0.1', r));
+  const goodURL = `http://127.0.0.1:${good.address().port}`;
+  const gChain = await probe(goodURL, 'eth_chainId');
+  const gCall = await probe(goodURL, 'eth_call');
+  check('and an endpoint that serves both is NOT flagged',
+    gChain.ok && gCall.ok, `chainId=${gChain.ok} call=${gCall.ok}`);
+
+  trap.close();
+  good.close();
+}
+
+// The real providers, as evidence rather than as a control. What they do today
+// is worth recording — an endpoint that has started serving eth_call is a
+// candidate for the list, and one that stops is a reason not to rely on it —
+// but nothing here fails because a stranger changed their configuration.
+console.log('\n=== the known-bad providers, as they behave today ===');
 for (const bad of ['https://robinhood.drpc.org', 'https://rpc.nodeflare.app/robinhood/public']) {
   const chain = await probe(bad, 'eth_chainId');
   const call = await probe(bad, 'eth_call');
-  if (!chain.ok) {
-    console.log(`    SKIP  ${bad} is unreachable entirely; nothing to distinguish`);
-  } else {
-    check(`${bad} answers eth_chainId but NOT eth_call — the probe can tell them apart`,
-      chain.ok && !call.ok, `chainId=${chain.ok} call=${call.ok}`);
-  }
+  const verdict = !chain.ok ? 'unreachable'
+    : call.ok ? 'now serves BOTH — it could be considered for the endpoint list'
+      : 'still chainId-only — the trap this suite was written for';
+  console.log(`    NOTE  ${bad}: ${verdict}`);
 }
 
 console.log(`\n========================================`);

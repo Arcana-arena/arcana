@@ -158,7 +158,7 @@ async function stopEngine() {
 async function executeTick() {
   const res = await fetch(`http://127.0.0.1:${ENGINE_PORT}/internal/v1/decisions/execute`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Internal-Key': KEY },
+    headers: { 'Content-Type': 'application/json', 'X-Internal-Key': KEY, 'X-Arcana-Verification': '1' },
     body: JSON.stringify({ agent_id: agentId, season_id: seasonId, market_snapshot_ref: ref }),
   });
   return { status: res.status, body: await res.json().catch(() => null) };

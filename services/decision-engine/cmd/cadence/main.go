@@ -182,6 +182,31 @@ func main() {
 	if err != nil {
 		log.Fatalf("load competition: %v", err)
 	}
+
+	// A VERIFICATION MAY NOT OPEN A TICK.
+	//
+	// On 2026-09-11 a suite ran this binary with a one-hour interval to prove
+	// the four-hour floor refused it. That floor had been deliberately retired,
+	// so nothing refused: a real tick opened, every participant decided, and the
+	// chain-backed one bought $5.96 of MSFT. $0.079 of gas and fees, and a
+	// position that could not be guarded.
+	//
+	// Opening a tick is not a per-agent act — it makes EVERY participant decide
+	// at once — so there is nothing to narrow. A caller that says it is a
+	// verification gets refused here, before the tick exists.
+	//
+	// Refused even when no participant holds a wallet: the cadence cannot know
+	// what will be funded next week, and a rule that depends on today's balances
+	// is a rule that quietly stops applying. The suites drive the floor and the
+	// idempotence through this refusal, which is cheaper and cannot cost
+	// anything.
+	if os.Getenv("ARCANA_VERIFICATION") != "" {
+		log.Fatalf("refusing: ARCANA_VERIFICATION is set and opening a tick on competition %s "+
+			"would make all %d participants decide, which can broadcast transactions and spend "+
+			"real funds. This refusal is in the binary rather than in the suite, because a suite "+
+			"that has to remember is a suite that forgets — and one already did",
+			*compID, len(comp.ParticipantIDs))
+	}
 	if comp.Status == "completed" {
 		log.Printf("competition %s already completed; nothing to do", *compID)
 		return
@@ -348,6 +373,11 @@ func takePoolTick(ctx context.Context, cfg config) (*poolTickResult, error) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Internal-Key", cfg.internalKey)
+	// Carried onward rather than assumed handled above: if a future path reaches
+	// here under verification, the engine refuses per agent as well.
+	if v := os.Getenv("ARCANA_VERIFICATION"); v != "" {
+		req.Header.Set("X-Arcana-Verification", v)
+	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err

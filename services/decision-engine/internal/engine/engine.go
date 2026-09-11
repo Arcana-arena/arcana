@@ -115,6 +115,12 @@ func (e *Engine) Execute(ctx context.Context, req ExecuteRequest) (int64, error)
 		return 0, fmt.Errorf("market_snapshot_ref is required")
 	}
 
+	// A VERIFICATION MAY NOT SPEND. Checked before the agent is even loaded, so
+	// there is no path where a suite gets far enough to broadcast anything.
+	if verr := e.refuseIfVerificationWouldSpend(ctx, req.IsVerification, req.AgentID); verr != nil {
+		return 0, verr
+	}
+
 	agent, err := e.store.GetActiveAgent(ctx, req.AgentID)
 	if err != nil {
 		return 0, err
