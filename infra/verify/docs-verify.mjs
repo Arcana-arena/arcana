@@ -447,6 +447,11 @@ console.log('\n=== 5. Documented endpoints answer ===');
     rawCompares.length === 0, rawCompares.join(' | '));
 }
 
+// Shared with the identifier check below: reason codes of the form
+// execution_<status> are built by concatenation and appear in no source file as
+// a literal, so a check that greps for them would report every one as missing.
+let emittedCodes = [];
+
 // ---------------------------------------------------------------------------
 // Reason codes: the table must describe the code, not an intention.
 //
@@ -478,7 +483,8 @@ console.log('\n=== 5. Documented endpoints answer ===');
   const policySrc = read('services/signer/internal/policy/policy.go');
   const signerCodes = [...policySrc.matchAll(/Code[A-Za-z]+\s*=\s*"([a-z_]+)"/g)].map((m) => m[1]);
 
-  const emitted = [...new Set([...engineCodes, ...execCodes, ...signerCodes])].filter((c) => c !== 'execution_');
+  emittedCodes = [...new Set([...engineCodes, ...execCodes, ...signerCodes])].filter((c) => c !== 'execution_');
+  const emitted = emittedCodes;
   const doc = read('docs/on-chain-direction.md');
 
   check('the source actually yielded reason codes to compare against',
@@ -520,6 +526,82 @@ console.log('\n=== 5. Documented endpoints answer ===');
   });
   check('no document names a reason code that nothing emits',
     ghosts.length === 0, ghosts.join(', '));
+}
+
+// ---------------------------------------------------------------------------
+// Identifiers a document presents as real, that exist nowhere in the code.
+//
+// A SECOND CHECK, NOT A WIDER FIRST ONE. The reason-code check above asks "does
+// the table of reason codes match the codes the engine emits". This asks a
+// different question: "does every field, column and flag a document names in
+// backticks actually exist". They were one check briefly, and that check
+// reported six field names from unrelated design sections alongside the reason
+// codes — a failure nobody could act on, which is how a check gets ignored. One
+// check, one question; two questions, two checks.
+//
+// WHAT IT CAUGHT. Six identifiers that had been read as an inventory for
+// months: execution_score and decision_score (two scores that were never
+// built — what exists is arcana_score and the executions table), model_id (the
+// column is decisions.model), input_snapshot_ref (it is market_snapshot_ref),
+// receipt_status and effective_price (the columns are executions.status and
+// gas_price_wei). Every one of them would have been acted on by somebody.
+// ---------------------------------------------------------------------------
+{
+  console.log('\n=== No document names a field, column or flag that does not exist ===');
+
+  // Sample values, not identifiers the system must provide. Each is a name that
+  // appears INSIDE an example — an agent called momentum_v1, a database called
+  // arcana_e2e — and naming them here is cheaper than teaching the check to
+  // recognise prose. The list is short on purpose: anything added to it should
+  // be arguable in one sentence.
+  const EXAMPLE_VALUES = new Set([
+    'momentum_v1', 'momentum_bot', 'reversion_v1', 'dummy_agent_v2', // example agent names
+    'algo_trader',                                                    // an example creator handle
+    'barad_agent',                                                    // another tenant's process on this host
+    'arcana_e2e',                                                     // the throwaway test database
+  ]);
+
+  const docFiles = readdirSync('docs').filter((n) => n.endsWith('.md'));
+  check('there are documents to check', docFiles.length > 5, `only ${docFiles.length} found`);
+
+  const ghosts = [];
+  for (const f of docFiles) {
+    const body = read(`docs/${f}`);
+    const ids = [...new Set([...body.matchAll(/`([a-z][a-z0-9]*(?:_[a-z0-9]+)+)`/g)].map((m) => m[1]))];
+    for (const id of ids) {
+      if (EXAMPLE_VALUES.has(id)) continue;
+      // Reason codes are vouched for by the check above, including the ones
+      // built by concatenation that exist in no file as a literal.
+      if (emittedCodes.includes(id)) continue;
+      // Present in the tree at all: a column, a config key, an env var, a
+      // constant. This check asks whether it EXISTS, not where.
+      try {
+        execFileSync('grep', ['-rqI', id, 'services', 'infra', 'packages'], { encoding: 'utf8' });
+        continue;
+      } catch { /* grep exits 1 on no match, which is the interesting case */ }
+      // A line that RECORDS something rather than CLAIMING it is exempt, using
+      // the same vocabulary every other check here uses.
+      const lines = splitLines(body).filter((l) => l.includes('`' + id + '`'));
+      if (lines.every((l) => HISTORY.test(l))) continue;
+      ghosts.push(`${f}: ${id}`);
+    }
+  }
+
+  check('no document names an identifier that exists nowhere in the code',
+    ghosts.length === 0, ghosts.join(' | '));
+
+  // THE CHECK MUST BE ABLE TO FAIL. Without this it would pass just as happily
+  // if the regex stopped matching or the docs directory moved.
+  // BUILT FROM PARTS, because this file lives under infra/ and the grep below
+  // searches infra/. A literal probe name would be found in this very line and
+  // the control would prove its own existence instead of the check working --
+  // the same failure as the pgrep that matched its own command line.
+  const probe = ['a', 'field', 'that', 'is', 'not', 'anywhere'].join('_');
+  let probeFound = true;
+  try { execFileSync('grep', ['-rqI', probe, 'services', 'infra', 'packages'], { encoding: 'utf8' }); }
+  catch { probeFound = false; }
+  check('and it would notice one: the probe name is absent from the tree', !probeFound,
+    `${probe} exists somewhere, so this control proves nothing`);
 }
 
 console.log('\n' + '='.repeat(40));

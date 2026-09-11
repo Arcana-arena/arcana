@@ -68,15 +68,26 @@ import (
 // on how many positions are guarded and nobody knows that number yet.
 const defaultScanInterval = 15 * time.Second
 
+// buildCommit is stamped at link time by infra/systemd/install.sh, exactly as
+// it is for every other binary here:
+//
+//	go build -ldflags "-X main.buildCommit=$(git rev-parse HEAD)"
+//
+// WHY IT MATTERS MORE FOR THIS ONE. Every other service answers /healthz, and
+// deployed-version-verify reads the stamp from there. This process serves no
+// HTTP at all, so its heartbeat row IS its /healthz — and the first version
+// read a version out of the environment that nothing set, so the one process
+// that runs continuously was the one process whose staleness could not be
+// detected. The stale-binary trap has already bitten this project; leaving the
+// watcher outside the check that exists for it was not a defensible place to
+// stop.
+var buildCommit = "unknown"
+
 func main() {
 	log.SetFlags(log.LstdFlags | log.LUTC)
 
 	dbURL := mustEnv("DATABASE_URL")
 	interval := envDuration("GUARD_SCAN_INTERVAL", defaultScanInterval)
-	version := os.Getenv("ARCANA_VERSION")
-	if version == "" {
-		version = "unknown"
-	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -108,11 +119,11 @@ func main() {
 	// without one is not handed one by this process either.
 	log.Printf("transaction cost meter: per agent, from risk_profile.cost_budget_monthly_pct")
 
-	log.Printf("position guard starting: scanning every %s, version %s", interval, version)
+	log.Printf("position guard starting: scanning every %s, build %s", interval, buildCommit)
 
 	// A scan on the way in, so a restart is visible immediately in the
 	// heartbeat rather than one interval later.
-	scan(ctx, eng, st, version)
+	scan(ctx, eng, st, buildCommit)
 
 	t := time.NewTicker(interval)
 	defer t.Stop()
@@ -122,7 +133,7 @@ func main() {
 			log.Printf("position guard stopping")
 			return
 		case <-t.C:
-			scan(ctx, eng, st, version)
+			scan(ctx, eng, st, buildCommit)
 		}
 	}
 }

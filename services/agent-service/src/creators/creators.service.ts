@@ -120,7 +120,7 @@ export class CreatorsService {
     const rows = await this.db.query(
       `SELECT a.id, a.name, a.version, a.status, a.strategy_type, a.asset_universe,
               a.parent_agent_id, a.created_at,
-              (SELECT count(*)::int FROM decisions d WHERE d.agent_id = a.id) AS decisions,
+              (SELECT count(*)::int FROM decisions_counted d WHERE d.agent_id = a.id) AS decisions,
               (SELECT s.arcana_score FROM score_snapshots s
                 WHERE s.agent_id = a.id ORDER BY s.ts DESC LIMIT 1) AS latest_arcana_score
          FROM agents a

@@ -203,7 +203,7 @@ export class PassportService {
               COUNT(*) FILTER (WHERE action <> 'hold' AND decider IS NULL)::int AS unattributed_trades,
               COUNT(*) FILTER (WHERE reason_code = 'stop_loss')::int AS stop_losses,
               COUNT(*) FILTER (WHERE reason_code = 'take_profit')::int AS take_profits
-       FROM decisions WHERE agent_id = $1`,
+       FROM decisions_counted WHERE agent_id = $1`,
       [agentId],
     );
     return rows[0] ?? { decisions: 0, trades: 0, protective_exits: 0, own_trades: 0,

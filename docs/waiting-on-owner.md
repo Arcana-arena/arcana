@@ -267,10 +267,16 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 # 4. DRY RUN FIRST — same calldata, eth_call, no transaction.
 #    Expect a real quote back. A revert here is the answer; do not proceed.
-curl -s -X POST -H "X-Internal-Key: $INTERNAL_KEY" \
-  -H 'Content-Type: application/json' \
-  -d '{"intent":"swap_exact_in","agent_id":"'$AGENT'","symbol":"AAPL","amount_usd":"10","dry_run":true}' \
-  http://127.0.0.1:8085/internal/v1/signer/sign
+#
+#    WHAT USED TO BE HERE WAS FICTION, and its correction sat sixty lines
+#    further down, where nobody copying a command would reach it. The signer
+#    used to be sent `symbol`, `amount_usd` and `dry_run`; it accepts none of
+#    them and has no simulation mode: it speaks base units and calldata
+#    fields. A dry run is an eth_call against the chain, not a flag on a
+#    signing request. Below is the command that was actually run.
+curl -s -X POST -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"eth_call","params":[{"from":"WALLET","to":"ROUTER","data":"CALLDATA"},"latest"]}' \
+  https://robinhood-rpc.publicnode.com
 
 # 5. The approve, if USDG has never been approved for this router from this
 #    wallet. One transaction, and it moves no money of its own.
@@ -337,9 +343,9 @@ it as a passing check would be reading a green light off an unplugged lamp.
 2. **The signer could not sign at all**, because `isBlocked()` has no answer
    on this chain. Fixed under option A; see `docs/signer.md`.
 3. **Step 4 of the procedure below was fiction** — `symbol`, `amount_usd` and
-   `dry_run` are not fields the signer accepts, and it has no simulation mode.
-   The real dry run is an `eth_call` of the same calldata, which is what was
-   actually done.
+   `dry_run` are not fields the signer accepts: that step was fiction, and the
+   signer has no simulation mode. The real dry run is an `eth_call` of the same
+   calldata, which is what was actually done. Corrected in place 2026-09-11.
 
 The agent is still `draft` and in no competition, so the hourly cadence cannot
 reach it. Turning it on is the owner’s call and has not been made.

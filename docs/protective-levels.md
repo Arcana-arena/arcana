@@ -200,9 +200,25 @@ from one intent, a second apart, the second discovering the position is gone.
 A stop loss five seconds late is still a stop loss. A position sold twice cannot
 be un-sold.
 
-The lease is proved by **making the race happen** — two real processes, one real
-lease, a shared start instant, repeated — with a control that the winner
+### What has been proved, and what has not
+
+**The mechanism, not the occurrence.** The lease is proved by **making the race
+happen** — two real processes, one real
+lease, a shared start instant, five rounds — with a control that the winner
 alternates, so the suite is measuring contention rather than start order. See
+`cmd/leaserace` and `infra/verify/guard-verify.mjs`.
+
+**A cadence tick and a protective exit have never actually collided on chain.**
+As of 2026-09-11 no production run has produced one: the guard has fired twice
+for real, both times while no decision cycle was in flight. What is demonstrated
+is that the lease resolves the race when it is forced to happen. Whether the
+race occurs in production at the current cadence is a separate question and the
+answer so far is no.
+
+That distinction is worth keeping. A mechanism proved under a forced race is
+strong evidence; it is not the same as having watched the thing happen, and
+writing it as though it were would be the sort of claim this project corrects
+later at cost. See
 `cmd/leaserace` and `infra/verify/guard-verify.mjs`.
 
 ## The watcher's own liveness

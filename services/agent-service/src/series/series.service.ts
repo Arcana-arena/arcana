@@ -75,7 +75,7 @@ export class SeriesService {
    */
   private async participation(agentId: string) {
     const rows = await this.db.query(
-      `SELECT count(*)::int AS decisions FROM decisions WHERE agent_id = $1`,
+      `SELECT count(*)::int AS decisions FROM decisions_counted WHERE agent_id = $1`,
       [agentId],
     );
     const decisions = rows[0]?.decisions ?? 0;
@@ -103,7 +103,7 @@ export class SeriesService {
               s.start_at, s.end_at,
               COALESCE(
                 (SELECT array_agg(DISTINCT ms.source || ':' || ms.ingest_mode)
-                   FROM decisions d
+                   FROM decisions_counted d
                    JOIN market_snapshots ms ON ms.ref = d.market_snapshot_ref
                   WHERE d.agent_id = $1 AND d.season_id = s.id),
                 ARRAY[]::text[]
@@ -508,7 +508,7 @@ export class SeriesService {
     if (q.symbol) { params.push(q.symbol.toUpperCase()); where += ` AND upper(d.symbol) = $${params.length}`; }
 
     const totalRow = await this.db.query(
-      `SELECT count(*)::int AS n FROM decisions d WHERE ${where}`,
+      `SELECT count(*)::int AS n FROM decisions_counted d WHERE ${where}`,
       params,
     );
     const total: number = totalRow[0]?.n ?? 0;
@@ -517,7 +517,7 @@ export class SeriesService {
       `SELECT d.ts, d.season_id, d.action, d.symbol, d.quantity,
               d.resulting_allocation, d.rationale, d.market_snapshot_ref,
               ms.content_hash, ms.source, ms.ingest_mode, ms.trading_date, ms.tick_time
-         FROM decisions d
+         FROM decisions_counted d
          LEFT JOIN market_snapshots ms ON ms.ref = d.market_snapshot_ref
         WHERE ${where}
         ORDER BY d.ts DESC

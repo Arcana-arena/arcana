@@ -36,8 +36,19 @@ the rule that a component which is unsure does not act.
 **Decision: two numbers, not one.** The ARCANA Score keeps its existing formula
 and is computed on **decision quality**, marked against a reference price at the
 moment the decision was recorded. Execution — what the trade actually filled at,
-what gas cost, whether it failed — is measured separately as `execution_score`
-and reported alongside, never folded into the reputation number.
+what gas cost, whether it failed — is measured separately and reported
+alongside, never folded into the reputation number.
+
+> **NOT BUILT AS NAMED.** This section called the two numbers `decision_score`
+> and `execution_score`; neither identifier was ever built, and neither exists
+> anywhere in the system.
+> What exists is `arcana_score` — computed by the Scoring Engine from the NAV
+> series and the decision log, which is the "decision quality" half — and the
+> `executions` table, which records every fact the execution half was supposed
+> to carry: `status`, `filled_out`, `slippage_bps`, `gas_cost_wei`,
+> `gas_cost_usd`, `pool_fee_usd`. There is no single number combining them, and
+> nothing reads one. Corrected 2026-09-11 rather than deleted, because the
+> DESIGN still holds: the two are measured separately and never folded together.
 
 **Why.** "All agents receive an identical snapshot" cannot survive real
 execution: agents trading the same pool move each other's prices, and two agents
@@ -72,10 +83,10 @@ Recorded per decision, all of it:
 |---|---|
 | `prompt_hash` + prompt body in object storage | the exact text, addressable, same pattern as `market_snapshots` |
 | `response_hash` + raw response body | before parsing, so a malformed answer is still evidence |
-| `model_id`, `model_version`, `provider` | required; see below |
+| `model`, `model_version`, `provider` | required; see below. **Named `model_id` here until 2026-09-11; the column is `decisions.model`** |
 | `temperature`, `top_p`, `seed` | recorded even though they do not guarantee reproducibility |
-| `input_snapshot_ref` | unchanged from today |
-| `tx_hash`, `receipt_status`, `gas_used`, `effective_price` | new, and third-party verifiable |
+| `market_snapshot_ref` | unchanged from today. **Called `input_snapshot_ref` here until 2026-09-11; no such column was ever built** |
+| `tx_hash`, `status`, `gas_used`, `gas_price_wei` | new, and third-party verifiable. They live on `executions`, not on `decisions`. **This row said `receipt_status` and `effective_price` until 2026-09-11; neither was ever built, and the fill is measured as a balance delta into `filled_out` with the deviation from the quote in `slippage_bps`** |
 
 **Two tiers, because they have different guarantees.** The **guardrail layer**
 — schema validation, the policy engine, the risk limits — is deterministic and
@@ -86,7 +97,7 @@ replayable one. The layer that decides *what is desired* is not.
 **Why not claim reproducibility at temperature 0.** Because it would be false.
 Providers do not guarantee bitwise determinism, and models are withdrawn —
 `deepseek-chat`, named in the original plan for this work, was retired on
-2026-07-24 while the plan was being written. Recording `model_id` and
+2026-07-24 while the plan was being written. Recording `model` and
 `model_version` on every decision is not bookkeeping; it is the only thing that
 will let a decision from 2026 be understood in 2028.
 
@@ -97,11 +108,16 @@ standing too long. This one is corrected before it ships.
 
 ## c. Slippage, gas and failed transactions
 
-**Decision: `decision_score` feeds the ARCANA Score; `execution_score` is
+**Decision: decision quality feeds the ARCANA Score; execution quality is
 reported separately** (the other half of decision **a**).
 
-`execution_score` carries, per trade: reference price at decision time, realised
-fill, slippage in basis points, gas paid, and whether the transaction succeeded.
+Execution carries, per trade: the quote from the same calldata moments before
+sending, the realised fill measured as a balance delta, slippage in basis
+points, gas paid in wei and in dollars, the pool fee, and whether the
+transaction succeeded — all on `executions`.
+
+> Named `decision_score` and `execution_score` here until 2026-09-11. Neither
+> identifier was ever built; see the note in **a**.
 
 **A failed transaction is never recorded as a hold.** It gets
 `execution_status = 'failed'` and keeps its gas cost. Today's

@@ -89,6 +89,11 @@ paths_for() {
     scoring-engine)    echo "services/scoring-engine packages/go-internalauth go.work" ;;
     market-data)       echo "services/market-data packages/go-internalauth go.work" ;;
     signer)            echo "services/signer packages/go-internalauth go.work" ;;
+    # The position guard is built from the decision-engine module, so any change
+    # there is a change to it. Listed explicitly rather than folded into
+    # decision-engine: they are two binaries, deployed together and restarted
+    # separately, and a check that cannot name one of them cannot report on it.
+    arcana-guard)      echo "services/decision-engine packages/go-internalauth go.work" ;;
     agent-service)     echo "services/agent-service packages/auth" ;;
     marketplace-service) echo "services/marketplace packages/auth" ;;
     arca-service)      echo "services/arca-service packages/auth" ;;
@@ -161,6 +166,33 @@ check_go decision-engine 8081
 check_go scoring-engine  8082
 check_go market-data     8083
 check_go signer          8085
+
+# THE POSITION GUARD HAS NO /healthz, so its heartbeat is checked instead.
+#
+# It is a long-running process that serves no HTTP: the row it writes on every
+# scan is the only thing it publishes, and it is exactly what /healthz is for
+# everything else. Checking it any less strictly would leave the one process
+# that never stops as the one process whose staleness cannot be seen.
+#
+# A stale heartbeat is arcana-guard-watchdog's problem, not this file's. This
+# asks the other question: is the binary that wrote it the one in the tree.
+check_guard() {
+  local name="arcana-guard" commit
+  commit="$(docker exec "${PG_CONTAINER:-arcana-postgres}" psql -U arcana -d arcana -tAc \
+    "SELECT coalesce(version,'') FROM guard_heartbeat WHERE id = 1" 2>/dev/null | tr -d '[:space:]')"
+  if [ -z "$commit" ]; then
+    no "$name reports a build commit" \
+      "guard_heartbeat has no version — the guard has never scanned, or is a binary from before stamping"
+    return
+  fi
+  if [ "$commit" = "unknown" ]; then
+    no "$name reports a build commit" \
+      "the guard reports 'unknown': it was built without -X main.buildCommit"
+    return
+  fi
+  report "$name" "$commit" "runs"
+}
+check_guard
 
 echo
 echo "=== Node services report the commit they were built from ==="

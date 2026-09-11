@@ -128,7 +128,7 @@ func (s *Store) LoadAgentMeta(ctx context.Context, agentID string) (*AgentMeta, 
 func (s *Store) DecisionCount(ctx context.Context, agentID, seasonID string) (int, error) {
 	var n int
 	err := s.pool.QueryRow(ctx, `
-		SELECT COUNT(*) FROM decisions
+		SELECT COUNT(*) FROM decisions_counted
 		WHERE agent_id = $1 AND season_id = $2`, agentID, seasonID).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count decisions: %w", err)
@@ -156,7 +156,7 @@ func (s *Store) DecisionMixFor(ctx context.Context, agentID, seasonID string) (D
 		SELECT COUNT(*),
 		       COUNT(*) FILTER (WHERE action = 'buy'),
 		       COUNT(*) FILTER (WHERE action = 'sell')
-		FROM decisions
+		FROM decisions_counted
 		WHERE agent_id = $1 AND season_id = $2`, agentID, seasonID).Scan(&m.Total, &m.Buys, &m.Sells)
 	if err != nil {
 		return m, fmt.Errorf("decision mix: %w", err)

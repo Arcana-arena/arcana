@@ -23,6 +23,19 @@ REPO=/home/ubuntu/arcana
 UNIT_DIR=/etc/systemd/system
 BIN_DIR="$REPO/scheduler-bin"
 
+# STOP THE CADENCE FIRST. It fires once a minute and this script restarts the
+# agent service; when the two overlap the cadence cannot reach :3001, exits 1 —
+# correctly, because it could not perform the check — and fires its OnFailure
+# alert. That happened on two consecutive deploys. A deploy is a known window,
+# and an alarm that goes off every time somebody deploys is an alarm people
+# learn to ignore.
+#
+# The timer is restarted by the enable loop at the end of this script, so a
+# deploy that dies halfway still leaves it to the next run rather than off.
+echo "==> pausing the cadence timer for the length of this deploy"
+sudo systemctl stop arcana-cadence.timer 2>/dev/null || true
+sudo systemctl reset-failed arcana-cadence.service 2>/dev/null || true
+
 echo "==> making job wrapper executable"
 chmod +x "$REPO/infra/systemd/arca-job.sh"
 # Alerting scripts are executed directly by their units.
@@ -59,6 +72,8 @@ echo "==> building cadence binary"
 # compiler and not the watcher. For a watcher that is worse than for a service —
 # a supervised compiler whose child has died looks exactly like a healthy
 # watcher, which is the failure this project has already shipped three times.
+# Stamped like the rest. It serves no HTTP, so it reports its commit in the
+# heartbeat row instead, and deployed-version-verify reads it from there.
 echo "==> building position guard binary"
 (cd "$REPO/services/decision-engine" && /usr/local/go/bin/go build -ldflags "$LDFLAGS" -o "$BIN_DIR/guard" ./cmd/guard)
 

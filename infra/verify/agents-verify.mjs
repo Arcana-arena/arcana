@@ -318,6 +318,62 @@ try {
   }
 
   // -------------------------------------------------------------------------
+  console.log('\n=== 4b. risk_profile: nothing refused, nothing silent ===');
+  // -------------------------------------------------------------------------
+  {
+    // THE TWO LISTS MUST AGREE. `riskLimitsFrom` in Go is what actually reads
+    // these keys; RISK_PROFILE_KEYS in TypeScript is what tells an owner which
+    // ones were understood. A key in one and not the other means either a lever
+    // that silently does nothing, or a warning about a lever that works — and
+    // both are worse than no warning at all.
+    const go = readFileSync('services/decision-engine/internal/engine/strategy.go', 'utf8');
+    const ts = readFileSync('services/agent-service/src/agents/risk-profile.ts', 'utf8');
+
+    // Derived from the function that reads them, not from a comment: every
+    // key inside a get("a", "b") call in riskLimitsFrom.
+    const goBody = go.slice(go.indexOf('func riskLimitsFrom'));
+    const goKeys = new Set(
+      [...goBody.slice(0, goBody.indexOf('\nfunc ', 10)).matchAll(/get\(([^)]*)\)/g)]
+        .flatMap((m) => [...m[1].matchAll(/"([^"]+)"/g)].map((k) => k[1])));
+    // SCOPED TO THE ARRAY LITERAL, not to the rest of the file: reading to the
+    // end of the module swept up string literals from the helper below it and
+    // reported 'object' as a recognised risk key.
+    const tsArray = ts.slice(ts.indexOf('RISK_PROFILE_KEYS'));
+    const tsKeys = new Set(
+      [...tsArray.slice(0, tsArray.indexOf('];')).matchAll(/'([a-zA-Z_]+)'/g)].map((m) => m[1]));
+
+    check('the Go reader yielded keys to compare against', goKeys.size >= 8, `${goKeys.size} found`);
+    const missingInTs = [...goKeys].filter((k) => !tsKeys.has(k));
+    const missingInGo = [...tsKeys].filter((k) => !goKeys.has(k));
+    check('every key the engine reads is one the API calls recognised',
+      missingInTs.length === 0, missingInTs.join(', '));
+    check('and every key the API calls recognised is one the engine reads',
+      missingInGo.length === 0, missingInGo.join(', '));
+
+    // A REAL TYPO, THROUGH THE REAL ENDPOINT.
+    const typo = await makeAgent(idLength.token, 'phase12-verify-riskkeys', {
+      riskProfile: JSON.stringify({ stop_loss_pct: 0.05, stoploss_pct: 0.05, whatever: 1 }),
+    });
+    check('an unknown key is ACCEPTED, not refused', ok2xx(typo.status), `${typo.status}`);
+    const named = typo.body?.risk_profile_unrecognised ?? [];
+    check('and it is named back', named.includes('stoploss_pct') && named.includes('whatever'),
+      JSON.stringify(named));
+    check('while the key that works is NOT named',
+      !named.includes('stop_loss_pct'), JSON.stringify(named));
+    check('the value is stored as given rather than dropped',
+      typo.body?.riskProfile?.stoploss_pct === 0.05, JSON.stringify(typo.body?.riskProfile));
+
+    // THE CONTROL. A clean profile must carry no warning at all — otherwise the
+    // field would appear on every response and stop meaning anything.
+    const clean = await makeAgent(idLength.token, 'phase12-verify-riskclean', {
+      riskProfile: JSON.stringify({ stop_loss_pct: 0.05, cost_budget_monthly_pct: 2 }),
+    });
+    check('a profile with only known keys carries no warning',
+      ok2xx(clean.status) && clean.body?.risk_profile_unrecognised === undefined,
+      JSON.stringify(clean.body?.risk_profile_unrecognised));
+  }
+
+  // -------------------------------------------------------------------------
   console.log('\n=== 5. The active-agent cap counts ACTIVE, and refuses ===');
   // -------------------------------------------------------------------------
   {

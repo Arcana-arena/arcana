@@ -92,6 +92,13 @@ interface AgentTick {
   symbol: string | null;
   quantity: number | null;
   rationale: string | null;
+  /**
+   * deterministic | llm | human | protective, or null on rows written before
+   * the distinction existed. Null stays null: "we do not know who decided" is a
+   * different statement from "the agent decided".
+   */
+  decider: string | null;
+  reason_code: string | null;
 }
 
 @Injectable()
@@ -130,7 +137,13 @@ export class AutopsyService {
     await this.marketIndex.ensurePrices(market, needed);
 
     const decisions = ticks.filter((t) => t.action != null).length;
-    const trades = ticks.filter((t) => t.action === 'buy' || t.action === 'sell');
+    const allTrades = ticks.filter((t) => t.action === 'buy' || t.action === 'sell');
+    // WHO DECIDED. A protective exit is a real trade with a real transaction,
+    // and it was not this agent's judgement: a level set when the position
+    // opened was crossed by the market. It is measured, and measured
+    // separately, because timing and sizing are statements about choices.
+    const protectiveTrades = allTrades.filter((t) => t.decider === 'protective');
+    const trades = allTrades.filter((t) => t.decider !== 'protective');
 
     if (decisions < MIN_DECISIONS) {
       return {
@@ -153,7 +166,10 @@ export class AutopsyService {
         strategy_type: agent.strategy_type,
       },
       analysed: true,
-      summary: this.summary(ticks, decisions, trades.length),
+      summary: this.summary(ticks, decisions, trades.length, protectiveTrades.length),
+      // Never folded into the sections above, and never dropped either: an
+      // agent saved by its own stop loss is a fact about that agent.
+      protective_exits: this.protectiveExits(protectiveTrades, allTrades.length),
       allocation: this.allocation(ticks, market),
       decision_timing: this.timing(trades, series, indexOfRef, runs),
       risk: this.risk(ticks),
@@ -204,12 +220,17 @@ export class AutopsyService {
 
   // -------------------------------------------------------------------------
 
-  private summary(ticks: AgentTick[], decisions: number, trades: number) {
+  private summary(ticks: AgentTick[], decisions: number, trades: number, protective: number) {
     const navs = ticks.map((t) => t.nav).filter((n) => n > 0);
     return {
       ticks: ticks.length,
       decisions,
+      // Trades the AGENT decided. Protective exits are counted beside it rather
+      // than inside it, so a reader is never told an agent traded more actively
+      // than it chose to.
       trades,
+      protective_exits: protective,
+      trades_including_protective: trades + protective,
       first_tick: ticks[0]?.ts ?? null,
       last_tick: ticks[ticks.length - 1]?.ts ?? null,
       first_nav: navs[0] ?? null,
@@ -599,6 +620,35 @@ export class AutopsyService {
    * response should be able to see what is missing without knowing what to
    * expect.
    */
+  /**
+   * Exits a LEVEL took, reported on their own.
+   *
+   * Kept out of decision_timing and out of the trade counts above for the same
+   * reason: those measure when and how the agent CHOSE to act. A stop loss
+   * firing is not a choice made at that moment. Reported here in full, because
+   * "this agent was taken out by its own stops four times" is one of the more
+   * useful things an autopsy can say.
+   */
+  private protectiveExits(protective: AgentTick[], allTrades: number) {
+    const bySide: Record<string, number> = {};
+    for (const t of protective) {
+      const side = t.reason_code ?? 'unknown';
+      bySide[side] = (bySide[side] ?? 0) + 1;
+    }
+    return {
+      count: protective.length,
+      share_of_trades: allTrades > 0 ? round4(protective.length / allTrades) : null,
+      by_level: bySide,
+      note:
+        protective.length === 0
+          ? 'No position was exited by a level; every trade was the agent\'s own decision.'
+          : `${protective.length} of ${allTrades} trades were exits a level took rather than ` +
+            'decisions the agent made. They are excluded from decision timing and from the ' +
+            'trade counts in the summary, which measure choices.',
+      excluded_from: ['decision_timing', 'summary.trades'],
+    };
+  }
+
   private notAnalysed() {
     return [
       {
@@ -637,12 +687,12 @@ export class AutopsyService {
     const rows = await this.db.query(
       `SELECT ps.ts, ps.nav::float8 AS nav, ps.cash::float8 AS cash, ps.holdings,
               d.market_snapshot_ref, d.action, d.symbol, d.quantity::float8 AS quantity,
-              d.rationale
+              d.rationale, d.decider, d.reason_code
        FROM portfolio_snapshots ps
        JOIN portfolios p ON p.id = ps.portfolio_id
        LEFT JOIN LATERAL (
-         SELECT market_snapshot_ref, action, symbol, quantity, rationale
-         FROM decisions
+         SELECT market_snapshot_ref, action, symbol, quantity, rationale, decider, reason_code
+         FROM decisions_counted
          WHERE agent_id = p.agent_id
            AND ts BETWEEN ps.ts - interval '5 seconds' AND ps.ts
          ORDER BY ts DESC LIMIT 1
@@ -681,6 +731,8 @@ export class AutopsyService {
       symbol: r.symbol ?? null,
       quantity: r.quantity != null ? Number(r.quantity) : null,
       rationale: r.rationale ?? null,
+      decider: r.decider ?? null,
+      reason_code: r.reason_code ?? null,
     }));
   }
 }

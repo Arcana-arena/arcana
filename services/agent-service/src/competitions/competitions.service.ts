@@ -203,7 +203,7 @@ export class CompetitionsService {
               l.nav,
               l.cash,
               l.ts   AS snapshot_at,
-              (SELECT count(*) FROM decisions d
+              (SELECT count(*) FROM decisions_counted d
                 WHERE d.agent_id = a.id AND d.season_id = $2::uuid) AS decisions
          FROM unnest($1::uuid[]) AS p(id)
          JOIN agents a   ON a.id = p.id

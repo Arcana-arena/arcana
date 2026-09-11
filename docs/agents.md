@@ -121,6 +121,48 @@ exists, with nothing in the history showing the swap. Changing an active
 agent's intent is what `POST /v1/agents/:id/evolve` is for, and there the
 version boundary is visible to anyone reading the record.
 
+## risk_profile: the levers that are yours
+
+Everything here is the OWNER's. The platform executes and measures; it does not
+decide how an agent trades. Set them as JSON on `riskProfile` at create or
+patch time.
+
+| Key | What it does | Default |
+|---|---|---|
+| `trade_size_pct` | fraction of NAV one trade may commit | 0.20 |
+| `max_position_pct` | ceiling on one symbol as a fraction of NAV | 0.35 |
+| `cash_floor_pct` | fraction of NAV never spent | 0.05 |
+| `rebalance_band_pct` | price move required before the agent acts at all | 0.003 |
+| `stop_loss_pct` | exit automatically this far below the price paid | none |
+| `take_profit_pct` | exit automatically this far above the price paid | none |
+| `cost_budget_monthly_pct` | stand down when gas and pool fees cross this share of capital per 30 days | none — **unmetered** |
+
+`stop_loss_pct` and `take_profit_pct` are standing levels, armed on every
+position the agent opens. A model that asks for its own on a particular buy
+overrides them for that position; a model that says nothing keeps them. A level
+inside the round trip of the pool being traded is refused with the reason named
+— see [protective-levels.md](./protective-levels.md).
+
+`cost_budget_monthly_pct` was a platform setting until 2026-09-11, applied to
+every agent at 2%. It is now yours and defaults to none. The arithmetic is worth
+knowing before choosing one: costs are mostly FIXED per transaction, so the same
+percentage means very different things at different capital. At $0.065 per round
+trip, 2% a month permits about 3.6 transactions on an $11.76 book and about 900
+on a $3,000 one.
+
+### Unknown keys are kept, and named back at you
+
+`risk_profile` is free-form JSON and no key is rejected. That is deliberate: an
+owner may want to record things the platform has no opinion about, and a
+whitelist would make every new lever a breaking change for anyone who wrote
+ahead of it.
+
+The cost of that freedom is a typo that does nothing. `stoploss_pct` would be
+accepted, stored, and never read — silence, in the one place where silence is
+indistinguishable from working. So the create and patch responses carry
+`risk_profile_unrecognised`: every key the engine does not read, listed back.
+Nothing is refused; nothing is silent either.
+
 ## 3 active agents per creator
 
 Three ACTIVE, not three total, and the difference is the whole design.

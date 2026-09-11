@@ -32,11 +32,16 @@ const VECTOR_DIMS = 256;
  * Zero padding is mathematically free for the only operation the column exists
  * to serve: cosine similarity ignores dimensions that are zero in both
  * operands, contributing to neither dot product nor norm. So similarity over
- * these 256-dim vectors is identical to similarity over the 8 real features.
- * Inventing 248 more features to "fill the space" would be noise dressed as
+ * these 256-dim vectors is identical to similarity over the real features.
+ * Inventing more features to "fill the space" would be noise dressed as
  * signal — the empty room is reserved for DNA 2.0, not padded with fiction.
+ *
+ * 8 -> 9 on 2026-09-11, when protective exits became distinguishable from the
+ * agent own decisions. A measured ninth feature is not padding; see
+ * protectiveExitShare for why it had to enter the VECTOR rather than sit
+ * beside it.
  */
-const FEATURE_COUNT = 8;
+const FEATURE_COUNT = 9;
 
 /**
  * Minimum decisions before an agent has a DNA at all. Same threshold as the
@@ -70,6 +75,27 @@ const DEFAULT_MAX_POSITION_PCT = 0.35;
 export interface DnaFeatures {
   turnover: number;
   sellShare: number;
+  /**
+   * The share of this agent's exits that a LEVEL took, not the agent.
+   *
+   * WHY THE OTHER FEATURES EXCLUDE PROTECTIVE EXITS. Every one of them is a
+   * statement about judgement: how often it chose to trade, how it sized an
+   * entry, whether it bought into strength. A stop loss firing is not a choice
+   * made at that moment — it is a level set earlier, crossed by the market. Two
+   * agents with identical judgement and different stop settings would otherwise
+   * get different fingerprints for a reason that is not judgement.
+   *
+   * WHY IT IS A FEATURE RATHER THAN A FOOTNOTE. How much an agent leans on
+   * automatic exits is part of its character, and it is measurable. If it lived
+   * only in risk_personality it would be outside the vector, so two agents
+   * differing only in that would come out identical under cosine similarity —
+   * the same conflation, in the other direction.
+   *
+   * 0 = every exit was the agent's own call. 1 = every exit was a level.
+   * NaN-free: agents with no exits score 0, which reads as "no reliance
+   * observed" rather than as a measurement.
+   */
+  protectiveExitShare: number;
   exposure: number;
   concentration: number;
   tradeSizePct: number;
@@ -87,6 +113,12 @@ interface AgentTick {
   action: string | null;
   symbol: string | null;
   quantity: number | null;
+  /**
+   * deterministic | llm | human | protective, or null on rows written before
+   * the distinction existed. Null is NOT folded into either side: "we do not
+   * know" is a different statement from "the agent decided".
+   */
+  decider: string | null;
 }
 
 @Injectable()
@@ -110,13 +142,13 @@ export class DnaService {
     // year-sized one.
     const market = await this.marketIndex.load();
     const cited: Array<{ ref: string }> = await this.db.query(
-      `SELECT DISTINCT market_snapshot_ref AS ref FROM decisions
+      `SELECT DISTINCT market_snapshot_ref AS ref FROM decisions_counted
        WHERE market_snapshot_ref IS NOT NULL`,
     );
     await this.marketIndex.ensurePrices(market, cited.map((r) => r.ref));
 
     const rows: Array<{ agent_id: string; n: string }> = await this.db.query(
-      `SELECT agent_id, COUNT(*) AS n FROM decisions GROUP BY agent_id`,
+      `SELECT agent_id, COUNT(*) AS n FROM decisions_counted GROUP BY agent_id`,
     );
 
     let computed = 0;
@@ -178,6 +210,9 @@ export class DnaService {
   ): DnaFeatures {
     let buys = 0;
     let sells = 0;
+    // Exits a LEVEL took. Counted, never mixed into the four features above
+    // that describe judgement.
+    let protectiveExits = 0;
     let exposureSum = 0;
     let exposureTicks = 0;
     let concentrationSum = 0;
@@ -188,8 +223,13 @@ export class DnaService {
     let alignmentCount = 0;
 
     for (const t of ticks) {
-      if (t.action === 'buy') buys++;
-      if (t.action === 'sell') sells++;
+      // WHO DECIDED, before anything is counted. A protective exit is a real
+      // trade with a real transaction and it was not this agent's judgement.
+      const byLevel = t.decider === 'protective';
+      if (byLevel && (t.action === 'buy' || t.action === 'sell')) protectiveExits++;
+
+      if (!byLevel && t.action === 'buy') buys++;
+      if (!byLevel && t.action === 'sell') sells++;
 
       if (t.nav > 0) {
         exposureSum += Math.max(0, (t.nav - t.cash) / t.nav);
@@ -228,7 +268,7 @@ export class DnaService {
       // than any limit the agent was configured with — risk_budget_utilisation
       // read 1.4x against a limit the agent had not actually breached. Exit
       // behaviour is already carried by sellShare.
-      if (t.action === 'buy' && t.quantity != null && t.symbol && prices && t.nav > 0) {
+      if (!byLevel && t.action === 'buy' && t.quantity != null && t.symbol && prices && t.nav > 0) {
         const price = prices[t.symbol];
         if (price > 0) {
           tradeSizeSum += (t.quantity * price) / t.nav;
@@ -241,7 +281,7 @@ export class DnaService {
       // -1 for the opposite (contrarian). This is the feature that separates
       // momentum from mean reversion — they trade at similar rates and hold
       // similar exposure, and differ mainly in direction.
-      if ((t.action === 'buy' || t.action === 'sell') && t.ref) {
+      if (!byLevel && (t.action === 'buy' || t.action === 'sell') && t.ref) {
         const mkt = market.get(t.ref);
         if (mkt && Math.abs(mkt.marketReturn) > FLAT_REGIME_THRESHOLD) {
           const marketDir = Math.sign(mkt.marketReturn);
@@ -252,8 +292,12 @@ export class DnaService {
       }
     }
 
-    const decisions = ticks.length;
+    // Ticks where a level acted are not ticks where the agent decided, so they
+    // leave the turnover denominator too. Otherwise an agent whose stop fired
+    // would look LESS active than one whose did not.
+    const decisions = ticks.filter((t) => t.decider !== 'protective').length;
     const trades = buys + sells;
+    const allExits = sells + protectiveExits;
     const exposure = exposureTicks > 0 ? exposureSum / exposureTicks : 0;
 
     const navs = ticks.map((t) => t.nav).filter((n) => n > 0);
@@ -266,6 +310,7 @@ export class DnaService {
     return {
       turnover: decisions > 0 ? trades / decisions : 0,
       sellShare: trades > 0 ? sells / trades : 0,
+      protectiveExitShare: allExits > 0 ? protectiveExits / allExits : 0,
       exposure,
       concentration:
         concentrationTicks > 0 ? concentrationSum / concentrationTicks : 0,
@@ -295,6 +340,7 @@ export class DnaService {
     v[5] = clamp(f.trendAlignment, -1, 1); // already signed
     v[6] = centre(Math.min(f.volPerExposure, VOL_CEILING) / VOL_CEILING);
     v[7] = centre(Math.min(f.drawdownPerExposure, DRAWDOWN_CEILING) / DRAWDOWN_CEILING);
+    v[8] = centre(f.protectiveExitShare);
     return v.map((x) => round4(x));
   }
 
@@ -316,6 +362,9 @@ export class DnaService {
       max_drawdown_per_exposure: round4(f.drawdownPerExposure),
       avg_trade_size_pct: round4(f.tradeSizePct),
       position_concentration: round4(f.concentration),
+      // Stated in words as well as in the vector: an agent whose exits are
+      // mostly automatic is a different agent from one that calls them.
+      protective_exit_share: round4(f.protectiveExitShare),
       // How boldly the agent uses the allowance it was configured with. ~1.0
       // means it trades at its own declared limit; well under 1.0 means it is
       // more cautious than its risk_profile permits.
@@ -395,12 +444,13 @@ export class DnaService {
   private async loadAgentTicks(agentId: string): Promise<AgentTick[]> {
     const rows = await this.db.query(
       `SELECT ps.ts, ps.nav::float8 AS nav, ps.cash::float8 AS cash, ps.holdings,
-              d.market_snapshot_ref, d.action, d.symbol, d.quantity::float8 AS quantity
+              d.market_snapshot_ref, d.action, d.symbol, d.quantity::float8 AS quantity,
+              d.decider
        FROM portfolio_snapshots ps
        JOIN portfolios p ON p.id = ps.portfolio_id
        LEFT JOIN LATERAL (
-         SELECT market_snapshot_ref, action, symbol, quantity
-         FROM decisions
+         SELECT market_snapshot_ref, action, symbol, quantity, decider
+         FROM decisions_counted
          WHERE agent_id = p.agent_id
            AND ts BETWEEN ps.ts - interval '5 seconds' AND ps.ts
          ORDER BY ts DESC
@@ -440,6 +490,7 @@ export class DnaService {
       action: r.action ?? null,
       symbol: r.symbol ?? null,
       quantity: r.quantity != null ? Number(r.quantity) : null,
+      decider: r.decider ?? null,
     }));
   }
 

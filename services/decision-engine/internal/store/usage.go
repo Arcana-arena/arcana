@@ -25,7 +25,7 @@ func (s *Store) TokensUsedToday(ctx context.Context, agentID string) (int64, err
 	var total *int64
 	err := s.pool.QueryRow(ctx,
 		`SELECT sum(coalesce(prompt_tokens,0) + coalesce(completion_tokens,0))
-		   FROM decisions
+		   FROM decisions_counted
 		  WHERE agent_id = $1
 		    AND ts >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
 		    AND prompt_tokens IS NOT NULL`, agentID).Scan(&total)

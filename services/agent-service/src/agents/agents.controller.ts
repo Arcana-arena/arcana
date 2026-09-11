@@ -24,6 +24,31 @@ import { OwnershipService } from '../auth/ownership.service';
 import { DecisionClient } from '../decisions/decision.client';
 import { MANDATE_TEMPLATES, MANDATE_MAX_CHARS } from './mandate-templates';
 import { parsePage } from '../common/pagination';
+import { unrecognisedRiskKeys } from './risk-profile';
+
+/**
+ * The agent, plus every risk_profile key nothing will read.
+ *
+ * ONE HELPER FOR BOTH create AND patch. Two copies of this would be two
+ * answers to "did my setting take effect", and the second one to drift would
+ * be the one somebody relied on.
+ *
+ * The field is omitted entirely when there is nothing to say, so a clean
+ * profile does not carry an empty array that reads like a finding.
+ */
+function withRiskWarnings<T extends { riskProfile?: unknown }>(agent: T) {
+  const unknown = unrecognisedRiskKeys(agent.riskProfile);
+  if (unknown.length === 0) return agent;
+  return {
+    ...agent,
+    risk_profile_unrecognised: unknown,
+    risk_profile_note:
+      unknown.length +
+      ' key(s) in risk_profile are not read by the decision engine and will have no ' +
+      'effect: ' + unknown.join(', ') + '. Nothing was refused and the values are stored ' +
+      'as given; see docs/agents.md for the keys that are read.',
+  };
+}
 
 /**
  * Reads are public; writes require a session, and writes to a specific agent
@@ -70,7 +95,12 @@ export class AgentsController {
         },
       });
     }
-    return this.agents.create(dto, creatorId);
+    const created = await this.agents.create(dto, creatorId);
+    // NOTHING IS REFUSED, AND NOTHING IS SILENT. risk_profile takes any key,
+    // so a typo is accepted, stored, and never read. The response names every
+    // key the engine will not read rather than leaving the owner to discover
+    // it from an agent that quietly has no stop loss.
+    return withRiskWarnings(created);
   }
 
   // --- 🌐 public reads ------------------------------------------------------
@@ -151,7 +181,7 @@ export class AgentsController {
     @CurrentWallet() wallet: string,
   ) {
     await this.ownership.assertOwnsAgent(wallet, id);
-    return this.agents.update(id, dto);
+    return withRiskWarnings(await this.agents.update(id, dto));
   }
 
   @Post(':id/activate')

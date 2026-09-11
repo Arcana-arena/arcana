@@ -98,7 +98,7 @@ export class EvolutionService {
     const stats = await this.db.query(
       `SELECT COUNT(*)::int AS decisions,
               COUNT(*) FILTER (WHERE action <> 'hold')::int AS trades
-       FROM decisions WHERE agent_id = $1`,
+       FROM decisions_counted WHERE agent_id = $1`,
       [agent.id],
     );
     const nav = await this.db.query(
