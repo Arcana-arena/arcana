@@ -31,8 +31,10 @@ never reachable, because every suite run minted a FRESH creator and took three
 more slots with it. 89 creators existed, 81 of them `verify_alice_*` or
 `verify_bob_*`, 40 with no agent at all.
 
-The brake did work exactly once, where it could: creator `inj_mtwfkxc1` made
-seven injection agents, activated three, and the other four sat at `draft`.
+The brake did work exactly once, where it could: creator `inj_mtwfkxc1` (removed
+by the sweep this document describes; named here only as the record of what
+happened) made seven injection agents, activated three, and the other four sat
+at `draft`.
 
 Two cleanups existed and neither ran. `auth-verify.mjs` had none at all — 25
 POSTs, no `finally`, relying on a hand-run `auth-verify-cleanup.sql`, which is to
