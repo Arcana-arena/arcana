@@ -59,8 +59,19 @@ Deleting first would have emptied a space that refills on the next sweep.
 3. **A brake the suites cannot walk around.**
    `MAX_VERIFICATION_CREATORS = 25`, counted only over marked rows, so nothing
    about how real creators sign up changes.
-4. **A rename.** `Phase 8c buy leg` became `onchain_live_v1` — see the hazard
-   below.
+4. **Two renames.** `Phase 8c buy leg` became `onchain_live_v1`, and its creator
+   handle `phase8_operator` became `onchain_operator` — see the hazard below.
+   Neither makes anything safe; the mark does that. They stop the one creator
+   holding a funded wallet from reading like a leftover from a test, which is
+   free to fix now and will not be once there are public creator profiles.
+
+   Checked before touching it: `creators.handle` is UNIQUE but is never resolved
+   as a key — ownership and auth key entirely on `wallet_address`, and the only
+   query that reads the handle is the ILIKE search behind the public creator
+   list. After the rename the wallet, the three agents, the six competition
+   participants and `provenance = 'live'` were all unchanged, and cadence was
+   run under `ARCANA_VERIFICATION` to prove it still loads the competition and
+   resolves all six participants before refusing to open a tick.
 
 ### The hazard that was closed
 
