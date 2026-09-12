@@ -21,7 +21,8 @@ import (
 )
 
 // buildCommit is stamped at link time by infra/systemd/install.sh:
-//   go build -ldflags "-X main.buildCommit=$(git rev-parse HEAD)"
+//
+//	go build -ldflags "-X main.buildCommit=$(git rev-parse HEAD)"
 //
 // WHY A SERVICE REPORTS ITS OWN VERSION. These used to run under `go run`,
 // which recompiled on every restart, so restarting was the same as deploying.
@@ -58,8 +59,8 @@ func buildLLM() *llm.Client {
 		// sends and parses.
 		//
 		// No /v1 on the base URL: the client appends /v1/chat/completions.
-		Name:        envOr("LLM_PROVIDER", "mimo"),
-		BaseURL:     envOr("LLM_BASE_URL", "https://api.xiaomimimo.com"),
+		Name:    envOr("LLM_PROVIDER", "mimo"),
+		BaseURL: envOr("LLM_BASE_URL", "https://api.xiaomimimo.com"),
 		// mimo-v2.5 rather than mimo-v2.5-pro. The switch away from DeepSeek was
 		// about cost, so the cheaper model is the default; -pro is one variable
 		// away and needs no code change, which is the whole point of this shape.
@@ -110,7 +111,7 @@ func buildBroker() (*execution.Broker, error) {
 	}
 	if internalKey == "" {
 		return nil, fmt.Errorf(
-			"chain execution is configured but INTERNAL_API_KEY is not set, so the signer would "+
+			"chain execution is configured but INTERNAL_API_KEY is not set, so the signer would " +
 				"refuse every request")
 	}
 
@@ -253,7 +254,6 @@ func main() {
 			"agents (momentum, mean_reversion, buy_and_hold) are unaffected.")
 	}
 
-
 	// Chain execution is attached only when all three of its pieces are present.
 	//
 	// PARTIAL CONFIGURATION IS REFUSED RATHER THAN DEGRADED. Two of the three
@@ -273,7 +273,7 @@ func main() {
 			"wallet is refused rather than settled virtually.")
 	}
 
-		// HOW LONG ONE CYCLE MAY TAKE.
+	// HOW LONG ONE CYCLE MAY TAKE.
 	//
 	// Fifteen seconds was right when a cycle was: read state, decide, do
 	// arithmetic, insert a row. A chain-backed cycle reads ten balances, may
@@ -371,8 +371,8 @@ func writeJSON(w http.ResponseWriter, code int, body any) {
 func writeError(w http.ResponseWriter, code int, errCode, message string) {
 	writeJSON(w, code, map[string]any{
 		"error": map[string]any{
-			"code":    errCode,
-			"message": message,
+			"code":     errCode,
+			"message":  message,
 			"trace_id": "",
 		},
 	})

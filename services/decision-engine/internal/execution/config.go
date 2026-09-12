@@ -15,9 +15,9 @@ import (
 // engine confidently building a swap the signer refuses — or worse, the two
 // agreeing on a symbol and disagreeing on which contract it means.
 type Config struct {
-	ChainID    int64   `json:"chain_id"`
-	QuoteToken TokenCfg `json:"quote_token"`
-	Routers    []string `json:"routers"`
+	ChainID    int64      `json:"chain_id"`
+	QuoteToken TokenCfg   `json:"quote_token"`
+	Routers    []string   `json:"routers"`
 	Tokens     []TokenCfg `json:"tokens"`
 
 	bySymbol map[string]TokenCfg

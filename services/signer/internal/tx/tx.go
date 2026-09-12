@@ -21,7 +21,7 @@ import (
 // --- ABI encoding for the two shapes this service can build -----------------
 
 const (
-	selApprove         = "095ea7b3" // approve(address,uint256)
+	selApprove          = "095ea7b3" // approve(address,uint256)
 	selExactInputSingle = "04e45aaf" // exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))
 )
 

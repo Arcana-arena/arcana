@@ -6,18 +6,18 @@
 //
 // WHERE EACH CHECK BELONGS, and this was a decision rather than an accident:
 //
-//   wallet_blocked  -> PRIMARY HOME IS THE SIGNER.
-//       It is a property of the KEY the signer is about to use. The signer is
-//       the only component that knows which key that is, and it is the last
-//       thing to run before a signature exists. Checking it anywhere else means
-//       every future caller has to remember; checking it here means none of
-//       them can forget.
+//	wallet_blocked  -> PRIMARY HOME IS THE SIGNER.
+//	    It is a property of the KEY the signer is about to use. The signer is
+//	    the only component that knows which key that is, and it is the last
+//	    thing to run before a signature exists. Checking it anywhere else means
+//	    every future caller has to remember; checking it here means none of
+//	    them can forget.
 //
-//   token_paused    -> PRIMARY HOME IS THE DECISION ENGINE, backstopped here.
-//       A paused token should stop an agent EARLIER than signing: before
-//       inference is purchased, before a decision is recorded that can never
-//       settle. But the issuer can pause between deciding and signing, so the
-//       signer checks it too. It is a backstop, not the owner of the rule.
+//	token_paused    -> PRIMARY HOME IS THE DECISION ENGINE, backstopped here.
+//	    A paused token should stop an agent EARLIER than signing: before
+//	    inference is purchased, before a decision is recorded that can never
+//	    settle. But the issuer can pause between deciding and signing, so the
+//	    signer checks it too. It is a backstop, not the owner of the rule.
 //
 // AND THE RULE THAT BINDS BOTH: if the chain cannot be read, the signer
 // REFUSES. "Could not check" is not "fine". A signer that signs when it cannot
@@ -28,11 +28,11 @@ package chain
 import (
 	"bytes"
 	"context"
-	"log"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"sync"

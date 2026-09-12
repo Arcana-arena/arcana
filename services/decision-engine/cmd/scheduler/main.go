@@ -33,8 +33,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strings"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -317,7 +317,6 @@ func envOr(k, def string) string {
 	}
 	return def
 }
-
 
 // internalKey is the machine-tier credential every /internal/* call must carry.
 //

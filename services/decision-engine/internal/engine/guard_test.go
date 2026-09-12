@@ -218,11 +218,11 @@ func TestTheRationaleSaysNoOneDecidedAndNamesThePriceSource(t *testing.T) {
 	g := guardForTest()
 	r := protectiveRationale(g, Trigger{Side: "stop_loss", Price: 189.5}, "pool-20260911T1100Z")
 	for _, want := range []string{
-		"stop loss",           // which side
-		"189.5",               // the price that fired it
-		"190",                 // the level
-		"Decided by no one",   // the author, stated
-		"was NOT the input",   // the snapshot ref is carried, not claimed as input
+		"stop loss",         // which side
+		"189.5",             // the price that fired it
+		"190",               // the level
+		"Decided by no one", // the author, stated
+		"was NOT the input", // the snapshot ref is carried, not claimed as input
 	} {
 		if !strings.Contains(r, want) {
 			t.Fatalf("the rationale is missing %q:\n%s", want, r)

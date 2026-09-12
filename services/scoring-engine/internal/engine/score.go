@@ -119,14 +119,14 @@ var strategyProfiles = map[string]strategyProfile{
 
 // AgentContext bundles everything the factor formulas need about one agent.
 type AgentContext struct {
-	NAVs        []float64 // chronological NAV series (>=1 point)
-	DecisionCount int     // total decisions recorded in the season
+	NAVs          []float64 // chronological NAV series (>=1 point)
+	DecisionCount int       // total decisions recorded in the season
 	// Exposure is the mean fraction of NAV actually held in positions across
 	// the season, i.e. 1 - mean(cash/nav). It is what makes risk a measure of
 	// judgement rather than of abstention: an idle book is perfectly stable,
 	// and stability bought by not participating is not risk management.
-	Exposure float64
-	StrategyType string   // agent.strategy_type (e.g. momentum, mean_reversion, human)
+	Exposure     float64
+	StrategyType string // agent.strategy_type (e.g. momentum, mean_reversion, human)
 	// Buys and Sells are counted from the append-only decisions log and drive
 	// strategy_score: what the agent actually did, versus what it declared.
 	Buys  int
@@ -211,7 +211,7 @@ func ComputeFactors(ctx AgentContext) Factors {
 	// ---- creator: peer-derived reputation (previous run) ----
 	// Fall back to neutral for the first run / solo creators.
 	if ctx.CreatorPeerPerformance != nil {
-		f.Creator = clamp01(*ctx.CreatorPeerPerformance / 100) * 100
+		f.Creator = clamp01(*ctx.CreatorPeerPerformance/100) * 100
 	} else {
 		f.Creator = neutral
 	}

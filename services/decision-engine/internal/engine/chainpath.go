@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"time"
 	"math/big"
+	"time"
 
 	"github.com/arcana/decision-engine/internal/execution"
 	"github.com/arcana/decision-engine/internal/store"
@@ -127,7 +127,7 @@ func (e *Engine) settleOnChain(
 			IntentAction: "approve", Symbol: res.Symbol,
 			TokenIn: ap.Token, TokenOut: ap.Token,
 			AmountIn: ap.Amount,
-			TxHash: ap.TxHash, GasUsed: ap.GasUsed,
+			TxHash:   ap.TxHash, GasUsed: ap.GasUsed,
 			GasPriceWei: ap.GasPriceWei, GasCostWei: ap.GasCostWei,
 			GasCostUSD: ap.GasCostUSD, EthUSD: ap.EthUSD,
 			Status: ap.Status, Note: ap.Note,

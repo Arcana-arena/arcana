@@ -43,10 +43,10 @@ type server struct {
 	// The INTERFACE, not the concrete keyring. Moving to a KMS before the
 	// first wallet is funded should be one new implementation and one line at
 	// boot, not a change that reaches into every handler. See keys.Vault.
-	ring    keys.Vault
-	allow   *policy.Allowlist
-	chain   *chain.Client
-	dryRun  bool
+	ring   keys.Vault
+	allow  *policy.Allowlist
+	chain  *chain.Client
+	dryRun bool
 
 	// The DURABLE signature count. Nil when the count could not be read, which
 	// makes every signing request refuse: a brake that cannot be read is not a
@@ -54,7 +54,6 @@ type server struct {
 	sigs    *sigcount.Store
 	sigsErr error
 }
-
 
 func main() {
 	port := envOr("PORT", "8085")
@@ -132,8 +131,8 @@ func main() {
 		// signing request is REFUSED with the reason named. Same shape as the
 		// vendor key and the LLM key: a visible stand-down, never a substitution.
 		log.Printf("WARN: signer INACTIVE: %v", err)
-		log.Printf("WARN: every signing request will be refused with reason 'signer_not_configured'. " +
-			"No key material is held. Create the seed with: " +
+		log.Printf("WARN: every signing request will be refused with reason 'signer_not_configured'. "+
+			"No key material is held. Create the seed with: "+
 			"sudo install -o arcana-signer -g arcana-signer -m 0400 /dev/null %s", seedPath)
 	} else {
 		if importDir != "" {
@@ -163,7 +162,7 @@ func main() {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, 200, map[string]any{
 			"status": "ok", "service": "signer", "commit": buildCommit,
-			"signer_configured": srv.ring != nil,
+			"signer_configured":   srv.ring != nil,
 			"routers_allowlisted": len(allow.Routers), "chain_id": allow.ChainID,
 		})
 	})
@@ -209,13 +208,13 @@ func (s *server) handleWallet(w http.ResponseWriter, r *http.Request) {
 // that thinks it is asking for something else is told it is wrong instead of
 // quietly getting something it did not ask for.
 type signRequest struct {
-	Intent    string `json:"intent"`     // approve | swap_exact_in
+	Intent    string `json:"intent"` // approve | swap_exact_in
 	AgentID   string `json:"agent_id"`
 	TokenIn   string `json:"token_in"`
-	TokenOut  string `json:"token_out"`  // swap only
+	TokenOut  string `json:"token_out"` // swap only
 	Router    string `json:"router"`
-	Amount    string `json:"amount"`     // base units, decimal or 0x-hex
-	MinOut    string `json:"min_out"`    // swap only
+	Amount    string `json:"amount"`  // base units, decimal or 0x-hex
+	MinOut    string `json:"min_out"` // swap only
 	Nonce     uint64 `json:"nonce"`
 	Gas       uint64 `json:"gas"`
 	MaxFeeWei string `json:"max_fee_wei"`
@@ -515,7 +514,6 @@ func orDefault(v, def string) string {
 	return v
 }
 
-
 // --- key custody: export and import ------------------------------------------
 //
 // THESE TWO ENDPOINTS ARE THE ONLY WAY KEY MATERIAL CROSSES THIS SERVICE'S
@@ -638,9 +636,9 @@ func (s *server) handleSignatureCounts(w http.ResponseWriter, _ *http.Request) {
 	}
 	day, counts := s.sigs.All()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"day":                day,
-		"cap_per_agent":      s.allow.Limits.MaxSignaturesPerDay,
-		"counts":             counts,
-		"note":               "One approve and its swap are two signatures. The broker approves exactly the trade amount, so every swap needs a fresh allowance.",
+		"day":           day,
+		"cap_per_agent": s.allow.Limits.MaxSignaturesPerDay,
+		"counts":        counts,
+		"note":          "One approve and its swap are two signatures. The broker approves exactly the trade amount, so every swap needs a fresh allowance.",
 	})
 }

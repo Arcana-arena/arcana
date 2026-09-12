@@ -1,6 +1,6 @@
 // Command guard watches protective levels between decision ticks.
 //
-// WHY IT IS A SEPARATE PROCESS AND NOT A CADENCE JOB
+// # WHY IT IS A SEPARATE PROCESS AND NOT A CADENCE JOB
 //
 // Everything else that trades in this system runs on the decision cadence: a
 // tick opens, the agent is asked, an answer is recorded. A stop loss cannot
@@ -226,4 +226,3 @@ func envDuration(k string, def time.Duration) time.Duration {
 	}
 	return def
 }
-

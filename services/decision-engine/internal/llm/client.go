@@ -141,8 +141,8 @@ type chatResponse struct {
 		FinishReason string  `json:"finish_reason"`
 	} `json:"choices"`
 	Usage struct {
-		PromptTokens        int `json:"prompt_tokens"`
-		CompletionTokens    int `json:"completion_tokens"`
+		PromptTokens         int `json:"prompt_tokens"`
+		CompletionTokens     int `json:"completion_tokens"`
 		PromptCacheHitTokens int `json:"prompt_cache_hit_tokens"`
 	} `json:"usage"`
 	Error *struct {

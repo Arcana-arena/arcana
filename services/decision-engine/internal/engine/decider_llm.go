@@ -461,9 +461,9 @@ type llmDecision struct {
 	TakeProfitFraction *float64 `json:"take_profit_fraction"`
 	StopLossPct        *float64 `json:"stop_loss_pct"`
 	TakeProfitPct      *float64 `json:"take_profit_pct"`
-	Rationale     string  `json:"rationale"`
-	Confidence    float64 `json:"confidence"`
-	Thesis     struct {
+	Rationale          string   `json:"rationale"`
+	Confidence         float64  `json:"confidence"`
+	Thesis             struct {
 		Claim         string `json:"claim"`
 		HorizonTicks  int    `json:"horizon_ticks"`
 		InvalidatedIf string `json:"invalidated_if"`

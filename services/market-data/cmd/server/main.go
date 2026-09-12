@@ -14,29 +14,30 @@
 package main
 
 import (
-	"fmt"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/arcana/internalauth"
 	"github.com/arcana/market-data/internal/chain"
 	"github.com/arcana/market-data/internal/objectstore"
 	"github.com/arcana/market-data/internal/service"
 	"github.com/arcana/market-data/internal/session"
 	"github.com/arcana/market-data/internal/snapshot"
 	"github.com/arcana/market-data/internal/store"
-	"github.com/arcana/internalauth"
 	"github.com/arcana/market-data/internal/universe"
 	"github.com/arcana/market-data/internal/vendor"
 )
 
 // buildCommit is stamped at link time by infra/systemd/install.sh:
-//   go build -ldflags "-X main.buildCommit=$(git rev-parse HEAD)"
+//
+//	go build -ldflags "-X main.buildCommit=$(git rev-parse HEAD)"
 //
 // WHY A SERVICE REPORTS ITS OWN VERSION. These used to run under `go run`,
 // which recompiled on every restart, so restarting was the same as deploying.
@@ -185,12 +186,12 @@ func main() {
 func (s *server) handleUniverse(w http.ResponseWriter, _ *http.Request) {
 	u := s.svc.Universe()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"name":         u.Name,
-		"description":  u.Description,
+		"name":          u.Name,
+		"description":   u.Description,
 		"sector_scheme": u.SectorScheme,
-		"size":         u.Size(),
-		"sectors":      u.Sectors(),
-		"symbols":      u.Symbols,
+		"size":          u.Size(),
+		"sectors":       u.Sectors(),
+		"symbols":       u.Symbols,
 	})
 }
 
@@ -419,9 +420,9 @@ func (s *server) handleExpectedSession(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	date := session.LastCompleted(now, s.eastern)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"trading_date":       date.Format("2006-01-02"),
-		"asked_at":           now.Format(time.RFC3339),
-		"today_is_weekend":   session.IsWeekend(now.In(s.eastern)),
+		"trading_date":           date.Format("2006-01-02"),
+		"asked_at":               now.Format(time.RFC3339),
+		"today_is_weekend":       session.IsWeekend(now.In(s.eastern)),
 		"holidays_determined_by": "vendor",
 	})
 }

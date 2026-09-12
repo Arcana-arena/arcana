@@ -59,10 +59,10 @@ type Quote struct {
 	RefereeStatus string `json:"referee_status,omitempty"`
 	// RefereePrice is what Chainlink said, for comparison. Recorded even when
 	// the two agree: "they agreed" is only checkable later if both numbers survive.
-	RefereePrice float64 `json:"referee_price,omitempty"`
-	RefereeDevPct float64 `json:"referee_deviation_pct,omitempty"`
-	RefereeUpdatedAt string `json:"referee_updated_at,omitempty"`
-	RefereeNote string `json:"referee_note,omitempty"`
+	RefereePrice     float64 `json:"referee_price,omitempty"`
+	RefereeDevPct    float64 `json:"referee_deviation_pct,omitempty"`
+	RefereeUpdatedAt string  `json:"referee_updated_at,omitempty"`
+	RefereeNote      string  `json:"referee_note,omitempty"`
 }
 
 // Provenance records where a snapshot's prices came from and when they were

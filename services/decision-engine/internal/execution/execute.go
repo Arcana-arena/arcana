@@ -131,7 +131,7 @@ func (b *Broker) Execute(ctx context.Context, req Request) (*Result, error) {
 		TokenIn: tokenIn.Address, TokenOut: tokenOut.Address, Router: b.cfg.Router(),
 		Amount: amountIn.String(), MinOut: minOut.String(),
 		Nonce: nonce,
-		Gas: b.GasLimit, MaxFeeWei: b.MaxFeeWei.String(), TipWei: b.TipWei.String(),
+		Gas:   b.GasLimit, MaxFeeWei: b.MaxFeeWei.String(), TipWei: b.TipWei.String(),
 	})
 	if err != nil {
 		var ref *Refusal

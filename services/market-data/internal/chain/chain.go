@@ -94,7 +94,7 @@ type Config struct {
 	// quote is marked disputed.
 	DisputeTolerancePct float64 `json:"dispute_tolerance_pct"`
 	// FeedMaxAgeSeconds is how stale a feed answer may be and still referee.
-	FeedMaxAgeSeconds int64 `json:"feed_max_age_seconds"`
+	FeedMaxAgeSeconds int64         `json:"feed_max_age_seconds"`
 	Tokens            []TokenConfig `json:"tokens"`
 }
 

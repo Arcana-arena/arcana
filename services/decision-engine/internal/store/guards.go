@@ -17,40 +17,40 @@ import (
 // make the level depend on whatever the entry price is believed to be at scan
 // time, which is a moving target the owner never agreed to.
 type Guard struct {
-	ID         int64
-	AgentID    string
+	ID      int64
+	AgentID string
 	// SubscriptionID is nil for the creator's own position. A subscriber's
 	// guard watches a different wallet, is armed from a different fill price,
 	// and exits through a different signer identity.
 	SubscriptionID *string
-	Symbol     string
-	EntryPrice float64
-	EntryQty   float64
-	TakeProfit *float64
-	StopLoss   *float64
-	TPPct      *float64
-	SLPct      *float64
-	SetAt      time.Time
-	SetBy      *int64
+	Symbol         string
+	EntryPrice     float64
+	EntryQty       float64
+	TakeProfit     *float64
+	StopLoss       *float64
+	TPPct          *float64
+	SLPct          *float64
+	SetAt          time.Time
+	SetBy          *int64
 	// Status is armed | triggered | cleared | expired | refused. Carried only
 	// by the by-id read: the scan reads armed rows and has no use for it.
-	Status     string
+	Status string
 }
 
 // GuardInsert arms a guard. Percentages are carried alongside the absolute
 // levels so a level can be explained later rather than only restated.
 type GuardInsert struct {
-	AgentID    string
+	AgentID        string
 	SubscriptionID *string
-	Symbol     string
-	EntryPrice float64
-	EntryQty   float64
-	TakeProfit *float64
-	StopLoss   *float64
-	TPPct      *float64
-	SLPct      *float64
-	DecisionID *int64
-	Note       string
+	Symbol         string
+	EntryPrice     float64
+	EntryQty       float64
+	TakeProfit     *float64
+	StopLoss       *float64
+	TPPct          *float64
+	SLPct          *float64
+	DecisionID     *int64
+	Note           string
 }
 
 // ErrGuardExists is returned when this agent already has an armed guard on this

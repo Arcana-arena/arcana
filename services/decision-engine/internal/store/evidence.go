@@ -111,7 +111,6 @@ func jsonOrNil(m map[string]any) any {
 	return m
 }
 
-
 // nilIfZeroInt keeps "nobody asked" distinct from "the answer was zero".
 func nilIfZeroInt(v int) any {
 	if v == 0 {

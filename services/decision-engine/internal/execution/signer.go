@@ -19,9 +19,9 @@ import (
 // produce a signature, and a client that worked around an outage would quietly
 // undo that.
 type SignerClient struct {
-	base     string
-	key      string
-	http     *http.Client
+	base string
+	key  string
+	http *http.Client
 }
 
 func NewSignerClient(base, internalKey string, c *http.Client) *SignerClient {
@@ -29,17 +29,17 @@ func NewSignerClient(base, internalKey string, c *http.Client) *SignerClient {
 }
 
 type SignRequest struct {
-	Intent    string  `json:"intent"`
-	AgentID   string  `json:"agent_id"`
-	TokenIn   string  `json:"token_in"`
-	TokenOut  string  `json:"token_out,omitempty"`
-	Router    string  `json:"router"`
-	Amount    string  `json:"amount"`
-	MinOut    string  `json:"min_out,omitempty"`
-	Nonce     uint64  `json:"nonce"`
-	Gas       uint64  `json:"gas,omitempty"`
-	MaxFeeWei string  `json:"max_fee_wei,omitempty"`
-	TipWei    string  `json:"tip_wei,omitempty"`
+	Intent    string `json:"intent"`
+	AgentID   string `json:"agent_id"`
+	TokenIn   string `json:"token_in"`
+	TokenOut  string `json:"token_out,omitempty"`
+	Router    string `json:"router"`
+	Amount    string `json:"amount"`
+	MinOut    string `json:"min_out,omitempty"`
+	Nonce     uint64 `json:"nonce"`
+	Gas       uint64 `json:"gas,omitempty"`
+	MaxFeeWei string `json:"max_fee_wei,omitempty"`
+	TipWei    string `json:"tip_wei,omitempty"`
 }
 
 type SignResponse struct {

@@ -116,11 +116,11 @@ func (p *PoolReader) Read(ctx context.Context, now time.Time) (*PoolTick, error)
 				// Provenance travels ON THE QUOTE, not only in a log line, so a
 				// snapshot pulled out of object storage years later still says
 				// whether its price was refereed and by what.
-				RefereeStatus:   v.Status,
-				RefereePrice:    round4(v.FeedPrice),
-				RefereeDevPct:   v.DeviationPct,
-				RefereeNote:     v.Note,
-				UpdatedAt:       now.UTC().Format(time.RFC3339),
+				RefereeStatus: v.Status,
+				RefereePrice:  round4(v.FeedPrice),
+				RefereeDevPct: v.DeviationPct,
+				RefereeNote:   v.Note,
+				UpdatedAt:     now.UTC().Format(time.RFC3339),
 			}
 			if !v.FeedUpdatedAt.IsZero() {
 				r.q.RefereeUpdatedAt = v.FeedUpdatedAt.Format(time.RFC3339)

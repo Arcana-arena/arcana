@@ -4,7 +4,7 @@ import "errors"
 
 // Vault is everything the signer needs from whatever holds its keys.
 //
-// WHY THIS EXISTS BEFORE THERE IS A SECOND IMPLEMENTATION
+// # WHY THIS EXISTS BEFORE THERE IS A SECOND IMPLEMENTATION
 //
 // Key custody is option A today: one master seed in a file on the host, owned
 // by a Linux user nothing else runs as. That was a deliberate decision for a
@@ -16,25 +16,25 @@ import "errors"
 // rather than discovered then. `*Keyring` satisfies it; the whole server talks
 // to this and to nothing narrower.
 //
-// THE TRADE-OFF A KMS FORCES, AND IT IS NOT SMALL
+// # THE TRADE-OFF A KMS FORCES, AND IT IS NOT SMALL
 //
 // There are two shapes of KMS and they are not interchangeable:
 //
-//   1. KMS AS A SIGNING SERVICE. The private key is generated inside the KMS
-//      and never leaves it; you send a digest and get a signature back. This
-//      is the strongest custody available and it makes Export() IMPOSSIBLE —
-//      not hard, impossible, because there is nothing to export.
+//  1. KMS AS A SIGNING SERVICE. The private key is generated inside the KMS
+//     and never leaves it; you send a digest and get a signature back. This
+//     is the strongest custody available and it makes Export() IMPOSSIBLE —
+//     not hard, impossible, because there is nothing to export.
 //
-//      Phase 12 promises every user that they can take possession of their
-//      agent's key at any time, on the grounds that a wallet whose owner can
-//      never hold the key is the platform's wallet with the owner's name on
-//      it. This shape breaks that promise.
+//     Phase 12 promises every user that they can take possession of their
+//     agent's key at any time, on the grounds that a wallet whose owner can
+//     never hold the key is the platform's wallet with the owner's name on
+//     it. This shape breaks that promise.
 //
-//   2. KMS AS AN ENCRYPTED SECRET STORE. The master seed is sealed with a KMS
-//      key and unsealed into memory at boot. Derived keys still exist, so
-//      Export() still works and the user's promise holds. What is gained is
-//      that no plaintext seed sits on disk, no plaintext seed can be read from
-//      a stolen backup archive, and access is logged and revocable.
+//  2. KMS AS AN ENCRYPTED SECRET STORE. The master seed is sealed with a KMS
+//     key and unsealed into memory at boot. Derived keys still exist, so
+//     Export() still works and the user's promise holds. What is gained is
+//     that no plaintext seed sits on disk, no plaintext seed can be read from
+//     a stolen backup archive, and access is logged and revocable.
 //
 // **Shape 2 is the recommendation**, and the reason is that shape 1 buys
 // custody the platform is not entitled to: the user's key is the user's. The

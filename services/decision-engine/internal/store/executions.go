@@ -14,9 +14,9 @@ import (
 // means it resolved and moved nothing. Collapsing those two is how a reverted
 // swap ends up looking like a decision not to trade.
 type ExecutionInsert struct {
-	AgentID      string
-	DecisionID   *int64
-	TS           time.Time
+	AgentID    string
+	DecisionID *int64
+	TS         time.Time
 
 	// WHOSE FUNDS MOVED. One decision can reach several wallets — the creator's
 	// and one per subscriber — and an execution that cannot say which is one
@@ -39,7 +39,7 @@ type ExecutionInsert struct {
 	// level is what decided, the level is a row in position_guards, and this is
 	// the link that makes an exit in somebody's wallet traceable to the
 	// instruction that caused it. NULL on every ordinary trade.
-	GuardID *int64
+	GuardID      *int64
 	IntentAction string
 	Symbol       string
 	TokenIn      string
@@ -206,7 +206,6 @@ func (s *Store) RecordCustodyDrift(ctx context.Context, agentID, tokenAddress, s
 	return nil
 }
 
-
 // nilIfZeroFloat keeps "not priced" distinct from "cost nothing".
 //
 // The difference decides what the cost meter does: an unreadable cost makes it
@@ -218,6 +217,7 @@ func nilIfZeroFloat(v float64) any {
 	}
 	return v
 }
+
 // RecentRefusalFor reports whether this wallet has already been told the same
 // thing recently.
 //

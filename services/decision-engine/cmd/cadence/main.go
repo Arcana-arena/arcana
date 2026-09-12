@@ -1,6 +1,6 @@
 // Command cadence advances a competition on a CONTINUOUS clock.
 //
-// WHAT THIS REPLACES, AND WHY IT IS A DIFFERENT PROGRAM
+// # WHAT THIS REPLACES, AND WHY IT IS A DIFFERENT PROGRAM
 //
 // The scheduler opened one tick per US TRADING DAY. It asked market-data what
 // the most recent completed session was, and a closed market meant no tick.
@@ -15,7 +15,7 @@
 // enough TIME passed since the last decision", and it takes its prices from
 // the pool.
 //
-// THE FLOOR IS TECHNICAL, AND IT USED TO BE ARITHMETIC
+// # THE FLOOR IS TECHNICAL, AND IT USED TO BE ARITHMETIC
 //
 // It was four hours, derived from the fee schedule. The arithmetic was right and
 // the premise was wrong: it assumed DECIDING IS TRADING. It is not. Most

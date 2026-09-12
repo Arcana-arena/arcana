@@ -2,21 +2,22 @@
 package main
 
 import (
-	"fmt"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"time"
 
-	"github.com/arcana/scoring-engine/internal/engine"
 	"github.com/arcana/internalauth"
+	"github.com/arcana/scoring-engine/internal/engine"
 	"github.com/arcana/scoring-engine/internal/store"
 )
 
 // buildCommit is stamped at link time by infra/systemd/install.sh:
-//   go build -ldflags "-X main.buildCommit=$(git rev-parse HEAD)"
+//
+//	go build -ldflags "-X main.buildCommit=$(git rev-parse HEAD)"
 //
 // WHY A SERVICE REPORTS ITS OWN VERSION. These used to run under `go run`,
 // which recompiled on every restart, so restarting was the same as deploying.
@@ -89,9 +90,10 @@ func (s *server) handleBatch(w http.ResponseWriter, r *http.Request) {
 
 // handleScore returns the latest score snapshot for an agent, or the history
 // when from/to/granularity are supplied.
-//   GET /v1/agents/:id/score                 -> latest
-//   GET /v1/agents/:id/score?season_id=      -> latest within one season
-//   GET /v1/agents/:id/score?from=&to=&granularity=daily -> history
+//
+//	GET /v1/agents/:id/score                 -> latest
+//	GET /v1/agents/:id/score?season_id=      -> latest within one season
+//	GET /v1/agents/:id/score?from=&to=&granularity=daily -> history
 //
 // season_id matters now that an agent's career can span markets: Season 1 ran
 // on simulator prices and Season 2 on real ones, so an unscoped history draws
@@ -239,8 +241,8 @@ func writeJSON(w http.ResponseWriter, code int, body any) {
 func writeError(w http.ResponseWriter, code int, errCode, message string) {
 	writeJSON(w, code, map[string]any{
 		"error": map[string]any{
-			"code":    errCode,
-			"message": message,
+			"code":     errCode,
+			"message":  message,
 			"trace_id": "",
 		},
 	})

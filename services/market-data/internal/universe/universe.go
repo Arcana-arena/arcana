@@ -29,11 +29,11 @@ type Member struct {
 
 // Universe is the loaded symbol list.
 type Universe struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Rationale   string   `json:"rationale"`
-	SectorScheme string  `json:"sector_scheme"`
-	Symbols     []Member `json:"symbols"`
+	Name         string   `json:"name"`
+	Description  string   `json:"description"`
+	Rationale    string   `json:"rationale"`
+	SectorScheme string   `json:"sector_scheme"`
+	Symbols      []Member `json:"symbols"`
 
 	bySymbol map[string]Member
 }

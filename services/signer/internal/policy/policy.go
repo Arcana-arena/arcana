@@ -101,12 +101,12 @@ type Limits struct {
 }
 
 type Allowlist struct {
-	ChainID    int64   `json:"chain_id"`
-	ReviewedAt string  `json:"reviewed_at"`
-	QuoteToken Token   `json:"quote_token"`
+	ChainID    int64    `json:"chain_id"`
+	ReviewedAt string   `json:"reviewed_at"`
+	QuoteToken Token    `json:"quote_token"`
 	Routers    []string `json:"routers"`
-	Tokens     []Token `json:"tokens"`
-	Limits     Limits  `json:"limits"`
+	Tokens     []Token  `json:"tokens"`
+	Limits     Limits   `json:"limits"`
 
 	byToken  map[string]Token
 	byRouter map[string]bool
@@ -181,23 +181,23 @@ func refuse(code, format string, args ...any) *Refusal {
 
 // Reason codes. Each names a distinct thing that was wrong.
 const (
-	CodeUnknownIntent  = "unknown_intent"
-	CodeTokenNotListed = "token_not_allowlisted"
-	CodeRouterNotListed = "router_not_allowlisted"
-	CodeNoRouters      = "no_router_configured"
+	CodeUnknownIntent    = "unknown_intent"
+	CodeTokenNotListed   = "token_not_allowlisted"
+	CodeRouterNotListed  = "router_not_allowlisted"
+	CodeNoRouters        = "no_router_configured"
 	CodeRecipientNotSelf = "recipient_not_agent_wallet"
 	// amount_over_cap RETIRED 2026-09-11 with the trade notional ceiling. Kept
 	// out of this list deliberately: a code nothing emits is a brake somebody
 	// will build on. Two codes replace the two things it used to conflate.
 	CodeAmountNotPositive = "amount_not_positive"
 	CodeUnboundedApproval = "unbounded_approval"
-	CodeDailyCap       = "daily_signature_cap"
-	CodeSameToken      = "token_in_equals_token_out"
-	CodeWalletBlocked  = "wallet_blocked"
-	CodeTokenPaused    = "token_paused"
+	CodeDailyCap          = "daily_signature_cap"
+	CodeSameToken         = "token_in_equals_token_out"
+	CodeWalletBlocked     = "wallet_blocked"
+	CodeTokenPaused       = "token_paused"
 	CodeChainUnverifiable = "chain_state_unverifiable"
-	CodeChainMismatch  = "chain_id_mismatch"
-	CodeNoPoolFee      = "pool_fee_unknown"
+	CodeChainMismatch     = "chain_id_mismatch"
+	CodeNoPoolFee         = "pool_fee_unknown"
 )
 
 // Token returns an allowlisted token, or a refusal naming the address.

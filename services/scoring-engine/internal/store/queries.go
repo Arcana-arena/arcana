@@ -192,17 +192,17 @@ func (s *Store) WriteScoreSnapshot(ctx context.Context, agentID, seasonID string
 
 // ScoreRow is one persisted score snapshot.
 type ScoreRow struct {
-	AgentID         string     `json:"agent_id"`
-	SeasonID        string     `json:"season_id"`
-	TS              time.Time  `json:"ts"`
-	ArcanaScore     *float64   `json:"arcana_score"`
+	AgentID          string    `json:"agent_id"`
+	SeasonID         string    `json:"season_id"`
+	TS               time.Time `json:"ts"`
+	ArcanaScore      *float64  `json:"arcana_score"`
 	PerformanceScore *float64  `json:"performance_score"`
-	RiskScore       *float64   `json:"risk_score"`
-	StrategyScore   *float64   `json:"strategy_score"`
-	RegimeScore     *float64   `json:"regime_score"`
+	RiskScore        *float64  `json:"risk_score"`
+	StrategyScore    *float64  `json:"strategy_score"`
+	RegimeScore      *float64  `json:"regime_score"`
 	ConsistencyScore *float64  `json:"consistency_score"`
-	CreatorScore    *float64   `json:"creator_score"`
-	LongevityScore  *float64   `json:"longevity_score"`
+	CreatorScore     *float64  `json:"creator_score"`
+	LongevityScore   *float64  `json:"longevity_score"`
 }
 
 // LatestScore returns the newest score snapshot for an agent, optionally scoped
@@ -240,20 +240,20 @@ func (s *Store) LatestScore(ctx context.Context, agentID, seasonID string) (*Sco
 
 // LeaderboardEntry is one agent row on the leaderboard (its latest score).
 type LeaderboardEntry struct {
-	Rank            int        `json:"rank"`
-	AgentID         string     `json:"agent_id"`
-	AgentName       string     `json:"agent_name"`
-	ArcanaScore     *float64   `json:"arcana_score"`
+	Rank             int       `json:"rank"`
+	AgentID          string    `json:"agent_id"`
+	AgentName        string    `json:"agent_name"`
+	ArcanaScore      *float64  `json:"arcana_score"`
 	PerformanceScore *float64  `json:"performance_score"`
-	RiskScore       *float64   `json:"risk_score"`
+	RiskScore        *float64  `json:"risk_score"`
 	ConsistencyScore *float64  `json:"consistency_score"`
-	StrategyScore   *float64   `json:"strategy_score"`
-	LongevityScore  *float64   `json:"longevity_score"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+	StrategyScore    *float64  `json:"strategy_score"`
+	LongevityScore   *float64  `json:"longevity_score"`
+	UpdatedAt        time.Time `json:"updated_at"`
 	// The season this score was earned in. Present so a cross-season board
 	// cannot present two different markets as one ranking.
-	SeasonID        string     `json:"season_id"`
-	SeasonName      string     `json:"season_name"`
+	SeasonID   string `json:"season_id"`
+	SeasonName string `json:"season_name"`
 }
 
 // LeaderboardSortColumn maps a leaderboard category to a score column.
@@ -362,11 +362,11 @@ func (s *Store) Leaderboard(ctx context.Context, sortColumn, seasonID string, li
 
 // ScoreHistory is one point of an agent's score series (for GET score?from=&to=).
 type ScoreHistoryPoint struct {
-	TS              time.Time `json:"ts"`
-	ArcanaScore     *float64  `json:"arcana_score"`
-	PerformanceScore *float64 `json:"performance_score"`
-	RiskScore       *float64  `json:"risk_score"`
-	ConsistencyScore *float64 `json:"consistency_score"`
+	TS               time.Time `json:"ts"`
+	ArcanaScore      *float64  `json:"arcana_score"`
+	PerformanceScore *float64  `json:"performance_score"`
+	RiskScore        *float64  `json:"risk_score"`
+	ConsistencyScore *float64  `json:"consistency_score"`
 }
 
 // ScoreHistory returns an agent's score snapshots within [from,to], optionally

@@ -20,11 +20,11 @@ type Client struct {
 
 // Config holds object-store connection settings.
 type Config struct {
-	Endpoint  string // e.g. http://localhost:9000
-	Region    string
-	AccessKey string
-	SecretKey string
-	Bucket    string
+	Endpoint     string // e.g. http://localhost:9000
+	Region       string
+	AccessKey    string
+	SecretKey    string
+	Bucket       string
 	UsePathStyle bool // required for MinIO
 }
 

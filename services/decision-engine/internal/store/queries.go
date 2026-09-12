@@ -177,9 +177,9 @@ func (s *Store) OpenTickForAgent(ctx context.Context, agentID string) (*OpenTick
 
 // OpenTick mirrors one row of competition_ticks for an open round.
 type OpenTick struct {
-	ID               string
-	CompetitionID    string
-	TickIndex        int
+	ID                string
+	CompetitionID     string
+	TickIndex         int
 	MarketSnapshotRef string
 }
 

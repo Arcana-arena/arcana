@@ -55,8 +55,8 @@ type DeciderInput struct {
 // function and the snapshot are the whole story, and it can be replayed. For an
 // LLM it is the entire story, because it cannot.
 type Evidence struct {
-	Decider      string         // deterministic | llm | human
-	Provider     string         // deepseek, ... — as it was at the time, not as configured now
+	Decider      string // deterministic | llm | human
+	Provider     string // deepseek, ... — as it was at the time, not as configured now
 	Model        string
 	ModelVersion string         // what the provider says it actually served
 	Params       map[string]any // temperature, top_p, seed, max_tokens
