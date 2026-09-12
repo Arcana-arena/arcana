@@ -11,7 +11,7 @@ MIGRATE := migrate
 MIGRATIONS_DIR := ./migrations
 
 help: ## Show available targets
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 migrate-up: ## Apply all pending migrations
 	$(MIGRATE) -path $(MIGRATIONS_DIR) -database "$$DATABASE_URL" up
