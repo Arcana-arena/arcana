@@ -189,6 +189,38 @@ indistinguishable from working. So the create and patch responses carry
 `risk_profile_unrecognised`: every key the engine does not read, listed back.
 Nothing is refused; nothing is silent either.
 
+## Changing an active agent's strategy costs it its seat
+
+A gap, written down while it is cheap to read and before a real owner finds it.
+
+Two rules are each correct on their own:
+
+* `mandate_immutable_once_active` — an active agent's mandate cannot be edited.
+  It is part of the conditions its track record was produced under, and editing
+  it in place would leave the leaderboard making a claim about an agent that no
+  longer exists, with nothing in the record to show the swap.
+* `evolve()` is the supported way to change intent. It creates a version, and
+  `retireParent()` stands the previous one down — which also hands back its seat
+  in any running competition, deliberately, so the scheduler stops calling it.
+
+Put together: **there is no way to change what an agent does without taking it
+out of the competition it is in.** For an owner, "I want a tighter stop" and "I
+want to leave this arena" are the same action. The new version also starts
+without the old one's wallet, so an agent holding a funded position cannot be
+evolved without deciding what happens to the position first.
+
+This was hit for real on 2026-09-12. Narrowing one mandate from 0.15% to the
+tightest the pool would accept would have cost the agent its seat in the running
+competition and orphaned an armed protective level on a funded position — to fix
+something the per-symbol bound in the decider prompt had already solved. The
+change was not made.
+
+**Not being fixed yet, on purpose.** The fix is a real design question, not an
+oversight: whether a version boundary can carry a seat and a wallet forward
+without making the track record ambiguous about which version earned what. That
+deserves its own decision. What is not acceptable is discovering the coupling by
+surprise, which is why it is here.
+
 ## 3 active agents per creator
 
 Three ACTIVE, not three total, and the difference is the whole design.

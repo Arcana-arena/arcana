@@ -297,6 +297,34 @@ than by the one under test.
 The accept path is proved too. A gate that refuses everything has not been shown
 to be right either.
 
+## It cannot move funds between wallets, and that bit when it was tested
+
+A consequence worth recording as a property rather than as a gap, because it was
+found by walking into it.
+
+`tx.go` builds exactly two shapes: `approve(address,uint256)` and
+`exactInputSingle(...)`. There is no encoder for a plain ERC-20 `transfer`, and
+no field anywhere in the request that could ask for one — its own comment puts it
+plainly: nobody can "ask for a raw transfer because there is no way to say it".
+
+So on 2026-09-12, topping up a second subscriber wallet with about 5 USDG and
+some gas turned out to be impossible through the platform. The custodial wallets
+hold funds and can swap them; they cannot send them anywhere. The operator's own
+creator wallet held no gas either, so it could not act as a treasury.
+
+**This is the design working, in a place nobody had aimed it.** A signer that
+could transfer is a signer that could be talked into transferring somewhere else,
+and the whole argument for keeping the master seed in an isolated process is that
+its vocabulary is small enough to audit. Widening it to make an afternoon's
+testing easier is exactly the trade `sigcount` refuses for the same reason.
+
+The consequence is real and should not be discovered twice: **funding a platform
+wallet is an external act**, done from a wallet outside this system. If moving
+funds between platform wallets ever becomes a product requirement, it is its own
+decision with its own review — a new transaction shape, a new refusal surface,
+and a new answer to "who may ask for this" — and not a small change to
+`tx.go`.
+
 ## What this phase deliberately does not do
 
 - **It does not broadcast.** There is no code path that sends a transaction.

@@ -39,6 +39,11 @@ const PG = process.env.PG_CONTAINER || 'arcana-postgres';
 const psql = (s) => execFileSync('docker',
   ['exec', PG, 'psql', '-U', 'arcana', '-d', 'arcana', '-tAc', s], { encoding: 'utf8' }).trim();
 
+// Services throw { code }, controllers throw { error: { code } }. The suites read
+// both through this, so a refusal is recognised wherever it was raised.
+const errCode = (b) => b?.error?.code ?? b?.code ?? b?.message ?? JSON.stringify(b)?.slice(0, 90);
+const errField = (b, k) => b?.error?.[k] ?? b?.[k];
+
 const { check, section, nothingToCheck, report } = suite('competition-entry-verify');
 sweepOnExit('competition-entry-verify');
 
@@ -75,7 +80,7 @@ await section('An owner enters their own agent, and the gates are named in the a
     check('the fixture agent was created', false, JSON.stringify(mine).slice(0, 200));
     return;
   }
-  const season = psql(`SELECT id FROM seasons ORDER BY created_at DESC LIMIT 1`);
+  const season = psql(`SELECT id FROM seasons ORDER BY start_at DESC NULLS LAST LIMIT 1`);
   if (!season) {
     nothingToCheck('there is no season to hang a competition from');
     return;
@@ -109,7 +114,7 @@ await section('An owner enters their own agent, and the gates are named in the a
     body: JSON.stringify({ agentId: mine.agentId }),
   });
   check('entering twice is refused', again.status === 400 &&
-    again.body?.error?.code === 'already_a_participant', `${again.status} ${JSON.stringify(again.body?.error?.code)}`);
+    errCode(again.body) === 'already_a_participant', `${again.status} ${errCode(again.body)}`);
 });
 
 await section('Only the owner may enter an agent, and ownership is checked first', async () => {
@@ -123,7 +128,7 @@ await section('Only the owner may enter an agent, and ownership is checked first
     body: JSON.stringify({ agentId: mine.agentId }),
   });
   check('a stranger entering somebody else\'s agent is refused', r.status === 403,
-    `${r.status} ${JSON.stringify(r.body?.error?.code)}`);
+    `${r.status} ${errCode(r.body)}`);
 
   const anon = await req(`${AGENT}/v1/competitions/${FIXTURE}/participants`, {
     method: 'POST',
@@ -131,7 +136,7 @@ await section('Only the owner may enter an agent, and ownership is checked first
     body: JSON.stringify({ agentId: mine.agentId }),
   });
   check('and an anonymous caller is refused before anything else', anon.status === 401,
-    `${anon.status} ${JSON.stringify(anon.body?.error?.code)}`);
+    `${anon.status} ${errCode(anon.body)}`);
 });
 
 await section('Entry closes at the first tick, not at the status change', async () => {
@@ -151,11 +156,11 @@ await section('Entry closes at the first tick, not at the status change', async 
     body: JSON.stringify({ agentId: mine.agentId }),
   });
   check('entering a competition that has already ticked is refused',
-    r.status === 400 && r.body?.error?.code === 'competition_already_started',
-    `${r.status} ${JSON.stringify(r.body?.error?.code)}`);
+    r.status === 400 && errCode(r.body) === 'competition_already_started',
+    `${r.status} ${errCode(r.body)}`);
   check('and the refusal says how many ticks it missed',
-    r.body?.error?.ticks_elapsed === Number(ticks),
-    `refusal says ${JSON.stringify(r.body?.error?.ticks_elapsed)}, the competition has run ${ticks}`);
+    errField(r.body, 'ticks_elapsed') === Number(ticks),
+    `refusal says ${errField(r.body, 'ticks_elapsed')}, the competition has run ${ticks}`);
   console.log(`      ${started.slice(0, 8)} has run ${ticks} tick(s), so entry is closed`);
 });
 
@@ -182,8 +187,8 @@ await section('Leaving is its own door, and does not retire the agent', async ()
     method: 'DELETE', headers: bearer(mine.token),
   });
   check('withdrawing an agent that is not entered is refused',
-    twice.status === 400 && twice.body?.error?.code === 'not_a_participant',
-    `${twice.status} ${JSON.stringify(twice.body?.error?.code)}`);
+    twice.status === 400 && errCode(twice.body) === 'not_a_participant',
+    `${twice.status} ${errCode(twice.body)}`);
 });
 
 const code = report();
