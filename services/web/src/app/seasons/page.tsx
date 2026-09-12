@@ -158,7 +158,17 @@ function SeasonCard({
         </Link>
       </div>
 
-      <div style={{ padding: '18px 20px', display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 320px', gap: 32 }}>
+      {/* minmax(0, 320px), not 320px: a fixed track is a MINIMUM as well as a
+          maximum, so anything inside it that refuses to shrink widens the page
+          instead of being clipped. Collapses to one column on a narrow screen. */}
+      <div
+        style={{
+          padding: '18px 20px',
+          display: 'grid',
+          gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 320px)',
+          gap: 32,
+        }}
+      >
         <div>
           <div className="mono m2" style={{ fontSize: 12 }}>
             {utcDate(s.startAt)} → {utcDate(s.endAt)}
@@ -320,17 +330,43 @@ function Access({ s }: { s: Season }) {
                 )}
               </div>
             </div>
+            {/*
+              THE BADGE IS ONE WORD AND THE SENTENCE IS UNDERNEATH. A `.tag` is
+              `white-space: nowrap` — it has to be, so a status never breaks in
+              half — which meant a badge carrying a whole sentence set its own
+              minimum width and pushed this 320px column out to 359px, and the
+              page scrolled sideways. Caught by the browser pass measuring
+              scrollWidth, not by anything that reads HTML.
+
+              It reads better this way too: three states, three words, and the
+              distinction that matters spelled out in prose rather than crammed
+              into a chip.
+            */}
             <div>
               <div className="lbl">IS IT CHECKED?</div>
               <div style={{ marginTop: 4 }}>
                 {a.enforced === true ? (
-                  <Tag tone="accent">ENFORCED · a balance is read</Tag>
+                  <>
+                    <Tag tone="accent">ENFORCED</Tag>
+                    <div className="m2" style={{ fontSize: 11.5, marginTop: 4, lineHeight: 1.45 }}>
+                      a balance is read before entry
+                    </div>
+                  </>
                 ) : a.enforced === false ? (
-                  <Tag tone="amber">NOT ENFORCED · the gate is declared but not applied</Tag>
+                  <>
+                    <Tag tone="amber">NOT ENFORCED</Tag>
+                    <div className="m2" style={{ fontSize: 11.5, marginTop: 4, lineHeight: 1.45 }}>
+                      the gate is declared and is not applied — entry is open
+                    </div>
+                  </>
                 ) : (
-                  <Tag tone="dashed" title="enforced is null: nothing has verified this gate, so whether it is applied is unknown.">
-                    UNKNOWN · nothing has verified this gate
-                  </Tag>
+                  <>
+                    <Tag tone="dashed">UNKNOWN</Tag>
+                    <div className="m2" style={{ fontSize: 11.5, marginTop: 4, lineHeight: 1.45 }}>
+                      nothing has verified this gate, so whether it is applied is not known — which is
+                      not the same as knowing it is off
+                    </div>
+                  </>
                 )}
               </div>
             </div>
