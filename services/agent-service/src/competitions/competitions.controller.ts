@@ -1,16 +1,23 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { parsePage } from '../common/pagination';
-import { AdminGuard, InternalKeyGuard, JwtAuthGuard } from '@arcana/auth';
+import { AdminGuard, CurrentWallet, InternalKeyGuard, JwtAuthGuard, RateLimit } from '@arcana/auth';
 import { CompetitionsService } from './competitions.service';
+import { OwnershipService } from '../auth/ownership.service';
 import { ParseUuidAllPipe } from '../common/parse-uuid-all.pipe';
 import { CreateCompetitionDto } from './dto/create-competition.dto';
-import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { IsNotEmpty, IsString, IsUUID, MaxLength } from 'class-validator';
 
 export class OpenTickDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(120)
   marketSnapshotRef: string;
+}
+
+export class JoinCompetitionDto {
+  /** The agent to enter. It must be yours, and it must be active. */
+  @IsUUID()
+  agentId: string;
 }
 
 /**
@@ -21,12 +28,67 @@ export class OpenTickDto {
  */
 @Controller('v1/competitions')
 export class CompetitionsController {
-  constructor(private readonly competitions: CompetitionsService) {}
+  constructor(
+    private readonly competitions: CompetitionsService,
+    private readonly ownership: OwnershipService,
+  ) {}
 
   @Post()
   @UseGuards(JwtAuthGuard, AdminGuard)
   create(@Body() dto: CreateCompetitionDto) {
     return this.competitions.create(dto);
+  }
+
+  /**
+   * 🔑 Enter YOUR agent into a competition.
+   *
+   * Until this existed, entering one meant an operator writing to
+   * `participant_ids` by hand: the controller had create and complete and
+   * nothing else, so the only supported way in was a competition being created
+   * with you already listed. That cannot be the flow an owner uses.
+   *
+   * OWNERSHIP FIRST, then the gates. assertOwnsAgent throws before any
+   * entitlement call is made, so a caller cannot use this endpoint to probe
+   * whether somebody else's agent would pass a gate.
+   *
+   * The $ARCA gates are not re-implemented here — the service runs the same
+   * admit() loop that create() runs.
+   */
+  @Post(':id/participants')
+  // Keyed by wallet, like agent creation: there is a proven identity to count
+  // against, and entering is a deliberate act rather than a read.
+  @RateLimit({ limit: 20, windowSeconds: 3600, byWallet: true })
+  @UseGuards(JwtAuthGuard)
+  async join(
+    @Param('id', ParseUuidAllPipe) id: string,
+    @Body() dto: JoinCompetitionDto,
+    @CurrentWallet() wallet: string,
+  ) {
+    await this.ownership.assertOwnsAgent(wallet, dto.agentId);
+    return this.competitions.joinParticipant(id, dto.agentId);
+  }
+
+  /**
+   * 🔑 Withdraw YOUR agent from a competition, without retiring it.
+   *
+   * Separate from retire() on purpose. Retiring hands back the seat too, but it
+   * also stands the agent down everywhere — so before this endpoint existed,
+   * "stop competing in this arena" and "stop being an agent" were the same
+   * action, and an owner who wanted the first had to accept the second.
+   *
+   * Allowed at any point, including mid-competition: leaving ends only this
+   * agent's own record, while ENTERING late changes what the standings mean for
+   * everyone already in.
+   */
+  @Delete(':id/participants/:agentId')
+  @UseGuards(JwtAuthGuard)
+  async leave(
+    @Param('id', ParseUuidAllPipe) id: string,
+    @Param('agentId', ParseUuidAllPipe) agentId: string,
+    @CurrentWallet() wallet: string,
+  ) {
+    await this.ownership.assertOwnsAgent(wallet, agentId);
+    return this.competitions.leaveParticipant(id, agentId);
   }
 
   @Post(':id/complete')

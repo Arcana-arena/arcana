@@ -74,28 +74,7 @@ export class CompetitionsService {
     const season = await this.seasons.findEntity(dto.seasonId);
     const premium = season.accessTier === 'premium';
 
-    // Starts true and is falsified by any check that admitted without reading
-    // a balance. "Every gate verified" is the claim that needs evidence; one
-    // unverified pass is enough to withdraw it.
-    let allVerified = true;
-    for (const participantId of dto.participantIds ?? []) {
-      const wallet = await this.entitlements.walletForAgent(participantId);
-      const compete = await this.entitlements.require(
-        'compete',
-        wallet,
-        `register agent ${participantId} into a competition`,
-      );
-      if (!compete.balance_checked) allVerified = false;
-
-      if (premium) {
-        const arena = await this.entitlements.require(
-          PREMIUM_ARENA_ACTION,
-          wallet,
-          `register agent ${participantId} into the premium arena "${season.name}"`,
-        );
-        if (!arena.balance_checked) allVerified = false;
-      }
-    }
+    const allVerified = await this.admit(dto.participantIds ?? [], season, premium);
 
     const competition = this.competitions.create({
       seasonId: dto.seasonId,
@@ -118,6 +97,159 @@ export class CompetitionsService {
             'a pass by default, not a verified entitlement.',
       },
     };
+  }
+
+  /**
+   * Run every entry gate for a set of agents. Returns whether all of them were
+   * admitted against a balance that was actually read.
+   *
+   * EXTRACTED SO THERE IS ONE COPY. This loop used to live inside create(), and
+   * create() was the only way into a competition — an operator writing to the
+   * database. The moment a second door exists, a gate that lives inside the
+   * first one is a gate the second one does not have; joinParticipant() calls
+   * this, and a future third door will have to as well or it will not compile.
+   */
+  private async admit(agentIds: string[], season: { name: string }, premium: boolean): Promise<boolean> {
+    // Starts true and is falsified by any check that admitted without reading
+    // a balance. "Every gate verified" is the claim that needs evidence; one
+    // unverified pass is enough to withdraw it.
+    let allVerified = true;
+    for (const participantId of agentIds) {
+      const wallet = await this.entitlements.walletForAgent(participantId);
+      const compete = await this.entitlements.require(
+        'compete',
+        wallet,
+        `register agent ${participantId} into a competition`,
+      );
+      if (!compete.balance_checked) allVerified = false;
+
+      if (premium) {
+        const arena = await this.entitlements.require(
+          PREMIUM_ARENA_ACTION,
+          wallet,
+          `register agent ${participantId} into the premium arena "${season.name}"`,
+        );
+        if (!arena.balance_checked) allVerified = false;
+      }
+    }
+    return allVerified;
+  }
+
+  /**
+   * POST /competitions/:id/participants — an owner enters their own agent.
+   *
+   * WHY THIS EXISTS. Entering a competition was an operator writing to
+   * `participant_ids` by hand. The controller had create and complete and
+   * nothing else, so the only supported way in was a season being created with
+   * you already in it. That cannot be the flow a real owner uses.
+   *
+   * THE GATES ARE THE SAME ONES. It calls admit(), which is the loop create()
+   * uses: COMPETE always, PREMIUM_ARENA as well in a premium arena. A door that
+   * reached the array without them would be a hole opened by convenience.
+   *
+   * ENTRY CLOSES AT THE FIRST TICK, and that is the fairness rule.
+   *
+   * Not at 'running' — at the first tick. A competition that has started but
+   * has not yet opened a tick has no history for a newcomer to be missing, so
+   * there is nothing unfair about joining it. Once one tick exists there is: the
+   * standings read each participant's NAV series, and an agent that has traded
+   * three hours would be ranked beside one that has traded three days as though
+   * the two numbers meant the same thing. Nothing in the standings query can
+   * express that difference, and the scoring formula is not ours to bend for it.
+   *
+   * So the refusal is explicit and names the remedy — the next competition of
+   * the season — rather than admitting the agent into a comparison it cannot
+   * win or lose honestly.
+   */
+  async joinParticipant(competitionId: string, agentId: string): Promise<CompetitionRegistration> {
+    const competition = await this.findOne(competitionId);
+
+    if (competition.status === 'completed') {
+      throw new BadRequestException({
+        code: 'competition_completed',
+        message: 'This competition has finished. Enter the next one in the season.',
+      });
+    }
+
+    const ticks = await this.ticks.count({ where: { competitionId } });
+    if (ticks > 0) {
+      throw new BadRequestException({
+        code: 'competition_already_started',
+        message:
+          `This competition has already run ${ticks} tick(s). An agent entering now would be ` +
+          'ranked against agents whose record covers a longer window, and the standings cannot ' +
+          'say which is which. Enter the next competition of this season instead.',
+        ticks_elapsed: ticks,
+      });
+    }
+
+    if ((competition.participantIds ?? []).includes(agentId)) {
+      throw new BadRequestException({
+        code: 'already_a_participant',
+        message: `Agent ${agentId} is already entered in this competition.`,
+      });
+    }
+
+    const season = await this.seasons.findEntity(competition.seasonId);
+    const premium = season.accessTier === 'premium';
+    const allVerified = await this.admit([agentId], season, premium);
+
+    // Appended in the database rather than in memory: two owners entering at the
+    // same moment would otherwise each write the array they read, and the later
+    // write would drop the earlier agent without any error being raised.
+    await this.competitions.manager.query(
+      `UPDATE competitions
+          SET participant_ids = array_append(participant_ids, $2::uuid)
+        WHERE id = $1::uuid
+          AND NOT ($2::uuid = ANY(coalesce(participant_ids, '{}'::uuid[])))`,
+      [competitionId, agentId],
+    );
+
+    const saved = await this.findOne(competitionId);
+    return {
+      ...saved,
+      access: {
+        tier: season.accessTier,
+        gates_applied: premium ? ['compete', PREMIUM_ARENA_ACTION] : ['compete'],
+        balance_checked: allVerified,
+        note: allVerified
+          ? 'Admitted against a verified $ARCA balance.'
+          : 'Admitted, but a gate passed WITHOUT reading a balance (the token is not ' +
+            'launched, or no threshold is set for that action). This is a pass by default, ' +
+            'not a verified entitlement.',
+      },
+    };
+  }
+
+  /**
+   * DELETE /competitions/:id/participants/:agentId — an owner stands down.
+   *
+   * ALLOWED AT ANY TIME, including mid-competition, and deliberately not
+   * symmetric with entry. Entry is refused after the first tick because it
+   * changes what the standings mean for everyone else; leaving only ends this
+   * agent's own record. Withdrawing is not a privilege anyone should have to
+   * hold tokens or wait for a boundary to exercise — the same reasoning retire()
+   * already follows.
+   *
+   * It does NOT retire the agent. That distinction is the point of this door
+   * existing: until now the only way out of a running competition was
+   * retire(), so "stop competing here" and "stand this agent down entirely"
+   * were the same action.
+   */
+  async leaveParticipant(competitionId: string, agentId: string): Promise<Competition> {
+    const competition = await this.findOne(competitionId);
+    if (!(competition.participantIds ?? []).includes(agentId)) {
+      throw new BadRequestException({
+        code: 'not_a_participant',
+        message: `Agent ${agentId} is not entered in this competition.`,
+      });
+    }
+    await this.competitions.manager.query(
+      `UPDATE competitions SET participant_ids = array_remove(participant_ids, $2::uuid)
+        WHERE id = $1::uuid`,
+      [competitionId, agentId],
+    );
+    return this.findOne(competitionId);
   }
 
   async findAllPaged(opts: { page: number; pageSize: number; offset: number; seasonId?: string; status?: string }): Promise<Page<Competition>> {
