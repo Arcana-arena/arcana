@@ -55,7 +55,33 @@ export interface SeasonAccess {
   note: string;
 }
 
-export type SeasonView = Season & { access: SeasonAccess };
+/**
+ * Where a season is in its life, and how much is in it.
+ *
+ * WHY THIS IS HERE AND NOT LEFT TO THE CALLER. A list of arenas without these
+ * cannot be rendered: "is this one running" and "is anyone in it" are the two
+ * questions a browsing page asks first, and answering them from start_at,
+ * end_at and a second request per row is how every client ends up deriving
+ * them slightly differently.
+ *
+ * STATUS IS DERIVED, NOT STORED. `seasons` has no status column and should not
+ * grow one: a stored status is a second source of truth that drifts the moment
+ * an operator moves end_at and forgets, and there is nothing a stored one could
+ * say that the dates do not. Archiving a season early is a real product action
+ * and would need its own column and its own door — it does not exist yet, and
+ * pretending otherwise here would be the silent false this block exists to
+ * avoid.
+ */
+export interface SeasonProgress {
+  /** Derived from start_at/end_at against now. */
+  status: 'upcoming' | 'running' | 'ended';
+  /** Competitions created in this season, whatever their own status. */
+  competitions: number;
+  /** Distinct agents holding a seat across those competitions. */
+  participants: number;
+}
+
+export type SeasonView = Season & { access: SeasonAccess; progress: SeasonProgress };
 
 @Injectable()
 export class SeasonsService {
@@ -91,7 +117,8 @@ export class SeasonsService {
     // findAll() below — paging changes how many rows are rendered, not how
     // many times a threshold has to be asked for.
     const statuses = await this.gateStatuses(rows.some((s) => s.accessTier === 'premium'));
-    return pageOf(rows.map((s) => this.withAccess(s, statuses)), total, opts.page, opts.pageSize);
+    const counts = await this.countsFor(rows.map((s) => s.id));
+    return pageOf(rows.map((s) => this.withAccess(s, statuses, counts)), total, opts.page, opts.pageSize);
   }
 
   async findAll(): Promise<SeasonView[]> {
@@ -102,7 +129,8 @@ export class SeasonsService {
     const statuses = await this.gateStatuses(
       seasons.some((s) => s.accessTier === 'premium'),
     );
-    return seasons.map((s) => this.withAccess(s, statuses));
+    const counts = await this.countsFor(seasons.map((s) => s.id));
+    return seasons.map((s) => this.withAccess(s, statuses, counts));
   }
 
   async findOne(id: string): Promise<SeasonView> {
@@ -129,6 +157,38 @@ export class SeasonsService {
     return this.withAccessAsync(await this.seasons.save(season));
   }
 
+  /**
+   * Competition and participant counts for a page of seasons, in ONE query.
+   *
+   * Not one query per row: a listing page is the place where an N+1 stops being
+   * a style point, and the count belongs to the page rather than to the row.
+   *
+   * DISTINCT on both sides for a reason. An agent can hold a seat in more than
+   * one competition of the same season, and counting seats instead of agents
+   * would report more entrants than exist — the number a browsing page shows is
+   * "how many agents are in this arena", not "how many rows mention one".
+   */
+  private async countsFor(seasonIds: string[]): Promise<Record<string, { competitions: number; participants: number }>> {
+    if (seasonIds.length === 0) return {};
+    const rows: Array<{ season_id: string; competitions: string; participants: string }> =
+      await this.seasons.manager.query(
+        `SELECT c.season_id::text AS season_id,
+                count(DISTINCT c.id)        AS competitions,
+                count(DISTINCT p.agent_id)  AS participants
+           FROM competitions c
+           LEFT JOIN LATERAL unnest(coalesce(c.participant_ids, '{}'::uuid[])) AS p(agent_id) ON true
+          WHERE c.season_id = ANY($1::uuid[])
+          GROUP BY c.season_id`,
+        [seasonIds],
+      );
+    return Object.fromEntries(
+      rows.map((r) => [r.season_id, {
+        competitions: Number(r.competitions),
+        participants: Number(r.participants),
+      }]),
+    );
+  }
+
   /** Ask arca-service for each gate's live status. */
   private async gateStatuses(
     includePremium: boolean,
@@ -146,12 +206,14 @@ export class SeasonsService {
     return this.withAccess(
       season,
       await this.gateStatuses(season.accessTier === 'premium'),
+      await this.countsFor([season.id]),
     );
   }
 
   private withAccess(
     season: Season,
     statuses: Record<string, GateStatus>,
+    counts: Record<string, { competitions: number; participants: number }> = {},
   ): SeasonView {
     const premium = season.accessTier === 'premium';
     const actions = premium
@@ -185,8 +247,16 @@ export class SeasonsService {
     const anyUnknown = gates.some((g) => g.status === 'unknown');
     const enforced = anyActive ? true : anyUnknown ? null : false;
 
+    const now = Date.now();
+    const status: SeasonProgress['status'] =
+      now < season.startAt.getTime() ? 'upcoming'
+        : now > season.endAt.getTime() ? 'ended'
+          : 'running';
+    const n = counts[season.id] ?? { competitions: 0, participants: 0 };
+
     return {
       ...season,
+      progress: { status, competitions: n.competitions, participants: n.participants },
       access: {
         tier: season.accessTier,
         gates,
