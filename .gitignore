@@ -1,6 +1,18 @@
 # --- Dependencies ---
 node_modules/
-vendor/
+# GO DEPENDENCY VENDORING, AT MODULE ROOTS ONLY.
+#
+# This was a bare `vendor/` and it matched any directory of that name at any
+# depth — including services/market-data/internal/vendor, which is not vendored
+# dependencies at all but this project's own market-data vendor adapter. Its one
+# file was therefore excluded from the repository for as long as it existed, a
+# fresh clone could not build market-data, and nothing noticed: an untracked file
+# cannot fail a comparison against the commit it has no place in.
+#
+# Anchored and scoped so it still ignores what it was written for.
+/vendor/
+/packages/*/vendor/
+/services/*/vendor/
 
 # --- Build output ---
 dist/
