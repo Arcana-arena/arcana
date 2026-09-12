@@ -29,7 +29,13 @@ bin/
 # --- Environment ---
 .env
 .env.*
+# The TEMPLATES go in; only the filled-in files stay out. Key names are not
+# secrets, and a machine nobody can configure is the same class of problem as a
+# repository that is not the whole record of what runs. Without the second
+# negation, .env.auth.example was silently ignored by the .env.* above — which
+# is how three of these came to be missing in the first place.
 !.env.example
+!.env.*.example
 
 # --- IDE / OS ---
 .idea/
@@ -49,10 +55,20 @@ tmp/
 # Untracked binaries made every deployed-version check report a dirty working
 # tree, which would have trained everyone to ignore the one signal that says
 # production is running code nobody reviewed.
-go.work.sum
 scheduler-bin/
 services/*/server
 services/*/backfill
+# The lease-race binary guard-verify builds from cmd/leaserace and removes again.
+# Listed so that a run which dies before its cleanup cannot make
+# repo-complete-verify report an unclassified file.
+.guard-verify-race
+
+# go.work.sum WAS IN THE LIST ABOVE, and did not belong there. It is not a build
+# artefact: it is the checksum record for the workspace, and go.work itself is
+# committed. "The toolchain can regenerate it" is not the same claim as "the
+# toolchain will regenerate the same thing" — what it writes depends on which
+# module versions it happens to need at the time. If go.work is part of the
+# record of what builds here, its sums are part of the same record.
 
 # The build stamp lives inside dist/ and is written by the installer.
 # Listed so a future dist/ ignore rule cannot silently take it with it.
