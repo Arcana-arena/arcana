@@ -27,6 +27,10 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { suite } from './lib/sections.mjs';
+import {
+  makeRpc, balanceOf as balanceOfAt, chainReader, emptied,
+  loadAllowlist, tokenOf as tokenIn, quoteDecimals,
+} from './lib/chain.mjs';
 
 const REPO = process.env.REPO || '/home/ubuntu/arcana';
 const PG = process.env.PG_CONTAINER || 'arcana-postgres';
@@ -41,28 +45,13 @@ const USDG = '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168';
 // fan-out happened to be a sell, the custody check compared the book's AMZN
 // holding against a USDG balance and reported a discrepancy that did not exist.
 // The symbol is the constant; the side of the trade is not.
-// PARSED ONCE, AND A MISSING SYMBOL IS A FAILED CHECK RATHER THAN A DEAD RUN.
-// The first version re-read and re-parsed the file on every call — once per
-// subscriber inside section 5 — and threw when a symbol was absent. Nothing
-// catches that throw, so a token retired from the allowlist would kill the
-// process mid-suite: sections 6, 7 and 8 would never run and the Failures
-// summary would never print. A verification that cannot report is worse than
-// one that reports a failure.
-const ALLOWLIST = JSON.parse(readFileSync(
-  process.env.EXECUTION_ALLOWLIST_FILE ||
-  `${REPO}/services/signer/allowlist/robinhood-mainnet.json`, 'utf8'));
-const tokenOf = (sym) => (ALLOWLIST.tokens || []).find((x) => x.symbol === sym) || null;
-const QUOTE_DECIMALS = (ALLOWLIST.quote_token && ALLOWLIST.quote_token.decimals) || 6;
-
-// The dust floor in base units: a hundredth of a millionth of a share, at
-// whatever precision the token is actually denominated in. NOT hardcoded to 18
-// decimals — the quote token in this same allowlist is 6, so the day a listed
-// stock token is not 18 a residue of ten thousand shares would read as empty.
-// guard-chain-verify already derives it this way.
-const dustFloor = (tok) => 10n ** BigInt(tok.decimals - 8);
-
-// keccak256('Transfer(address,address,uint256)')
-const TRANSFER = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+//
+// Read once, here, rather than re-parsed on every call inside section 5 — and a
+// symbol that is absent yields null instead of throwing, because an uncaught
+// throw would kill the run before the Failures summary printed.
+const ALLOWLIST = loadAllowlist(REPO);
+const QUOTE_DECIMALS = quoteDecimals(ALLOWLIST);
+const tokenOf = (sym) => tokenIn(ALLOWLIST, sym);
 
 const env = Object.fromEntries(
   readFileSync(`${REPO}/.env.auth`, 'utf8').split('\n').filter((l) => l && !l.startsWith('#'))
@@ -77,62 +66,13 @@ const { check, section, nothingToCheck, notYet, report } = suite('subscription-c
 const psql = (s) => execFileSync('docker', ['exec', PG, 'psql', '-U', 'arcana', '-d', 'arcana', '-tAc', s],
   { encoding: 'utf8' }).trim();
 const one = (s) => psql(s).split(/\r?\n/)[0].trim();
-// AN RPC FAILURE IS NOT AN ANSWER.
-//
-// This returned `(await r.json()).result`, which is `undefined` the moment the
-// node replies with an error — and undefined then flowed into
-// `BigInt(x || '0x0')` = 0n, which read as "the wallet holds nothing" and
-// PASSED the custody claim. That is precisely the failure mode this file's own
-// header refuses: reporting success because no data came back. Section 5 got
-// away with it only because zero there degrades into a discrepancy and fails.
-//
-// `result: null` is a different thing and is preserved: it is a real answer,
-// the node saying it does not know that transaction.
-class RpcError extends Error {
-  constructor(method, message, code) {
-    super(`${method}: ${message}`);
-    this.code = code;
-  }
-}
-const rpc = async (method, params) => {
-  const r = await fetch(RPC, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-  });
-  if (!r.ok) throw new RpcError(method, `HTTP ${r.status} from ${RPC}`, r.status);
-  const j = await r.json();
-  if (j.error) throw new RpcError(method, j.error.message || JSON.stringify(j.error), j.error.code);
-  if (!('result' in j)) throw new RpcError(method, 'a reply carrying neither result nor error');
-  return j.result;
-};
-
-// A balance nobody could read is not a balance of zero. The empty-wallet case is
-// refused here too: ''.slice(2) padded is balanceOf(0x0), which answers 0 and
-// would have read as an emptied position.
-const balanceOf = async (token, wallet, block = 'latest') => {
-  if (!/^0x[0-9a-f]{40}$/i.test(wallet || '')) {
-    throw new Error(`${JSON.stringify(wallet)} is not an address, and balanceOf(0x0) answers 0`);
-  }
-  const hex = await rpc('eth_call',
-    [{ to: token, data: '0x70a08231' + wallet.slice(2).toLowerCase().padStart(64, '0') }, block]);
-  if (typeof hex !== 'string' || !/^0x[0-9a-f]*$/i.test(hex)) {
-    throw new RpcError('eth_call', `balanceOf answered ${JSON.stringify(hex)}`);
-  }
-  return BigInt(hex === '0x' ? '0x0' : hex);
-};
-
-// A chain read that could not be performed becomes a FAILED CHECK rather than an
-// exception. An uncaught throw kills the run before the summary prints, and the
-// summary is the only part anybody reads. Returns undefined when the read failed
-// — distinct from null, which is the node's own answer.
-const chainRead = async (what, fn) => {
-  try {
-    return await fn();
-  } catch (e) {
-    check(what, false, `the chain could not be read: ${e.message}`);
-    return undefined;
-  }
-};
+// The chain readers come from lib/chain.mjs, which exists because both of the
+// defects they guard against were written TWICE — here and in
+// guard-chain-verify — and found a week apart. Two copies agree on every day
+// they still agree.
+const rpc = makeRpc(RPC);
+const balanceOf = (token, wallet, block) => balanceOfAt(rpc, token, wallet, block);
+const chainRead = chainReader(check);
 
 // THE SUBJECT IS THE DECISION. One decision, N executions: that is the whole
 // shape of the thing, so the decision is what this is keyed on.
@@ -488,19 +428,10 @@ await section("A protective level that fired in a buyer's wallet", async () => {
             check(`${gsym} is in the allowlist, so the exit can be read`, false,
               `${gsym} is not listed, so the shares that left the wallet cannot be identified`);
           } else {
-            const from = '0x' + ewallet.slice(2).toLowerCase().padStart(64, '0');
-            const sent = (rcpt.logs || [])
-              .filter((l) => (l.address || '').toLowerCase() === tok.address.toLowerCase() &&
-                             (l.topics || [])[0] === TRANSFER &&
-                             ((l.topics || [])[1] || '').toLowerCase() === from)
-              .reduce((a, l) => a + BigInt(l.data), 0n);
-            const guarded = BigInt(Math.round(Number(gqty) * 10 ** tok.decimals));
-            const tol = guarded / 1000n + dustFloor(tok);
-            const diff = sent > guarded ? sent - guarded : guarded - sent;
-            check('the exit sent the whole guarded position, not part of it',
-              sent > 0n && diff <= tol,
-              `the guard was on ${gqty} ${gsym} (${guarded} base units) and the transaction moved ` +
-              `${sent} out of the wallet. An exit that leaves a residue leaves something four ` +
+            const e = emptied(rcpt, tok, ewallet, gqty);
+            check('the exit sent the whole guarded position, not part of it', e.ok,
+              `the guard was on ${gqty} ${gsym} (${e.want} base units) and the transaction moved ` +
+              `${e.sent} out of the wallet. An exit that leaves a residue leaves something four ` +
               'different readers have to be taught to ignore');
           }
         }
