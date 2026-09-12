@@ -33,12 +33,32 @@ const AGENT = process.env.AGENT_URL || 'http://127.0.0.1:3001';
 const RPC = process.env.EXECUTION_RPC_URL || 'https://robinhood-rpc.publicnode.com';
 const USDG = '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168';
 
+// THE SYMBOL'S TOKEN ADDRESS COMES FROM THE ALLOWLIST.
+//
+// The first version read `token_out` off the execution row, which is the stock
+// token on a BUY and the QUOTE token on a SELL — so the moment the newest
+// fan-out happened to be a sell, the custody check compared the book's AMZN
+// holding against a USDG balance and reported a discrepancy that did not exist.
+// The symbol is the constant; the side of the trade is not.
+const tokenOf = (sym) => {
+  const list = JSON.parse(readFileSync(
+    process.env.EXECUTION_ALLOWLIST_FILE ||
+    `${REPO}/services/signer/allowlist/robinhood-mainnet.json`, 'utf8'));
+  const t = (list.tokens || []).find((x) => x.symbol === sym);
+  if (!t) throw new Error(`${sym} is not in the allowlist, so its balance cannot be read`);
+  return t.address;
+};
+
 const env = Object.fromEntries(
   readFileSync(`${REPO}/.env.auth`, 'utf8').split('\n').filter((l) => l && !l.startsWith('#'))
     .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
 
 let pass = 0, fail = 0;
 const failures = [];
+// NOT-YET IS ITS OWN CATEGORY. Counting it as a pass would claim something
+// untrue; counting it as a failure would make a red suite the normal state
+// and teach everyone to ignore it.
+const notYet = [];
 const check = (n, ok, d = '') => {
   if (ok) { pass++; console.log(`  PASS  ${n}`); }
   else { fail++; failures.push(`${n} — ${d}`); console.log(`  FAIL  ${n} — ${d}`); }
@@ -184,7 +204,7 @@ console.log('\n=== Custody: what the record says each wallet holds is what it ho
     const snap = one(`SELECT holdings::text FROM subscription_snapshots
                        WHERE subscription_id = '${r.sub}' ORDER BY ts DESC LIMIT 1`);
     const held = JSON.parse(snap || '{}')[symbol] || 0;
-    const tok = one(`SELECT coalesce(token_out,'') FROM executions WHERE id = ${r.id}`);
+    const tok = tokenOf(symbol);
     const onChain = await rpc('eth_call',
       [{ to: tok, data: '0x70a08231' + r.wallet.slice(2).toLowerCase().padStart(64, '0') }, 'latest']);
     const units = BigInt(onChain || '0x0');
@@ -275,7 +295,103 @@ console.log('\n=== A customer\'s execution moves no number the agent is judged o
   }
 }
 
+// --- 8. A LEVEL THAT FIRED IN A BUYER'S WALLET -----------------------------
+//
+// The last claim in the design with nothing on chain behind it: a stop or a
+// target belonging to a SUBSCRIBER crossing, executing, and being recorded
+// without touching the agent's competition record.
+//
+// IT IS NOT MANUFACTURED. Moving a level after the fact or faking a price would
+// prove something about the fake — the same rule guard-chain-verify has always
+// had. So this section reads what the watcher left behind, and when there is
+// nothing it says so as a NOT-YET rather than passing on an empty result. A
+// verification that reports success because it found no data is the failure
+// this project keeps writing down.
+console.log('\n=== A protective level that fired in a buyer\'s wallet ===');
+{
+  const gid = one(
+    `SELECT id FROM position_guards
+      WHERE subscription_id IS NOT NULL AND status = 'triggered'
+      ORDER BY triggered_at DESC LIMIT 1`);
+
+  if (!gid) {
+    console.log('  NOT YET  no subscriber guard has ever been triggered.');
+    console.log('           Not a pass and not a failure. The mechanism is proved off chain');
+    console.log('           (subscription-verify sections 5 and 6) and the ARMING is proved on');
+    console.log('           chain above; what is missing is a market that crossed a level.');
+    notYet.push('a subscriber guard has never been triggered on chain');
+  } else {
+    const g = one(
+      `SELECT subscription_id::text || '|' || symbol || '|' || coalesce(triggered_side,'') || '|' ||
+              coalesce(triggered_price::text,'') || '|' || coalesce(triggered_decision_id::text,'') || '|' ||
+              entry_price::text || '|' || agent_id::text
+         FROM position_guards WHERE id = ${gid}`).split('|');
+    const [gsub, gsym, gside, gprice, gdec, gentry, gagent] = g;
+    console.log(`  guard ${gid}: ${gside} on ${gsym} at ${gprice} (entry ${gentry}) for ${gsub.slice(0, 8)}`);
+
+    check('it names which level fired', gside === 'stop_loss' || gside === 'take_profit', gside);
+    check('and the price that crossed it', Number(gprice) > 0, gprice);
+
+    // THE ONE THAT MATTERS MOST. A subscriber's protective exit must write NO
+    // row in `decisions`: that table is the agent's competition record, and a
+    // stop firing in one buyer's wallet at a price only that wallet crossed is
+    // not something the agent decided.
+    check('it wrote NO decision row', gdec === '',
+      `the guard points at decision ${gdec}. A buyer's stop counted as one of the agent's ` +
+      'decisions would inflate its record by the size of its customer list');
+
+    const ex = one(
+      `SELECT id || '|' || status || '|' || coalesce(tx_hash,'') || '|' || coalesce(on_behalf_of,'') || '|' ||
+              coalesce(wallet,'') || '|' || coalesce(decision_id::text,'') || '|' ||
+              coalesce(filled_out::text,'') || '|' || coalesce(slippage_bps::text,'') || '|' ||
+              coalesce(subscription_id::text,'')
+         FROM executions WHERE guard_id = ${gid} AND intent_action = 'sell' ORDER BY id DESC LIMIT 1`);
+    check('an execution names the guard that caused it', !!ex,
+      `no execution carries guard_id = ${gid}. The level is the only record of what decided, so ` +
+      'an exit that cannot be traced back to it has lost its author');
+
+    if (ex) {
+      const [eid, estatus, etx, ebehalf, ewallet, edec, efill, eslip, esub] = ex.split('|');
+      check('the exit was mined', estatus === 'mined', estatus);
+      check('it is attributed to the subscriber', ebehalf === 'subscriber', ebehalf);
+      check('in the subscription that owned the level', esub === gsub, `${esub} vs ${gsub}`);
+      check('and carries no decision id', edec === '', `decision_id=${edec}`);
+      check('it records its own fill and slippage', efill !== '' && eslip !== '', `${efill} / ${eslip}`);
+
+      const rcpt = await rpc('eth_getTransactionReceipt', [etx]);
+      check('the transaction is real and succeeded', !!rcpt && rcpt.status === '0x1', etx);
+      if (rcpt) {
+        check('and was sent by the buyer\'s own wallet',
+          rcpt.from.toLowerCase() === ewallet.toLowerCase(),
+          `the receipt says ${rcpt.from}, the row says ${ewallet}`);
+      }
+
+      // Custody: the position really is gone from that wallet.
+      const tok = tokenOf(gsym);
+      const left = BigInt(await rpc('eth_call',
+        [{ to: tok, data: '0x70a08231' + ewallet.slice(2).toLowerCase().padStart(64, '0') }, 'latest']) || '0x0');
+      check('the position was emptied, not trimmed', left < 10n ** 10n,
+        `${left} base units of ${gsym} are still in the wallet; an exit that leaves a residue ` +
+        'leaves something four different readers have to be taught to ignore');
+
+      // The agent's own record did not move for it. The A/B in section 7 proves
+      // customer executions are invisible to the readers; this proves the tick
+      // that fired the level added nothing to the decision log either.
+      const near = one(
+        `SELECT count(*) FROM decisions WHERE agent_id = '${gagent}'
+           AND ts BETWEEN (SELECT triggered_at FROM position_guards WHERE id = ${gid}) - interval '30 seconds'
+                      AND (SELECT triggered_at FROM position_guards WHERE id = ${gid}) + interval '30 seconds'`);
+      check('the agent recorded no decision around the exit', near === '0',
+        `${near} decision row(s) sit within 30 seconds of the trigger`);
+    }
+  }
+}
+
 console.log(`\n${pass} pass, ${fail} fail`);
+if (notYet.length > 0) {
+  console.log('\nNot yet proven on chain (waiting on the market, not on the code):');
+  for (const n of notYet) console.log('  - ' + n);
+}
 if (fail > 0) {
   console.log('\nFailures:');
   for (const f of failures) console.log('  - ' + f);
