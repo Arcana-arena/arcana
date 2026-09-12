@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Provenance } from '../common/verification';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Agent } from './agent.entity';
@@ -47,7 +48,11 @@ export class AgentsService {
    *
    * A new agent is ALWAYS 'draft'. Status is not settable here — see activate().
    */
-  async create(dto: CreateAgentDto, creatorId: string): Promise<Agent> {
+  async create(
+    dto: CreateAgentDto,
+    creatorId: string,
+    provenance: Provenance = 'live',
+  ): Promise<Agent> {
     const m = this.buildMandate(dto.mandate, dto.mandateTemplate, dto.mandateParams);
 
     const latest = await this.agents.findOne({
@@ -76,6 +81,9 @@ export class AgentsService {
       mandateParams: m.params,
       mandateSource: m.source,
       status: 'draft',
+      // Recorded at creation and frozen there by a database trigger. See
+      // common/verification.ts for why this is not inferred from the name.
+      provenance,
     });
     return this.agents.save(agent);
   }

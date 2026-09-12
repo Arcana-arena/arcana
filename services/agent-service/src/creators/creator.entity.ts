@@ -34,6 +34,21 @@ export class Creator {
   @Column({ type: 'varchar', length: 20, default: 'active' })
   status: string; // active, suspended, banned
 
+
+  /**
+   * 'live', or 'verification' when the row was created through the verification
+   * path. Set once at creation and frozen by a database trigger (0042): it
+   * cannot be added later, which would condemn a real creator, and it cannot be
+   * removed, which would let a fixture survive every sweep.
+   *
+   * Cleanup selects on this instead of on names. Name matching failed in both
+   * directions at once — it missed fixtures whose creator handle nobody had
+   * listed, and it pointed at 'Phase 8c buy leg', which holds the only wallet
+   * still trading.
+   */
+  @Column({ type: 'varchar', length: 20, default: 'live' })
+  provenance: string;
+
   @Column({ name: 'created_at', type: 'timestamptz', default: () => 'now()' })
   createdAt: Date;
 }

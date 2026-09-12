@@ -7,6 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { privateKeyToAccount, generatePrivateKey } from 'viem/accounts';
 import { createSiweMessage } from 'viem/siwe';
+import { sweepOnExit } from './lib/fixtures.mjs';
 // ONE implementation of rate-limit-aware HTTP and sign-in, shared by every
 // suite. This file used to carry its own, written assuming it was the only
 // thing using the window — an assumption two suites in sequence break no
@@ -15,6 +16,12 @@ import {
   req, reqRL, ensureHeadroom, getNonce as sharedGetNonce,
   signIn as sharedSignIn, bearer,
 } from './lib/rate-aware.mjs';
+
+
+// Every row this suite creates carries the verification mark, and this removes
+// them however the run ends — including the process.exit() paths, which skip
+// `finally`. It sweeps by mark, so it also clears what earlier crashed runs left.
+sweepOnExit('auth-verify');
 
 const AGENT = 'http://127.0.0.1:3001';
 const ARCA = 'http://127.0.0.1:3004';

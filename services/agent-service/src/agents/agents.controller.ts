@@ -3,6 +3,7 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  Headers,
   HttpCode,
   Param,
   Patch,
@@ -20,6 +21,7 @@ import { EvolveAgentDto } from './dto/evolve-agent.dto';
 import { UpdateAgentDto } from './dto/update-agent.dto';
 import { ManualDecisionDto } from './dto/manual-decision.dto';
 import { ImportWalletDto } from './dto/import-wallet.dto';
+import { VERIFICATION_HEADER, provenanceFrom } from '../common/verification';
 import { OwnershipService } from '../auth/ownership.service';
 import { DecisionClient } from '../decisions/decision.client';
 import { MANDATE_TEMPLATES, MANDATE_MAX_CHARS } from './mandate-templates';
@@ -104,7 +106,11 @@ export class AgentsController {
   // many can RUN; this limits how fast rows can be written.
   @RateLimit({ limit: 10, windowSeconds: 3600, byWallet: true })
   @UseGuards(JwtAuthGuard)
-  async create(@Body() dto: CreateAgentDto, @CurrentWallet() wallet: string) {
+  async create(
+    @Body() dto: CreateAgentDto,
+    @CurrentWallet() wallet: string,
+    @Headers(VERIFICATION_HEADER) verification?: string,
+  ) {
     const creatorId = await this.ownership.creatorIdForWallet(wallet);
     if (!creatorId) {
       throw new ForbiddenException({
@@ -117,7 +123,7 @@ export class AgentsController {
         },
       });
     }
-    const created = await this.agents.create(dto, creatorId);
+    const created = await this.agents.create(dto, creatorId, provenanceFrom(verification));
     // NOTHING IS REFUSED, AND NOTHING IS SILENT. risk_profile takes any key,
     // so a typo is accepted, stored, and never read. The response names every
     // key the engine will not read rather than leaving the owner to discover

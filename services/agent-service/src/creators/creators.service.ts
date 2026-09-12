@@ -1,4 +1,10 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { Provenance, MAX_VERIFICATION_CREATORS } from '../common/verification';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -24,7 +30,11 @@ export class CreatorsService {
    * separates it from the frozen pre-auth rows: every ownership check requires
    * a non-NULL `wallet_verified_at`.
    */
-  async create(dto: CreateCreatorDto, wallet: string): Promise<Creator> {
+  async create(
+    dto: CreateCreatorDto,
+    wallet: string,
+    provenance: Provenance = 'live',
+  ): Promise<Creator> {
     const address = wallet.toLowerCase();
 
     const existing = await this.creators.findOne({
@@ -36,11 +46,36 @@ export class CreatorsService {
       );
     }
 
+    // THE BRAKE THE SUITES USED TO WALK AROUND.
+    //
+    // MAX_ACTIVE_AGENTS_PER_CREATOR bounds what one creator may run, and it is
+    // the right unit for a person. It never bound the verification suites,
+    // because each run minted a fresh creator and took three more slots with it.
+    // Bounding the creators the verification path may hold does not touch how
+    // real people sign up: this counts only rows already marked 'verification'.
+    if (provenance === 'verification') {
+      const held = await this.creators.count({ where: { provenance: 'verification' } });
+      if (held >= MAX_VERIFICATION_CREATORS) {
+        throw new BadRequestException({
+          code: 'verification_creator_limit_reached',
+          message:
+            `The verification path already holds ${held} creators, and the limit is ` +
+            `${MAX_VERIFICATION_CREATORS}. A suite that cleans up after itself never reaches ` +
+            'this; one that has stopped will. Run the sweep — sweepFixtures() in ' +
+            'infra/verify/lib/fixtures.mjs, which every suite calls in its finally — ' +
+            'or find what is exiting before its cleanup runs.',
+          held,
+          limit: MAX_VERIFICATION_CREATORS,
+        });
+      }
+    }
+
     const creator = this.creators.create({
       handle: dto.handle,
       walletAddress: address,
       walletVerifiedAt: new Date(),
       origin: 'siwe',
+      provenance,
     });
     return this.creators.save(creator);
   }

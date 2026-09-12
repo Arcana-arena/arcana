@@ -31,6 +31,13 @@ import { spawn, execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { privateKeyToAccount, generatePrivateKey } from 'viem/accounts';
 import { req, signInToken, bearer, ok2xx } from './lib/rate-aware.mjs';
+import { sweepOnExit } from './lib/fixtures.mjs';
+
+// This suite has a cleanup block AND calls process.exit(), which skips it — so
+// the runs that failed, the ones leaving the most behind, never reached it. The
+// sweep runs on the exit event instead, and selects by the verification mark
+// rather than by ids held in memory, so it also clears earlier abandoned runs.
+sweepOnExit('subscription-verify');
 
 const REPO = process.env.REPO || '/home/ubuntu/arcana';
 const AGENT = process.env.AGENT_URL || 'http://127.0.0.1:3001';

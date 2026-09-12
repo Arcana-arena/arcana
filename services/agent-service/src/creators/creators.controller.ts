@@ -1,4 +1,14 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { parsePage } from '../common/pagination';
 import { CurrentWallet, JwtAuthGuard } from '@arcana/auth';
 import { CreatorsService } from './creators.service';
@@ -7,6 +17,7 @@ import { CreateCreatorDto } from './dto/create-creator.dto';
 import { UpdateCreatorDto } from './dto/update-creator.dto';
 import { OwnershipService } from '../auth/ownership.service';
 import { AgentListQueryDto } from '../series/dto/series-query.dto';
+import { VERIFICATION_HEADER, provenanceFrom } from '../common/verification';
 
 @Controller('v1/creators')
 export class CreatorsController {
@@ -18,8 +29,12 @@ export class CreatorsController {
   /** 🔑 Register the calling wallet's creator profile. */
   @Post()
   @UseGuards(JwtAuthGuard)
-  create(@Body() dto: CreateCreatorDto, @CurrentWallet() wallet: string) {
-    return this.creators.create(dto, wallet);
+  create(
+    @Body() dto: CreateCreatorDto,
+    @CurrentWallet() wallet: string,
+    @Headers(VERIFICATION_HEADER) verification?: string,
+  ) {
+    return this.creators.create(dto, wallet, provenanceFrom(verification));
   }
 
   /** 🌐 Creator profiles are public — they are part of the track record. */
