@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="_ds/industry-da4d9ed8-c8f3-4825-9ccc-2694cfc7cc6c/styles.css">
+<script src="_ds/industry-da4d9ed8-c8f3-4825-9ccc-2694cfc7cc6c/_ds_bundle.js"></script>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{--color-bg:#050b07;--color-surface:#0a120d;--color-text:#e4ede7;--color-accent:#2FE88C;--color-accent-2:#2FE88C;--color-divider:rgba(228,237,231,.12);
+--color-neutral-100:#0f1712;--color-neutral-200:#16201a;--color-neutral-300:#222d26;--color-neutral-400:#34413a;--color-neutral-500:#5a6a60;--color-neutral-600:#7d8c83;--color-neutral-700:#a2b0a8;--color-neutral-800:#c5d0ca;--color-neutral-900:#e4ede7;
+--color-accent-100:#0b2a1a;--color-accent-200:#0f3d24;--color-accent-300:#12552f;--color-accent-400:#17773f;--color-accent-500:#1fa85c;--color-accent-600:#27cf7c;--color-accent-700:#2FE88C;--color-accent-800:#7df2b6;--color-accent-900:#c9fae0;
+--font-mono:"JetBrains Mono",ui-monospace,Menlo,monospace;--ink-2:#a2b0a8;--ink-3:#5a6a60;--ink-4:#34413a;--red:#d2605b;--red-dim:#2a1513;--amber:#d4a24a;--amber-dim:#2a2110;
+--shadow-md:0 0 0 1px rgba(228,237,231,.08),0 6px 20px rgba(0,0,0,.7);--shadow-lg:0 0 0 1px rgba(228,237,231,.1),0 20px 60px rgba(0,0,0,.85)}
+body{margin:0;background:#050b07;color:#e4ede7;font-family:"Barlow",system-ui,sans-serif;font-size:13px}
+a{color:#2FE88C;text-decoration:none}a:hover{color:#7df2b6;text-decoration:underline}
+.blueprint>.corner{color:rgba(47,232,140,.55)}.table tbody tr:hover{background:rgba(47,232,140,.05)}.tag-neutral{background:#16201a;color:#a2b0a8}
+.table{font-size:12px}.table td{padding:8px;vertical-align:middle}.table th{padding:7px 8px}
+.mono{font-family:var(--font-mono)}.up{color:#2FE88C}.dn{color:#d2605b}.am{color:#d4a24a}.r{text-align:right}.m2{color:#a2b0a8}.m3{color:#5a6a60}
+.k{font-family:"Barlow Condensed";font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:#a2b0a8}
+.lbl{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.08em;color:#5a6a60}
+.sec{font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;color:#5a6a60}
+.box{border:1px solid var(--color-divider);padding:14px 16px}
+.side{width:220px;border-right:1px solid var(--color-divider);padding:20px 0;font-size:13px}
+.side div{padding:8px 24px;color:#a2b0a8}.side div.on{color:#e4ede7;border-left:2px solid #2FE88C;background:rgba(47,232,140,.04)}
+.wz{display:flex;flex-direction:column;gap:2px;font-size:12.5px}
+.wz div{display:grid;grid-template-columns:22px 1fr;gap:10px;align-items:center;padding:7px 0;color:#5a6a60}
+.wz i{width:18px;height:18px;border:1px solid #34413a;display:grid;place-items:center;font-family:var(--font-mono);font-size:9.5px;font-style:normal}
+.wz .done{color:#a2b0a8}.wz .done i{border-color:#17773f;color:#2FE88C}.wz .on{color:#e4ede7}.wz .on i{background:#2FE88C;border-color:#2FE88C;color:#050b07}
+.tpl{border:1px solid var(--color-divider);padding:12px 14px;font-size:12px;color:#a2b0a8}
+.help{font-size:11.5px;color:#5a6a60;line-height:1.45;margin-top:4px}
+@keyframes arcPulse{0%,100%{opacity:1}50%{opacity:.3}}
+</style>
+</helmet>
+
+<div style="padding:40px 56px 80px;display:flex;flex-direction:column;gap:32px">
+<div class="sec">05 · CREATOR DASHBOARD · overview · 1440 · one agent paused (budget exhausted)</div>
+
+<div data-screen-label="Creator overview" style="width:1440px;border:1px solid var(--color-divider)">
+  <div style="display:flex;align-items:center;gap:32px;padding:0 32px;height:52px;border-bottom:1px solid var(--color-divider)">
+    <div style="display:flex;align-items:center;gap:10px"><img src="uploads/arcana logo.png" alt="" style="width:24px;height:24px"><span style="font-family:var(--font-heading);font-weight:600;font-size:16px;letter-spacing:.14em">ARCANA</span></div>
+    <nav style="display:flex;gap:24px;font-family:var(--font-heading);font-size:14px;letter-spacing:.04em;color:var(--ink-2)"><span>Leaderboard</span><span>Agents</span><span>Marketplace</span><span>Seasons</span><span>Docs</span></nav>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:20px">
+      <div style="display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:11px;color:var(--ink-2)"><span style="width:6px;height:6px;background:var(--color-accent);animation:arcPulse 2s infinite"></span>4663 <span class="m3">·</span> #8,214,006 <span class="m3">·</span> 41ms</div>
+      <div style="display:flex;border:1px solid var(--color-divider);font-family:var(--font-mono);font-size:11.5px"><span style="padding:6px 10px;color:var(--ink-2);border-right:1px solid var(--color-divider)">3,410.55 <span class="m3">USDG</span></span><span style="padding:6px 10px;color:var(--ink-2);border-right:1px solid var(--color-divider)">0.812 <span class="m3">ETH</span></span><span style="padding:6px 10px;display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;background:#2FE88C"></span>kestrel.eth ▾</span></div>
+    </div>
+  </div>
+  <div style="display:flex;min-height:760px">
+    <div class="side"><div class="on">Overview</div><div>Agents <span class="mono m3" style="font-size:10.5px">3 / 3</span></div><div>Create agent</div><div>Earnings</div><div>Subscribers</div><div>Wallets</div><div>Triggers <span class="mono am" style="font-size:10.5px">1 fired</span></div><div style="margin-top:20px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-family:var(--font-heading)">Account</div><div>Creator profile</div><div>API keys</div></div>
+    <div style="flex:1;padding:28px 32px;display:flex;flex-direction:column;gap:24px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-end"><div><h1 style="font-size:32px;margin:0">Overview</h1><div class="m2" style="font-size:12.5px;margin-top:4px">kestrel · creator since Feb 2026 · reputation <span class="mono">88</span></div></div><span class="btn btn-secondary" style="opacity:.45">Create agent · 3 of 3 slots used</span></div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px">
+        <div class="box"><div class="k">Subscription earnings · all time</div><div class="mono" style="font-size:24px;margin-top:4px">7,240.00 <span class="m3" style="font-size:12px">USDG</span></div><div class="m3" style="font-size:11px">+1,320.00 last 30d</div></div>
+        <div class="box"><div class="k">Subscribers</div><div class="mono" style="font-size:24px;margin-top:4px">165</div><div class="m3" style="font-size:11px">128 Meridian · 37 Basalt · 9 in grace</div></div>
+        <div class="box"><div class="k">Agents' combined NAV</div><div class="mono" style="font-size:24px;margin-top:4px">31,402.10 <span class="m3" style="font-size:12px">USDG</span></div><div class="mono up" style="font-size:11px">+12.9% season</div></div>
+        <div class="box" style="border-color:rgba(212,162,74,.5)"><div class="k am">Needs attention</div><div style="font-size:13px;margin-top:6px;line-height:1.5">Gravel paused — gas budget exhausted<br>Basalt wallet low on ETH (0.006)</div></div>
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px"><h3 style="font-size:16px;margin:0">My agents · 3 of 3</h3><span class="m3" style="font-size:11.5px">Retire one to free a slot</span></div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px">
+          <div class="blueprint" style="padding:16px 18px;display:flex;flex-direction:column;gap:12px">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-family:var(--font-heading);font-weight:600;font-size:20px;line-height:1">Meridian <span class="mono m3" style="font-weight:400;font-size:10px">v2</span></div><div style="font-size:11.5px;margin-top:4px;display:flex;gap:8px;align-items:center"><span style="display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;padding:1px 6px;background:#0f3d24;color:#7df2b6"><span style="width:5px;height:5px;background:var(--color-accent)"></span>LIVE</span><span class="m2">rank #1 · listed</span></div></div><div class="mono" style="font-size:24px;line-height:1">84.2</div></div>
+            <svg width="100%" height="36" viewBox="0 0 248 36" preserveAspectRatio="none"><polyline fill="none" stroke="#2FE88C" stroke-width="1.2" points="0,28 20,26 40,29 60,22 80,23 100,16 120,18 140,12 160,13 180,9 200,10 220,6 248,4"/></svg>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);font-family:var(--font-mono);font-size:11.5px"><div><div class="lbl">NAV</div>11,836</div><div><div class="lbl">RETURN</div><span class="up">+18.4%</span></div><div><div class="lbl">SUBS</div>128</div></div>
+            <div style="display:flex;gap:8px;border-top:1px solid var(--color-divider);padding-top:10px"><span class="btn btn-secondary" style="flex:1;font-size:12px;padding:4px 8px">Manage</span><span class="btn btn-secondary" style="flex:1;font-size:12px;padding:4px 8px">Wallet</span><span class="btn btn-ghost" style="font-size:12px;padding:4px 6px">Profile →</span></div>
+          </div>
+          <div class="blueprint" style="padding:16px 18px;display:flex;flex-direction:column;gap:12px">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-family:var(--font-heading);font-weight:600;font-size:20px;line-height:1">Basalt <span class="mono m3" style="font-weight:400;font-size:10px">v3</span></div><div style="font-size:11.5px;margin-top:4px;display:flex;gap:8px;align-items:center"><span style="display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;padding:1px 6px;background:#0f3d24;color:#7df2b6"><span style="width:5px;height:5px;background:var(--color-accent)"></span>LIVE</span><span class="m2">rank #5 · listed</span><span class="am mono" style="font-size:10px">⚠ LOW GAS</span></div></div><div class="mono" style="font-size:24px;line-height:1">66.1</div></div>
+            <svg width="100%" height="36" viewBox="0 0 248 36" preserveAspectRatio="none"><polyline fill="none" stroke="#2FE88C" stroke-width="1.2" points="0,22 20,22 40,20 60,21 80,19 100,20 120,18 140,17 160,18 180,16 200,15 220,15 248,13"/></svg>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);font-family:var(--font-mono);font-size:11.5px"><div><div class="lbl">NAV</div>10,412</div><div><div class="lbl">RETURN</div><span class="up">+4.1%</span></div><div><div class="lbl">SUBS</div>37</div></div>
+            <div style="display:flex;gap:8px;border-top:1px solid var(--color-divider);padding-top:10px"><span class="btn btn-secondary" style="flex:1;font-size:12px;padding:4px 8px">Manage</span><span class="btn btn-secondary" style="flex:1;font-size:12px;padding:4px 8px;color:var(--amber);border-color:rgba(212,162,74,.5)">Top up ETH</span><span class="btn btn-ghost" style="font-size:12px;padding:4px 6px">Profile →</span></div>
+          </div>
+          <div class="blueprint" style="padding:16px 18px;display:flex;flex-direction:column;gap:12px;border-color:rgba(212,162,74,.5)">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-family:var(--font-heading);font-weight:600;font-size:20px;line-height:1">Gravel</div><div style="font-size:11.5px;margin-top:4px;display:flex;gap:8px;align-items:center"><span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;padding:1px 6px;background:var(--amber-dim);color:var(--amber)">PAUSED · BUDGET EXHAUSTED</span></div></div><div class="mono m2" style="font-size:24px;line-height:1">58.0</div></div>
+            <svg width="100%" height="36" viewBox="0 0 248 36" preserveAspectRatio="none"><polyline fill="none" stroke="#5a6a60" stroke-width="1.2" points="0,16 20,20 40,18 60,24 80,22 100,22 120,22 140,22 160,22 180,22 200,22 220,22 248,22"/></svg>
+            <div style="font-size:12px;color:var(--ink-2);line-height:1.45">Daily gas budget <span class="mono">0.004 ETH</span> spent at 10:30 UTC after 14 decisions. Auto-resumes 00:00 UTC, or raise the budget now. Armed stops still fire while paused.</div>
+            <div style="display:flex;gap:8px;border-top:1px solid var(--color-divider);padding-top:10px"><span class="btn btn-primary blueprint" style="flex:1;font-size:12px;padding:4px 8px">Raise budget</span><span class="btn btn-secondary" style="flex:1;font-size:12px;padding:4px 8px">Manage</span></div>
+          </div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+        <div class="blueprint" style="padding:14px 16px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:8px"><span class="k">Earnings · USDG / week</span><span class="mono m2" style="font-size:11px">12 weeks</span></div>
+          <div style="display:grid;grid-template-columns:repeat(12,1fr);gap:4px;align-items:end;height:90px"><div style="background:#17773f;height:12%"></div><div style="background:#17773f;height:18%"></div><div style="background:#17773f;height:22%"></div><div style="background:#17773f;height:30%"></div><div style="background:#17773f;height:28%"></div><div style="background:#17773f;height:45%"></div><div style="background:#17773f;height:52%"></div><div style="background:#17773f;height:60%"></div><div style="background:#17773f;height:58%"></div><div style="background:#17773f;height:74%"></div><div style="background:#17773f;height:88%"></div><div style="background:#2FE88C;height:100%"></div></div>
+          <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:9.5px;color:var(--ink-3);margin-top:4px"><span>Feb 24</span><span>this week 640.00</span><span>May 12</span></div>
+        </div>
+        <div class="blueprint" style="padding:14px 16px">
+          <div class="k" style="margin-bottom:8px">Recent payments received</div>
+          <table class="table" style="font-size:11.5px"><tbody>
+            <tr><td class="mono m2">14:33</td><td class="mono">0x7a3f…c21e</td><td>Meridian v2</td><td class="mono r">40.00</td><td><a href="#" class="mono">tx ↗</a></td></tr>
+            <tr><td class="mono m2">13:10</td><td class="mono">0x11e0…9a4b</td><td>Basalt v3</td><td class="mono r">15.00</td><td><a href="#" class="mono">tx ↗</a></td></tr>
+            <tr><td class="mono m2">11:52</td><td class="mono">0xd4c2…70ef</td><td>Meridian v2 · renew</td><td class="mono r">40.00</td><td><a href="#" class="mono">tx ↗</a></td></tr>
+            <tr style="color:var(--ink-3)"><td class="mono">09:04</td><td class="mono">0x38b1…c0d2</td><td>unmatched · 39.95</td><td class="mono r am">39.95</td><td class="mono">held</td></tr>
+          </tbody></table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ CREATE AGENT WIZARD ============ -->
+<div class="sec">05b · CREATE AGENT — seven steps, each drawn · 1440 content column</div>
+<div style="display:grid;grid-template-columns:repeat(2,700px);gap:24px">
+
+  <div data-screen-label="Create 1 Identity" style="border:1px solid var(--color-divider);display:grid;grid-template-columns:200px 1fr">
+    <div style="padding:24px;border-right:1px solid var(--color-divider)"><div class="k" style="margin-bottom:14px">Create agent</div><div class="wz"><div class="on"><i>1</i>Identity</div><div><i>2</i>Strategy</div><div><i>3</i>Risk</div><div><i>4</i>Cadence</div><div><i>5</i>Universe</div><div><i>6</i>Wallet</div><div><i>7</i>Review</div></div><div class="m3" style="font-size:11px;margin-top:24px;line-height:1.45">Draft saved locally. Nothing is written on-chain until step 7.</div></div>
+    <div style="padding:28px;display:flex;flex-direction:column;gap:18px">
+      <div><h2 style="font-size:24px;margin:0">Identity</h2><div class="m2" style="font-size:12.5px">Public. Shown on the leaderboard and in the marketplace.</div></div>
+      <div class="field"><label>Name</label><div class="input" style="display:flex;align-items:center;border-color:var(--color-accent)">Cinder<span style="width:1px;height:14px;background:var(--color-accent);margin-left:1px"></span></div><div class="help">3–24 characters. Unique per creator. Becomes <span class="mono">kestrel/cinder</span>.</div></div>
+      <div class="field"><label>Description</label><div class="input" style="min-height:80px;line-height:1.5">Low-turnover trend follower on the three largest names, sized by realised volatility.</div><div style="display:flex;justify-content:space-between" class="help"><span>Shown under the name. Not sent to the model.</span><span class="mono">91 / 240</span></div></div>
+      <div style="display:flex;justify-content:space-between;margin-top:auto;padding-top:12px;border-top:1px solid var(--color-divider)"><span></span><span class="btn btn-primary blueprint">Next · Strategy</span></div>
+    </div>
+  </div>
+
+  <div data-screen-label="Create 2 Strategy" style="border:1px solid var(--color-divider);display:grid;grid-template-columns:200px 1fr">
+    <div style="padding:24px;border-right:1px solid var(--color-divider)"><div class="k" style="margin-bottom:14px">Create agent</div><div class="wz"><div class="done"><i>✓</i>Identity</div><div class="on"><i>2</i>Strategy</div><div><i>3</i>Risk</div><div><i>4</i>Cadence</div><div><i>5</i>Universe</div><div><i>6</i>Wallet</div><div><i>7</i>Review</div></div></div>
+    <div style="padding:28px;display:flex;flex-direction:column;gap:18px">
+      <div><h2 style="font-size:24px;margin:0">Strategy</h2><div class="m2" style="font-size:12.5px">Pick a template or write your own mandate. The mandate is sent to the model verbatim every tick and stored on-chain.</div></div>
+      <div class="seg" style="font-size:12px;width:max-content"><span class="seg-opt" style="padding:5px 12px">Template</span><span class="seg-opt" style="padding:5px 12px;background:var(--color-accent);color:#050b07">Free-form mandate</span></div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;opacity:.5"><div class="tpl"><b style="color:var(--color-text);font-weight:500">Trend</b><br>Buy strength above moving means; exit below.</div><div class="tpl"><b style="color:var(--color-text);font-weight:500">Mean reversion</b><br>Fade gaps; expect return to mean.</div><div class="tpl"><b style="color:var(--color-text);font-weight:500">Low volatility</b><br>Hold the calmest names; rebalance weekly.</div></div>
+      <div class="field"><label>Mandate</label><div class="input" style="min-height:120px;line-height:1.55;font-size:13px">Hold at most three of the largest names by market cap. Size each position by inverse 20-tick volatility. Add only when price is above both the 20- and 50-tick means. Exit a name fully when it closes below its 50-tick mean. Do nothing when no rule fires.</div><div style="display:flex;justify-content:space-between" class="help"><span>Be concrete: what to hold, when to enter, when to exit, what to do when unsure.</span><span class="mono">312 / 1,200</span></div></div>
+      <div style="border:1px solid var(--color-divider);padding:10px 12px;font-size:12px;line-height:1.5;color:var(--ink-2)"><span class="lbl">WORKED EXAMPLE · MERIDIAN V2 (SCORE 84.2)</span><br>"Hold a concentrated book of no more than three large-cap tech names. Add on 3-day pullbacks below the 20-tick mean; exit any name that closes below its 50-tick mean. Never exceed 80% exposure." <a href="#">More examples →</a></div>
+      <div style="display:flex;justify-content:space-between;margin-top:auto;padding-top:12px;border-top:1px solid var(--color-divider)"><span class="btn btn-secondary">Back</span><span class="btn btn-primary blueprint">Next · Risk</span></div>
+    </div>
+  </div>
+
+  <div data-screen-label="Create 3 Risk" style="border:1px solid var(--color-divider);display:grid;grid-template-columns:200px 1fr">
+    <div style="padding:24px;border-right:1px solid var(--color-divider)"><div class="k" style="margin-bottom:14px">Create agent</div><div class="wz"><div class="done"><i>✓</i>Identity</div><div class="done"><i>✓</i>Strategy</div><div class="on"><i>3</i>Risk</div><div><i>4</i>Cadence</div><div><i>5</i>Universe</div><div><i>6</i>Wallet</div><div><i>7</i>Review</div></div></div>
+    <div style="padding:28px;display:flex;flex-direction:column;gap:16px">
+      <div><h2 style="font-size:24px;margin:0">Risk</h2><div class="m2" style="font-size:12.5px">Hard limits enforced by the platform before any order is sent. The model cannot override them; orders that break them are refused and logged.</div></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px 20px">
+        <div class="field"><label>Max position size</label><div class="input mono" style="display:flex;justify-content:space-between">0.40<span class="m3">= 40% of NAV</span></div><div class="help">Largest a single name may be, at fill.</div></div>
+        <div class="field"><label>Max concentration (names)</label><div class="input mono" style="display:flex;justify-content:space-between">3<span class="m3">positions</span></div><div class="help">Open positions at once.</div></div>
+        <div class="field"><label>Cash floor</label><div class="input mono" style="display:flex;justify-content:space-between">0.20<span class="m3">= 20% of NAV</span></div><div class="help">Buys that would take cash below this are refused.</div></div>
+        <div class="field"><label>Daily gas budget</label><div class="input mono" style="display:flex;justify-content:space-between">0.004<span class="m3">ETH ≈ 18 decisions</span></div><div class="help">Agent pauses when spent; resumes 00:00 UTC.</div></div>
+        <div class="field"><label>stop_loss_fraction</label><div class="input mono" style="display:flex;justify-content:space-between;border-color:var(--color-accent)">0.0150<span class="m3">= 1.50%</span></div><div class="help">Armed on every fill. <span class="mono">0.0015</span> means 0.15%; <span class="mono">0.0150</span> means 1.50%. Pool minimum <span class="mono">0.0010</span>. Fires as a protective exit, not counted as the agent's decision.</div></div>
+        <div class="field"><label>take_profit_fraction <span class="m3">optional</span></label><div class="input mono" style="display:flex;justify-content:space-between">0.0400<span class="m3">= 4.00%</span></div><div class="help">Leave empty to let the mandate decide exits.</div></div>
+      </div>
+      <div style="border:1px solid var(--color-divider);padding:10px 12px;font-size:12px;color:var(--ink-2);display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px"><span class="lbl" style="grid-column:1/-1">WORKED CONVERSION · ENTRY 128.40</span><span>stop <span class="mono" style="color:var(--color-text)">0.0150</span> → <span class="mono" style="color:var(--color-text)">126.47</span></span><span>take-profit <span class="mono" style="color:var(--color-text)">0.0400</span> → <span class="mono" style="color:var(--color-text)">133.54</span></span><span>max loss per fill <span class="mono dn">−0.6% NAV</span></span></div>
+      <div style="display:flex;justify-content:space-between;margin-top:auto;padding-top:12px;border-top:1px solid var(--color-divider)"><span class="btn btn-secondary">Back</span><span class="btn btn-primary blueprint">Next · Cadence</span></div>
+    </div>
+  </div>
+
+  <div data-screen-label="Create 4 Cadence" style="border:1px solid var(--color-divider);display:grid;grid-template-columns:200px 1fr">
+    <div style="padding:24px;border-right:1px solid var(--color-divider)"><div class="k" style="margin-bottom:14px">Create agent</div><div class="wz"><div class="done"><i>✓</i>Identity</div><div class="done"><i>✓</i>Strategy</div><div class="done"><i>✓</i>Risk</div><div class="on"><i>4</i>Cadence</div><div><i>5</i>Universe</div><div><i>6</i>Wallet</div><div><i>7</i>Review</div></div></div>
+    <div style="padding:28px;display:flex;flex-direction:column;gap:18px">
+      <div><h2 style="font-size:24px;margin:0">Cadence</h2><div class="m2" style="font-size:12.5px">How often the agent wakes, reads the market and decides. Every tick costs a model call and, if it trades, gas.</div></div>
+      <div class="field"><label>Decision interval</label><div style="position:relative;height:2px;background:var(--ink-4);margin:22px 0 10px"><div style="position:absolute;left:0;top:0;height:2px;width:43%;background:var(--color-accent)"></div><div style="position:absolute;left:43%;top:-6px;width:14px;height:14px;background:var(--color-accent);transform:translateX(-50%)"></div><div style="position:absolute;left:43%;top:-30px;transform:translateX(-50%);font-family:var(--font-mono);font-size:12px">30 min</div></div><div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:10.5px;color:var(--ink-3)"><span>5m</span><span>15m</span><span>30m</span><span>1h</span><span>4h</span><span>24h</span></div></div>
+      <div class="blueprint" style="padding:14px 16px">
+        <div class="k" style="margin-bottom:10px">Cost projection · updates as you move the slider</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+          <div><div class="lbl">TICKS / DAY</div><div class="mono" style="font-size:20px">48</div></div>
+          <div><div class="lbl">MODEL COST / DAY</div><div class="mono" style="font-size:20px">0.96 <span class="m3" style="font-size:11px">USDG</span></div></div>
+          <div><div class="lbl">GAS IF 30% TRADE</div><div class="mono" style="font-size:20px">0.0043 <span class="m3" style="font-size:11px">ETH</span></div></div>
+          <div><div class="lbl">/ 30 DAYS</div><div class="mono" style="font-size:20px">28.80 <span class="m3" style="font-size:11px">USDG + 0.13 ETH</span></div></div>
+        </div>
+        <div class="am" style="font-size:11.5px;margin-top:10px">Projected gas (0.0043/day) exceeds your daily budget (0.004). The agent will pause most days near 22:00 UTC. Raise the budget or slow the cadence.</div>
+      </div>
+      <div class="m3" style="font-size:11.5px;line-height:1.45">Market hours: tokenised equities trade 24/5. The agent still ticks over the weekend but the mandate sees stale prices; HOLD is the usual outcome.</div>
+      <div style="display:flex;justify-content:space-between;margin-top:auto;padding-top:12px;border-top:1px solid var(--color-divider)"><span class="btn btn-secondary">Back</span><span class="btn btn-primary blueprint">Next · Universe</span></div>
+    </div>
+  </div>
+
+  <div data-screen-label="Create 5 Universe" style="border:1px solid var(--color-divider);display:grid;grid-template-columns:200px 1fr">
+    <div style="padding:24px;border-right:1px solid var(--color-divider)"><div class="k" style="margin-bottom:14px">Create agent</div><div class="wz"><div class="done"><i>✓</i>Identity</div><div class="done"><i>✓</i>Strategy</div><div class="done"><i>✓</i>Risk</div><div class="done"><i>✓</i>Cadence</div><div class="on"><i>5</i>Universe</div><div><i>6</i>Wallet</div><div><i>7</i>Review</div></div></div>
+    <div style="padding:28px;display:flex;flex-direction:column;gap:18px">
+      <div><h2 style="font-size:24px;margin:0">Universe</h2><div class="m2" style="font-size:12.5px">The symbols the agent may trade. 9 tokenised equities are available on Robinhood Chain. Choose at least 2. Determines which seasons it can enter.</div></div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+        <div style="border:1px solid var(--color-accent);background:rgba(47,232,140,.06);padding:10px 12px;display:flex;justify-content:space-between;align-items:center"><div><div class="mono" style="font-weight:500">AAPLx</div><div class="m3" style="font-size:11px">Apple · 231.92</div></div><span style="width:14px;height:14px;background:var(--color-accent);display:grid;place-items:center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#050b07" stroke-width="3"><path d="m5 12 5 5L20 7"/></svg></span></div>
+        <div style="border:1px solid var(--color-accent);background:rgba(47,232,140,.06);padding:10px 12px;display:flex;justify-content:space-between;align-items:center"><div><div class="mono" style="font-weight:500">NVDAx</div><div class="m3" style="font-size:11px">Nvidia · 134.31</div></div><span style="width:14px;height:14px;background:var(--color-accent);display:grid;place-items:center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#050b07" stroke-width="3"><path d="m5 12 5 5L20 7"/></svg></span></div>
+        <div style="border:1px solid var(--color-accent);background:rgba(47,232,140,.06);padding:10px 12px;display:flex;justify-content:space-between;align-items:center"><div><div class="mono" style="font-weight:500">MSFTx</div><div class="m3" style="font-size:11px">Microsoft · 412.10</div></div><span style="width:14px;height:14px;background:var(--color-accent);display:grid;place-items:center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#050b07" stroke-width="3"><path d="m5 12 5 5L20 7"/></svg></span></div>
+        <div style="border:1px solid var(--color-divider);padding:10px 12px;display:flex;justify-content:space-between;align-items:center;color:var(--ink-2)"><div><div class="mono">AMZNx</div><div class="m3" style="font-size:11px">Amazon · 186.40</div></div><span style="width:14px;height:14px;border:1px solid var(--color-divider)"></span></div>
+        <div style="border:1px solid var(--color-divider);padding:10px 12px;display:flex;justify-content:space-between;align-items:center;color:var(--ink-2)"><div><div class="mono">GOOGLx</div><div class="m3" style="font-size:11px">Alphabet · 168.20</div></div><span style="width:14px;height:14px;border:1px solid var(--color-divider)"></span></div>
+        <div style="border:1px solid var(--color-divider);padding:10px 12px;display:flex;justify-content:space-between;align-items:center;color:var(--ink-2)"><div><div class="mono">METAx</div><div class="m3" style="font-size:11px">Meta · 512.70</div></div><span style="width:14px;height:14px;border:1px solid var(--color-divider)"></span></div>
+        <div style="border:1px solid var(--color-divider);padding:10px 12px;display:flex;justify-content:space-between;align-items:center;color:var(--ink-2)"><div><div class="mono">TSLAx</div><div class="m3" style="font-size:11px">Tesla · <span class="am">price unavailable</span></div></div><span style="width:14px;height:14px;border:1px solid var(--color-divider)"></span></div>
+        <div style="border:1px solid var(--color-divider);padding:10px 12px;display:flex;justify-content:space-between;align-items:center;color:var(--ink-2)"><div><div class="mono">SPYx</div><div class="m3" style="font-size:11px">S&amp;P 500 · 541.12</div></div><span style="width:14px;height:14px;border:1px solid var(--color-divider)"></span></div>
+        <div style="border:1px solid var(--color-divider);padding:10px 12px;display:flex;justify-content:space-between;align-items:center;color:var(--ink-2)"><div><div class="mono">COINx</div><div class="m3" style="font-size:11px">Coinbase · 214.80</div></div><span style="width:14px;height:14px;border:1px solid var(--color-divider)"></span></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:12px"><span class="m2">3 selected · <span class="mono">Tech-3</span></span><span class="m2">Eligible seasons: <span style="color:var(--color-text)">S3 Open</span>, <span style="color:var(--color-text)">S3 Tech-6</span> · not S3 Broad-9</span></div>
+      <div style="display:flex;justify-content:space-between;margin-top:auto;padding-top:12px;border-top:1px solid var(--color-divider)"><span class="btn btn-secondary">Back</span><span class="btn btn-primary blueprint">Next · Wallet</span></div>
+    </div>
+  </div>
+
+  <div data-screen-label="Create 6 Wallet" style="border:1px solid var(--color-divider);display:grid;grid-template-columns:200px 1fr">
+    <div style="padding:24px;border-right:1px solid var(--color-divider)"><div class="k" style="margin-bottom:14px">Create agent</div><div class="wz"><div class="done"><i>✓</i>Identity</div><div class="done"><i>✓</i>Strategy</div><div class="done"><i>✓</i>Risk</div><div class="done"><i>✓</i>Cadence</div><div class="done"><i>✓</i>Universe</div><div class="on"><i>6</i>Wallet</div><div><i>7</i>Review</div></div></div>
+    <div style="padding:28px;display:flex;flex-direction:column;gap:18px">
+      <div><h2 style="font-size:24px;margin:0">Wallet</h2><div class="m2" style="font-size:12.5px">The agent trades from its own wallet. You fund it; you can withdraw at any time.</div></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div style="border:1px solid var(--color-accent);background:rgba(47,232,140,.05);padding:14px 16px"><label class="radio" style="align-items:flex-start"><span class="dot" style="border-color:var(--color-accent);background:var(--color-accent);box-shadow:inset 0 0 0 4px #050b07;margin-top:2px"></span><div><div style="font-weight:500">Generate a new wallet</div><div class="m2" style="font-size:12px;line-height:1.45;margin-top:4px">Derived by the platform for this agent. Holds only what you deposit. Key exportable later behind confirmation. Recommended.</div></div></label></div>
+        <div style="border:1px solid var(--color-divider);padding:14px 16px"><label class="radio" style="align-items:flex-start"><span class="dot" style="margin-top:2px"></span><div><div style="font-weight:500">Import a dedicated wallet key</div><div class="m2" style="font-size:12px;line-height:1.45;margin-top:4px">Paste a private key for a wallet you created for this purpose only.</div></div></label></div>
+      </div>
+      <div style="border:1px solid rgba(212,162,74,.5);padding:12px 14px;display:grid;grid-template-columns:16px 1fr;gap:10px;font-size:12.5px;line-height:1.5"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#d4a24a" stroke-width="1.5"><path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3Z"/><path d="M12 9v4M12 17h.01"/></svg><div><b style="font-weight:500;color:var(--amber)">If you import a key, the platform can sign anything from that wallet.</b> <span class="m2">Not only trades. Never import a wallet that holds other assets, and never import your main wallet.</span></div></div>
+      <div class="field" style="opacity:.45"><label>Private key</label><div class="input mono" style="color:var(--ink-3)">0x…</div><div class="help">Encrypted at rest. Shown once, never returned.</div></div>
+      <div class="box"><div class="k" style="margin-bottom:8px">Initial funding · after activation</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:12px"><span class="m2">Minimum to enter S3</span><span class="mono">1,000 USDG</span><span class="m2">Gas for 30 days at this cadence</span><span class="mono">≈ 0.13 ETH</span></div></div>
+      <div style="display:flex;justify-content:space-between;margin-top:auto;padding-top:12px;border-top:1px solid var(--color-divider)"><span class="btn btn-secondary">Back</span><span class="btn btn-primary blueprint">Next · Review</span></div>
+    </div>
+  </div>
+
+  <div data-screen-label="Create 7 Review" style="border:1px solid var(--color-divider);display:grid;grid-template-columns:200px 1fr;grid-column:span 2">
+    <div style="padding:24px;border-right:1px solid var(--color-divider)"><div class="k" style="margin-bottom:14px">Create agent</div><div class="wz"><div class="done"><i>✓</i>Identity</div><div class="done"><i>✓</i>Strategy</div><div class="done"><i>✓</i>Risk</div><div class="done"><i>✓</i>Cadence</div><div class="done"><i>✓</i>Universe</div><div class="done"><i>✓</i>Wallet</div><div class="on"><i>7</i>Review</div></div></div>
+    <div style="padding:28px;display:flex;flex-direction:column;gap:18px">
+      <div><h2 style="font-size:24px;margin:0">Review and activate</h2><div class="m2" style="font-size:12.5px">Activation writes the mandate, risk limits and wallet address to the chain in one transaction. The mandate becomes public and immutable for this version.</div></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">
+        <div class="box"><div style="display:flex;justify-content:space-between"><span class="k">Identity</span><a href="#" style="font-size:11px">Edit</a></div><div style="font-family:var(--font-heading);font-weight:600;font-size:20px;margin-top:6px">Cinder <span class="mono m3" style="font-weight:400;font-size:10px">v1</span></div><div class="m2" style="font-size:12px;margin-top:2px">Low-turnover trend follower on the three largest names, sized by realised volatility.</div></div>
+        <div class="box"><div style="display:flex;justify-content:space-between"><span class="k">Risk</span><a href="#" style="font-size:11px">Edit</a></div><div style="display:grid;grid-template-columns:1fr auto;gap:4px 12px;font-size:12px;margin-top:6px"><span class="m2">max position</span><span class="mono">0.40</span><span class="m2">names</span><span class="mono">3</span><span class="m2">cash floor</span><span class="mono">0.20</span><span class="m2">stop_loss_fraction</span><span class="mono">0.0150 · 1.50%</span><span class="m2">take_profit_fraction</span><span class="mono">0.0400 · 4.00%</span><span class="m2">gas / day</span><span class="mono am">0.004 ETH ⚠</span></div></div>
+        <div class="box"><div style="display:flex;justify-content:space-between"><span class="k">Cadence · Universe · Wallet</span><a href="#" style="font-size:11px">Edit</a></div><div style="display:grid;grid-template-columns:1fr auto;gap:4px 12px;font-size:12px;margin-top:6px"><span class="m2">interval</span><span class="mono">30 min · 48 / day</span><span class="m2">universe</span><span class="mono">AAPLx NVDAx MSFTx</span><span class="m2">wallet</span><span class="mono">new · derived</span><span class="m2">address</span><span class="mono">assigned at activation</span><span class="m2">model</span><span class="mono">claude-sonnet-4</span></div></div>
+      </div>
+      <div style="border-left:2px solid var(--color-accent);padding:4px 0 4px 14px"><div class="k" style="margin-bottom:6px">Mandate · will be stored verbatim</div><div style="font-size:13.5px;line-height:1.5">"Hold at most three of the largest names by market cap. Size each position by inverse 20-tick volatility. Add only when price is above both the 20- and 50-tick means. Exit a name fully when it closes below its 50-tick mean. Do nothing when no rule fires."</div></div>
+      <label style="display:flex;align-items:flex-start;gap:8px;font-size:12.5px;color:var(--ink-2)"><span style="width:14px;height:14px;border:1px solid var(--color-accent);background:var(--color-accent);flex:none;margin-top:1px;display:grid;place-items:center"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#050b07" stroke-width="3"><path d="m5 12 5 5L20 7"/></svg></span>I understand the agent trades real funds, that its decisions are public, and that the mandate cannot be edited without creating a new version.</label>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding-top:12px;border-top:1px solid var(--color-divider)"><span class="btn btn-secondary">Back</span><div style="display:flex;align-items:center;gap:14px"><span class="mono m3" style="font-size:11px">activation gas ≈ 0.0009 ETH · sign in your wallet</span><span class="btn btn-primary blueprint" style="padding:8px 18px">Activate Cinder v1</span></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MANAGE + WALLET + TRIGGERS ============ -->
+<div class="sec">05c · MANAGE AGENT · 05d · AGENT WALLET · 05e · TRIGGERS</div>
+<div style="display:grid;grid-template-columns:460px 480px 460px;gap:24px;align-items:start">
+
+  <div data-screen-label="Manage agent" style="border:1px solid var(--color-divider);padding:24px;display:flex;flex-direction:column;gap:18px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div class="k">Manage</div><div style="font-family:var(--font-heading);font-weight:600;font-size:24px;line-height:1.1">Meridian <span class="mono m3" style="font-weight:400;font-size:11px">v2</span></div></div><span style="display:inline-flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;padding:3px 8px;background:#0f3d24;color:#7df2b6"><span style="width:6px;height:6px;background:var(--color-accent)"></span>LIVE</span></div>
+    <div class="box"><div style="display:flex;justify-content:space-between;align-items:center"><span class="k">Mandate</span><span class="m3" style="font-size:11px">immutable for v2</span></div><div style="font-size:12.5px;line-height:1.5;margin-top:6px;color:var(--ink-2)">"Hold a concentrated book of no more than three large-cap tech names…"</div><div style="display:flex;gap:8px;margin-top:10px"><span class="btn btn-secondary" style="font-size:12px;padding:4px 10px">Edit as new version →</span></div></div>
+    <div class="box"><div style="display:flex;justify-content:space-between;align-items:center"><span class="k">Risk limits</span><span class="up" style="font-size:11px">editable live</span></div><div style="display:grid;grid-template-columns:1fr auto;gap:4px 12px;font-size:12px;margin-top:6px"><span class="m2">stop_loss_fraction</span><span class="mono">0.0150</span><span class="m2">take_profit_fraction</span><span class="mono">0.0400</span><span class="m2">cash floor</span><span class="mono">0.20</span><span class="m2">gas / day</span><span class="mono">0.004 ETH</span></div><div style="display:flex;gap:8px;margin-top:10px"><span class="btn btn-secondary" style="font-size:12px;padding:4px 10px">Edit risk</span></div><div class="m3" style="font-size:11px;margin-top:8px">Changes apply from the next tick and are recorded on-chain.</div></div>
+    <div class="box"><div class="k" style="margin-bottom:8px">Marketplace listing</div><div style="display:flex;justify-content:space-between;align-items:center;font-size:12.5px"><span>Listed · <span class="mono">40 USDG / 30d</span> · 128 subscribers</span><label style="display:flex;align-items:center;gap:10px"><span style="width:30px;height:16px;background:var(--color-accent);position:relative"><span style="position:absolute;top:2px;right:2px;width:12px;height:12px;background:#050b07"></span></span></label></div><span class="btn btn-ghost" style="font-size:12px;padding:4px 6px;margin-top:4px">Change price →</span></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <span class="btn btn-secondary">Pause</span>
+      <span class="btn btn-secondary">Evolve → v3</span>
+      <span class="btn btn-secondary" style="grid-column:span 2;color:var(--red);border-color:rgba(210,96,91,.4)">Retire agent</span>
+    </div>
+    <div class="m3" style="font-size:11px;line-height:1.45">Pause keeps positions and armed stops; no new decisions. Evolve retires v2 and starts v3's own record. Retire closes positions at market over the next tick and returns funds to you.</div>
+  </div>
+
+  <div data-screen-label="Agent wallet" style="border:1px solid var(--color-divider);padding:24px;display:flex;flex-direction:column;gap:18px">
+    <div><div class="k">Agent wallet · Meridian v2</div><div class="mono" style="font-size:13px;margin-top:4px;word-break:break-all;color:var(--ink-2)">0x4c91b2e77a10f3d8c20b6e91aa3f4d7c2e07a9e1 <span class="btn btn-secondary" style="font-size:10px;padding:1px 6px;margin-left:4px">copy</span></div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="box"><div class="k">USDG</div><div class="mono" style="font-size:24px;margin-top:4px">3,077.40</div><div class="m3" style="font-size:11px">cash · 8,758.80 in positions</div></div>
+      <div class="box" style="border-color:rgba(212,162,74,.5)"><div class="k am">ETH · gas</div><div class="mono am" style="font-size:24px;margin-top:4px">0.0062</div><div class="am" style="font-size:11px">⚠ ≈ 1.5 days at current cadence</div></div>
+    </div>
+    <div style="border:1px solid rgba(212,162,74,.45);padding:10px 12px;font-size:12px;line-height:1.45;color:var(--ink-2)">Low gas. Below <span class="mono">0.002 ETH</span> the agent pauses and armed stops <b style="color:var(--color-text);font-weight:500">cannot fire</b>. Deposit at least <span class="mono">0.05 ETH</span> to cover the month.</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px"><span class="btn btn-primary blueprint">Deposit</span><span class="btn btn-secondary">Withdraw</span><span class="btn btn-secondary" style="color:var(--red);border-color:rgba(210,96,91,.4)">Export key</span></div>
+    <div><div class="k" style="margin-bottom:8px">Transactions</div>
+      <table class="table" style="font-size:11.5px"><tbody>
+        <tr><td class="mono m2">May 14 14:33</td><td>Subscription in</td><td class="mono r up">+40.00 USDG</td><td><a href="#" class="mono">tx ↗</a></td></tr>
+        <tr><td class="mono m2">May 14 12:00</td><td>BUY NVDAx · 12</td><td class="mono r dn">−1,540.80 USDG</td><td><a href="#" class="mono">tx ↗</a></td></tr>
+        <tr><td class="mono m2">May 14 12:00</td><td class="m2">gas</td><td class="mono r m2">−0.00031 ETH</td><td class="mono m3">↑</td></tr>
+        <tr><td class="mono m2">May 14 11:00</td><td>SELL MSFTx · 3</td><td class="mono r up">+1,236.30 USDG</td><td><a href="#" class="mono">tx ↗</a></td></tr>
+        <tr><td class="mono am">May 13 15:00</td><td>BUY AAPLx · 2 <span class="am mono" style="font-size:10px">PENDING 3/12</span></td><td class="mono r m3">≈ −463.84 USDG</td><td><a href="#" class="mono am">tx ↗</a></td></tr>
+        <tr><td class="mono m2">May 1 09:12</td><td>Deposit from kestrel.eth</td><td class="mono r up">+0.05 ETH</td><td><a href="#" class="mono">tx ↗</a></td></tr>
+      </tbody></table></div>
+    <div class="blueprint" style="padding:14px 16px;background:var(--color-surface);box-shadow:var(--shadow-lg)">
+      <div class="lbl" style="margin-bottom:6px">EXPORT PRIVATE KEY · STEP 1 OF 3</div>
+      <div style="font-family:var(--font-heading);font-weight:600;font-size:18px">Before you continue</div>
+      <div style="font-size:12.5px;color:var(--ink-2);line-height:1.5;margin-top:4px">Anyone with this key controls <span class="mono" style="color:var(--color-text)">11,836.20 USDG</span>. Arcana will never ask for it. Step 2 asks you to type the agent's name; step 3 signs with your creator wallet and shows the key once.</div>
+      <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end"><span class="btn btn-secondary" style="font-size:12px;padding:4px 10px">Cancel</span><span class="btn btn-secondary" style="font-size:12px;padding:4px 10px;color:var(--red);border-color:rgba(210,96,91,.4)">I understand · continue</span></div>
+    </div>
+  </div>
+
+  <div data-screen-label="Triggers" style="border:1px solid var(--color-divider);padding:24px;display:flex;flex-direction:column;gap:18px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end"><div><div class="k">Triggers · Meridian v2</div><div style="font-family:var(--font-heading);font-weight:600;font-size:24px;line-height:1.1">Armed conditions</div></div><span class="btn btn-secondary" style="font-size:12px;padding:4px 10px">+ Add</span></div>
+    <div style="display:flex;flex-direction:column">
+      <div style="display:grid;grid-template-columns:1fr auto;gap:2px 12px;padding:10px 0;border-top:1px solid var(--color-divider);font-size:12.5px"><div><span class="mono">NAV drawdown &gt; 8%</span> from season peak <span class="m3">→</span> pause agent</div><span class="mono up" style="font-size:10.5px">ARMED</span><div class="m3" style="font-size:11px">current −0.9% · checked every tick</div></div>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:2px 12px;padding:10px 0;border-top:1px solid var(--color-divider);font-size:12.5px"><div><span class="mono">ETH &lt; 0.002</span> <span class="m3">→</span> notify + pause</div><span class="mono up" style="font-size:10.5px">ARMED</span><div class="m3" style="font-size:11px">current 0.0062</div></div>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:2px 12px;padding:10px 0;border-top:1px solid var(--color-divider);font-size:12.5px"><div><span class="mono">Any symbol price unavailable &gt; 30 ticks</span> <span class="m3">→</span> exclude symbol until fresh</div><span class="mono am" style="font-size:10.5px">ACTIVE · TSLAx</span><div class="m3" style="font-size:11px">TSLAx excluded since 13:02</div></div>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:2px 12px;padding:10px 0;border-top:1px solid var(--color-divider);border-bottom:1px solid var(--color-divider);font-size:12.5px;color:var(--ink-2)"><div><span class="mono">Rank drops below #10</span> <span class="m3">→</span> notify</div><span class="mono m3" style="font-size:10.5px">DISABLED</span></div>
+    </div>
+    <div class="blueprint" style="padding:14px 16px">
+      <div class="k" style="margin-bottom:10px">Condition editor</div>
+      <div style="display:grid;grid-template-columns:1fr 70px 1fr;gap:8px;align-items:end">
+        <div class="field"><label>When</label><div class="input" style="display:flex;justify-content:space-between;font-size:12.5px">Daily realised loss ▾</div></div>
+        <div class="field"><label>is</label><div class="input mono" style="text-align:center">&gt;</div></div>
+        <div class="field"><label>Value</label><div class="input mono" style="display:flex;justify-content:space-between">0.03<span class="m3">= 3% NAV</span></div></div>
+      </div>
+      <div class="field" style="margin-top:8px"><label>Then</label><div class="input" style="display:flex;justify-content:space-between;font-size:12.5px">Pause until next 00:00 UTC ▾</div></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px"><span class="m3" style="font-size:11px">Evaluated every tick, before the model runs.</span><span class="btn btn-primary blueprint" style="font-size:12px;padding:4px 12px">Arm</span></div>
+    </div>
+    <div><div class="k" style="margin-bottom:8px">Fired · history</div>
+      <table class="table" style="font-size:11.5px"><tbody>
+        <tr><td class="mono m2">May 14 13:02</td><td>price unavailable · TSLAx</td><td class="am">excluded symbol</td></tr>
+        <tr><td class="mono m2">Apr 12 14:00</td><td>NAV drawdown &gt; 4% <span class="m3">(old level)</span></td><td>notified</td></tr>
+        <tr><td class="mono m2">Apr 10 16:30</td><td>ETH &lt; 0.002</td><td>paused 2h · topped up</td></tr>
+      </tbody></table></div>
+  </div>
+</div>
+</div>
+</x-dc>
+</body>
+</html>

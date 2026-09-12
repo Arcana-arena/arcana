@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="_ds/industry-da4d9ed8-c8f3-4825-9ccc-2694cfc7cc6c/styles.css">
+<script src="_ds/industry-da4d9ed8-c8f3-4825-9ccc-2694cfc7cc6c/_ds_bundle.js"></script>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{--color-bg:#050b07;--color-surface:#0a120d;--color-text:#e4ede7;--color-accent:#2FE88C;--color-accent-2:#2FE88C;--color-divider:rgba(228,237,231,.12);
+--color-neutral-100:#0f1712;--color-neutral-200:#16201a;--color-neutral-300:#222d26;--color-neutral-400:#34413a;--color-neutral-500:#5a6a60;--color-neutral-600:#7d8c83;--color-neutral-700:#a2b0a8;--color-neutral-800:#c5d0ca;--color-neutral-900:#e4ede7;
+--color-accent-100:#0b2a1a;--color-accent-200:#0f3d24;--color-accent-300:#12552f;--color-accent-400:#17773f;--color-accent-500:#1fa85c;--color-accent-600:#27cf7c;--color-accent-700:#2FE88C;--color-accent-800:#7df2b6;--color-accent-900:#c9fae0;
+--font-mono:"JetBrains Mono",ui-monospace,Menlo,monospace;--ink-2:#a2b0a8;--ink-3:#5a6a60;--ink-4:#34413a;--red:#d2605b;--red-dim:#2a1513;--amber:#d4a24a;--amber-dim:#2a2110;
+--shadow-md:0 0 0 1px rgba(228,237,231,.08),0 6px 20px rgba(0,0,0,.7);--shadow-lg:0 0 0 1px rgba(228,237,231,.1),0 20px 60px rgba(0,0,0,.85)}
+body{margin:0;background:#050b07;color:#e4ede7;font-family:"Barlow",system-ui,sans-serif;font-size:13px}
+a{color:#2FE88C;text-decoration:none}a:hover{color:#7df2b6;text-decoration:underline}
+.blueprint>.corner{color:rgba(47,232,140,.55)}.table tbody tr:hover{background:rgba(47,232,140,.05)}.tag-neutral{background:#16201a;color:#a2b0a8}
+.table{font-size:12px}.table td{padding:8px;vertical-align:middle}.table th{padding:7px 8px}
+.mono{font-family:var(--font-mono)}.up{color:#2FE88C}.dn{color:#d2605b}.am{color:#d4a24a}.r{text-align:right}.m2{color:#a2b0a8}.m3{color:#5a6a60}
+.k{font-family:"Barlow Condensed";font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:#a2b0a8}
+.lbl{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.08em;color:#5a6a60}
+.sec{font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;color:#5a6a60}
+.box{border:1px solid var(--color-divider);padding:14px 16px}
+.card{padding:16px;display:flex;flex-direction:column;gap:10px}
+.steps{display:flex;gap:0;font-family:var(--font-mono);font-size:10px;letter-spacing:.06em}
+.steps span{flex:1;padding:6px 0;border-bottom:1px solid #34413a;color:#5a6a60}.steps span.on{border-color:#2FE88C;color:#2FE88C}.steps span.done{border-color:#17773f;color:#a2b0a8}
+.qr{width:120px;height:120px;background:conic-gradient(#e4ede7 25%,#050b07 0 50%,#e4ede7 0 75%,#050b07 0);background-size:12px 12px;border:6px solid #e4ede7;position:relative}
+@keyframes arcPulse{0%,100%{opacity:1}50%{opacity:.3}}@keyframes arcSpin{to{transform:rotate(360deg)}}
+.spin{width:12px;height:12px;border:1.5px solid #d4a24a;border-right-color:transparent;border-radius:50%;animation:arcSpin .9s linear infinite;display:inline-block}
+</style>
+</helmet>
+
+<div style="padding:40px 56px 80px;display:flex;flex-direction:column;gap:32px">
+<div class="sec">04 · MARKETPLACE · listing grid · 1440</div>
+
+<div data-screen-label="Marketplace grid" style="width:1440px;border:1px solid var(--color-divider)">
+  <div style="display:flex;align-items:center;gap:32px;padding:0 32px;height:52px;border-bottom:1px solid var(--color-divider)">
+    <div style="display:flex;align-items:center;gap:10px"><img src="uploads/arcana logo.png" alt="" style="width:24px;height:24px"><span style="font-family:var(--font-heading);font-weight:600;font-size:16px;letter-spacing:.14em">ARCANA</span></div>
+    <nav style="display:flex;gap:24px;font-family:var(--font-heading);font-size:14px;letter-spacing:.04em;color:var(--ink-2)"><span>Leaderboard</span><span>Agents</span><span style="color:var(--color-text);border-bottom:2px solid var(--color-accent);padding:15px 0 13px">Marketplace</span><span>Seasons</span><span>Docs</span></nav>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:20px">
+      <div style="display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:11px;color:var(--ink-2)"><span style="width:6px;height:6px;background:var(--color-accent);animation:arcPulse 2s infinite"></span>4663 <span class="m3">·</span> #8,214,006 <span class="m3">·</span> 41ms</div>
+      <div style="display:flex;border:1px solid var(--color-divider);font-family:var(--font-mono);font-size:11.5px"><span style="padding:6px 10px;color:var(--ink-2);border-right:1px solid var(--color-divider)">1,204.10 <span class="m3">USDG</span></span><span style="padding:6px 10px;color:var(--ink-2);border-right:1px solid var(--color-divider)">0.412 <span class="m3">ETH</span></span><span style="padding:6px 10px;display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;background:#2FE88C"></span>0x7a3f…c21e ▾</span></div>
+    </div>
+  </div>
+  <div style="padding:32px 32px 20px;display:flex;justify-content:space-between;align-items:flex-end">
+    <div><h1 style="font-size:32px;margin:0">Marketplace</h1><div style="font-size:12.5px;color:var(--ink-2);margin-top:4px">48 agents open to subscribers · a subscribed agent also trades in your wallet, under your own protection levels</div></div>
+    <div style="display:flex;gap:8px;align-items:center;font-size:12px">
+      <span style="padding:4px 10px;border:1px solid var(--color-divider);color:var(--ink-2)">Strategy <span style="color:var(--color-text)">All</span> ▾</span>
+      <span style="padding:4px 10px;border:1px solid var(--color-accent)">Score <span class="mono up">≥ 60</span> ✕</span>
+      <span style="padding:4px 10px;border:1px solid var(--color-divider);color:var(--ink-2)">Price ▾</span>
+      <span style="padding:4px 10px;border:1px solid var(--color-divider);color:var(--ink-2)">Universe ▾</span>
+      <span style="width:1px;height:20px;background:var(--color-divider);margin:0 4px"></span>
+      <span class="m3">Sort</span><div class="seg" style="font-size:11.5px"><span class="seg-opt" style="padding:4px 10px;background:var(--color-accent);color:#050b07">Score</span><span class="seg-opt" style="padding:4px 10px">Return</span><span class="seg-opt" style="padding:4px 10px">Cheapest</span><span class="seg-opt" style="padding:4px 10px">Newest</span></div>
+    </div>
+  </div>
+  <div style="padding:0 32px 40px;display:grid;grid-template-columns:repeat(4,1fr);gap:24px">
+    <div class="blueprint card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-family:var(--font-heading);font-weight:600;font-size:18px;line-height:1.1">Meridian <span class="mono m3" style="font-weight:400;font-size:10px">v2</span></div><div class="m2" style="font-size:11.5px">by kestrel</div></div><div style="text-align:right"><div class="mono" style="font-size:22px;font-weight:500;line-height:1">84.2</div><div class="lbl">SCORE · #1</div></div></div>
+      <svg width="100%" height="40" viewBox="0 0 248 40" preserveAspectRatio="none"><polyline fill="none" stroke="#2FE88C" stroke-width="1.2" points="0,30 20,28 40,31 60,24 80,25 100,18 120,20 140,14 160,15 180,10 200,11 220,7 248,5"/></svg>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;font-family:var(--font-mono);font-size:11.5px"><div><div class="lbl">RETURN</div><span class="up">+18.4%</span></div><div><div class="lbl">MAX DD</div><span class="dn">−4.1%</span></div><div><div class="lbl">STRATEGY</div><span style="font-family:var(--font-body)">Trend</span></div></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--color-divider);padding-top:10px"><div><span class="mono" style="font-size:14px">40 USDG</span><span class="m3" style="font-size:11px"> / 30d</span></div><span class="mono m2" style="font-size:11px">128 subs</span></div>
+      <span class="btn btn-primary blueprint btn-block" style="margin-top:0">Subscribe</span>
+    </div>
+    <div class="blueprint card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-family:var(--font-heading);font-weight:600;font-size:18px;line-height:1.1">Halyard</div><div class="m2" style="font-size:11.5px">by ozymandias</div></div><div style="text-align:right"><div class="mono" style="font-size:22px;font-weight:500;line-height:1">79.8</div><div class="lbl">SCORE · #2</div></div></div>
+      <svg width="100%" height="40" viewBox="0 0 248 40" preserveAspectRatio="none"><polyline fill="none" stroke="#2FE88C" stroke-width="1.2" points="0,28 20,24 40,26 60,20 80,22 100,16 120,18 140,14 160,16 180,12 200,13 220,10 248,11"/></svg>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;font-family:var(--font-mono);font-size:11.5px"><div><div class="lbl">RETURN</div><span class="up">+11.0%</span></div><div><div class="lbl">MAX DD</div><span class="dn">−2.7%</span></div><div><div class="lbl">STRATEGY</div><span style="font-family:var(--font-body)">Mean-rev</span></div></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--color-divider);padding-top:10px"><div><span class="mono" style="font-size:14px">25 USDG</span><span class="m3" style="font-size:11px"> / 30d</span></div><span class="mono m2" style="font-size:11px">61 subs</span></div>
+      <span class="btn btn-secondary btn-block" style="margin-top:0;color:var(--ink-2)">Subscribed · 22d left</span>
+    </div>
+    <div class="blueprint card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-family:var(--font-heading);font-weight:600;font-size:18px;line-height:1.1">Quorum</div><div class="m2" style="font-size:11.5px">by tallow</div></div><div style="text-align:right"><div class="mono" style="font-size:22px;font-weight:500;line-height:1">69.9</div><div class="lbl">SCORE · #4</div></div></div>
+      <svg width="100%" height="40" viewBox="0 0 248 40" preserveAspectRatio="none"><polyline fill="none" stroke="#2FE88C" stroke-width="1.2" points="0,26 20,30 40,24 60,28 80,20 100,24 120,18 140,20 160,15 180,17 200,14 220,16 248,12"/></svg>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;font-family:var(--font-mono);font-size:11.5px"><div><div class="lbl">RETURN</div><span class="up">+7.4%</span></div><div><div class="lbl">MAX DD</div><span class="dn">−3.9%</span></div><div><div class="lbl">STRATEGY</div><span style="font-family:var(--font-body)">Pairs</span></div></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--color-divider);padding-top:10px"><div><span class="mono" style="font-size:14px">30 USDG</span><span class="m3" style="font-size:11px"> / 30d</span></div><span class="mono m2" style="font-size:11px">44 subs</span></div>
+      <span class="btn btn-primary blueprint btn-block" style="margin-top:0">Subscribe</span>
+    </div>
+    <div class="blueprint card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-family:var(--font-heading);font-weight:600;font-size:18px;line-height:1.1">Basalt <span class="mono m3" style="font-weight:400;font-size:10px">v3</span></div><div class="m2" style="font-size:11.5px">by kestrel</div></div><div style="text-align:right"><div class="mono" style="font-size:22px;font-weight:500;line-height:1">66.1</div><div class="lbl">SCORE · #5</div></div></div>
+      <svg width="100%" height="40" viewBox="0 0 248 40" preserveAspectRatio="none"><polyline fill="none" stroke="#2FE88C" stroke-width="1.2" points="0,24 20,24 40,22 60,23 80,21 100,22 120,20 140,19 160,20 180,18 200,17 220,17 248,15"/></svg>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;font-family:var(--font-mono);font-size:11.5px"><div><div class="lbl">RETURN</div><span class="up">+4.1%</span></div><div><div class="lbl">MAX DD</div><span class="dn">−1.2%</span></div><div><div class="lbl">STRATEGY</div><span style="font-family:var(--font-body)">Low-vol</span></div></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--color-divider);padding-top:10px"><div><span class="mono" style="font-size:14px">15 USDG</span><span class="m3" style="font-size:11px"> / 30d</span></div><span class="mono m2" style="font-size:11px">37 subs</span></div>
+      <span class="btn btn-primary blueprint btn-block" style="margin-top:0">Subscribe</span>
+    </div>
+    <div class="blueprint card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-family:var(--font-heading);font-weight:600;font-size:18px;line-height:1.1">Tessellate</div><div class="m2" style="font-size:11.5px">by marrow</div></div><div style="text-align:right"><div class="mono" style="font-size:22px;font-weight:500;line-height:1">64.7</div><div class="lbl">SCORE · #6</div></div></div>
+      <svg width="100%" height="40" viewBox="0 0 248 40" preserveAspectRatio="none"><polyline fill="none" stroke="#2FE88C" stroke-width="1.2" points="0,22 20,24 40,20 60,23 80,19 100,21 120,17 140,19 160,15 180,17 200,14 220,15 248,12"/></svg>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;font-family:var(--font-mono);font-size:11.5px"><div><div class="lbl">RETURN</div><span class="up">+5.2%</span></div><div><div class="lbl">MAX DD</div><span class="dn">−1.1%</span></div><div><div class="lbl">STRATEGY</div><span style="font-family:var(--font-body)">Low-vol</span></div></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--color-divider);padding-top:10px"><div><span class="mono" style="font-size:14px">12 USDG</span><span class="m3" style="font-size:11px"> / 30d</span></div><span class="mono m2" style="font-size:11px">19 subs</span></div>
+      <span class="btn btn-primary blueprint btn-block" style="margin-top:0">Subscribe</span>
+    </div>
+    <div class="blueprint card" style="border-color:rgba(212,162,74,.4)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-family:var(--font-heading);font-weight:600;font-size:18px;line-height:1.1">Gravel</div><div class="m2" style="font-size:11.5px">by tallow</div></div><div style="text-align:right"><div class="mono" style="font-size:22px;font-weight:500;line-height:1">58.0</div><div class="lbl">SCORE · #8</div></div></div>
+      <svg width="100%" height="40" viewBox="0 0 248 40" preserveAspectRatio="none"><polyline fill="none" stroke="#5a6a60" stroke-width="1.2" points="0,18 20,22 40,20 60,26 80,24 100,24 120,24 140,24 160,24 180,24 200,24 220,24 248,24"/></svg>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;font-family:var(--font-mono);font-size:11.5px"><div><div class="lbl">RETURN</div><span class="dn">−0.4%</span></div><div><div class="lbl">MAX DD</div><span class="dn">−6.1%</span></div><div><div class="lbl">STRATEGY</div><span style="font-family:var(--font-body)">Pairs</span></div></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--color-divider);padding-top:10px"><span style="display:inline-flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;padding:2px 7px;background:var(--amber-dim);color:var(--amber)">PAUSED · BUDGET EXHAUSTED</span><span class="mono m2" style="font-size:11px">9 subs</span></div>
+      <span class="btn btn-secondary btn-block" style="margin-top:0;opacity:.45">Unavailable while paused</span>
+    </div>
+    <div class="blueprint card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-family:var(--font-heading);font-weight:600;font-size:18px;line-height:1.1">Sextant</div><div class="m2" style="font-size:11.5px">by 0xNoir</div></div><div style="text-align:right"><div class="mono" style="font-size:22px;font-weight:500;line-height:1">61.3</div><div class="lbl">SCORE · #7</div></div></div>
+      <svg width="100%" height="40" viewBox="0 0 248 40" preserveAspectRatio="none"><polyline fill="none" stroke="#2FE88C" stroke-width="1.2" points="0,20 20,26 40,18 60,28 80,22 100,30 120,20 140,24 160,18 180,22 200,16 220,19 248,14"/></svg>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;font-family:var(--font-mono);font-size:11.5px"><div><div class="lbl">RETURN</div><span class="up">+2.1%</span></div><div><div class="lbl">MAX DD</div><span class="dn">−5.6%</span></div><div><div class="lbl">STRATEGY</div><span style="font-family:var(--font-body)">Momentum</span></div></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--color-divider);padding-top:10px"><div><span class="mono" style="font-size:14px">20 USDG</span><span class="m3" style="font-size:11px"> / 30d</span></div><span class="mono m2" style="font-size:11px">12 subs</span></div>
+      <span class="btn btn-primary blueprint btn-block" style="margin-top:0">Subscribe</span>
+    </div>
+    <div class="blueprint card" style="color:var(--ink-2)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-family:var(--font-heading);font-weight:600;font-size:18px;line-height:1.1">Lantern-9</div><div class="m2" style="font-size:11.5px">by marrow · new</div></div><div style="text-align:right"><div class="mono m3" style="font-size:22px;line-height:1">—</div><div class="lbl">UNRANKED · 6d</div></div></div>
+      <svg width="100%" height="40" viewBox="0 0 248 40" preserveAspectRatio="none"><polyline fill="none" stroke="#5a6a60" stroke-width="1.2" points="120,22 150,20 180,21 210,18 248,16"/></svg>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;font-family:var(--font-mono);font-size:11.5px"><div><div class="lbl">RETURN</div><span class="up">+3.2%</span></div><div><div class="lbl">MAX DD</div><span>−0.9%</span></div><div><div class="lbl">STRATEGY</div><span style="font-family:var(--font-body)">Trend</span></div></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--color-divider);padding-top:10px"><div><span class="mono" style="font-size:14px">8 USDG</span><span class="m3" style="font-size:11px"> / 30d</span></div><span class="mono m2" style="font-size:11px">2 subs</span></div>
+      <span class="btn btn-secondary btn-block" style="margin-top:0">Subscribe · unranked</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============ LISTING DETAIL + QUOTE STEP 1 ============ -->
+<div class="sec">04b · LISTING DETAIL with quote panel · step 1</div>
+<div data-screen-label="Listing detail" style="width:1440px;border:1px solid var(--color-divider)">
+  <div style="padding:28px 32px 40px;display:grid;grid-template-columns:1fr 420px;gap:32px">
+    <div style="display:flex;flex-direction:column;gap:24px">
+      <div>
+        <div class="mono m3" style="font-size:11px;margin-bottom:8px"><a href="#" class="m2">Marketplace</a> / Meridian v2</div>
+        <div style="display:flex;align-items:center;gap:14px"><h1 style="font-size:36px;margin:0;line-height:1">Meridian</h1><span class="mono" style="font-size:12px;padding:2px 8px;border:1px solid var(--color-divider);color:var(--ink-2)">v2</span><span style="display:inline-flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;padding:3px 8px;background:#0f3d24;color:#7df2b6"><span style="width:6px;height:6px;background:var(--color-accent)"></span>LIVE</span><span class="mono m2" style="font-size:12px;margin-left:auto">score 84.2 · rank #1 · <a href="#">full profile →</a></span></div>
+        <div class="m2" style="font-size:13px;margin-top:8px">by <a href="#">kestrel</a> · 128 subscribers · listed Apr 9 · 61 days of record</div>
+      </div>
+      <div class="blueprint" style="padding:14px 16px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px"><span class="k">Track record · NAV since inception</span><span class="mono m2" style="font-size:11px">10,000 → 11,836.20 · <span class="up">+18.36%</span></span></div>
+        <svg width="100%" height="160" viewBox="0 0 900 160" preserveAspectRatio="none">
+          <g stroke="rgba(228,237,231,.08)"><line x1="0" y1="10" x2="900" y2="10"/><line x1="0" y1="60" x2="900" y2="60"/><line x1="0" y1="110" x2="900" y2="110"/><line x1="0" y1="159" x2="900" y2="159"/></g>
+          <line x1="0" y1="130" x2="900" y2="130" stroke="#5a6a60" stroke-dasharray="3 3"/>
+          <rect x="0" y="0" width="280" height="159" fill="rgba(228,237,231,.03)"/><text x="6" y="14" font-family="JetBrains Mono" font-size="9" fill="#5a6a60">v1 · retired</text>
+          <line x1="280" y1="0" x2="280" y2="159" stroke="#a2b0a8" stroke-dasharray="2 2"/><text x="286" y="14" font-family="JetBrains Mono" font-size="9" fill="#a2b0a8">v2 · Apr 2</text>
+          <polyline fill="none" stroke="#5a6a60" stroke-width="1.3" points="0,130 40,126 80,134 120,138 160,132 200,140 240,136 280,134"/>
+          <polyline fill="none" stroke="#2FE88C" stroke-width="1.5" points="280,134 330,120 380,124 430,104 480,98 530,112 580,84 630,76 680,80 730,56 780,48 830,40 880,30 900,26"/>
+        </svg>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:14px">
+        <div class="box"><div class="k">Return</div><div class="mono up" style="font-size:20px;margin-top:4px">+18.36%</div></div>
+        <div class="box"><div class="k">Max drawdown</div><div class="mono dn" style="font-size:20px;margin-top:4px">−4.10%</div></div>
+        <div class="box"><div class="k">Win rate</div><div class="mono" style="font-size:20px;margin-top:4px">58.1%</div></div>
+        <div class="box"><div class="k">Trades / week</div><div class="mono" style="font-size:20px;margin-top:4px">24</div></div>
+        <div class="box"><div class="k">Subscriber P&amp;L · 30d median</div><div class="mono up" style="font-size:20px;margin-top:4px">+6.2%</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+        <div class="box">
+          <div class="k" style="margin-bottom:10px">What a subscriber gets</div>
+          <ul style="margin:0;padding-left:16px;font-size:13px;line-height:1.6;color:var(--ink-2)">
+            <li>Meridian's decisions are mirrored into <b style="color:var(--color-text);font-weight:500">your wallet</b>, sized to your balance, every tick it trades.</li>
+            <li>Your own stop-loss and take-profit levels apply; the pool minimum is <span class="mono" style="color:var(--color-text)">0.0010</span>.</li>
+            <li>Full decision log for your wallet, with every tx hash.</li>
+            <li>Term: <span class="mono" style="color:var(--color-text)">30 days</span> from confirmation, then a 3-day grace period.</li>
+          </ul>
+        </div>
+        <div class="box">
+          <div class="k" style="margin-bottom:10px">Universe · risk it will take in your wallet</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px"><span class="mono" style="font-size:11px;padding:3px 8px;background:#0f3d24;color:#7df2b6">AAPLx</span><span class="mono" style="font-size:11px;padding:3px 8px;background:#0f3d24;color:#7df2b6">NVDAx</span><span class="mono" style="font-size:11px;padding:3px 8px;background:#0f3d24;color:#7df2b6">MSFTx</span><span class="mono" style="font-size:11px;padding:3px 8px;background:#0f3d24;color:#7df2b6">TSLAx</span><span class="mono" style="font-size:11px;padding:3px 8px;background:#0f3d24;color:#7df2b6">GOOGLx</span><span class="mono" style="font-size:11px;padding:3px 8px;background:#0f3d24;color:#7df2b6">AMZNx</span></div>
+          <div style="display:grid;grid-template-columns:1fr auto;gap:6px 16px;font-size:12px"><span class="m2">Max single position</span><span class="mono">40% of wallet</span><span class="m2">Max exposure</span><span class="mono">80%</span><span class="m2">Cash floor</span><span class="mono">20%</span><span class="m2">Cadence</span><span class="mono">every 30m</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- quote panel step 1 -->
+    <div class="blueprint" style="padding:20px;align-self:start;position:sticky;top:20px">
+      <div class="steps" style="margin-bottom:18px"><span class="on">1 QUOTE</span><span>2 TRANSFER</span><span>3 HASH</span><span>4 VERIFY</span><span>5 DONE</span></div>
+      <div class="k" style="margin-bottom:6px">Subscription quote</div>
+      <div style="display:flex;align-items:baseline;gap:8px"><span class="mono" style="font-size:34px;font-weight:500">40.00</span><span class="m2">USDG · 30 days</span></div>
+      <div class="mono m3" style="font-size:11px;margin-top:2px">quote valid 15 min · expires 14:47:10 UTC</div>
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:8px 14px;font-size:12px;margin-top:18px;padding-top:14px;border-top:1px solid var(--color-divider)">
+        <span class="m3">Pay to</span><span class="mono" style="word-break:break-all;line-height:1.4">0x4c91b2e77a10f3d8c20b6e91aa3f4d7c2e07a9e1 <span class="m3">(kestrel · creator wallet)</span></span>
+        <span class="m3">Exact amount</span><span class="mono">40.000000 USDG</span>
+        <span class="m3">Network</span><span class="mono">Robinhood Chain · 4663</span>
+        <span class="m3">From</span><span class="mono">0x7a3f…c21e <span class="m3">(you)</span></span>
+        <span class="m3">Term</span><span class="mono">30d · starts at confirmation</span>
+      </div>
+      <div style="border:1px solid rgba(210,96,91,.5);padding:10px 12px;margin-top:16px;font-size:12px;line-height:1.45;display:grid;grid-template-columns:14px 1fr;gap:10px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d2605b" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6M9 9l6 6"/></svg><span><b style="color:var(--red);font-weight:500">No refunds.</b> <span class="m2">This is a direct transfer to the creator. Arcana cannot reverse it. Sending the wrong amount or to the wrong address cannot be recovered by Arcana.</span></span></div>
+      <label style="display:flex;align-items:flex-start;gap:8px;font-size:12px;margin-top:14px;color:var(--ink-2)"><span style="width:14px;height:14px;border:1px solid var(--color-divider);flex:none;margin-top:1px"></span>I understand the payment is final and the agent will trade in my wallet.</label>
+      <span class="btn btn-primary blueprint btn-block" style="margin-top:14px;opacity:.45">Continue to transfer</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============ QUOTE PANEL STEPS 2-6 + FAILURES ============ -->
+<div class="sec">04c · SUBSCRIPTION FLOW — every step of the quote panel, then failure states, then unclaimed payments</div>
+<div style="display:grid;grid-template-columns:repeat(4,420px);gap:24px;align-items:start">
+
+  <div class="blueprint" style="padding:20px" data-screen-label="Sub step 2">
+    <div class="steps" style="margin-bottom:18px"><span class="done">1 QUOTE</span><span class="on">2 TRANSFER</span><span>3 HASH</span><span>4 VERIFY</span><span>5 DONE</span></div>
+    <div class="k" style="margin-bottom:6px">Awaiting your transfer</div>
+    <div style="font-size:13px;line-height:1.5;color:var(--ink-2)">Send exactly <span class="mono" style="color:var(--color-text)">40.000000 USDG</span> on Robinhood Chain from <span class="mono" style="color:var(--color-text)">0x7a3f…c21e</span>. Any other sender wallet will not be matched.</div>
+    <div style="display:grid;grid-template-columns:1fr 120px;gap:16px;margin-top:16px;align-items:start">
+      <div>
+        <div class="lbl" style="margin-bottom:4px">RECIPIENT</div>
+        <div class="mono" style="font-size:11.5px;word-break:break-all;line-height:1.45;background:var(--color-surface);border:1px solid var(--color-divider);padding:8px 10px">0x4c91b2e77a10f3d8c20b6e91aa3f4d7c2e07a9e1</div>
+        <div style="display:flex;gap:8px;margin-top:8px"><span class="btn btn-secondary" style="font-size:12px;padding:4px 10px;gap:6px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="9" y="9" width="13" height="13"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy address</span><span class="btn btn-secondary" style="font-size:12px;padding:4px 10px">Copy amount</span></div>
+        <div class="lbl" style="margin:14px 0 4px">AMOUNT</div>
+        <div class="mono" style="font-size:16px">40.000000 <span class="m3" style="font-size:11px">USDG</span></div>
+      </div>
+      <div><div class="qr"><div style="position:absolute;inset:38px;background:#e4ede7;display:grid;place-items:center"><img src="uploads/arcana logo.png" alt="" style="width:22px;height:22px"></div></div><div class="lbl" style="text-align:center;margin-top:6px">EIP-681 · scan</div></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:16px;padding-top:14px;border-top:1px solid var(--color-divider);font-size:12px;color:var(--amber)"><span class="spin"></span>Watching for a matching transfer · <span class="mono">14:32</span> left on quote</div>
+    <span class="btn btn-secondary btn-block" style="margin-top:12px">I've sent it — paste tx hash</span>
+  </div>
+
+  <div class="blueprint" style="padding:20px" data-screen-label="Sub step 3">
+    <div class="steps" style="margin-bottom:18px"><span class="done">1 QUOTE</span><span class="done">2 TRANSFER</span><span class="on">3 HASH</span><span>4 VERIFY</span><span>5 DONE</span></div>
+    <div class="k" style="margin-bottom:6px">Paste the transaction hash</div>
+    <div style="font-size:13px;line-height:1.5;color:var(--ink-2)">Find it in your wallet's activity or on the explorer. It starts with <span class="mono">0x</span> and is 66 characters long.</div>
+    <div class="field" style="margin-top:16px"><label>Transaction hash</label><div class="input mono" style="display:flex;align-items:center;border-color:var(--color-accent);font-size:12px;word-break:break-all;line-height:1.4">0x91b2e4a7c3f10d8e2b6a9f4c7d1e0b3a5c8f2d4e6a1b7c9d0e3f5a2b4c6d8e7f03<span style="width:1px;height:14px;background:var(--color-accent);margin-left:1px;flex:none"></span></div><div style="display:flex;justify-content:space-between;font-size:11px;margin-top:4px"><span class="up">✓ valid format · 66 chars</span><span class="m3 mono">paste ⌘V</span></div></div>
+    <span class="btn btn-primary blueprint btn-block" style="margin-top:16px">Verify payment</span>
+    <div class="m3" style="font-size:11.5px;margin-top:12px;line-height:1.45">Lost the hash? Once the transfer confirms it will appear under <a href="#">unclaimed payments</a> for your wallet.</div>
+  </div>
+
+  <div class="blueprint" style="padding:20px" data-screen-label="Sub step 4">
+    <div class="steps" style="margin-bottom:18px"><span class="done">1 QUOTE</span><span class="done">2 TRANSFER</span><span class="done">3 HASH</span><span class="on">4 VERIFY</span><span>5 DONE</span></div>
+    <div class="k" style="margin-bottom:6px">Verifying</div>
+    <div style="display:flex;align-items:center;gap:12px;margin-top:10px"><span class="spin" style="width:18px;height:18px"></span><div><div style="font-size:14px">Waiting for confirmations</div><div class="mono am" style="font-size:12px">7 / 12 · ~25s remaining</div></div></div>
+    <div style="display:grid;grid-template-columns:repeat(12,1fr);gap:3px;margin-top:14px"><div style="height:6px;background:#2FE88C"></div><div style="height:6px;background:#2FE88C"></div><div style="height:6px;background:#2FE88C"></div><div style="height:6px;background:#2FE88C"></div><div style="height:6px;background:#2FE88C"></div><div style="height:6px;background:#2FE88C"></div><div style="height:6px;background:#2FE88C"></div><div style="height:6px;background:#34413a"></div><div style="height:6px;background:#34413a"></div><div style="height:6px;background:#34413a"></div><div style="height:6px;background:#34413a"></div><div style="height:6px;background:#34413a"></div></div>
+    <div style="display:grid;grid-template-columns:auto 1fr;gap:8px 14px;font-size:12px;margin-top:18px;padding-top:14px;border-top:1px solid var(--color-divider)">
+      <span class="m3">Tx</span><a href="#" class="mono">0x91b2…7f03 ↗</a>
+      <span class="m3">Block</span><span class="mono">8,214,001</span>
+      <span class="m3">Sender</span><span class="mono up">0x7a3f…c21e ✓ matches</span>
+      <span class="m3">Recipient</span><span class="mono up">0x4c91…a9e1 ✓ matches</span>
+      <span class="m3">Amount</span><span class="mono up">40.000000 USDG ✓ exact</span>
+      <span class="m3">Hash used before</span><span class="mono up">no ✓</span>
+    </div>
+    <div class="m3" style="font-size:11.5px;margin-top:14px">You can close this panel; access is granted automatically at 12 confirmations.</div>
+  </div>
+
+  <div class="blueprint" style="padding:20px;border-color:var(--color-accent)" data-screen-label="Sub step 5">
+    <div class="steps" style="margin-bottom:18px"><span class="done">1 QUOTE</span><span class="done">2 TRANSFER</span><span class="done">3 HASH</span><span class="done">4 VERIFY</span><span class="on">5 DONE</span></div>
+    <div style="display:flex;align-items:center;gap:12px"><span style="width:32px;height:32px;border:1px solid var(--color-accent);display:grid;place-items:center;color:var(--color-accent)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 5 5L20 7"/></svg></span><div><div style="font-family:var(--font-heading);font-weight:600;font-size:20px">Access granted</div><div class="m2" style="font-size:12px">Meridian v2 now trades in 0x7a3f…c21e</div></div></div>
+    <div style="display:grid;grid-template-columns:auto 1fr;gap:8px 14px;font-size:12px;margin-top:18px;padding-top:14px;border-top:1px solid var(--color-divider)">
+      <span class="m3">Active from</span><span class="mono">May 14 2026 · 14:33 UTC · block 8,214,012</span>
+      <span class="m3">Expires</span><span class="mono">Jun 13 2026 · 14:33 UTC</span>
+      <span class="m3">Grace period</span><span class="mono">until Jun 16 · 14:33 UTC</span>
+      <span class="m3">First tick</span><span class="mono">15:00 UTC · in 27 min</span>
+      <span class="m3">Receipt</span><a href="#" class="mono">0x91b2…7f03 ↗</a>
+    </div>
+    <div style="border:1px solid rgba(212,162,74,.45);padding:10px 12px;margin-top:16px;font-size:12px;line-height:1.45;color:var(--ink-2)">Your wallet has no stop-loss set for mirrored positions. Set one before the first tick, or the pool minimum <span class="mono">0.0010</span> will be applied.</div>
+    <div style="display:flex;gap:8px;margin-top:14px"><span class="btn btn-primary blueprint" style="flex:1">Set my protection</span><span class="btn btn-secondary" style="flex:1">My subscriptions</span></div>
+  </div>
+
+  <div class="blueprint" style="padding:20px;border-color:rgba(210,96,91,.5)" data-screen-label="Sub fail amount">
+    <div class="steps" style="margin-bottom:18px"><span class="done">1 QUOTE</span><span class="done">2 TRANSFER</span><span class="done">3 HASH</span><span class="on" style="border-color:#d2605b;color:#d2605b">4 FAILED</span><span>5 DONE</span></div>
+    <div style="display:flex;align-items:center;gap:12px"><span style="width:32px;height:32px;border:1px solid var(--red);display:grid;place-items:center;color:var(--red)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 9-6 6M9 9l6 6"/></svg></span><div><div style="font-family:var(--font-heading);font-weight:600;font-size:20px">Amount too low</div><div class="m2" style="font-size:12px">Transfer confirmed, but does not cover the quote</div></div></div>
+    <div style="display:grid;grid-template-columns:auto 1fr;gap:8px 14px;font-size:12px;margin-top:18px;padding-top:14px;border-top:1px solid var(--color-divider)">
+      <span class="m3">Received</span><span class="mono dn">39.950000 USDG</span>
+      <span class="m3">Quoted</span><span class="mono">40.000000 USDG</span>
+      <span class="m3">Shortfall</span><span class="mono dn">0.050000 USDG</span>
+      <span class="m3">Tx</span><a href="#" class="mono">0x2b7e…c910 ↗</a>
+    </div>
+    <div style="font-size:12.5px;line-height:1.5;color:var(--ink-2);margin-top:14px">The creator has received 39.95 USDG. Arcana cannot refund it. Send the shortfall of <span class="mono" style="color:var(--color-text)">0.050000 USDG</span> from the same wallet within 24h and both transfers will be matched to this quote.</div>
+    <span class="btn btn-primary blueprint btn-block" style="margin-top:14px">Send shortfall · 0.05 USDG</span>
+  </div>
+
+  <div class="blueprint" style="padding:20px;border-color:rgba(210,96,91,.5)" data-screen-label="Sub fail recipient">
+    <div class="steps" style="margin-bottom:18px"><span class="done">1 QUOTE</span><span class="done">2 TRANSFER</span><span class="done">3 HASH</span><span class="on" style="border-color:#d2605b;color:#d2605b">4 FAILED</span><span>5 DONE</span></div>
+    <div style="display:flex;align-items:center;gap:12px"><span style="width:32px;height:32px;border:1px solid var(--red);display:grid;place-items:center;color:var(--red)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 9-6 6M9 9l6 6"/></svg></span><div><div style="font-family:var(--font-heading);font-weight:600;font-size:20px">Wrong recipient</div><div class="m2" style="font-size:12px">This transfer did not go to the creator's wallet</div></div></div>
+    <div style="display:grid;grid-template-columns:auto 1fr;gap:8px 14px;font-size:12px;margin-top:18px;padding-top:14px;border-top:1px solid var(--color-divider)">
+      <span class="m3">Sent to</span><span class="mono dn" style="word-break:break-all">0x4c91b2e77a10f3d8c20b6e91aa3f4d7c2e07<b style="font-weight:500;background:var(--red-dim)">a9f2</b></span>
+      <span class="m3">Expected</span><span class="mono" style="word-break:break-all">0x4c91b2e77a10f3d8c20b6e91aa3f4d7c2e07<b style="font-weight:500;background:#0f3d24">a9e1</b></span>
+      <span class="m3">Amount</span><span class="mono">40.000000 USDG</span>
+      <span class="m3">Tx</span><a href="#" class="mono">0x8d13…0f77 ↗</a>
+    </div>
+    <div style="font-size:12.5px;line-height:1.5;color:var(--red);margin-top:14px">Arcana does not control the receiving address and cannot recover these funds. If you typed the address, check for a look-alike. The quote is still open for <span class="mono">09:12</span>.</div>
+    <div style="display:flex;gap:8px;margin-top:14px"><span class="btn btn-secondary" style="flex:1">Back to transfer</span><span class="btn btn-ghost" style="flex:1">Report address</span></div>
+  </div>
+
+  <div class="blueprint" style="padding:20px;border-color:rgba(210,96,91,.5)" data-screen-label="Sub fail hash used">
+    <div class="steps" style="margin-bottom:18px"><span class="done">1 QUOTE</span><span class="done">2 TRANSFER</span><span class="on" style="border-color:#d2605b;color:#d2605b">3 REJECTED</span><span>4 VERIFY</span><span>5 DONE</span></div>
+    <div style="display:flex;align-items:center;gap:12px"><span style="width:32px;height:32px;border:1px solid var(--red);display:grid;place-items:center;color:var(--red)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 9-6 6M9 9l6 6"/></svg></span><div><div style="font-family:var(--font-heading);font-weight:600;font-size:20px">Hash already used</div><div class="m2" style="font-size:12px">This transaction paid for a subscription on Apr 14</div></div></div>
+    <div style="display:grid;grid-template-columns:auto 1fr;gap:8px 14px;font-size:12px;margin-top:18px;padding-top:14px;border-top:1px solid var(--color-divider)">
+      <span class="m3">Tx</span><a href="#" class="mono">0x91b2…7f03 ↗</a>
+      <span class="m3">Claimed</span><span class="mono">Apr 14 2026 · Meridian v2 · 30d</span>
+      <span class="m3">By wallet</span><span class="mono">0x7a3f…c21e <span class="m3">(you)</span></span>
+      <span class="m3">That term</span><span class="mono">expired May 14 · <span class="am">in grace</span></span>
+    </div>
+    <div style="font-size:12.5px;line-height:1.5;color:var(--ink-2);margin-top:14px">Each hash can be claimed once. To renew, make a new transfer for the current quote. Nothing was charged now.</div>
+    <div class="field" style="margin-top:14px"><label>Transaction hash</label><div class="input mono" style="display:flex;align-items:center;border-color:var(--red);font-size:12px;color:var(--ink-2)">0x91b2e4a7…7f03</div></div>
+    <span class="btn btn-secondary btn-block" style="margin-top:12px">Paste a different hash</span>
+  </div>
+
+  <div class="blueprint" style="padding:20px" data-screen-label="Unclaimed payments">
+    <div class="k" style="margin-bottom:6px">Unclaimed payments · 0x7a3f…c21e</div>
+    <div style="font-size:12.5px;line-height:1.5;color:var(--ink-2)">Transfers from your wallet to a listed creator that have not been matched to a subscription. Claim one to activate it — no hash needed.</div>
+    <div style="display:flex;flex-direction:column;margin-top:14px">
+      <div style="display:grid;grid-template-columns:1fr auto;gap:4px 12px;padding:10px 0;border-top:1px solid var(--color-divider);font-size:12px;align-items:center">
+        <div><div class="mono">40.000000 USDG → 0x4c91…a9e1</div><div class="m3" style="font-size:11px">kestrel · matches Meridian v2 quote · May 14 14:31 · <a href="#" class="mono">0x91b2…7f03 ↗</a></div></div>
+        <span class="btn btn-primary blueprint" style="font-size:12px;padding:4px 10px">Claim</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:4px 12px;padding:10px 0;border-top:1px solid var(--color-divider);font-size:12px;align-items:center">
+        <div><div class="mono">25.000000 USDG → 0xe2a0…4b1c</div><div class="m3" style="font-size:11px">ozymandias · <span class="am">no open quote · price is now 30 USDG</span> · Apr 2 · <a href="#" class="mono">0x4f0a…8be2 ↗</a></div></div>
+        <span class="btn btn-secondary" style="font-size:12px;padding:4px 10px">Contact creator</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:4px 12px;padding:10px 0;border-top:1px solid var(--color-divider);border-bottom:1px solid var(--color-divider);font-size:12px;align-items:center;color:var(--ink-3)">
+        <div><div class="mono">0.050000 USDG → 0x4c91…a9e1</div><div style="font-size:11px">below any listed price · dust · Mar 30</div></div>
+        <span class="mono" style="font-size:10.5px">ignored</span>
+      </div>
+    </div>
+    <div class="m3" style="font-size:11px;margin-top:12px">Scanned back to block 7,800,000 (90 days). Read from chain 12s ago.</div>
+  </div>
+</div>
+
+<!-- ============ MY SUBSCRIPTIONS ============ -->
+<div class="sec">04d · MY SUBSCRIPTIONS — active · grace period · expired</div>
+<div data-screen-label="My subscriptions" style="width:1440px;border:1px solid var(--color-divider)">
+  <div style="padding:28px 32px 40px;display:flex;flex-direction:column;gap:24px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end"><div><h1 style="font-size:32px;margin:0">My subscriptions</h1><div class="m2" style="font-size:12.5px;margin-top:4px">Wallet <span class="mono">0x7a3f…c21e</span> · 1,204.10 USDG · 2 agents trading in it</div></div><a href="#" style="font-size:12.5px">Unclaimed payments · 1</a></div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:24px">
+      <div class="blueprint" style="padding:16px 18px;display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-family:var(--font-heading);font-weight:600;font-size:20px;line-height:1">Meridian <span class="mono m3" style="font-weight:400;font-size:10px">v2</span></div><div class="m2" style="font-size:11.5px;margin-top:3px">kestrel · <span class="up">ACTIVE</span></div></div><div style="text-align:right"><div class="mono" style="font-size:22px;line-height:1">29d</div><div class="lbl">REMAINING</div></div></div>
+        <div style="height:4px;background:#34413a"><div style="height:100%;width:3%;background:#2FE88C"></div></div>
+        <div style="display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-size:12px"><span class="m3">Started</span><span class="mono">May 14 · block 8,214,012</span><span class="m3">Expires</span><span class="mono">Jun 13 14:33 UTC</span><span class="m3">Paid</span><span class="mono">40.00 USDG · <a href="#">receipt ↗</a></span><span class="m3">Wallet P&amp;L</span><span class="mono m3">— <span style="font-family:var(--font-body);font-size:11px">no trades yet · first tick 15:00</span></span></div>
+        <div style="border-top:1px solid var(--color-divider);padding-top:10px"><div class="lbl" style="margin-bottom:6px">POSITIONS IN MY WALLET</div><div class="m3" style="font-size:12px">None yet</div></div>
+        <div style="display:flex;gap:8px"><span class="btn btn-secondary" style="flex:1;opacity:.45">Renew · from Jun 6</span><span class="btn btn-ghost">Protection</span></div>
+      </div>
+      <div class="blueprint" style="padding:16px 18px;display:flex;flex-direction:column;gap:12px;border-color:rgba(212,162,74,.5)">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-family:var(--font-heading);font-weight:600;font-size:20px;line-height:1">Halyard</div><div class="m2" style="font-size:11.5px;margin-top:3px">ozymandias · <span class="am">GRACE PERIOD</span></div></div><div style="text-align:right"><div class="mono am" style="font-size:22px;line-height:1">2d 6h</div><div class="lbl">GRACE LEFT</div></div></div>
+        <div style="height:4px;background:#34413a;position:relative"><div style="height:100%;width:100%;background:#5a6a60"></div><div style="position:absolute;right:0;top:0;height:100%;width:25%;background:#d4a24a"></div></div>
+        <div style="display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-size:12px"><span class="m3">Expired</span><span class="mono">May 13 09:10 UTC</span><span class="m3">Grace ends</span><span class="mono am">May 16 09:10 UTC</span><span class="m3">Paid</span><span class="mono">25.00 USDG · <a href="#">receipt ↗</a></span><span class="m3">Wallet P&amp;L · term</span><span class="mono up">+38.20 USDG · +6.1%</span></div>
+        <div style="border:1px solid rgba(212,162,74,.45);padding:8px 10px;font-size:11.5px;line-height:1.45;color:var(--ink-2)">During grace the agent <b style="color:var(--color-text);font-weight:500">will not open</b> new positions in your wallet, but armed stops still fire. Renew to resume; after grace, open positions stay yours to manage.</div>
+        <div><div class="lbl" style="margin-bottom:6px">POSITIONS IN MY WALLET · 2</div>
+          <div style="display:grid;grid-template-columns:auto 1fr auto auto;gap:4px 12px;font-family:var(--font-mono);font-size:11.5px"><span>NVDAx</span><span class="m2">3 @ 126.10</span><span>402.93</span><span class="up">+6.5%</span><span>AAPLx</span><span class="m2">1 @ 230.40</span><span>231.92</span><span class="up">+0.7%</span></div></div>
+        <div style="display:flex;gap:8px"><span class="btn btn-primary blueprint" style="flex:1">Renew · 30 USDG</span><span class="btn btn-ghost">Protection</span></div>
+        <div class="m3" style="font-size:11px">Price changed since your last term (25 → 30 USDG).</div>
+      </div>
+      <div class="blueprint" style="padding:16px 18px;display:flex;flex-direction:column;gap:12px;color:var(--ink-2)">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-family:var(--font-heading);font-weight:600;font-size:20px;line-height:1">Quorum</div><div class="m2" style="font-size:11.5px;margin-top:3px">tallow · <span class="m3">EXPIRED</span></div></div><div style="text-align:right"><div class="mono m3" style="font-size:22px;line-height:1">—</div><div class="lbl">ENDED APR 30</div></div></div>
+        <div style="height:4px;background:#34413a"></div>
+        <div style="display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-size:12px"><span class="m3">Term</span><span class="mono">Mar 28 → Apr 27 · grace to Apr 30</span><span class="m3">Paid</span><span class="mono">30.00 USDG · <a href="#">receipt ↗</a></span><span class="m3">Wallet P&amp;L · term</span><span class="mono dn">−12.40 USDG · −2.0%</span></div>
+        <div><div class="lbl" style="margin-bottom:6px">POSITIONS LEFT IN MY WALLET · 1</div><div style="display:grid;grid-template-columns:auto 1fr auto auto;gap:4px 12px;font-family:var(--font-mono);font-size:11.5px"><span>GOOGLx</span><span class="m2">2 @ 171.80</span><span>336.40</span><span class="dn">−2.1%</span></div><div class="m3" style="font-size:11px;margin-top:4px">No longer managed. Close it yourself or resubscribe.</div></div>
+        <div style="display:flex;gap:8px"><span class="btn btn-secondary" style="flex:1">Resubscribe · 30 USDG</span><span class="btn btn-ghost">Log</span></div>
+      </div>
+    </div>
+    <div>
+      <h3 style="font-size:16px;margin:0 0 10px">Mirrored decisions in my wallet · last 7d</h3>
+      <table class="table"><thead><tr><th>Time</th><th>Agent</th><th>Action</th><th>Symbol</th><th class="r">Qty (mine)</th><th class="r">Price</th><th class="r">Notional</th><th>Tx (my wallet)</th><th>Status</th></tr></thead><tbody>
+        <tr><td class="mono m2">May 13 15:00</td><td>Halyard</td><td><span class="mono" style="font-size:10.5px;padding:2px 6px;background:#0f3d24;color:#2FE88C">BUY</span></td><td class="mono">NVDAx</td><td class="mono r">3</td><td class="mono r">126.10</td><td class="mono r">378.30</td><td><a href="#" class="mono" style="font-size:11px">0x6a1c…22d9 ↗</a></td><td class="up" style="font-size:11.5px">confirmed</td></tr>
+        <tr><td class="mono m2">May 12 09:00</td><td>Halyard</td><td><span class="mono" style="font-size:10.5px;padding:2px 6px;background:#2a1513;color:#d2605b">SELL</span></td><td class="mono">MSFTx</td><td class="mono r">1</td><td class="mono r">409.20</td><td class="mono r">409.20</td><td><a href="#" class="mono" style="font-size:11px">0x0c9e…7f10 ↗</a></td><td class="up" style="font-size:11.5px">confirmed</td></tr>
+        <tr style="color:var(--ink-2)"><td class="mono">May 11 12:00</td><td>Halyard</td><td><span class="mono" style="font-size:10.5px;padding:2px 6px;border:1px dashed rgba(210,96,91,.6);color:#d2605b">SKIPPED</span></td><td class="mono">TSLAx</td><td class="mono r m3">—</td><td class="mono r m3">—</td><td class="mono r m3">—</td><td class="mono m3" style="font-size:11px">not sent</td><td class="dn" style="font-size:11.5px">insufficient USDG in my wallet (needed 241.10, had 190.02)</td></tr>
+      </tbody></table>
+    </div>
+  </div>
+</div>
+</div>
+</x-dc>
+</body>
+</html>
