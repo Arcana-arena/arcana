@@ -40,14 +40,28 @@ const USDG = '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168';
 // fan-out happened to be a sell, the custody check compared the book's AMZN
 // holding against a USDG balance and reported a discrepancy that did not exist.
 // The symbol is the constant; the side of the trade is not.
-const tokenOf = (sym) => {
-  const list = JSON.parse(readFileSync(
-    process.env.EXECUTION_ALLOWLIST_FILE ||
-    `${REPO}/services/signer/allowlist/robinhood-mainnet.json`, 'utf8'));
-  const t = (list.tokens || []).find((x) => x.symbol === sym);
-  if (!t) throw new Error(`${sym} is not in the allowlist, so its balance cannot be read`);
-  return t.address;
-};
+// PARSED ONCE, AND A MISSING SYMBOL IS A FAILED CHECK RATHER THAN A DEAD RUN.
+// The first version re-read and re-parsed the file on every call — once per
+// subscriber inside section 5 — and threw when a symbol was absent. Nothing
+// catches that throw, so a token retired from the allowlist would kill the
+// process mid-suite: sections 6, 7 and 8 would never run and the Failures
+// summary would never print. A verification that cannot report is worse than
+// one that reports a failure.
+const ALLOWLIST = JSON.parse(readFileSync(
+  process.env.EXECUTION_ALLOWLIST_FILE ||
+  `${REPO}/services/signer/allowlist/robinhood-mainnet.json`, 'utf8'));
+const tokenOf = (sym) => (ALLOWLIST.tokens || []).find((x) => x.symbol === sym) || null;
+const QUOTE_DECIMALS = (ALLOWLIST.quote_token && ALLOWLIST.quote_token.decimals) || 6;
+
+// The dust floor in base units: a hundredth of a millionth of a share, at
+// whatever precision the token is actually denominated in. NOT hardcoded to 18
+// decimals — the quote token in this same allowlist is 6, so the day a listed
+// stock token is not 18 a residue of ten thousand shares would read as empty.
+// guard-chain-verify already derives it this way.
+const dustFloor = (tok) => 10n ** BigInt(tok.decimals - 8);
+
+// keccak256('Transfer(address,address,uint256)')
+const TRANSFER = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 
 const env = Object.fromEntries(
   readFileSync(`${REPO}/.env.auth`, 'utf8').split('\n').filter((l) => l && !l.startsWith('#'))
@@ -66,12 +80,61 @@ const check = (n, ok, d = '') => {
 const psql = (s) => execFileSync('docker', ['exec', PG, 'psql', '-U', 'arcana', '-d', 'arcana', '-tAc', s],
   { encoding: 'utf8' }).trim();
 const one = (s) => psql(s).split(/\r?\n/)[0].trim();
+// AN RPC FAILURE IS NOT AN ANSWER.
+//
+// This returned `(await r.json()).result`, which is `undefined` the moment the
+// node replies with an error — and undefined then flowed into
+// `BigInt(x || '0x0')` = 0n, which read as "the wallet holds nothing" and
+// PASSED the custody claim. That is precisely the failure mode this file's own
+// header refuses: reporting success because no data came back. Section 5 got
+// away with it only because zero there degrades into a discrepancy and fails.
+//
+// `result: null` is a different thing and is preserved: it is a real answer,
+// the node saying it does not know that transaction.
+class RpcError extends Error {
+  constructor(method, message, code) {
+    super(`${method}: ${message}`);
+    this.code = code;
+  }
+}
 const rpc = async (method, params) => {
   const r = await fetch(RPC, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
   });
-  return (await r.json()).result;
+  if (!r.ok) throw new RpcError(method, `HTTP ${r.status} from ${RPC}`, r.status);
+  const j = await r.json();
+  if (j.error) throw new RpcError(method, j.error.message || JSON.stringify(j.error), j.error.code);
+  if (!('result' in j)) throw new RpcError(method, 'a reply carrying neither result nor error');
+  return j.result;
+};
+
+// A balance nobody could read is not a balance of zero. The empty-wallet case is
+// refused here too: ''.slice(2) padded is balanceOf(0x0), which answers 0 and
+// would have read as an emptied position.
+const balanceOf = async (token, wallet, block = 'latest') => {
+  if (!/^0x[0-9a-f]{40}$/i.test(wallet || '')) {
+    throw new Error(`${JSON.stringify(wallet)} is not an address, and balanceOf(0x0) answers 0`);
+  }
+  const hex = await rpc('eth_call',
+    [{ to: token, data: '0x70a08231' + wallet.slice(2).toLowerCase().padStart(64, '0') }, block]);
+  if (typeof hex !== 'string' || !/^0x[0-9a-f]*$/i.test(hex)) {
+    throw new RpcError('eth_call', `balanceOf answered ${JSON.stringify(hex)}`);
+  }
+  return BigInt(hex === '0x' ? '0x0' : hex);
+};
+
+// A chain read that could not be performed becomes a FAILED CHECK rather than an
+// exception. An uncaught throw kills the run before the summary prints, and the
+// summary is the only part anybody reads. Returns undefined when the read failed
+// — distinct from null, which is the node's own answer.
+const chainRead = async (what, fn) => {
+  try {
+    return await fn();
+  } catch (e) {
+    check(what, false, `the chain could not be read: ${e.message}`);
+    return undefined;
+  }
 };
 
 // THE SUBJECT IS THE DECISION. One decision, N executions: that is the whole
@@ -135,8 +198,13 @@ check('the wallets are different addresses', wallets.size === swaps.length,
 // --- 2. The transactions are real ------------------------------------------
 console.log('\n=== Each leg is a transaction on chain, in its own wallet ===');
 for (const r of swaps.filter((x) => x.status === 'mined')) {
-  check(`${r.behalf} leg ${r.id} carries a transaction hash`, /^0x[0-9a-f]{64}$/.test(r.tx), r.tx);
-  const rcpt = await rpc('eth_getTransactionReceipt', [r.tx]);
+  const hashOK = /^0x[0-9a-f]{64}$/.test(r.tx);
+  check(`${r.behalf} leg ${r.id} carries a transaction hash`, hashOK, r.tx);
+  // Nothing is asked of the node without a hash to ask it about.
+  if (!hashOK) continue;
+  const rcpt = await chainRead(`${r.behalf} leg ${r.id} is a real receipt`,
+    () => rpc('eth_getTransactionReceipt', [r.tx]));
+  if (rcpt === undefined) continue;
   check(`${r.behalf} leg ${r.id} is a real receipt`, !!rcpt, 'the node does not know this transaction');
   if (!rcpt) continue;
   check(`${r.behalf} leg ${r.id} succeeded on chain`, rcpt.status === '0x1', `status ${rcpt.status}`);
@@ -164,8 +232,9 @@ if (creator[0] && subscriber[0] && creator[0].status === 'mined' && subscriber[0
     `both spent ${creator[0].amountIn} base units. The creator chooses direction and each wallet ` +
     'sizes it against its OWN capital under its OWN limits — identical amounts would mean one ' +
     'profile was applied to both books');
-  console.log(`      creator spent ${(Number(creator[0].amountIn) / 1e6).toFixed(6)} USDG, ` +
-    `subscriber ${(Number(subscriber[0].amountIn) / 1e6).toFixed(6)} USDG`);
+  const q = 10 ** QUOTE_DECIMALS;
+  console.log(`      creator spent ${(Number(creator[0].amountIn) / q).toFixed(6)} USDG, ` +
+    `subscriber ${(Number(subscriber[0].amountIn) / q).toFixed(6)} USDG`);
 }
 
 // --- 4. A wallet that could not act was refused on its own ------------------
@@ -205,10 +274,15 @@ console.log('\n=== Custody: what the record says each wallet holds is what it ho
                        WHERE subscription_id = '${r.sub}' ORDER BY ts DESC LIMIT 1`);
     const held = JSON.parse(snap || '{}')[symbol] || 0;
     const tok = tokenOf(symbol);
-    const onChain = await rpc('eth_call',
-      [{ to: tok, data: '0x70a08231' + r.wallet.slice(2).toLowerCase().padStart(64, '0') }, 'latest']);
-    const units = BigInt(onChain || '0x0');
-    const recorded = BigInt(Math.round(held * 1e18));
+    if (!tok) {
+      check(`${symbol} is in the allowlist, so a balance can be read for it`, false,
+        `${symbol} is not listed, so there is no address to ask about its balance`);
+      continue;
+    }
+    const units = await chainRead(`subscription ${r.sub.slice(0, 8)} holds what its book says`,
+      () => balanceOf(tok.address, r.wallet));
+    if (units === undefined) continue;
+    const recorded = BigInt(Math.round(held * 10 ** tok.decimals));
     // A tenth of a percent, because the snapshot stores shares as a float and
     // the chain stores base units as an integer.
     const tol = recorded / 1000n + 1n;
@@ -216,9 +290,10 @@ console.log('\n=== Custody: what the record says each wallet holds is what it ho
     check(`subscription ${r.sub.slice(0, 8)} holds what its book says`, diff <= tol,
       `the book says ${held} ${symbol} (${recorded} base units) and the wallet holds ${units}`);
 
-    const cashHex = await rpc('eth_call',
-      [{ to: USDG, data: '0x70a08231' + r.wallet.slice(2).toLowerCase().padStart(64, '0') }, 'latest']);
-    const cashUnits = Number(BigInt(cashHex || '0x0')) / 1e6;
+    const cashRaw = await chainRead(`subscription ${r.sub.slice(0, 8)} cash reconciles`,
+      () => balanceOf(USDG, r.wallet));
+    if (cashRaw === undefined) continue;
+    const cashUnits = Number(cashRaw) / 10 ** QUOTE_DECIMALS;
     const bookCash = Number(one(`SELECT cash::text FROM subscription_snapshots
                                   WHERE subscription_id = '${r.sub}' ORDER BY ts DESC LIMIT 1`));
     check(`subscription ${r.sub.slice(0, 8)} cash reconciles`, Math.abs(cashUnits - bookCash) < 0.01,
@@ -309,24 +384,27 @@ console.log('\n=== A customer\'s execution moves no number the agent is judged o
 // this project keeps writing down.
 console.log('\n=== A protective level that fired in a buyer\'s wallet ===');
 {
+  // SCOPED TO THE AGENT UNDER REVIEW. Unscoped, a run given an explicit decision
+  // id could pick an entirely unrelated agent's guard and fail on it while every
+  // line of output above said "decision N" of this agent.
   const gid = one(
     `SELECT id FROM position_guards
-      WHERE subscription_id IS NOT NULL AND status = 'triggered'
+      WHERE subscription_id IS NOT NULL AND status = 'triggered' AND agent_id = '${agentID}'
       ORDER BY triggered_at DESC LIMIT 1`);
 
   if (!gid) {
-    console.log('  NOT YET  no subscriber guard has ever been triggered.');
+    console.log('  NOT YET  no subscriber guard of THIS agent has ever been triggered.');
     console.log('           Not a pass and not a failure. The mechanism is proved off chain');
     console.log('           (subscription-verify sections 5 and 6) and the ARMING is proved on');
     console.log('           chain above; what is missing is a market that crossed a level.');
-    notYet.push('a subscriber guard has never been triggered on chain');
+    notYet.push(`no subscriber guard of agent ${agentID.slice(0, 8)} has been triggered on chain`);
   } else {
     const g = one(
       `SELECT subscription_id::text || '|' || symbol || '|' || coalesce(triggered_side,'') || '|' ||
               coalesce(triggered_price::text,'') || '|' || coalesce(triggered_decision_id::text,'') || '|' ||
-              entry_price::text || '|' || agent_id::text
+              entry_price::text || '|' || entry_qty::text
          FROM position_guards WHERE id = ${gid}`).split('|');
-    const [gsub, gsym, gside, gprice, gdec, gentry, gagent] = g;
+    const [gsub, gsym, gside, gprice, gdec, gentry, gqty] = g;
     console.log(`  guard ${gid}: ${gside} on ${gsym} at ${gprice} (entry ${gentry}) for ${gsub.slice(0, 8)}`);
 
     check('it names which level fired', gside === 'stop_loss' || gside === 'take_profit', gside);
@@ -358,31 +436,96 @@ console.log('\n=== A protective level that fired in a buyer\'s wallet ===');
       check('and carries no decision id', edec === '', `decision_id=${edec}`);
       check('it records its own fill and slippage', efill !== '' && eslip !== '', `${efill} / ${eslip}`);
 
-      const rcpt = await rpc('eth_getTransactionReceipt', [etx]);
-      check('the transaction is real and succeeded', !!rcpt && rcpt.status === '0x1', etx);
-      if (rcpt) {
-        check('and was sent by the buyer\'s own wallet',
-          rcpt.from.toLowerCase() === ewallet.toLowerCase(),
-          `the receipt says ${rcpt.from}, the row says ${ewallet}`);
+      // THE RECEIPT IS ONLY ASKED FOR WHEN THERE IS A TRANSACTION TO ASK ABOUT.
+      // An exit that did not mine carries an empty tx_hash, and
+      // eth_getTransactionReceipt('') made the node error, left rcpt undefined,
+      // skipped the sender check in silence and logged one confusing extra
+      // failure that named nothing.
+      const mined = estatus === 'mined' && /^0x[0-9a-f]{64}$/.test(etx);
+      if (!mined) {
+        check('the exit has a transaction to read back', false,
+          `status=${estatus}, tx_hash=${etx || '(empty)'} — there is nothing on chain to verify yet`);
+      } else {
+        const rcpt = await chainRead('the transaction is real and succeeded',
+          () => rpc('eth_getTransactionReceipt', [etx]));
+        if (rcpt !== undefined) {
+          check('the transaction is real and succeeded', !!rcpt && rcpt.status === '0x1', etx);
+        }
+        if (rcpt) {
+          check('and was sent by the buyer\'s own wallet',
+            rcpt.from.toLowerCase() === ewallet.toLowerCase(),
+            `the receipt says ${rcpt.from}, the row says ${ewallet}`);
+
+          // CUSTODY, PROVED FROM THE EXIT ITSELF RATHER THAN FROM A LATER BALANCE.
+          //
+          // This used to read the wallet's balance at 'latest' and assert it was
+          // dust. Two things were wrong with that, and the second cannot be fixed
+          // the obvious way.
+          //
+          // The fan-out re-buys the same symbols into the same wallet, and the
+          // guard picked here is the most recent triggered one, which may be days
+          // old — so any re-entry since made a perfectly clean exit read as
+          // trimmed. And it cannot be repaired by reading at the exit's own
+          // block: this endpoint refuses historical state outright ("Archive
+          // requests require a personal token"), five hundred blocks back as
+          // surely as two hundred thousand. Measured, not assumed.
+          //
+          // The transaction's own Transfer logs need no archive and are better
+          // evidence anyway. They say what left the wallet; the guard says how
+          // much was being guarded. Emptied means those are the same number.
+          const tok = tokenOf(gsym);
+          if (!tok) {
+            check(`${gsym} is in the allowlist, so the exit can be read`, false,
+              `${gsym} is not listed, so the shares that left the wallet cannot be identified`);
+          } else {
+            const from = '0x' + ewallet.slice(2).toLowerCase().padStart(64, '0');
+            const sent = (rcpt.logs || [])
+              .filter((l) => (l.address || '').toLowerCase() === tok.address.toLowerCase() &&
+                             (l.topics || [])[0] === TRANSFER &&
+                             ((l.topics || [])[1] || '').toLowerCase() === from)
+              .reduce((a, l) => a + BigInt(l.data), 0n);
+            const guarded = BigInt(Math.round(Number(gqty) * 10 ** tok.decimals));
+            const tol = guarded / 1000n + dustFloor(tok);
+            const diff = sent > guarded ? sent - guarded : guarded - sent;
+            check('the exit sent the whole guarded position, not part of it',
+              sent > 0n && diff <= tol,
+              `the guard was on ${gqty} ${gsym} (${guarded} base units) and the transaction moved ` +
+              `${sent} out of the wallet. An exit that leaves a residue leaves something four ` +
+              'different readers have to be taught to ignore');
+          }
+        }
       }
 
-      // Custody: the position really is gone from that wallet.
-      const tok = tokenOf(gsym);
-      const left = BigInt(await rpc('eth_call',
-        [{ to: tok, data: '0x70a08231' + ewallet.slice(2).toLowerCase().padStart(64, '0') }, 'latest']) || '0x0');
-      check('the position was emptied, not trimmed', left < 10n ** 10n,
-        `${left} base units of ${gsym} are still in the wallet; an exit that leaves a residue ` +
-        'leaves something four different readers have to be taught to ignore');
-
-      // The agent's own record did not move for it. The A/B in section 7 proves
-      // customer executions are invisible to the readers; this proves the tick
-      // that fired the level added nothing to the decision log either.
-      const near = one(
-        `SELECT count(*) FROM decisions WHERE agent_id = '${gagent}'
-           AND ts BETWEEN (SELECT triggered_at FROM position_guards WHERE id = ${gid}) - interval '30 seconds'
-                      AND (SELECT triggered_at FROM position_guards WHERE id = ${gid}) + interval '30 seconds'`);
-      check('the agent recorded no decision around the exit', near === '0',
-        `${near} decision row(s) sit within 30 seconds of the trigger`);
+      // THERE IS DELIBERATELY NO CHECK HERE that the agent recorded no decision
+      // in a window around the exit. One was written and then removed, and the
+      // reason belongs next to the gap so it is not written again.
+      //
+      // The claim it reached for — a buyer's protective exit is not one of the
+      // agent's decisions — is already proved twice above, exactly, and without
+      // reference to any clock: the guard carries no triggered_decision_id, and
+      // the execution carries no decision_id. Those are the record itself.
+      //
+      // A time window could only ever measure something else: whether the agent
+      // happened to tick nearby. persist() writes a decisions row on EVERY tick
+      // including a hold — 69 of this agent's 84 decisions are holds — and the
+      // guard scanner runs every fifteen seconds against a cadence floor of one
+      // minute, so the scanner normally fires BETWEEN ticks.
+      //
+      // Measured on the live database rather than reasoned about: the median gap
+      // between consecutive decisions is 15 seconds, 61 of 83 gaps are under a
+      // minute, and 62 of 84 decisions already have another decision inside
+      // their own ±30s window. And the check was run against a trigger placed
+      // ten seconds after a real decision — what the scanner firing between two
+      // ticks looks like — where it duly reported "1 decision row(s) sit within
+      // 30 seconds of the trigger" and exited 1 with nothing whatsoever wrong.
+      //
+      // It is not certain to fail, which is worse than certain: it fails
+      // whenever the agent happens to be trading, which is when a stop fires.
+      //
+      // That is the worst of the three kinds. A check that cannot pass is as
+      // useless as one that cannot fail, and one that destroys the evidence it
+      // exists to capture — turning the first real firing into a red suite
+      // instead of a record — is worse than both.
     }
   }
 }
