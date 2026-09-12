@@ -250,6 +250,54 @@ await section('The decision log shows a status where a price is missing', async 
 
 // ---------------------------------------------------------------------------
 
+await section('A protective exit looks different from the agent\'s own trade', async () => {
+  // The agent the platform has actually acted for. Chosen from the API rather
+  // than hardcoded, and skipped honestly when no such agent exists.
+  const board2 = await api(AGENT, '/v1/leaderboard?page_size=25&include_unranked=true');
+  let found = null;
+  for (const row of board2.body?.items ?? []) {
+    const d = await api(AGENT, `/v1/agents/${row.agent_id}/decisions?page_size=200&include_prices=false`);
+    const rows = d.body?.decisions ?? [];
+    if (rows.some((x) => x.decider === 'protective')) {
+      found = { id: row.agent_id, rows };
+      break;
+    }
+  }
+  if (!found) {
+    nothingToCheck('no agent on the leaderboard has a protective decision, so the distinction cannot be seen');
+    return;
+  }
+
+  const p = await page(`/agents/${found.id}?tab=decisions`);
+  const t = text(p.html);
+  check('the decisions tab renders for that agent', p.status === 200, `status ${p.status}`);
+
+  // Only the first page is rendered, so compare against the same slice.
+  const shown = found.rows.slice(0, 25);
+  const exits = shown.filter((x) => x.decided_by?.category === 'protective_exit');
+  const held = shown.filter((x) => x.decided_by?.category === 'protective_held_back');
+
+  if (exits.length === 0 && held.length === 0) {
+    nothingToCheck('the protective rows fall outside the first page, which is what the page renders');
+    return;
+  }
+  for (const x of [...exits, ...held]) {
+    check(`the ${x.decided_by.category} at ${x.ts} is labelled on the page`,
+      t.includes(x.decided_by.label),
+      `label ${JSON.stringify(x.decided_by.label)} not found in the rendered text`);
+  }
+  // AND IT MUST NOT READ AS AN EXIT WHEN NOTHING WAS SOLD.
+  if (held.length > 0) {
+    check('a level that was crossed and not acted on says the exit was NOT taken',
+      /NOT taken/.test(t),
+      'the refused-exit wording is absent from the page');
+  }
+  // A page that labelled EVERY row the same way would pass the checks above.
+  const labels = new Set(shown.map((x) => x.decided_by?.label).filter(Boolean));
+  check('and the page is not giving every row the same label',
+    labels.size >= 2, `only one label in play: ${[...labels].join(', ')}`);
+});
+
 await section('Seasons render what the season record says, including the unknowns', async () => {
   const seasons = await api(AGENT, '/v1/seasons?page_size=50');
   const p = await page('/seasons');
