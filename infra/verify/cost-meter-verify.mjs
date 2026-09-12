@@ -22,7 +22,7 @@
  * engine, and no agent here has a wallet, so no gas is spent.
  */
 import { spawn, execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 import { privateKeyToAccount, generatePrivateKey } from 'viem/accounts';
 import { req, signInToken, bearer, ok2xx } from './lib/rate-aware.mjs';
 import { sweepOnExit } from './lib/fixtures.mjs';
@@ -35,7 +35,12 @@ sweepOnExit('cost-meter-verify');
 
 const REPO = process.env.REPO || '/home/ubuntu/arcana';
 const AGENT = process.env.AGENT_URL || 'http://127.0.0.1:3001';
-const PORT = Number(process.env.TEST_METER_PORT || 8092);
+// A PORT OF ITS OWN. This was 8092, which decider-verify also uses for its
+// mock LLM server. run-all runs them one after the other in alphabetical
+// order, and an engine of this suite's that outlived its run made
+// decider-verify die with EADDRINUSE before its first check — a suite failing
+// for a reason that had nothing to do with what it tests.
+const PORT = Number(process.env.TEST_METER_PORT || 8094);
 const GO = process.env.GO_BIN || '/usr/local/go/bin/go';
 const PG = process.env.PG_CONTAINER || 'arcana-postgres';
 const DB = process.env.DATABASE_URL || 'postgres://arcana:arcana@localhost:5432/arcana?sslmode=disable';
@@ -59,8 +64,48 @@ const check = (n, ok, d = '') => {
 const psql = (s) => execFileSync('docker', ['exec', PG, 'psql', '-U', 'arcana', '-d', 'arcana', '-tAc', s], { encoding: 'utf8' }).trim();
 
 let proc = null;
+
+// THE ENGINE IS BUILT, NOT `go run` — the lesson cost-budget-verify already
+// wrote down and this suite had not taken. `go run` compiles and then execs
+// the server as a CHILD; SIGKILL to the parent leaves the child holding the
+// port. This suite starts a fresh engine per case, so an orphan from case 3
+// answers case 4's requests, and case 4 is then measured against a server
+// configured by a case that had already ended. That is exactly how
+// "the exhausted agent decides again when nothing is metering it" failed:
+// nothing WAS metering it, and the thing answering still had case 3's budget.
+//
+// Building once and spawning the binary directly means the process we kill is
+// the process that listens.
+const BIN = `/tmp/cost-meter-verify-engine.${process.pid}`;
+
+function build() {
+  execFileSync(GO, ['build', '-o', BIN, './cmd/server'], {
+    cwd: `${REPO}/services/decision-engine`, stdio: 'inherit',
+  });
+}
+
+// A STRANGER ON THE PORT IS A FAILED RUN, NOT A PASSING ONE. If anything is
+// already listening, this suite would otherwise verify THAT process — the same
+// shape of mistake as proving a watcher alive with a pgrep that matched the
+// checking command itself.
+async function assertPortFree() {
+  try { execFileSync('bash', ['-lc', `fuser -k ${PORT}/tcp 2>/dev/null || true`]); } catch {}
+  await new Promise((r) => setTimeout(r, 500));
+  try {
+    const r = await fetch(`http://127.0.0.1:${PORT}/healthz`);
+    if (r.ok) {
+      throw new Error(
+        `something is already listening on ${PORT} and answering /healthz. This suite would ` +
+        'have measured that process instead of the engines it starts. Refusing to run.');
+    }
+  } catch (e) {
+    if (/already listening/.test(String(e.message))) throw e;
+    // Anything else means nothing answered, which is what we want.
+  }
+}
+
 function start(budget) {
-  return spawn(GO, ['run', './cmd/server'], {
+  return spawn(BIN, [], {
     cwd: `${REPO}/services/decision-engine`,
     env: {
       ...process.env, ...llmEnv,
@@ -128,6 +173,8 @@ async function agentWithTightBand(label) {
 }
 
 try {
+  await assertPortFree();
+  build();
   const ref = psql('SELECT ref FROM market_snapshots ORDER BY tick_time DESC LIMIT 1');
   console.log(`  snapshot: ${ref}\n`);
 
@@ -211,6 +258,8 @@ try {
   console.log('cost-meter-verify: the meter measures, and it pauses. It has been exhausted on purpose.');
 } finally {
   await stop();
+  // The binary is this run’s and nobody else’s; it goes with the run.
+  try { rmSync(BIN, { force: true }); } catch {}
   for (const id of made) {
     try { psql(`DELETE FROM decisions WHERE agent_id = '${id}'`); } catch {}
     try { psql(`DELETE FROM portfolio_snapshots WHERE portfolio_id IN (SELECT id FROM portfolios WHERE agent_id = '${id}')`); } catch {}
