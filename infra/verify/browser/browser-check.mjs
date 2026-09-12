@@ -81,6 +81,14 @@ for (const [name, path] of PAGES) {
         return el ? getComputedStyle(el).fontFamily : null;
       })(),
       heading: h1 ? h1.innerText.slice(0, 60) : null,
+      // An explicit empty state is PAINTED CONTENT, not a blank frame. A tab
+      // that says "this agent has only one version" is doing its job and is
+      // legitimately short; the thing this check exists to catch is a page
+      // that rendered nothing at all.
+      statusTitle: (() => {
+        const el = document.querySelector(".status-title");
+        return el ? el.innerText.slice(0, 80) : null;
+      })(),
       scrollWidth: document.documentElement.scrollWidth,
       clientWidth: document.documentElement.clientWidth,
       errorBoundary: /This page failed to render/.test(bodyText),
@@ -94,9 +102,11 @@ for (const [name, path] of PAGES) {
   const problems = [];
   if (expected404 ? status !== 404 : status !== 200) problems.push(`status ${status}`);
   if (info.errorBoundary) problems.push('error boundary rendered');
-  // The not-found page is deliberately short. Every other page must have
-  // painted real content, not just a header.
-  const minText = expected404 ? 100 : 600;
+  // The not-found page is deliberately short, and so is any tab whose honest
+  // answer is an empty state — "this agent has only one version" is a finding,
+  // not a failure to render. A page showing one is required to have painted its
+  // title; everything else has to carry real content.
+  const minText = expected404 || info.statusTitle ? 100 : 600;
   if (info.textLength < minText) {
     problems.push(`only ${info.textLength} chars of visible text, expected at least ${minText}`);
   }
