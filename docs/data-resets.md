@@ -9,6 +9,124 @@ with enough detail that a later reader can judge whether it was the right one.
 
 ---
 
+## 2026-09-12 — 53 verification fixtures, and the mechanism that made them
+
+### Why
+
+56 agents were `active`. Six were real, one was the live on-chain trader, and
+forty-nine were fixtures left behind by verification suites.
+
+They were not being ticked — cadence iterates a competition's `participant_ids`,
+not every active agent, and the running competition had six participants
+throughout. They cost no tick time and no token budget, held no wallets and made
+no executions. What they did was appear: `GET /v1/agents?status=active` returned
+56 rows, forty-nine of them debris.
+
+### The mechanism, which mattered more than the count
+
+Nothing became active by accident. `agents.status` defaults to `draft` and every
+suite calls `POST /agents/:id/activate` deliberately. The brake was the problem:
+`MAX_ACTIVE_AGENTS_PER_CREATOR = 3` is the right unit for a person and it was
+never reachable, because every suite run minted a FRESH creator and took three
+more slots with it. 89 creators existed, 81 of them `verify_alice_*` or
+`verify_bob_*`, 40 with no agent at all.
+
+The brake did work exactly once, where it could: creator `inj_mtwfkxc1` made
+seven injection agents, activated three, and the other four sat at `draft`.
+
+Two cleanups existed and neither ran. `auth-verify.mjs` had none at all — 25
+POSTs, no `finally`, relying on a hand-run `auth-verify-cleanup.sql`, which is to
+say relying on somebody remembering. prompt-injection, cost-meter and
+subscription-verify each HAVE a cleanup block and each also call
+`process.exit()`, which skips `finally`, so the runs that failed — the ones
+leaving the most behind — never reached their own tidying.
+
+### What was fixed before anything was deleted
+
+Deleting first would have emptied a space that refills on the next sweep.
+
+1. **A mark on the row** (migration 0042). `provenance` on `agents` and
+   `creators`: `live`, or `verification` when created through the verification
+   path. Every suite already sent `X-Arcana-Verification` through the shared
+   `req()` helper; nothing server-side had ever read it. Set once at creation and
+   frozen by a trigger in BOTH directions — a mark that can be added later
+   condemns real rows, one that can be removed lets fixtures survive.
+2. **A sweep that does not depend on being remembered.**
+   `infra/verify/lib/fixtures.mjs`, registered on the process `exit` event rather
+   than in a `finally`, and synchronous throughout for exactly that reason. It
+   selects by the mark, not by ids held in memory, so each run also clears what
+   an earlier crashed run abandoned.
+3. **A brake the suites cannot walk around.**
+   `MAX_VERIFICATION_CREATORS = 25`, counted only over marked rows, so nothing
+   about how real creators sign up changes.
+4. **A rename.** `Phase 8c buy leg` became `onchain_live_v1` — see the hazard
+   below.
+
+### The hazard that was closed
+
+Cleanup had been matching NAMES, and that one mechanism failed in both
+directions at once.
+
+It missed things: `auth-verify-cleanup.sql` selects
+`handle LIKE 'verify_alice_%' OR 'verify_bob_%'`, so seven fixtures from other
+suites — creators `inj_*`, `meter_*`, `r422_*`, `sub_*` — were unreachable by any
+cleanup that existed.
+
+And it pointed at the one thing that must never be deleted. `Phase 8c buy leg`,
+under a creator called `phase8_operator`, reads exactly like a leftover from a
+test. It holds the only wallet still trading, 49 on-chain executions, 86
+decisions, and a seat in the running competition. It is the agent every chain
+verifier in the suite reads. A name-based cleanup was one careless afternoon
+from deleting it.
+
+So the sweep requires TWO conditions, and the second is independent of the
+first: nothing is deleted that holds a wallet, has ever executed, or holds a
+competition seat. If the mark were ever wrong about a real agent, custody still
+stops the delete.
+
+### What was deleted
+
+53 agents and 86 creators, all marked `verification`, none holding a wallet, an
+execution or a competition seat. With them went their dependent rows: 7
+decisions, 46 score_snapshots, 6 portfolios.
+
+Before: 65 agents (56 active), 89 creators. After: 12 agents (7 active), 3
+creators. `GET /v1/agents?status=active` went from 56 rows to 7.
+
+### What was kept, and why
+
+All 12 rows marked `live`: nine belonging to `dummy_creator` (momentum_v1,
+holder_v1, reversion_v1, momentum_bot, human_trader, dummy_agent_v2 and three
+retired) and all three belonging to `phase8_operator`, including
+`onchain_live_v1`.
+
+### Proving the selection before running it
+
+The requirement was to prove the live agent was excluded by RUNNING the
+selection, not by reading the query. `listFixtures()` — the same exported
+function the delete calls, sharing one SQL constant so the two cannot drift —
+was run and its whole list printed. It named 53 agents; all seven real agents
+were absent, and zero rows were held back by the custody condition.
+
+After the delete: the running competition still has its six participants,
+`onchain_live_v1` still has its wallet, 49 executions and 86 decisions, and there
+are zero orphaned decisions, portfolios, score_snapshots or agents.
+
+Then the loop was proved forward: `auth-verify` was run again. It passed 75/0,
+created 1 agent and 2 creators, and its own sweep removed exactly those — back
+to 12 and 3, with zero verification rows left. And with 25 marked creators in
+place, the next run was refused with `verification_creator_limit_reached`
+instead of quietly adding a 26th.
+
+### Backup
+
+`infra/backup/arcana-backup.sh` run immediately before the delete:
+`arcana-backups/automated/daily/arcana-20260912T072004Z.tar.gz`. It warns, as it
+always does, that `BACKUP_REMOTE` is unset and the copy is local only — it
+survives this delete, not the loss of the host.
+
+---
+
 ## 2026-09-10 — §10 payment subsystem retired (no data deleted)
 
 ### Why

@@ -61,9 +61,9 @@ export class CreatorsService {
           message:
             `The verification path already holds ${held} creators, and the limit is ` +
             `${MAX_VERIFICATION_CREATORS}. A suite that cleans up after itself never reaches ` +
-            'this; one that has stopped will. Run the sweep — sweepFixtures() in ' +
-            'infra/verify/lib/fixtures.mjs, which every suite calls in its finally — ' +
-            'or find what is exiting before its cleanup runs.',
+            'this; one that has stopped will. Run sweepFixtures() from ' +
+            'infra/verify/lib/fixtures.mjs — the suites register it on the process exit ' +
+            'event, deliberately NOT in a finally, because process.exit() skips those.',
           held,
           limit: MAX_VERIFICATION_CREATORS,
         });
