@@ -182,6 +182,7 @@ export class AgentsController {
       status: query.status?.trim() || undefined,
       creatorId: query.creator_id?.trim() || undefined,
       strategyType: query.strategy_type?.trim() || undefined,
+      provenance: query.provenance?.trim() || undefined,
     });
   }
 

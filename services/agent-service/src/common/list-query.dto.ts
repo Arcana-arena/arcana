@@ -58,6 +58,16 @@ export class AgentsListQueryDto extends PageQueryDto {
   @MaxLength(40)
   strategy_type?: string;
 
+  /**
+   * live | verification. Refused by name if it is anything else, and NOT
+   * applied by default — see agents.service.ts for why the default stays as it
+   * was.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  provenance?: string;
+
   /** Free-text search over the name. */
   @IsOptional()
   @IsString()

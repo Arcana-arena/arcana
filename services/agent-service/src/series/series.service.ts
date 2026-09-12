@@ -3,6 +3,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { MarketPriceClient } from './market-price.client';
 import { MIN_DECISIONS } from '../common/ranking';
+import { decidedBy } from '../common/decided-by';
 import {
   DECISIONS_PAGE_SIZE_DEFAULT,
   DECISIONS_PAGE_SIZE_MAX,
@@ -516,6 +517,10 @@ export class SeriesService {
     const rows = await this.db.query(
       `SELECT d.ts, d.season_id, d.action, d.symbol, d.quantity,
               d.resulting_allocation, d.rationale, d.market_snapshot_ref,
+              -- WHO DECIDED, read from the row rather than left out of it.
+              -- Without these two columns a sale that a stop loss took is byte
+              -- for byte an ordinary sell, and every reader has to guess.
+              d.decider, d.reason_code,
               ms.content_hash, ms.source, ms.ingest_mode, ms.trading_date, ms.tick_time
          FROM decisions_counted d
          LEFT JOIN market_snapshots ms ON ms.ref = d.market_snapshot_ref
@@ -565,6 +570,15 @@ export class SeriesService {
         notional: price != null && r.quantity != null ? Number((price * Number(r.quantity)).toFixed(2)) : null,
         rationale: r.rationale,
         resulting_allocation: r.resulting_allocation,
+        // THE COLUMNS, VERBATIM. NULL stays NULL — a row that does not say who
+        // acted must not be made to say the agent did.
+        decider: r.decider ?? null,
+        reason_code: r.reason_code ?? null,
+        // And the reading of them, from the one function that owns that rule.
+        // NOT a rename of `decider`: a protective HOLD carrying
+        // cost_budget_exceeded is a level that was crossed and NOT acted on,
+        // which is close to the opposite of a protective exit.
+        decided_by: decidedBy(r),
         evidence: {
           market_snapshot_ref: ref,
           content_hash: r.content_hash ?? null,

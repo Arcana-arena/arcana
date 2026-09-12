@@ -197,6 +197,7 @@ export class AgentsService {
     status?: string;
     creatorId?: string;
     strategyType?: string;
+    provenance?: string;
   }): Promise<Page<Agent>> {
     const qb = this.agents.createQueryBuilder('a');
 
@@ -216,6 +217,29 @@ export class AgentsService {
     if (opts.creatorId) qb.andWhere('a.creator_id = :creatorId', { creatorId: opts.creatorId });
     if (opts.strategyType) {
       qb.andWhere('a.strategy_type = :strategyType', { strategyType: opts.strategyType });
+    }
+    // PROVENANCE, AS A FILTER AND NOT AS A DEFAULT.
+    //
+    // Migration 0042 records whether a row was created by a person or by a
+    // verification run, and the column is immutable in both directions. Until
+    // now nothing could ask: a caller counting agents got the artefacts mixed in
+    // with the real ones, and "1,284 agents" would quietly include fixtures
+    // nobody meant to advertise.
+    //
+    // The DEFAULT IS DELIBERATELY UNCHANGED. Filtering artefacts out by default
+    // would silently alter what every existing caller already receives, and it
+    // would make the artefacts hard to find for the sweeps that exist to remove
+    // them. A caller that wants only real agents now asks for them.
+    if (opts.provenance) {
+      if (!['live', 'verification'].includes(opts.provenance)) {
+        throw new BadRequestException({
+          code: 'invalid_provenance_filter',
+          message:
+            `provenance must be one of: live, verification. Got '${opts.provenance.slice(0, 20)}'. ` +
+            'The vocabulary is closed by the CHECK constraint on agents.provenance (migration 0042).',
+        });
+      }
+      qb.andWhere('a.provenance = :provenance', { provenance: opts.provenance });
     }
 
     // Ordered by created_at DESC then id, because created_at is not unique and

@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import { MarketIndexService, MarketTick } from '../market/market-index.service';
 import { positionsOf } from '../common/positions';
 import { MIN_DECISIONS } from '../common/ranking';
+import { decidedBy } from '../common/decided-by';
 
 /**
  * Agent Autopsy — why an agent performed the way it did, from its own record.
@@ -493,12 +494,21 @@ export class AutopsyService {
         trades: during.length,
         // Listed so the drawdown can be read against what the agent was doing,
         // WITHOUT asserting that these trades caused it.
+        // The sample carries WHO DECIDED, for the same reason the decision log
+        // does. A drawdown with two protective exits inside it reads very
+        // differently from one with two of the agent's own trades, and these
+        // five rows are the ones somebody looks at to tell that story. The
+        // columns are already loaded; leaving them out of the sample was the
+        // only thing making them invisible.
         sample: during.slice(0, 5).map((t) => ({
           ts: t.ts,
           action: t.action,
           symbol: t.symbol,
           quantity: t.quantity,
           rationale: t.rationale,
+          decider: t.decider ?? null,
+          reason_code: t.reason_code ?? null,
+          decided_by: decidedBy(t),
         })),
         note:
           'These trades occurred inside the drawdown window. Co-occurrence is not causation and ' +

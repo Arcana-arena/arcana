@@ -18,7 +18,7 @@
  */
 import { agent } from '@/lib/api';
 import { int, money, num, pct, utc } from '@/lib/format';
-import { Key, Lbl, Num } from '@/components/ds/primitives';
+import { ActionTag, Key, Lbl, Num, Tag } from '@/components/ds/primitives';
 import { Callout, Empty, Failed } from '@/components/ds/states';
 import type { Autopsy } from '../shapes';
 
@@ -235,6 +235,73 @@ export async function AutopsyTab({ id }: { id: string }) {
                 {a.risk.recovered_at ? <div className="stat-sub">{utc(a.risk.recovered_at)}</div> : null}
               </div>
             </div>
+            {/*
+              THE TRADES INSIDE THE DRAWDOWN, AND WHO MADE THEM. A drawdown with
+              two protective exits in it reads completely differently from one
+              with two of the agent's own trades: in the first the platform was
+              cutting losses, in the second the agent was still trading into
+              them. The sample was already listed; it was listed without saying
+              which it was.
+            */}
+            {(a.risk.decisions_during_drawdown?.sample ?? []).length > 0 ? (
+              <div className="scroll-x" style={{ marginTop: 12 }}>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 168 }}>Time (UTC)</th>
+                      <th style={{ width: 62 }}>Action</th>
+                      <th style={{ width: 160 }}>Decided by</th>
+                      <th style={{ width: 78 }}>Symbol</th>
+                      <th className="r" style={{ width: 96 }}>
+                        Quantity
+                      </th>
+                      <th>Rationale</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(a.risk.decisions_during_drawdown?.sample ?? []).map((t, i) => (
+                      <tr key={`${t.ts}-${i}`}>
+                        <td className="mono m2" style={{ fontSize: 11.5 }}>
+                          {utc(t.ts)}
+                        </td>
+                        <td>
+                          <ActionTag action={t.action} />
+                        </td>
+                        <td>
+                          {t.decided_by ? (
+                            <Tag
+                              tone={
+                                t.decided_by.category === 'protective_held_back'
+                                  ? 'red'
+                                  : t.decided_by.category.startsWith('protective')
+                                    ? 'amber'
+                                    : t.decided_by.category === 'unattributed'
+                                      ? 'dashed'
+                                      : 'neutral'
+                              }
+                              title={t.decided_by.note}
+                            >
+                              {t.decided_by.label}
+                            </Tag>
+                          ) : (
+                            <span className="mono m3" style={{ fontSize: 10.5 }}>
+                              not reported
+                            </span>
+                          )}
+                        </td>
+                        <td className="mono">{t.symbol ?? '—'}</td>
+                        <td className="r">
+                          <Num value={num(t.quantity, 4)} />
+                        </td>
+                        <td className="m2" style={{ fontSize: 12 }}>
+                          {t.rationale || <span className="m3">no rationale recorded</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
             {a.risk.decisions_during_drawdown?.note ? (
               <div style={{ marginTop: 10 }}>
                 <Callout tone="note">{a.risk.decisions_during_drawdown.note}</Callout>

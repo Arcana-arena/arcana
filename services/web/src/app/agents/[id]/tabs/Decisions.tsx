@@ -9,20 +9,23 @@
  * snapshot had no quote. Printing 0.00 there would invent a price of zero for a
  * share of a real company. So a null price shows the STATUS, not a number.
  *
- * WHAT THIS TAB CANNOT DO, AND SAYS SO. The decisions table has a `decider`
- * column — 'protective' marks an exit taken by a level rather than by the agent
- * — and the passport counts those separately. The per-decision endpoint does
- * NOT return it. So this list cannot mark which individual rows were protective
- * exits, and rather than let a stop-loss sale sit in the list looking like the
- * agent's own call, the tab says outright that the attribution is missing here
- * and shows the totals that do exist.
+ * WHO DECIDED IS ON EVERY ROW. `decider` and `reason_code` come back as the
+ * columns hold them, and `decided_by` is the backend's reading of the pair. A
+ * sale a stop loss took is marked as one, and is not the agent's trade.
+ *
+ * THE DISTINCTION THAT IS EASY TO GET WRONG, and which this table does not:
+ * `decider = 'protective'` does not mean a level fired. Most protective rows on
+ * this platform are HOLDS carrying `cost_budget_exceeded` — written when a level
+ * WAS crossed and the exit was NOT taken because the cost meter refused it. That
+ * is a stop that did not fire, and it is rendered in red as the warning it is,
+ * not as an exit.
  */
 import { agent } from '@/lib/api';
 import { int, money, num, utc } from '@/lib/format';
-import { ActionTag, Key, Num } from '@/components/ds/primitives';
+import { ActionTag, Key, Num, Tag } from '@/components/ds/primitives';
 import { Callout, Empty, Failed, Unavailable } from '@/components/ds/states';
 import { Pager } from '@/components/ds/nav';
-import type { DecisionsResponse, Passport } from '../shapes';
+import type { DecidedBy, DecisionsResponse, Passport } from '../shapes';
 
 const PAGE_SIZE = 25;
 
@@ -49,20 +52,16 @@ export async function DecisionsTab({ id, p, page }: { id: string; p: Passport | 
         ) : null}
       </div>
 
-      <Callout tone="warn">
-        <strong>These rows do not say who decided.</strong> ARCANA records a{' '}
-        <span className="mono">decider</span> on every decision, and a protective exit — a sale taken by a stop or a
-        target rather than by the agent — is marked{' '}
-        <span className="mono">protective</span>. This endpoint does not return that field, so no row below can be
-        told apart from the agent&rsquo;s own call.{' '}
-        {p?.decided_by ? (
-          <>
-            The totals are known: <span className="mono">{int(p.decided_by.own)}</span> of this agent&rsquo;s trades
-            were its own, <span className="mono">{int(p.decided_by.protective)}</span> were protective exits, and{' '}
-            <span className="mono">{int(p.decided_by.unattributed)}</span> predate the distinction.
-          </>
-        ) : null}
-      </Callout>
+      {p?.decided_by ? (
+        <Callout tone="note">
+          <strong>Every row says who decided it.</strong> Across this agent&rsquo;s whole record,{' '}
+          <span className="mono">{int(p.decided_by.own)}</span> trades were its own,{' '}
+          <span className="mono">{int(p.decided_by.protective)}</span> were exits a protective level took, and{' '}
+          <span className="mono">{int(p.decided_by.unattributed)}</span> predate the{' '}
+          <span className="mono">decider</span> column and do not say. A trade the platform took is never counted as
+          the agent&rsquo;s.
+        </Callout>
+      ) : null}
 
       {d.decisions.length === 0 ? (
         <Empty title="No decisions on this page">
@@ -78,6 +77,9 @@ export async function DecisionsTab({ id, p, page }: { id: string; p: Passport | 
                 <tr>
                   <th style={{ width: 168 }}>Time (UTC)</th>
                   <th style={{ width: 62 }}>Action</th>
+                  <th style={{ width: 150 }} title="Read from decisions.decider and decisions.reason_code. A trade a protective level took is not the agent's decision.">
+                    Decided by
+                  </th>
                   <th style={{ width: 78 }}>Symbol</th>
                   <th className="r" style={{ width: 96 }}>
                     Quantity
@@ -100,6 +102,9 @@ export async function DecisionsTab({ id, p, page }: { id: string; p: Passport | 
                     </td>
                     <td>
                       <ActionTag action={row.action} />
+                    </td>
+                    <td>
+                      <DecidedByCell d={row.decided_by ?? null} />
                     </td>
                     <td className="mono">
                       {row.symbol ? (
@@ -167,6 +172,52 @@ export async function DecisionsTab({ id, p, page }: { id: string; p: Passport | 
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * Who decided this row.
+ *
+ * FIVE STATES, FIVE APPEARANCES, because they are five different facts:
+ *
+ *   agent                 the agent's own call — plain, since it is the norm
+ *   protective_exit       a level fired and sold — amber, and it says which level
+ *   protective_held_back  a level was crossed and NOTHING sold — RED, because a
+ *                         stop that did not fire is more dangerous than no stop:
+ *                         the position is open and its owner believes it is not
+ *   protective_other      marked protective, reason unrecognised — shown as-is
+ *   unattributed          the row does not say. Dashed and muted, never folded
+ *                         into the agent's column
+ *
+ * The label and the sentence are the backend's. Nothing is decided here.
+ */
+function DecidedByCell({ d }: { d: DecidedBy | null }) {
+  if (!d) {
+    return (
+      <span className="mono m3" style={{ fontSize: 10.5 }} title="This response carried no decided_by for the row.">
+        not reported
+      </span>
+    );
+  }
+  const tone =
+    d.category === 'protective_held_back'
+      ? 'red'
+      : d.category === 'protective_exit'
+        ? 'amber'
+        : d.category === 'protective_other'
+          ? 'amber'
+          : d.category === 'unattributed'
+            ? 'dashed'
+            : 'neutral';
+  return (
+    <span title={d.note}>
+      <Tag tone={tone}>{d.label}</Tag>
+      {d.reason_code ? (
+        <div className="mono m3" style={{ fontSize: 9.5, marginTop: 2 }}>
+          {d.reason_code}
+        </div>
+      ) : null}
+    </span>
   );
 }
 

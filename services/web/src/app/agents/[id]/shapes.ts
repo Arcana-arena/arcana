@@ -169,6 +169,18 @@ export type EvolutionResponse = {
   caveat: string | null;
 };
 
+/** One trade inside the worst drawdown, with who decided it. */
+export type DrawdownTrade = {
+  ts: string;
+  action: string | null;
+  symbol: string | null;
+  quantity: number | null;
+  rationale: string | null;
+  decider?: string | null;
+  reason_code?: string | null;
+  decided_by?: DecidedBy | null;
+};
+
 /** A section the autopsy deliberately did not analyse, and why. */
 export type NotAnalysed = { section: string; reason: string };
 
@@ -211,7 +223,11 @@ export type Autopsy = {
     recovered?: boolean | null;
     recovered_at?: string | null;
     recovery_ticks?: number | null;
-    decisions_during_drawdown?: { trades: number | null; sample: unknown[] | null; note: string | null } | null;
+    decisions_during_drawdown?: {
+      trades: number | null;
+      sample: DrawdownTrade[] | null;
+      note: string | null;
+    } | null;
   } | null;
   volatility: Record<string, number | string | null> | null;
   market_regime: {
@@ -232,10 +248,30 @@ export type Autopsy = {
   caveat: string | null;
 };
 
+/**
+ * Who decided a decision, as the backend now reports it.
+ *
+ * `decider` and `reason_code` are the columns verbatim — null means the row does
+ * not say, and is never to be read as the agent having decided. The `decided_by`
+ * block is the backend's reading of those two together, which is NOT the same as
+ * renaming `decider`: a protective row that is a HOLD is a level that was
+ * crossed and NOT acted on, which is close to the opposite of an exit.
+ */
+export type DecidedBy = {
+  category: 'agent' | 'protective_exit' | 'protective_held_back' | 'protective_other' | 'unattributed';
+  label: string;
+  note: string;
+  decider: string | null;
+  reason_code: string | null;
+};
+
 export type DecisionRow = {
   ts: string;
   season_id: string | null;
   action: string;
+  decider?: string | null;
+  reason_code?: string | null;
+  decided_by?: DecidedBy | null;
   symbol: string;
   quantity: number | null;
   price: number | null;
