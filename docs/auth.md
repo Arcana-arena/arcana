@@ -466,11 +466,22 @@ signatures, sequential and **concurrent** nonce replay, refresh rotation and
 family revocation, `alg:none` and tampered tokens, machine-tier refusals with
 absent and wrong keys, and self-only wallet reads.
 
-It creates two throwaway wallets and their creators/agents. Clean up with:
+It creates two throwaway wallets and their creators/agents, and **removes them
+itself**. Nothing to run afterwards.
 
-```bash
-docker exec -i arcana-postgres psql -U arcana -d arcana < infra/verify/auth-verify-cleanup.sql
-```
+The hand-run `auth-verify-cleanup.sql` that used to live here is gone, and its
+absence is the point. It had to be remembered, so it was not: 42 agents and 81
+creators accumulated behind it. Worse, it selected on `handle LIKE
+'verify_alice_%'` — matching fixtures by NAME, which missed every suite whose
+handles nobody had listed and pointed squarely at `Phase 8c buy leg`, the one
+agent holding a wallet that trades.
+
+Rows created through the verification path now carry `provenance = 'verification'`
+(migration 0042, set once and frozen by a trigger), and every suite registers
+`sweepFixtures()` on the process exit event — not in a `finally`, because
+`process.exit()` skips those, and a suite exits that way exactly when it has
+failed. The sweep selects on the mark, so a run also clears whatever an earlier
+crashed run abandoned. See `docs/data-resets.md`, 2026-09-12.
 
 Every check must **refuse** something. A gate that has never said no has not
 been tested — see `docs/arca-go-live.md`.
