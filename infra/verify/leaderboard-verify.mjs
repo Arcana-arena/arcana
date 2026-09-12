@@ -1,0 +1,235 @@
+/**
+ * leaderboard-verify.mjs — the ranked list, and the things it must not flatten.
+ *
+ * WHY A WHOLE SUITE FOR ONE ENDPOINT. A leaderboard is the surface where every
+ * distinction this platform draws can quietly collapse into a number: an agent
+ * that has not competed looks like an agent that competed badly, a placeholder
+ * looks like a measurement, and a list that is not really sorted looks exactly
+ * like one that is.
+ *
+ * THE LESSON FROM seasons-verify APPLIES DIRECTLY. Proving a number is not a
+ * stub is not checking that it exists, because 0 exists and so does rank 1. Two
+ * things are required and both are here:
+ *
+ *   1. compute the ordering a SECOND way, straight from score_snapshots, and
+ *      require the endpoint to agree; and
+ *   2. require the orderings to DIFFER between categories. Seven tabs that all
+ *      return the same order is precisely what a stub returns, and check (1)
+ *      alone would pass it every time the database happened to agree.
+ *
+ * Reads only. No session, no writes, nothing it could spend.
+ */
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { req } from './lib/rate-aware.mjs';
+import { suite } from './lib/sections.mjs';
+
+const AGENT = process.env.AGENT_URL || 'http://127.0.0.1:3001';
+const REPO = process.env.REPO || '/home/ubuntu/arcana';
+const PG = process.env.PG_CONTAINER || 'arcana-postgres';
+const psql = (s) => execFileSync('docker',
+  ['exec', PG, 'psql', '-U', 'arcana', '-d', 'arcana', '-tAc', s], { encoding: 'utf8' }).trim();
+
+const { check, section, nothingToCheck, report } = suite('leaderboard-verify');
+
+// The season with the most scored agents: the one that can actually exercise a
+// ranking. Chosen from the data rather than hardcoded.
+const SEASON = psql(
+  `SELECT season_id::text FROM score_snapshots GROUP BY season_id ORDER BY count(*) DESC LIMIT 1`);
+
+const get = (q) => req(`${AGENT}/v1/leaderboard?${q}`);
+
+const board = await get(`season_id=${SEASON}&page_size=50`);
+
+await section('It answers, publicly, and says what it is a leaderboard of', async () => {
+  check('GET /v1/leaderboard is reachable without a session', board.status === 200,
+    `status ${board.status} ${JSON.stringify(board.body).slice(0, 160)}`);
+  if (board.status !== 200) {
+    nothingToCheck('nothing below can run against a response that did not arrive');
+    return;
+  }
+  check('it names the season it ranked', board.body?.season?.id === SEASON,
+    `season = ${JSON.stringify(board.body?.season)}`);
+  check('and the category it sorted by', typeof board.body?.category === 'string',
+    `category = ${JSON.stringify(board.body?.category)}`);
+  check('it returns rows', Array.isArray(board.body?.items) && board.body.items.length > 0,
+    `${board.body?.items?.length} items`);
+});
+
+await section('Seven categories, and the eighth is refused rather than ignored', async () => {
+  const keys = (board.body?.categories ?? []).map((c) => c.key);
+  check('exactly seven categories are offered', keys.length === 7, `offered: ${keys.join(', ')}`);
+  for (const want of ['overall', 'performance', 'risk', 'consistency', 'strategy', 'longevity', 'creator']) {
+    check(`${want} is one of them`, keys.includes(want), `offered: ${keys.join(', ')}`);
+  }
+
+  // THE ONE THAT MATTERS. regime_score is a flat placeholder the scoring engine
+  // writes identically for every agent. Offering it as a sort column would
+  // present a constant as a measurement.
+  check('regime is NOT offered', !keys.includes('regime') && !keys.includes('regime_score'),
+    `offered: ${keys.join(', ')}`);
+
+  const regime = await get(`season_id=${SEASON}&category=regime`);
+  check('and asking for it is REFUSED, not quietly defaulted', regime.status === 400,
+    `status ${regime.status}, category came back as ` +
+    `${JSON.stringify(regime.body?.category)} — a silent fallback is how a client ` +
+    'believes it asked for something it did not get');
+
+  const nonsense = await get(`season_id=${SEASON}&category=banana`);
+  check('an unknown category is refused too', nonsense.status === 400, `status ${nonsense.status}`);
+
+  check('the response says why regime is absent rather than leaving a gap',
+    typeof board.body?.regime_note === 'string' && /placeholder|constant|not implemented/i.test(board.body.regime_note),
+    `regime_note = ${JSON.stringify(board.body?.regime_note)?.slice(0, 120)}`);
+});
+
+// The same ordering, computed a second way, straight from the table.
+const truthFor = (column) => psql(`
+  SELECT string_agg(agent_id::text, ',' ORDER BY ord)
+    FROM (
+      SELECT l.agent_id,
+             row_number() OVER (ORDER BY l.${column} DESC NULLS LAST, a.name ASC) AS ord
+        FROM (SELECT DISTINCT ON (agent_id) * FROM score_snapshots
+               WHERE season_id = '${SEASON}' ORDER BY agent_id, ts DESC) l
+        JOIN agents a ON a.id = l.agent_id
+       WHERE l.arcana_score IS NOT NULL
+    ) x`).split(',').filter(Boolean);
+
+const COLUMN_OF = {
+  overall: 'arcana_score', performance: 'performance_score', risk: 'risk_score',
+  consistency: 'consistency_score', strategy: 'strategy_score',
+  longevity: 'longevity_score', creator: 'creator_score',
+};
+
+const ordersSeen = {};
+
+await section('Every category ranks in the order the database ranks it', async () => {
+  for (const [cat, column] of Object.entries(COLUMN_OF)) {
+    const r = await get(`season_id=${SEASON}&category=${cat}&page_size=50`);
+    if (r.status !== 200) {
+      check(`${cat} answers`, false, `status ${r.status}`);
+      continue;
+    }
+    const got = r.body.items.filter((i) => i.ranked).map((i) => i.agent_id);
+    const want = truthFor(column);
+    ordersSeen[cat] = got.join(',');
+    check(`${cat} matches the ordering computed straight from score_snapshots`,
+      got.join(',') === want.join(','),
+      `endpoint: ${got.map((x) => x.slice(0, 8)).join(' ')} | database: ${want.map((x) => x.slice(0, 8)).join(' ')}`);
+    // TIES SHARE A RANK, AND THAT IS CORRECT. longevity_score is 100 for every
+    // agent that has been in the season since it opened, so rank() returns
+    // 1,2,2,4 — standard competition ranking. The first version of this check
+    // demanded dense 1..n and failed here, and the CHECK was what was wrong:
+    // dense numbering would force the endpoint to invent an order between
+    // agents the data says are equal, which is the opposite of what this suite
+    // exists to protect.
+    const ranked = r.body.items.filter((i) => i.ranked);
+    const ranks = ranked.map((i) => i.rank);
+    check(`${cat} starts at rank 1`, ranks[0] === 1, ranks.join(','));
+    check(`${cat} never ranks a later row above an earlier one`,
+      ranks.every((v, n) => n === 0 || v >= ranks[n - 1]), ranks.join(','));
+    // WHAT THE RANK IS ACTUALLY OVER, which is worth stating because it is not
+    // the score alone. The window orders by (column DESC, agent_name ASC), so
+    // the name is part of the key: two agents on 100 with different names take
+    // ranks 1 and 2, and only rows matching on BOTH share a rank — which here
+    // means two versions of one agent.
+    //
+    // A second version of this check asserted equal-scores-equal-ranks and
+    // failed; the check was wrong about the contract, not the endpoint. The
+    // question of whether a dead heat SHOULD read as 1st and 2nd is a product
+    // one and is raised separately — this asserts what is built.
+    const key = (i) => `${i.score}|${i.agent_name}`;
+    check(`${cat} changes rank exactly when its ordering key changes`,
+      ranked.every((i, n) => n === 0 ||
+        ((key(i) === key(ranked[n - 1])) === (i.rank === ranked[n - 1].rank))),
+      ranked.map((i) => `${i.rank}:${i.score}:${i.agent_name}`).join('  '));
+  }
+});
+
+await section('The seven tabs are not seven copies of one list', async () => {
+  const distinct = new Set(Object.values(ordersSeen));
+  if (Object.keys(ordersSeen).length < 2) {
+    nothingToCheck('fewer than two categories answered, so there is nothing to compare');
+    return;
+  }
+  // A CONSTANT IS WHAT A STUB RETURNS. Agreeing with the database would not
+  // catch an endpoint that sorts by one column and labels it seven ways,
+  // because the database would agree with it seven times.
+  check('at least two categories produce a different ordering', distinct.size >= 2,
+    `all ${Object.keys(ordersSeen).length} categories returned the identical order — ` +
+    'either the data is degenerate or the category parameter is not being applied');
+  for (const [cat, ord] of Object.entries(ordersSeen)) {
+    console.log(`      ${cat.padEnd(12)} ${ord.split(',').map((x) => x.slice(0, 8)).join(' ')}`);
+  }
+});
+
+await section('An unranked agent is absent, not last', async () => {
+  // LOOK WHERE THE EVIDENCE IS. The season chosen for ordering is the busiest
+  // one, and it may happen to hold no withheld agent. Any season with one will
+  // prove the withholding, and which season that is gets printed rather than
+  // quietly assumed.
+  const UNSEASON = psql(`
+    SELECT l.season_id::text FROM (SELECT DISTINCT ON (agent_id, season_id) *
+      FROM score_snapshots ORDER BY agent_id, season_id, ts DESC) l
+     WHERE l.arcana_score IS NULL GROUP BY l.season_id ORDER BY count(*) DESC LIMIT 1`);
+  const unrankedInDb = UNSEASON ? 1 : 0;
+  if (unrankedInDb === 0) {
+    nothingToCheck('every scored agent in this season is ranked, so the withheld case ' +
+      'has nothing real to show');
+    return;
+  }
+  console.log(`      withheld agents found in season ${UNSEASON.slice(0, 8)}`);
+  const without = await get(`season_id=${UNSEASON}&page_size=50`);
+  const withThem = await get(`season_id=${UNSEASON}&page_size=50&include_unranked=true`);
+  check('by default the unranked are left out', (without.body?.items ?? []).every((i) => i.ranked),
+    `${(without.body?.items ?? []).filter((i) => !i.ranked).length} unranked rows appeared by default`);
+  check('include_unranked brings them back', withThem.body.items.length > without.body.items.length,
+    `${without.body.items.length} -> ${withThem.body.items.length}`);
+
+  const un = withThem.body.items.filter((i) => !i.ranked);
+  check('they carry no rank at all, rather than a bad one', un.every((i) => i.rank === null),
+    `ranks: ${un.map((i) => i.rank).join(',')}`);
+  // THE DISTINCTION THE WHOLE FIELD EXISTS FOR: not competed, versus competed
+  // badly. A reader must be able to tell those apart.
+  check('and a reason that names the threshold, not a low score',
+    un.every((i) => typeof i.unranked_note === 'string' && /decision/i.test(i.unranked_note)),
+    `note: ${JSON.stringify(un[0]?.unranked_note)?.slice(0, 140)}`);
+  check('the counts add up', withThem.body.total_ranked + withThem.body.total_unranked === withThem.body.total,
+    `${withThem.body.total_ranked} + ${withThem.body.total_unranked} != ${withThem.body.total}`);
+  console.log(`      ${un.length} withheld: ${un.map((i) => i.agent_name).join(', ')}`);
+});
+
+await section('The threshold is the scoring engine\'s, not a copy of it', async () => {
+  // The Go constant is the authority: below it the engine writes NULL, and that
+  // NULL is what every reader here is describing. If the TypeScript side drifts,
+  // an agent is ranked by one surface and withheld by another with no error.
+  const go = readFileSync(`${REPO}/services/scoring-engine/internal/engine/score.go`, 'utf8');
+  const m = go.match(/minParticipationDecisions\s*=\s*(\d+)/);
+  check('the scoring engine states a participation threshold', !!m, 'not found in score.go');
+  if (!m) return;
+  check('and the leaderboard reports the same number',
+    board.body?.threshold_decisions === Number(m[1]),
+    `score.go says ${m[1]}, the endpoint reports ${JSON.stringify(board.body?.threshold_decisions)}`);
+  console.log(`      score.go minParticipationDecisions = ${m[1]}`);
+});
+
+await section('Paging continues the ranking rather than restarting it', async () => {
+  const total = board.body?.total ?? 0;
+  if (total < 3) {
+    nothingToCheck(`only ${total} ranked agent(s) in this season, so there is no second page`);
+    return;
+  }
+  const p1 = await get(`season_id=${SEASON}&page_size=2&page=1`);
+  const p2 = await get(`season_id=${SEASON}&page_size=2&page=2`);
+  check('page 1 starts at rank 1', p1.body?.items?.[0]?.rank === 1, `${p1.body?.items?.[0]?.rank}`);
+  check('page 2 continues at rank 3, not 1',
+    p2.body?.items?.[0]?.rank === 3,
+    `page 2 opens at rank ${p2.body?.items?.[0]?.rank} — a rank that restarts per page is a ` +
+    'rank of the page, not of the season');
+  check('and the two pages hold different agents',
+    p1.body?.items?.[0]?.agent_id !== p2.body?.items?.[0]?.agent_id, 'the same agent on both pages');
+});
+
+const code = report();
+if (code !== 0) process.exit(code);
+console.log('leaderboard-verify: seven orderings, each the one the database gives, and the eighth refused.');

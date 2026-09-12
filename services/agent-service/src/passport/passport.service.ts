@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { EvolutionService } from '../evolution/evolution.service';
+import { MIN_DECISIONS } from '../common/ranking';
 
 /**
  * Agent Passport — the career record: what an agent has been through.
@@ -27,7 +28,6 @@ import { EvolutionService } from '../evolution/evolution.service';
  * registered, that is a fact worth showing — but it holds no rank and no
  * badges, because those are claims about competing.
  */
-const MIN_DECISIONS = 5;
 
 /**
  * Ticks at which `longevity_score` saturates in the scoring formula. Reused as

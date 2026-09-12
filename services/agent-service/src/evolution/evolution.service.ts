@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { MarketIndexService } from '../market/market-index.service';
+import { MIN_DECISIONS } from '../common/ranking';
 
 /**
  * Agent Evolution — the V1→V2→V3 chain, and what changed between versions.
@@ -17,7 +18,6 @@ import { MarketIndexService } from '../market/market-index.service';
  */
 
 /** Same participation threshold used by scoring, DNA and the Passport. */
-const MIN_DECISIONS = 5;
 
 @Injectable()
 export class EvolutionService {

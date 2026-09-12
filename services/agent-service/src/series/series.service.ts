@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { MarketPriceClient } from './market-price.client';
+import { MIN_DECISIONS } from '../common/ranking';
 import {
   DECISIONS_PAGE_SIZE_DEFAULT,
   DECISIONS_PAGE_SIZE_MAX,
@@ -18,7 +19,6 @@ import {
  * not re-decided: a series must describe an unranked agent the same way every
  * other surface does.
  */
-const MIN_DECISIONS = 5;
 
 function numeric(v: unknown): number | null {
   if (v === null || v === undefined) return null;

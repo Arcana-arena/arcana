@@ -3,6 +3,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { MarketIndexService, MarketTick } from '../market/market-index.service';
 import { positionsOf } from '../common/positions';
+import { MIN_DECISIONS } from '../common/ranking';
 
 /**
  * Agent DNA — a behavioural fingerprint computed from what an agent actually
@@ -49,7 +50,6 @@ const FEATURE_COUNT = 9;
  * but not enough of it to characterise, and a zero vector would look like a
  * measurement rather than an absence.
  */
-const MIN_DECISIONS = 5;
 
 /**
  * Scale ceilings used to map an unbounded feature onto [-1, 1]. A value at the

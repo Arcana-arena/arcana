@@ -3,6 +3,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { MarketIndexService, MarketTick } from '../market/market-index.service';
 import { positionsOf } from '../common/positions';
+import { MIN_DECISIONS } from '../common/ranking';
 
 /**
  * Agent Autopsy — why an agent performed the way it did, from its own record.
@@ -31,7 +32,6 @@ import { positionsOf } from '../common/positions';
  */
 
 /** Same participation threshold as scoring, DNA, passport and evolution. */
-const MIN_DECISIONS = 5;
 
 /**
  * Trades needed before timing is characterised at all. Two trades can look
