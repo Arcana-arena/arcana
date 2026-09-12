@@ -29,6 +29,7 @@ Units live in [`infra/systemd/`](../infra/systemd/):
 | `arcana-decision.service` | long-running | always | decision engine (port 8081) |
 | `arcana-scoring.service` | long-running | always | score API + batch endpoint (port 8082) |
 | `arcana-marketplace.service` | long-running | always | marketplace API (port 3002) |
+| `arcana-web.service` | long-running | always | the public web surface, server-rendered (port 3000). Holds no key and has no session: everything it serves is readable without a wallet. It reads the services DIRECTLY rather than through nginx, because the proxy's rate limiter is keyed on the real client address and loopback is deliberately not exempt from it |
 | `arcana-arca.service` | long-running | always | $ARCA entitlements, subscriptions, marketplace payment claims (port **3004** — 3003 is taken on this host) |
 | ~~`arcana-scheduler.timer`~~ | — | **RETIRED 2026-09-11** | One tick per US trading day, 23:00 UTC with retries at 01:00 and 03:00. Stock Tokens trade against a pool that never closes, so "trading day" stopped naming anything and a calendar-driven tick stood still through two thirds of every week. |
 | `arcana-cadence.timer` → `arcana-cadence.service` | oneshot | **hourly** | advance the competition on a CONTINUOUS clock. The timer decides how often the system looks; the binary measures the age of the last tick and acts only once the four-hour cadence has elapsed. Prices come from the Uniswap pool, refereed by Chainlink ([cadence.md](./cadence.md)) |

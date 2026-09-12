@@ -561,6 +561,22 @@ let emittedCodes = [];
     'arcana_e2e',                                                     // the throwaway test database
   ]);
 
+  // The names the DATABASE carries: agent names and creator handles. Read once.
+  // If the database cannot be reached the set is empty and this check simply
+  // goes back to being source-only — it never silently passes an identifier
+  // because a lookup failed, it just stops being able to vouch for data names.
+  let liveNames = new Set();
+  try {
+    const out = execFileSync('docker',
+      ['exec', process.env.PG_CONTAINER || 'arcana-postgres', 'psql', '-U', 'arcana', '-d', 'arcana', '-tAc',
+        "SELECT name FROM agents UNION SELECT handle FROM creators"],
+      { encoding: 'utf8' });
+    liveNames = new Set(out.split(/\r?\n/).map((x) => x.trim()).filter(Boolean));
+  } catch {
+    console.log('      NOTE  the database could not be read, so identifiers that exist only as ' +
+      'rows cannot be vouched for on this run');
+  }
+
   const docFiles = readdirSync('docs').filter((n) => n.endsWith('.md'));
   check('there are documents to check', docFiles.length > 5, `only ${docFiles.length} found`);
 
@@ -579,6 +595,17 @@ let emittedCodes = [];
         execFileSync('grep', ['-rqI', id, 'services', 'infra', 'packages'], { encoding: 'utf8' });
         continue;
       } catch { /* grep exits 1 on no match, which is the interesting case */ }
+      // AND IN THE DATA, because some things this documentation names are rows,
+      // not symbols. data-resets.md is about renaming an agent and a creator
+      // handle; `onchain_live_v1` and `onchain_operator` are the names those
+      // rows now carry, and they were reported as ghosts purely because this
+      // check only ever looked in the source tree. A doc naming a live agent
+      // was failing while the agent was on the leaderboard.
+      //
+      // This makes the check stricter, not laxer: an identifier that exists in
+      // neither the code nor the database still fails, and now the failure
+      // means something closer to what the message says.
+      if (liveNames.has(id)) continue;
       // A line that RECORDS something rather than CLAIMING it is exempt, using
       // the same vocabulary every other check here uses.
       const lines = splitLines(body).filter((l) => l.includes('`' + id + '`'));
