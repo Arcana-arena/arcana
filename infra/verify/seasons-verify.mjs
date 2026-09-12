@@ -163,9 +163,33 @@ await section('The detail route answers with the same shape as the list', async 
     `detail: ${JSON.stringify(one.body?.progress)} / list: ${JSON.stringify(items[0].progress)}`);
   // A page showing one arena needs its competitions; that list already exists
   // and is filtered by season, so there is no third endpoint to add here.
-  const comps = await req(`${AGENT}/v1/competitions?season_id=${items[0].id}&page_size=5`);
-  check('and the competitions of a season are reachable from the existing list',
+  // ASSERTING 200 WAS NOT ENOUGH, AND THIS CHECK PROVED IT. The handler read
+  // `seasonId` while the whole API speaks snake_case, so `season_id` matched
+  // nothing and EVERY competition came back — with a 200, which is all this
+  // check looked at. A filter that silently does not filter returns wrong data
+  // confidently, and my own check waved it through.
+  //
+  // So it now asserts the filter FILTERED: every row belongs to the season
+  // asked for, and asking for one season returns fewer rows than asking for
+  // none — unless that season happens to hold them all, which is stated rather
+  // than assumed away.
+  const target = items.find((x) => (x.progress?.competitions ?? 0) > 0) ?? items[0];
+  const all = await req(`${AGENT}/v1/competitions?page_size=50`);
+  const comps = await req(`${AGENT}/v1/competitions?season_id=${target.id}&page_size=50`);
+  check('the competitions of a season are reachable from the existing list',
     comps.status === 200, `status ${comps.status}`);
+  check('every row it returns belongs to the season asked for',
+    (comps.body?.items ?? []).every((c) => c.seasonId === target.id || c.season_id === target.id),
+    `asked for ${target.id.slice(0, 8)}, got seasons ` +
+    [...new Set((comps.body?.items ?? []).map((c) => (c.seasonId ?? c.season_id ?? '?').slice(0, 8)))].join(', '));
+  check('and the count matches what the season itself reports',
+    (comps.body?.items ?? []).length === target.progress?.competitions,
+    `the filter returned ${(comps.body?.items ?? []).length}, the season reports ` +
+    `${target.progress?.competitions}`);
+  if ((all.body?.items ?? []).length === (comps.body?.items ?? []).length) {
+    console.log('      NOTE  this season holds every competition there is, so the filter ' +
+      'narrowing nothing is correct here rather than evidence of it working');
+  }
 });
 
 const code = report();

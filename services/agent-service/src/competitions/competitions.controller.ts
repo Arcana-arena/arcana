@@ -5,6 +5,7 @@ import { CompetitionsService } from './competitions.service';
 import { OwnershipService } from '../auth/ownership.service';
 import { ParseUuidAllPipe } from '../common/parse-uuid-all.pipe';
 import { CreateCompetitionDto } from './dto/create-competition.dto';
+import { CompetitionsListQueryDto } from '../common/list-query.dto';
 import { IsNotEmpty, IsString, IsUUID, MaxLength } from 'class-validator';
 
 export class OpenTickDto {
@@ -109,17 +110,15 @@ export class CompetitionsController {
    * a bound.
    */
   @Get()
-  findAll(
-    @Query('seasonId') seasonId?: string,
-    @Query('status') status?: string,
-    @Query('page') page?: string,
-    @Query('page_size') pageSize?: string,
-  ) {
-    const { page: p, pageSize: ps, offset } = parsePage(page, pageSize);
+  findAll(@Query() query: CompetitionsListQueryDto) {
+    const { page: p, pageSize: ps, offset } = parsePage(
+      query.page, query.page_size);
     return this.competitions.findAllPaged({
       page: p, pageSize: ps, offset,
-      seasonId: seasonId?.trim() || undefined,
-      status: status?.trim() || undefined,
+      // season_id, not seasonId. See CompetitionsListQueryDto: the old spelling
+      // matched nothing and returned every competition with a 200.
+      seasonId: query.season_id?.trim() || undefined,
+      status: query.status?.trim() || undefined,
     });
   }
 

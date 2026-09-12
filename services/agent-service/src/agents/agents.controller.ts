@@ -21,6 +21,7 @@ import { EvolveAgentDto } from './dto/evolve-agent.dto';
 import { UpdateAgentDto } from './dto/update-agent.dto';
 import { ManualDecisionDto } from './dto/manual-decision.dto';
 import { ImportWalletDto } from './dto/import-wallet.dto';
+import { AgentsListQueryDto } from '../common/list-query.dto';
 import { VERIFICATION_HEADER, provenanceFrom } from '../common/verification';
 import { OwnershipService } from '../auth/ownership.service';
 import { DecisionClient } from '../decisions/decision.client';
@@ -172,21 +173,15 @@ export class AgentsController {
    * costs.
    */
   @Get()
-  findAll(
-    @Query('page') page?: string,
-    @Query('page_size') pageSize?: string,
-    @Query('q') q?: string,
-    @Query('status') status?: string,
-    @Query('creator_id') creatorId?: string,
-    @Query('strategy_type') strategyType?: string,
-  ) {
-    const { page: p, pageSize: ps, offset } = parsePage(page, pageSize);
+  findAll(@Query() query: AgentsListQueryDto) {
+    const { page: p, pageSize: ps, offset } = parsePage(
+      query.page, query.page_size);
     return this.agents.findAll({
       page: p, pageSize: ps, offset,
-      q: q?.trim() || undefined,
-      status: status?.trim() || undefined,
-      creatorId: creatorId?.trim() || undefined,
-      strategyType: strategyType?.trim() || undefined,
+      q: query.q?.trim() || undefined,
+      status: query.status?.trim() || undefined,
+      creatorId: query.creator_id?.trim() || undefined,
+      strategyType: query.strategy_type?.trim() || undefined,
     });
   }
 

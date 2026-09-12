@@ -1,6 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { parsePage } from '../common/pagination';
 import { LeaderboardService } from './leaderboard.service';
+import { LeaderboardQueryDto } from '../common/list-query.dto';
 
 /**
  * Public, like every other read of the track record.
@@ -15,13 +16,12 @@ export class LeaderboardController {
   constructor(private readonly leaderboard: LeaderboardService) {}
 
   @Get()
-  list(
-    @Query('season_id') seasonId?: string,
-    @Query('category') category?: string,
-    @Query('page') page?: string,
-    @Query('page_size') pageSize?: string,
-    @Query('include_unranked') includeUnranked?: string,
-  ) {
+  list(@Query() query: LeaderboardQueryDto) {
+    const seasonId = query.season_id;
+    const category = query.category;
+    const page = query.page;
+    const pageSize = query.page_size;
+    const includeUnranked = query.include_unranked;
     const { page: p, pageSize: ps, offset } = parsePage(page, pageSize);
     return this.leaderboard.list({
       seasonId: seasonId || undefined,

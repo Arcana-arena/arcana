@@ -4,6 +4,7 @@ import { AdminGuard, JwtAuthGuard } from '@arcana/auth';
 import { SeasonsService } from './seasons.service';
 import { ParseUuidAllPipe } from '../common/parse-uuid-all.pipe';
 import { CreateSeasonDto } from './dto/create-season.dto';
+import { SeasonsListQueryDto } from '../common/list-query.dto';
 import { UpdateSeasonDto } from './dto/update-season.dto';
 
 /**
@@ -25,8 +26,9 @@ export class SeasonsController {
   }
 
   @Get()
-  findAll(@Query('page') page?: string, @Query('page_size') pageSize?: string) {
-    const { page: p, pageSize: ps, offset } = parsePage(page, pageSize);
+  findAll(@Query() query: SeasonsListQueryDto) {
+    const { page: p, pageSize: ps, offset } = parsePage(
+      query.page, query.page_size);
     return this.seasons.findAllPaged({ page: p, pageSize: ps, offset });
   }
 
