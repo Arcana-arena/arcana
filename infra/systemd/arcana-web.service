@@ -1,0 +1,29 @@
+# web (Next.js) — the public surface. Reads only; signs nothing.
+[Unit]
+Description=ARCANA Web
+After=network-online.target arcana-agent.service arcana-marketplace.service arcana-arca.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/arcana/services/web
+Environment=PORT=3000
+# THE WEB APP READS THE SERVICES DIRECTLY, NOT THROUGH NGINX. Its server-side
+# reads would otherwise all arrive from 127.0.0.1 and the site would throttle
+# itself out of the proxy's per-IP limiter — loopback is deliberately not
+# exempt from it. These are server-to-server reads and never reach a browser.
+Environment=AGENT_API=http://127.0.0.1:3001
+Environment=MARKETPLACE_API=http://127.0.0.1:3002
+# arca-service runs on 3004 on this host (3003 is taken), same override the
+# marketplace unit carries. The code default is 3003.
+Environment=ARCA_API=http://127.0.0.1:3004
+Environment=NEXT_PUBLIC_ARCANA_CHAIN_ID=4663
+# No secrets. This process has no session, no key and no write path: every page
+# it serves is public, which is why there is no EnvironmentFile here at all.
+ExecStart=/usr/bin/npx next start -p 3000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
