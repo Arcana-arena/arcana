@@ -88,7 +88,13 @@ const truthFor = (column) => psql(`
   SELECT string_agg(agent_id::text, ',' ORDER BY ord)
     FROM (
       SELECT l.agent_id,
-             row_number() OVER (ORDER BY l.${column} DESC NULLS LAST, a.name ASC) AS ord
+             -- SAME TOTAL ORDER AS THE ENDPOINT, DOWN TO THE LAST TIEBREAK.
+             -- Leaving agent_id off here is how this check found the bug: two
+             -- agents share a score and a name, both queries were free to
+             -- order them either way, and the two disagreed. That disagreement
+             -- was the finding — an ordering that is not total is not stable
+             -- across pages either.
+             row_number() OVER (ORDER BY l.${column} DESC NULLS LAST, a.name ASC, l.agent_id ASC) AS ord
         FROM (SELECT DISTINCT ON (agent_id) * FROM score_snapshots
                WHERE season_id = '${SEASON}' ORDER BY agent_id, ts DESC) l
         JOIN agents a ON a.id = l.agent_id

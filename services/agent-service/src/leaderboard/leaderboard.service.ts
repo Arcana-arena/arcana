@@ -189,7 +189,21 @@ export class LeaderboardService {
              count(*) OVER () AS total,
              count(*) FILTER (WHERE ranked) OVER () AS total_ranked
         FROM joined
-       ORDER BY ranked DESC, ${column} DESC NULLS LAST, agent_name ASC
+       -- agent_id IS THE LAST TIEBREAK, AND IT IS NOT DECORATION.
+       -- (score, agent_name) was assumed to be a total order and is not: two
+       -- agents can share a score AND a name — this platform has two agents
+       -- called momentum_bot — at which point Postgres returns them in
+       -- whichever order it likes, and it does not have to be the same order
+       -- twice. A row can then appear on both page 1 and page 2, or on
+       -- neither, and the total still adds up so nothing looks wrong.
+       --
+       -- Caught by leaderboard-verify computing the same ordering a second way
+       -- and getting a different answer for strategy and longevity.
+       --
+       -- This changes ORDER only. The RANK window above still orders by the
+       -- score alone, so a tie is still ranked as a tie: the id decides who is
+       -- PRINTED first, never who is placed higher.
+       ORDER BY ranked DESC, ${column} DESC NULLS LAST, agent_name ASC, agent_id ASC
        LIMIT $3 OFFSET $4`;
 
     const rows = await this.db.query(sql, [
