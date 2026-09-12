@@ -34,6 +34,36 @@ docker compose -f infra/docker/docker-compose.yml up -d
 # 2. Run a service — see each service's own README
 ```
 
+## Building and testing the Go services
+
+Use the root `Makefile`. **`go build ./...` and `go test ./...` do not work from
+the repo root** — the root is not a module, `go.work` lists five, and the wildcard
+matches none of them:
+
+```
+pattern ./...: directory prefix . does not contain modules listed in go.work
+```
+
+That reads like a broken checkout and is not one. Build and test per module, or
+let the Makefile walk the workspace for you:
+
+```bash
+make build-go   # go build ./... in each module listed in go.work
+make test-go    # go test ./... in each, with DATABASE_URL sourced from .env
+make help       # list targets
+```
+
+`make test-go` is the documented way to run the suite because it sources the
+repo-root `.env`, and some tests need a real database. **A bare `go test ./...`
+inside a module will not silently pass those tests.** Six store tests — the
+customer-gas billing, the once-only decline, the four guard-lifecycle tests —
+used to skip when `DATABASE_URL` was absent, while the package still summarised
+as `ok`. They now **fail** on any machine where Postgres is reachable, because
+there the test could have run and did not. On a clone with no Postgres they still
+skip, and say so. See
+[`db_required_test.go`](./services/decision-engine/internal/store/db_required_test.go)
+for how the two are told apart without consulting the variable that is missing.
+
 ## Environment
 
 Heavy builds, large tests, and Docker runs are executed on the remote VPS (`projecteon`), not locally. Copy service env files from their `.env.example`.

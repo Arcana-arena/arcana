@@ -24,6 +24,41 @@ make migrate-up       # DATABASE_URL read from repo-root .env
 See the [db-migrations README](../packages/db-migrations/README.md) for all targets
 (`migrate-down`, `migrate-create NAME=...`, `migrate-version`, npm equivalents).
 
+## Tests that need the database
+
+Some Go tests run against a real Postgres, because the defects they exist for are
+ones the compiler cannot see — `CloseGuard` shipped a query the planner rejects
+(`inconsistent types deduced for parameter $2`) and every compile-time check
+passed. They read `DATABASE_URL`, from the same repo-root `.env` the migrations
+use.
+
+Run them with the documented target, which sources that file:
+
+```bash
+make test-go        # from the repo root
+```
+
+**A bare `go test` will not quietly pass them.** Six store tests used to skip when
+`DATABASE_URL` was absent while the package still summarised as `ok`. They now
+behave differently depending on the machine, which is the distinction that
+matters:
+
+| the machine | outcome | why |
+| --- | --- | --- |
+| Postgres reachable, `DATABASE_URL` unset | **FAIL** | the test could have run and did not |
+| no Postgres reachable | SKIP, and the run says so | it genuinely cannot run here |
+| `DATABASE_URL` set | runs | |
+
+Which case applies is decided by asking the database, not the configuration: the
+gate opens a socket to the address this repo's compose file publishes Postgres on
+(`127.0.0.1:${HOST_POSTGRES:-5432}`) and checks that something there answers the
+Postgres protocol. It sends an SSLRequest and reads one byte — no startup packet,
+no credential, nothing written. Checking `DATABASE_URL` instead would only
+re-describe the skip, since that is the variable that is missing. Set
+`ARCANA_TEST_PG_ADDR` if your Postgres is somewhere else.
+
+See [`db_required_test.go`](../services/decision-engine/internal/store/db_required_test.go).
+
 ## Schema source of truth
 
 The canonical schema definitions live in `architecture.md` §7. Migrations must
