@@ -168,8 +168,23 @@ export class LeaderboardService {
              -- agent that has not competed above agents that have — the exact
              -- failure the scoring engine avoids by writing NULL into the
              -- composite. They are listed, after, with rank NULL.
+             -- A TIE IS RANKED AS A TIE. The window orders by the score ALONE,
+             -- deliberately not by the name that breaks ties in the row order
+             -- below. Adding agent_name here would hand two agents with the
+             -- same score the numbers 1 and 2, and a page printing "1st" and
+             -- "2nd" would be asserting a difference the data does not contain
+             -- — the same class of lie as a tidy 0.0000 standing in for a
+             -- measurement nobody took.
+             --
+             -- rank() (not dense_rank()) is the right one: equal scores share a
+             -- number and the next agent SKIPS, so rank 3 after two firsts
+             -- still means "two agents are ahead of you", which is true.
+             --
+             -- The row ORDER BY keeps agent_name so paging stays stable and
+             -- deterministic. Order and rank are different questions: the list
+             -- must have one order, the scoreboard must not invent one.
              CASE WHEN ranked
-                  THEN rank() OVER (PARTITION BY ranked ORDER BY ${column} DESC NULLS LAST, agent_name ASC)
+                  THEN rank() OVER (PARTITION BY ranked ORDER BY ${column} DESC NULLS LAST)
                   END AS rank,
              count(*) OVER () AS total,
              count(*) FILTER (WHERE ranked) OVER () AS total_ranked

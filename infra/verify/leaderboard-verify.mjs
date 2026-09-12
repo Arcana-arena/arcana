@@ -128,21 +128,39 @@ await section('Every category ranks in the order the database ranks it', async (
     check(`${cat} starts at rank 1`, ranks[0] === 1, ranks.join(','));
     check(`${cat} never ranks a later row above an earlier one`,
       ranks.every((v, n) => n === 0 || v >= ranks[n - 1]), ranks.join(','));
-    // WHAT THE RANK IS ACTUALLY OVER, which is worth stating because it is not
-    // the score alone. The window orders by (column DESC, agent_name ASC), so
-    // the name is part of the key: two agents on 100 with different names take
-    // ranks 1 and 2, and only rows matching on BOTH share a rank — which here
-    // means two versions of one agent.
+    // A DEAD HEAT READS AS A DEAD HEAT. The rank window orders by the score
+    // ALONE. The row order still breaks ties by name — a list needs one order
+    // and paging has to be deterministic — but the RANK must not inherit that
+    // tiebreak, because then two agents on an identical 100 would be printed
+    // "1st" and "2nd" and the page would be asserting a difference the data
+    // does not contain.
     //
-    // A second version of this check asserted equal-scores-equal-ranks and
-    // failed; the check was wrong about the contract, not the endpoint. The
-    // question of whether a dead heat SHOULD read as 1st and 2nd is a product
-    // one and is raised separately — this asserts what is built.
-    const key = (i) => `${i.score}|${i.agent_name}`;
-    check(`${cat} changes rank exactly when its ordering key changes`,
+    // THIS CHECK WAS REMOVED ONCE AND WAS RIGHT THE WHOLE TIME. It failed
+    // against an implementation that carried agent_name inside the window, and
+    // the failure was read as the check being wrong about the contract. It was
+    // the contract that was wrong. It is restored here unchanged in intent,
+    // now testing the behaviour that should hold.
+    //
+    // (The check that was dropped for good demanded dense 1..n, which would
+    // force the endpoint to invent an order between agents the data says are
+    // equal — the opposite of this one.)
+    const key = (i) => String(i.score);
+    check(`${cat} gives an identical score an identical rank`,
       ranked.every((i, n) => n === 0 ||
         ((key(i) === key(ranked[n - 1])) === (i.rank === ranked[n - 1].rank))),
       ranked.map((i) => `${i.rank}:${i.score}:${i.agent_name}`).join('  '));
+    // AND THE NEXT ONE SKIPS. rank(), not dense_rank(): after two firsts the
+    // next agent is 3rd, so a rank still answers "how many are ahead of me".
+    // Computed the second way — a row's rank is the position of the FIRST row
+    // sharing its score — so a shared rank that failed to skip is caught too.
+    check(`${cat} skips after a tie, so a rank still counts the agents ahead`,
+      ranked.every((i) => i.rank === ranked.findIndex((x) => key(x) === key(i)) + 1),
+      ranked.map((i) => `${i.rank}:${i.score}`).join('  '));
+    const tied = ranked.filter((i, n) => n > 0 && key(i) === key(ranked[n - 1])).length;
+    if (tied === 0) {
+      console.log(`      NOTE  ${cat} has no two agents on the same score right now, so ` +
+        'this run cannot tell tie-sharing from a name tiebreak');
+    }
   }
 });
 
@@ -222,10 +240,30 @@ await section('Paging continues the ranking rather than restarting it', async ()
   const p1 = await get(`season_id=${SEASON}&page_size=2&page=1`);
   const p2 = await get(`season_id=${SEASON}&page_size=2&page=2`);
   check('page 1 starts at rank 1', p1.body?.items?.[0]?.rank === 1, `${p1.body?.items?.[0]?.rank}`);
-  check('page 2 continues at rank 3, not 1',
-    p2.body?.items?.[0]?.rank === 3,
-    `page 2 opens at rank ${p2.body?.items?.[0]?.rank} — a rank that restarts per page is a ` +
-    'rank of the page, not of the season');
+  // NOT "page 2 opens at rank 3". That was hardcoded, and it was only right
+  // while no two agents tied: once ties share a rank, the third row can legally
+  // be rank 1. The property that actually matters is that an agent's rank is
+  // the same number wherever it is read — it belongs to the season, not to the
+  // page — so it is compared against the rank the same agent carries in the
+  // unpaged list.
+  const rankOf = (id) => board.body?.items?.find((i) => i.agent_id === id)?.rank;
+  const opener = p2.body?.items?.[0];
+  check('page 2 carries the rank that agent has in the whole season',
+    opener && opener.rank === rankOf(opener.agent_id),
+    `page 2 opens with ${opener?.agent_name} at rank ${opener?.rank}; the unpaged list ` +
+    `puts it at ${rankOf(opener?.agent_id)} — a rank that restarts per page is a rank of ` +
+    'the page, not of the season');
+  // AND THE CHECK ABOVE HAS TO BE ABLE TO FAIL. If the agent opening page 2 is
+  // itself on rank 1 — three agents tied at the top — then "same as unpaged"
+  // and "restarted at 1" are the same number and the comparison proves nothing.
+  // That is stated rather than counted as a pass.
+  if (rankOf(opener?.agent_id) === 1) {
+    nothingToCheck('the agent opening page 2 is tied for first, so a per-page rank and a ' +
+      'per-season rank would both read 1 here and this run cannot separate them');
+  } else {
+    check('and it is not 1, which is what a rank restarted per page would read',
+      opener.rank > 1, `rank ${opener?.rank}`);
+  }
   check('and the two pages hold different agents',
     p1.body?.items?.[0]?.agent_id !== p2.body?.items?.[0]?.agent_id, 'the same agent on both pages');
 });
