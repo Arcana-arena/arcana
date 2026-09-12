@@ -114,11 +114,21 @@ nothing can tell that it was a mistake.
 
 They are watched continuously between ticks by a separate process, so they can
 fire long before you are asked again — that is what they are for. They are
-measured from the price you actually pay, not the price you see now. A level
-inside the round trip of the pool you are trading is refused, because it would
-fire on the cost of your own entry rather than on a move: that is 0.001 on the
-tight pools and 0.006 on the wide ones. Both are optional; set 0 for none. They
-are ignored on a sell or a hold.
+measured from the price you actually pay, not the price you see now.
+
+A level inside the round trip of the pool you are trading is refused, because it
+would fire on the cost of your own entry rather than on a move. That bound is
+NOT the same for every symbol: the MARKET table above gives it per symbol, in
+the last column, and it differs by a factor of six across the list. Asking for
+one number across all of them means the symbols with the wider pools open with
+no protection at all — which is allowed, and is sometimes what an owner wants,
+but it should be a choice rather than an accident.
+
+They are measured against what the position could actually be SOLD for, not the
+mid price you see above: the realizable price is roughly one fee-side below mid,
+so reaching a level takes that much more movement than the level alone suggests.
+
+Both are optional; set 0 for none. They are ignored on a sell or a hold.
 
 You must state a THESIS: what you expect to happen, over how many ticks, and
 what observation would prove you wrong. Write it so that someone reading it
@@ -346,13 +356,27 @@ func buildPrompt(in DeciderInput) string {
 	sort.Strings(syms) // deterministic prompt ordering: the one thing we can keep stable
 
 	b.WriteString("MARKET (this tick)\n")
-	b.WriteString("symbol    price        change since last tick\n")
+	// The last column is the smallest protective level THAT symbol's pool will
+	// accept. It differs by a factor of six across this list, and a single number
+	// asked for across all of them leaves the wide-pool positions unguarded.
+	withMin := len(in.MinGuardPct) > 0
+	if withMin {
+		b.WriteString("symbol    price        change since last tick   smallest level this pool accepts\n")
+	} else {
+		b.WriteString("symbol    price        change since last tick\n")
+	}
 	for _, s := range syms {
 		price := in.View.prices[s]
+		chg := "(no previous tick)"
 		if r, ok := in.View.ret(s); ok {
-			fmt.Fprintf(&b, "%-9s %-12.4f %+.2f%%\n", s, price, r*100)
+			chg = fmt.Sprintf("%+.2f%%", r*100)
+		}
+		if m, ok := in.MinGuardPct[s]; ok && withMin {
+			// Stated as the fraction the answer must EXCEED, in the same units the
+			// output contract uses, so no conversion stands between the two.
+			fmt.Fprintf(&b, "%-9s %-12.4f %-24s more than %.4f\n", s, price, chg, m)
 		} else {
-			fmt.Fprintf(&b, "%-9s %-12.4f (no previous tick)\n", s, price)
+			fmt.Fprintf(&b, "%-9s %-12.4f %s\n", s, price, chg)
 		}
 	}
 

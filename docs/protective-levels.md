@@ -128,6 +128,74 @@ level is armed if it is valid, and the decision's rationale names each refusal.
 Silently dropping a stop loss would be the worst failure this feature has: the
 owner believes they are protected and nothing is watching.
 
+## The level is compared against what the position could be SOLD for
+
+This is the arithmetic anyone asking "how far away is it now?" gets wrong, so it
+is written down rather than left in the code.
+
+The watcher does not compare the level to the pool's mid price. It calls
+`RealizablePrice` and compares that — what the position would actually fetch if
+sold this instant, which is `mid * (1 - fee)` (`execution/pool.go`). One fee-side
+below mid, plus price impact for the size.
+
+**So the mid has to move by the level PLUS one fee-side, not by the level.** On a
+5 bp pool with a 0.15% take profit the mid must rise about 0.20%, not 0.15%.
+
+A worked example from the live agent, 2026-09-12: a buyer's take profit sat at
+219.277393 against an entry of 218.948970, and the pool mid read 219.331136 —
+comfortably above the level. Nothing fired, and nothing was wrong. The realizable
+price was 219.221471, still 0.0255% short. Reading the mid alone would have said
+the watcher had missed a crossing by 0.02%.
+
+The same correction applies to the near bound: the round trip is `2 x fee`
+precisely because the fee is paid on the way in and again on the way out.
+
+## Every pool's bound is different, and the model is told which is which
+
+The prompt used to say the bound was "0.001 on the tight pools and 0.006 on the
+wide ones" and never said which symbol was which. A mandate naming one number —
+"get out if it drops 0.15% below what you paid" — therefore produced 0.0015 for
+every symbol. The 5 bp pools accept that. The 30 bp pools refuse it.
+
+Four of the nine listed symbols were opening positions with **no protective level
+at all**, and the only trace was a refusal inside a rationale:
+
+| | armed |
+| --- | --- |
+| decision 1899 buy MSFT | 0 guards |
+| decision 1792 buy MSFT | 0 guards |
+| decision 1790 buy META | 0 guards |
+| decision 1967 buy NVDA | 2 guards |
+| decision 1973 buy NVDA | 2 guards |
+
+The MARKET table in the prompt now carries a column per symbol — *smallest level
+this pool accepts* — beside the price. The platform still does not choose the
+level: it states a fact about the venue and the model decides what to ask for. A
+level below the bound is still refused and the refusal is still recorded, and an
+unguarded position is still a legal thing to want. What changed is that asking
+for one by accident now means ignoring the number next to the price.
+
+Tier map at the time of writing, from the signer allowlist:
+
+| pool | round trip | symbols |
+| --- | --- | --- |
+| 5 bp (500) | 0.100% | AAPL, GOOGL, NVDA, QQQ, SPY |
+| 30 bp (3000) | 0.600% | AMZN, META, MSFT, TSLA |
+
+## How close it ever came
+
+The scanner reads the realizable price of every armed position every 15 seconds
+and, when nothing is crossed, used to log `scan: 2 armed, 0 fired` and discard
+the number. After three hours of waiting for a subscriber's take profit, the
+record could not say how close it had come — not approximately, at all — and the
+RPC endpoint refuses historical state, so it could not be recovered afterwards.
+
+`position_guards` now carries `closest_gap_pct`, `closest_price`,
+`closest_side` and `closest_at`: a running minimum, written only when the gap
+narrows, so the write rate falls away on its own and nothing grows. Each new
+closest is logged once, which gives a readable trail of approaches without a row
+per observation — eleven thousand a day per position, to hold one number.
+
 ## What the level is measured from
 
 The price **actually paid**: quote units spent divided by shares received, from

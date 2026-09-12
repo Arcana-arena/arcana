@@ -565,3 +565,26 @@ func (s *Store) GuardByID(ctx context.Context, id int64) (*Guard, error) {
 	g.SLPct, _ = parseNullFloat(slPct)
 	return &g, nil
 }
+
+// RecordApproach keeps the closest the price has ever come to a level.
+//
+// WHY A CONDITIONAL UPDATE AND NOT AN INSERT. The scanner sees every armed
+// position every 15 seconds; storing each observation is eleven thousand rows a
+// day per position to answer a question whose whole content is one number. The
+// WHERE clause makes this a running minimum: the write happens only when the gap
+// actually narrows, so the rate falls away on its own and the table cannot grow.
+//
+// Returns whether this observation was a new closest, so the caller can say so
+// once rather than every fifteen seconds.
+func (s *Store) RecordApproach(ctx context.Context, guardID int64, gapPct, price float64, side string) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE position_guards
+		   SET closest_gap_pct = $2, closest_price = $3, closest_side = $4, closest_at = now()
+		 WHERE id = $1
+		   AND (closest_gap_pct IS NULL OR closest_gap_pct > $2)`,
+		guardID, gapPct, price, side)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}

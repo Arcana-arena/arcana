@@ -197,6 +197,18 @@ func (e *Engine) Execute(ctx context.Context, req ExecuteRequest) (int64, error)
 	}
 
 	view := marketView{symbols: snap.Symbols, prices: prices, prev: prevPrices}
+
+	// What each pool will accept, for the prompt. Empty without a broker, which
+	// is the paper path: there is no pool, so there is no round trip to state.
+	minGuard := map[string]float64{}
+	if e.broker != nil {
+		for _, q := range snap.Symbols {
+			if fee := e.broker.PoolFeeOf(q.Symbol); fee > 0 {
+				minGuard[q.Symbol] = roundTripPct(fee)
+			}
+		}
+	}
+
 	in := DeciderInput{
 		AgentID:  req.AgentID,
 		Mandate:  agent.Mandate,
@@ -206,6 +218,8 @@ func (e *Engine) Execute(ctx context.Context, req ExecuteRequest) (int64, error)
 		Cash:     cash,
 		NAV:      nav,
 		Limits:   limits,
+
+		MinGuardPct: minGuard,
 
 		TokensUsedToday: usedToday,
 		TokenBudget:     e.tokenBudget,

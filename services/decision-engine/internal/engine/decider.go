@@ -35,6 +35,24 @@ type DeciderInput struct {
 	NAV      float64
 	Limits   RiskLimits
 
+	// MinGuardPct is the smallest protective level each symbol's pool will
+	// accept, keyed by symbol: its round trip, 2 x the fee tier.
+	//
+	// WHY THE MODEL IS TOLD THIS PER SYMBOL. The prompt used to say "0.001 on the
+	// tight pools and 0.006 on the wide ones" and never said which symbol was
+	// which. So a mandate asking for one number — "get out if it drops 0.15%" —
+	// produced 0.0015 for every symbol, which the 5 bp pools accept and the 30 bp
+	// pools refuse. Four of the nine listed symbols therefore opened positions
+	// with NO protective level at all, and the only trace was a refusal in a
+	// rationale nobody was reading.
+	//
+	// The platform still does not choose the level. It states what each pool will
+	// take, which is a fact about the venue, and the model decides what to ask
+	// for. A level narrower than this is still refused, and the refusal is still
+	// recorded — what changes is that the model now has what it needs to avoid
+	// asking for one by accident.
+	MinGuardPct map[string]float64
+
 	// THE INFERENCE METER, read before anything is spent.
 	//
 	// TokensUsedToday is what this agent has already spent on the model since

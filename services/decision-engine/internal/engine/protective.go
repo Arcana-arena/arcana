@@ -471,6 +471,11 @@ func (e *Engine) ScanOnce(ctx context.Context) (armed int, fired int, firstErr e
 		}
 		side := crossed(struct{ TakeProfit, StopLoss *float64 }{g.TakeProfit, g.StopLoss}, price)
 		if side == "" {
+			// NOTHING HAPPENED, WHICH IS ALSO AN OBSERVATION. Without this the
+			// price is read and discarded, and after hours of waiting the record
+			// cannot say how close it came — the endpoint refuses historical
+			// state, so it cannot be recovered later either.
+			e.noteApproach(ctx, g, price)
 			continue
 		}
 
@@ -489,4 +494,37 @@ func (e *Engine) ScanOnce(ctx context.Context) (armed int, fired int, firstErr e
 		}
 	}
 	return armed, fired, firstErr
+}
+
+// noteApproach records how near the price came, when it came nearer than ever.
+//
+// The gap is to the NEARER of the two levels and is a fraction of the entry
+// price, measured from the REALIZABLE price the watcher itself compares against
+// — not the pool mid, which sits about one fee-side above it and would make
+// every gap look smaller than it is.
+//
+// Best effort throughout: this is bookkeeping about something that did not
+// happen, and it must never be the reason a scan stops.
+func (e *Engine) noteApproach(ctx context.Context, g store.Guard, price float64) {
+	if g.EntryPrice <= 0 {
+		return
+	}
+	gap, side := 0.0, ""
+	if g.TakeProfit != nil {
+		gap, side = (*g.TakeProfit-price)/g.EntryPrice, "take_profit"
+	}
+	if g.StopLoss != nil {
+		if d := (price - *g.StopLoss) / g.EntryPrice; side == "" || d < gap {
+			gap, side = d, "stop_loss"
+		}
+	}
+	if side == "" || gap < 0 {
+		return
+	}
+	closer, err := e.store.RecordApproach(ctx, g.ID, gap, price, side)
+	if err != nil || !closer {
+		return
+	}
+	log.Printf("guard %d: closest yet — %.4f%% from %s, realizable %.6f (entry %.6f)",
+		g.ID, gap*100, side, price, g.EntryPrice)
 }
