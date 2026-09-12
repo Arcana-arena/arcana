@@ -263,7 +263,7 @@ function LeaderboardBody({
               page={pageNum}
               pageSize={pageSizeNum}
               total={b.total}
-              totalPages={b.total_pages}
+              hasMore={b.has_more}
               unit="agents"
               hrefFor={(p) => href({ page: String(Math.max(1, p)) })}
             />

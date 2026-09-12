@@ -52,7 +52,8 @@ export type LeaderboardResponse = {
   total_unranked: number;
   page: number;
   page_size: number;
-  total_pages: number;
+  total_pages?: number;
+  has_more?: boolean;
   items: LeaderboardRow[];
   note: string | null;
   regime_note: string | null;

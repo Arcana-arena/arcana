@@ -134,6 +134,19 @@ await section('The leaderboard prints the API rows, in the API order', async () 
   check('the page states the ranked total the API reported',
     lbText.includes(String(board.body.total_ranked)),
     `total_ranked=${board.body.total_ranked} not found in the page text`);
+
+  // A CONTROL THAT REPORTS AN ABSENCE MUST BE RIGHT ABOUT IT. The first version
+  // of the pager demanded both `total` and `total_pages`; the leaderboard sends
+  // `total` and `has_more`, so the page printed "the response did not carry a
+  // total" underneath a response that carried one. A false absence is the same
+  // defect as a false number, and it slipped past this suite because nothing
+  // here read the pagination line.
+  check('the pager does not claim the total is missing when the API sent one',
+    typeof board.body.total !== 'number' || !/did not carry a total/.test(lbText),
+    `the API sent total=${board.body.total} and the page says the total is unknown`);
+  check('and it prints that total',
+    typeof board.body.total === 'number' ? lbText.includes(`of ${board.body.total} agents`) : true,
+    `expected "of ${board.body.total} agents" in the pagination line`);
 });
 
 await section('A withheld score is not printed as a number', async () => {

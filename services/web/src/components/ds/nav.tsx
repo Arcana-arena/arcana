@@ -53,27 +53,39 @@ export function Seg({ tabs, current }: { tabs: TabDef[]; current: string }) {
 /**
  * Pagination that states the whole size, not just the page.
  *
- * `total` and `total_pages` come from the response. They are not derived here —
- * if the backend did not send them the control says so instead of guessing from
- * the length of the array it happens to be holding, which would silently turn
- * "page 1 of 9" into "1 of 1".
+ * THE COUNTS COME FROM THE RESPONSE. They are not derived from the length of
+ * the array in hand, which would silently turn "page 1 of 9" into "1 of 1".
+ *
+ * TWO SHAPES, BECAUSE THE API HAS TWO. The decisions series returns
+ * `total_pages`; the leaderboard and the other lists return `has_more`. An
+ * earlier version of this component demanded both and therefore printed "the
+ * response did not carry a total" on a leaderboard whose response carried a
+ * perfectly good total — a control reporting an absence that was its own
+ * misreading, which is exactly the kind of false absence this surface exists to
+ * avoid. Either shape is now enough; neither is invented from the other.
  */
 export function Pager({
   page,
   pageSize,
   total,
   totalPages,
+  hasMore,
   hrefFor,
   unit = 'rows',
 }: {
   page: number;
   pageSize: number;
   total: number | null | undefined;
-  totalPages: number | null | undefined;
+  totalPages?: number | null;
+  hasMore?: boolean | null;
   hrefFor: (page: number) => string;
   unit?: string;
 }) {
-  const known = typeof total === 'number' && typeof totalPages === 'number';
+  const known = typeof total === 'number';
+  const pagesKnown = typeof totalPages === 'number';
+  // `has_more` answers the only question the next button asks. When the API
+  // sends total_pages instead, that answers it too.
+  const more = typeof hasMore === 'boolean' ? hasMore : pagesKnown ? page < (totalPages as number) : null;
   const first = (page - 1) * pageSize + 1;
   const last = known ? Math.min(page * pageSize, total) : null;
   return (
@@ -118,18 +130,24 @@ export function Pager({
           href={hrefFor(page + 1)}
           className="btn"
           style={{ padding: '3px 8px', fontFamily: 'var(--font-mono)', fontSize: 11 }}
-          aria-disabled={known && totalPages !== null && page >= (totalPages as number) ? 'true' : undefined}
+          aria-disabled={more === false ? 'true' : undefined}
         >
           &rsaquo;
         </Link>
       </span>
       <span className="m3">
-        {known ? (
+        {pagesKnown ? (
           <>
             page {page} of {totalPages} &middot; {pageSize} / page
           </>
+        ) : more === false ? (
+          <>
+            page {page} &middot; last page &middot; {pageSize} / page
+          </>
         ) : (
-          <>{pageSize} / page</>
+          <>
+            page {page} &middot; {pageSize} / page
+          </>
         )}
       </span>
     </div>
