@@ -29,7 +29,12 @@ func TestAnAgentIsNotBilledForItsCustomersGas(t *testing.T) {
 		`INSERT INTO subscriptions (user_wallet, expires_at, status, agent_id)
 		 VALUES ('0xcosttest', now() + interval '30 days', 'active', $1) RETURNING id::text`,
 		agentID).Scan(&subID); err != nil {
-		t.Skipf("could not create a test subscription: %v", err)
+		t.Fatalf("could not create a test subscription: %v\n"+
+			"NOTHING IS ABSENT HERE. The row is being CREATED, against a database that has already "+
+			"answered, on an agent that already exists. An INSERT the schema will not accept is "+
+			"drift — a new constraint, a column that moved, a foreign key with nothing behind it — "+
+			"and that is the class of defect these tests exist for. This used to skip, which "+
+			"reported exactly that as a green run.", err)
 	}
 	const mark = "cost_test row"
 	t.Cleanup(func() {
@@ -112,7 +117,12 @@ func TestADeclineIsRecordedOnceNotEveryTick(t *testing.T) {
 		`INSERT INTO subscriptions (user_wallet, expires_at, status, agent_id)
 		 VALUES ('0xdeclinetest', now() + interval '30 days', 'active', $1) RETURNING id::text`,
 		agentID).Scan(&subID); err != nil {
-		t.Skipf("could not create a test subscription: %v", err)
+		t.Fatalf("could not create a test subscription: %v\n"+
+			"NOTHING IS ABSENT HERE. The row is being CREATED, against a database that has already "+
+			"answered, on an agent that already exists. An INSERT the schema will not accept is "+
+			"drift — a new constraint, a column that moved, a foreign key with nothing behind it — "+
+			"and that is the class of defect these tests exist for. This used to skip, which "+
+			"reported exactly that as a green run.", err)
 	}
 	t.Cleanup(func() {
 		_, _ = s.pool.Exec(ctx, `DELETE FROM executions WHERE subscription_id = $1`, subID)

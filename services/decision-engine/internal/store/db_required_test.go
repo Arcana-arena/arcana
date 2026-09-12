@@ -115,6 +115,12 @@ var (
 
 	// Counted so the run can say what did not run.
 	skippedForNoDatabase atomic.Int64
+
+	// The other honest absence: a database that answered but holds no agent to
+	// build a fixture on. Every OTHER fixture failure is a Fatalf, because with a
+	// live database in front of you an INSERT the schema refuses is drift, not
+	// absence.
+	skippedNoFixture atomic.Int64
 )
 
 // TestMain exists for a line of output, not for setup.
@@ -137,6 +143,11 @@ func TestMain(m *testing.M) {
 				"protocol at %s and DATABASE_URL is not set. They were SKIPPED, not passed. "+
 				"Run `make test-go` from the repo root to run them.\n",
 			n, probeAddr)
+	}
+	if n := skippedNoFixture.Load(); n > 0 {
+		fmt.Fprintf(os.Stderr,
+			"NOTE: %d test(s) in this package did NOT run: the database holds no agent to build a "+
+				"fixture on. They were SKIPPED, not passed.\n", n)
 	}
 	os.Exit(code)
 }
@@ -167,7 +178,7 @@ func databaseURLForTests(t *testing.T) string {
 
 	skippedForNoDatabase.Add(1)
 	t.Skipf("nothing answered the Postgres protocol at %s and DATABASE_URL is not set, "+
-		"so this test cannot run here — it is skipped, NOT passed.\n"+
+		"so this test cannot run here — SKIPPED, not passed.\n"+
 		"This is the honest outcome on a clone with no database. "+
 		"If your Postgres is elsewhere, set ARCANA_TEST_PG_ADDR to its address and it will be used.",
 		probeAddr)

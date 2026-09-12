@@ -54,8 +54,8 @@ test-go: ## Run every Go test in the workspace, with DATABASE_URL from .env
 		tp=$$((tp+p)); tf=$$((tf+f)); ts=$$((ts+s)); \
 		printf '%-32s %3d passed  %3d failed  %3d skipped\n' "$$m" "$$p" "$$f" "$$s"; \
 		grep -E '^--- (FAIL|SKIP)' "$$log" | sed 's/^/      /'; \
-		if grep -q 'nothing answered the Postgres protocol' "$$log"; then \
-			echo "      ^ skipped for want of a database, which is NOT a pass. Full log: $$log"; \
+		if grep -q 'SKIPPED, not passed' "$$log"; then \
+			echo "      ^ these did not run at all, which is NOT a pass. Full log: $$log"; \
 		fi; \
 		if [ "$$f" -gt 0 ]; then \
 			awk '/^[ \t]+/ {buf = buf $$0 "\n"; next} /^--- FAIL/ {printf "%s", buf; exit} {buf = ""}' "$$log" | head -8 | sed 's/^/      /'; \

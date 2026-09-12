@@ -2,8 +2,11 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // The guard lifecycle, against a real database.
@@ -41,10 +44,25 @@ func testStore(t *testing.T) (*Store, string) {
 
 	// An agent that already exists, because position_guards has a foreign key
 	// and inventing one would mean inventing a creator and a season too.
+	//
+	// AN EMPTY TABLE IS AN ABSENCE; ANY OTHER ERROR IS A FAILURE. This used to
+	// skip on both, which meant a renamed column or a revoked grant produced a
+	// green run — the same defect as skipping for a missing DATABASE_URL, one
+	// layer in. No agents at all is a database nobody has traded on yet and
+	// genuinely cannot run these. A query that fails for any other reason is
+	// drift, which is what these tests are for.
 	var agentID string
-	if err := pool.QueryRow(context.Background(),
-		`SELECT id::text FROM agents ORDER BY created_at DESC LIMIT 1`).Scan(&agentID); err != nil {
-		t.Skipf("no agent to hang a test guard from: %v", err)
+	err = pool.QueryRow(context.Background(),
+		`SELECT id::text FROM agents ORDER BY created_at DESC LIMIT 1`).Scan(&agentID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		skippedNoFixture.Add(1)
+		t.Skip("the agents table is empty, so there is no agent to hang a test guard from — " +
+			"SKIPPED, not passed. Seed one agent and this runs.")
+	}
+	if err != nil {
+		t.Fatalf("reading an agent to hang a test guard from: %v\n"+
+			"The database answered, so nothing here is absent: the query itself failed. That is the "+
+			"schema drift these tests exist to catch, and skipping it reported drift as success.", err)
 	}
 	return s, agentID
 }
@@ -223,7 +241,12 @@ func TestASubscriberGuardDoesNotDisarmTheCreators(t *testing.T) {
 		 VALUES ('0xguardtest', now() + interval '30 days', 'active', $1) RETURNING id::text`,
 		agentID).Scan(&subID)
 	if err != nil {
-		t.Skipf("could not create a test subscription: %v", err)
+		t.Fatalf("could not create a test subscription: %v\n"+
+			"NOTHING IS ABSENT HERE. The row is being CREATED, against a database that has already "+
+			"answered, on an agent that already exists. An INSERT the schema will not accept is "+
+			"drift — a new constraint, a column that moved, a foreign key with nothing behind it — "+
+			"and that is the class of defect these tests exist for. This used to skip, which "+
+			"reported exactly that as a green run.", err)
 	}
 	t.Cleanup(func() {
 		_, _ = s.pool.Exec(ctx, `DELETE FROM position_guards WHERE symbol = $1`, symbol)
