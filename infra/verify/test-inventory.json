@@ -1,0 +1,26 @@
+{
+  "note": "The declared test coverage of the Node workspaces, checked against disk by test-inventory.mjs on every `npm test`. Four of these run jest with no test files and pass on --passWithNoTests; without this ledger that would be a green suite hiding the fact that nothing was checked, which is the pattern this repository keeps removing. Changing a number here is a deliberate act: adding the first test to a workspace fails the suite until the ledger agrees, and so does losing one.",
+  "scope": "Only npm workspaces appear here, because only these are what `npm test` runs. The Go modules in go.work (go-internalauth, decision-engine, market-data, scoring-engine, signer) have no package.json, are not workspaces, and are covered by `make test-go`, which prints its own passed/failed/skipped count per module. decision-engine has 50 Go tests and market-data 8; scoring-engine and signer have none, and signer having none is uncomfortable given it holds the master seed — it is covered instead by signer-verify.mjs and signer-isolation-verify.sh, which test its refusals and its process isolation rather than its functions.",
+  "workspaces": {
+    "packages/auth": {
+      "tests": 0,
+      "why": "Shared auth helpers. This one already passed --passWithNoTests before, so nothing about it changed. The coverage it lacks is the JWT and internal-key paths, exercised today only end to end by infra/verify/auth-verify.mjs against the VPS."
+    },
+    "packages/db-migrations": {
+      "tests": 0,
+      "why": "No test script at all, and none is wanted: it is SQL plus a Makefile. The migrations are exercised by applying them — `make migrate-up`, and by the disposable-database run in 3f544b3 that applied all 41 from empty."
+    },
+    "services/agent-service": {
+      "tests": 0,
+      "why": "186 files, no unit tests. The riskiest untested code is passport.service.ts and risk-profile.ts, both touched by cb0d4bf, where the level a mandate asks for has to be the level that gets armed. Covered today only by agents-verify.mjs and docs-verify.mjs against a live VPS — which means not covered on a laptop, and not in CI."
+    },
+    "services/arca-service": {
+      "tests": 0,
+      "why": "62 files, no unit tests. Holds the payments and entitlement paths, including subscriptions.service.ts from 83b23ea where a payment has to buy the thing the payment is for. Money moves through here, so this is the most expensive gap in this ledger."
+    },
+    "services/marketplace": {
+      "tests": 0,
+      "why": "32 files, no unit tests. Listings and subscription discovery; the subscription side is exercised by subscription-verify.mjs and subscription-chain-verify.mjs against real rows and real transactions."
+    }
+  }
+}

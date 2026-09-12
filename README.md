@@ -34,6 +34,27 @@ docker compose -f infra/docker/docker-compose.yml up -d
 # 2. Run a service — see each service's own README
 ```
 
+## Testing the Node services
+
+`npm test` at the repo root. It is green, and **four of the five Node workspaces
+have no tests at all** — it says so, every run:
+
+```
+  @arcana/agent-service    0  runs jest, has NO tests
+  ...
+  4 workspace(s) run jest over nothing and pass on --passWithNoTests
+```
+
+Those jest runs used to exit 1, which made the suite permanently red for a reason
+nobody intended to fix — and a suite nobody reads is worse than a green one. So
+they pass on `--passWithNoTests`, and the absence is an ASSERTION rather than a
+comment: [`test-inventory.json`](./infra/verify/test-inventory.json) declares how
+many test files each workspace has and why, and
+[`test-inventory.mjs`](./infra/verify/test-inventory.mjs) fails the suite if disk
+and ledger disagree in either direction. Write the first test for a service and
+the suite fails until the ledger agrees; lose a suite to a rename and it fails
+too, which is the drift `--passWithNoTests` would otherwise hide entirely.
+
 ## Building and testing the Go services
 
 Use the root `Makefile`. **`go build ./...` and `go test ./...` do not work from
