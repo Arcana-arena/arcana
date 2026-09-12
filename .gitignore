@@ -46,3 +46,6 @@ services/*/backfill
 # Listed so a future dist/ ignore rule cannot silently take it with it.
 !services/*/dist/.build-commit
 .dust-verify-build/
+
+# Verbose go test logs written by `make test-go`.
+.test-logs/
