@@ -77,3 +77,8 @@ services/*/backfill
 
 # Verbose go test logs written by `make test-go`.
 .test-logs/
+
+# Full verifier output kept by `node infra/verify/run-all.mjs`. Kept on disk on
+# purpose: the tool it replaced scraped summary lines and threw the output away,
+# so a failure that did not repeat could not be looked at afterwards.
+.verify-logs/

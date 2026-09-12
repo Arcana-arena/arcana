@@ -47,8 +47,8 @@ const ALLOWED = [
   },
   {
     what: 'test and verify logs',
-    why: 'written by `make test-go`; ignored on purpose and named in .gitignore',
-    is: (p) => p.name === '.test-logs',
+    why: 'written by `make test-go` and by run-all.mjs; ignored on purpose and named in .gitignore',
+    is: (p) => p.name === '.test-logs' || p.name === '.verify-logs',
   },
   {
     what: 'secrets and machine config',
