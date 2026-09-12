@@ -82,3 +82,11 @@ services/*/backfill
 # purpose: the tool it replaced scraped summary lines and threw the output away,
 # so a failure that did not repeat could not be looked at afterwards.
 .verify-logs/
+
+# Landing-page media supplied with the mockups. Kept OUT of git deliberately:
+# 20 MB of video and photographs that no mockup references, and git history is
+# permanent — `git rm` later does not shrink anybody's clone. They stay on the
+# design machine; if the landing ever uses one it is deployed as an asset, not
+# committed as source.
+web example/Assets/*.mp4
+web example/Assets/*.jpg
