@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 )
@@ -23,17 +22,16 @@ import (
 //
 // A query is not exercised by compiling it. These run against the database.
 //
-// SKIPPED WITHOUT DATABASE_URL, so a machine with no Postgres still runs the
-// rest of the suite — but the deploy path sets it, and a skip is reported as a
-// skip rather than as a pass.
+// WHETHER THIS SKIPS OR FAILS depends on the machine, not on the variable. See
+// db_required_test.go: a clone with no Postgres anywhere skips, because it
+// genuinely cannot run these. A machine where Postgres is up and only
+// DATABASE_URL is missing FAILS, because there the test could have run and did
+// not — and an "ok" over a test that did not run is the lie this file's own
+// defect was hiding behind.
 
 func testStore(t *testing.T) (*Store, string) {
 	t.Helper()
-	url := os.Getenv("DATABASE_URL")
-	if url == "" {
-		t.Skip("DATABASE_URL is not set; this test needs a real database because the defect it " +
-			"exists for was a query the planner rejects, not anything the compiler can see")
-	}
+	url := databaseURLForTests(t)
 	pool, err := NewPool(context.Background(), url)
 	if err != nil {
 		t.Fatalf("database: %v", err)
