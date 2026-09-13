@@ -31,7 +31,16 @@ const ITEMS: Array<{ label: string; href: string | null; note?: string; count?: 
   },
 ];
 
-export function CreatorNav({ current, handle }: { current?: string; handle?: string }) {
+export function CreatorNav({
+  current,
+  handle,
+  creatorId,
+}: {
+  current?: string;
+  handle?: string;
+  /** Needed for the one Account entry that has a page: the public profile. */
+  creatorId?: string;
+}) {
   return (
     <nav className="docnav" aria-label="Creator">
       <div className="grp">{handle ?? 'Creator'}</div>
@@ -51,6 +60,28 @@ export function CreatorNav({ current, handle }: { current?: string; handle?: str
           </span>
         ),
       )}
+      {/*
+        THE PROFILE EVERYONE ELSE READS, linked from the account that owns it.
+        It is the same public page a buyer lands on from a listing — there is no
+        private version, and a second one would be a second account of the same
+        creator. A creator with no profile row yet has no id, so the entry says
+        so rather than linking somewhere that answers 404.
+      */}
+      <div className="grp">Account</div>
+      {creatorId ? (
+        <Link href={`/creators/${creatorId}`} aria-current={current === 'Creator profile' ? 'page' : undefined}>
+          Creator profile
+        </Link>
+      ) : (
+        <span
+          className="m3"
+          style={{ padding: '3px 0', display: 'block', cursor: 'not-allowed', fontSize: 12.5 }}
+          title="This wallet has no creator profile yet, so there is no page to open. Creating one is a deliberate act — see the overview."
+        >
+          Creator profile
+        </span>
+      )}
+
       <div className="grp">Public</div>
       <Link href="/leaderboard">Leaderboard</Link>
       <Link href="/marketplace">Marketplace</Link>

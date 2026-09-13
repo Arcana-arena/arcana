@@ -136,7 +136,7 @@ export default async function NewAgentPage() {
   }
 
   return (
-    <Shell current="Create agent" handle={dash?.creator.handle}>
+    <Shell current="Create agent" handle={dash?.creator.handle} creatorId={s.session.creator_id ?? undefined}>
       <div className="mono m3" style={{ fontSize: 11, marginBottom: 8 }}>
         <Link href="/me" className="m2">
           Overview
@@ -183,16 +183,18 @@ function Shell({
   children,
   current,
   handle,
+  creatorId,
 }: {
   children: React.ReactNode;
   current?: string;
   handle?: string;
+  creatorId?: string;
 }) {
   return (
     <div className="page">
       <Header />
       <div className="sec creator-grid" style={{ paddingTop: 26, paddingBottom: 48, borderBottom: 'none' }}>
-        <CreatorNav current={current} handle={handle} />
+        <CreatorNav current={current} handle={handle} creatorId={creatorId} />
         <div style={{ minWidth: 0 }}>{children}</div>
       </div>
       <Footer />

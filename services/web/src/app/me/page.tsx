@@ -267,7 +267,7 @@ function Shell({
     <div className="page">
       <Header />
       <div className="sec creator-grid" style={{ paddingTop: 26, paddingBottom: 48, borderBottom: 'none' }}>
-        <CreatorNav current={current} handle={handle} />
+        <CreatorNav current={current} handle={handle} creatorId={creatorId} />
         <div style={{ minWidth: 0 }}>{children}</div>
       </div>
       <Footer />

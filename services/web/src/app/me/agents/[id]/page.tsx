@@ -157,7 +157,7 @@ export default async function ManageAgentPage({
   const armedSymbols = (triggers?.armed ?? []).map((g) => g.symbol);
 
   return (
-    <Shell current="Overview" handle={undefined}>
+    <Shell current="Overview" handle={undefined} creatorId={s.session.creator_id ?? undefined}>
       <div className="mono m3" style={{ fontSize: 11, marginBottom: 8 }}>
         <Link href="/me" className="m2">
           Overview
@@ -259,16 +259,18 @@ function Shell({
   children,
   current,
   handle,
+  creatorId,
 }: {
   children: React.ReactNode;
   current?: string;
   handle?: string;
+  creatorId?: string;
 }) {
   return (
     <div className="page">
       <Header />
       <div className="sec creator-grid" style={{ paddingTop: 26, paddingBottom: 48, borderBottom: 'none' }}>
-        <CreatorNav current={current} handle={handle} />
+        <CreatorNav current={current} handle={handle} creatorId={creatorId} />
         <div style={{ minWidth: 0 }}>{children}</div>
       </div>
       <Footer />
