@@ -283,9 +283,9 @@ for svc in agent-service marketplace arca-service web; do
     # stale. A stamp compares what was built, not when.
     # Next writes .next, not dist. Stamped in whichever one this service has.
     if [ -d "$REPO/services/$svc/.next" ]; then
-      echo "$COMMIT" > "$REPO/services/$svc/.next/.build-commit"
+      asbuilder "echo $COMMIT > '$REPO/services/$svc/.next/.build-commit'"
     else
-      echo "$COMMIT" > "$REPO/services/$svc/dist/.build-commit"
+      asbuilder "echo $COMMIT > '$REPO/services/$svc/dist/.build-commit'"
     fi
     echo "    $svc"
   else
