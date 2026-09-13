@@ -101,9 +101,13 @@ export class AgentOverviewService {
         [agentId, season.id],
       ),
       this.db.query(
+        // BOTH LIVE UNDER risk_personality. `strategy_fingerprint` is a pgvector
+        // column, not jsonb, and reading `fingerprint->'features'` from it threw
+        // "column does not exist" — caught the moment the endpoint was first
+        // called, which is the right place for a wrong column name to surface.
         `SELECT (risk_personality->>'avg_exposure')::float8 AS avg_exposure,
                 (risk_personality->>'max_exposure')::float8 AS max_exposure,
-                (fingerprint->'features'->>'turnover')::float8 AS turnover
+                (risk_personality->'features'->>'turnover')::float8 AS turnover
            FROM agent_dna WHERE agent_id = $1`,
         [agentId],
       ),

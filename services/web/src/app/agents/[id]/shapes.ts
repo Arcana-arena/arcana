@@ -265,13 +265,33 @@ export type DecidedBy = {
   reason_code: string | null;
 };
 
+/** The falsifiable part of a decision, as the model wrote it. */
+export type Thesis = {
+  claim?: string | null;
+  confidence?: number | null;
+  horizon_ticks?: number | null;
+  invalidated_if?: string | null;
+  [k: string]: unknown;
+};
+
 export type DecisionRow = {
   ts: string;
   season_id: string | null;
   action: string;
+  decision_id?: number | null;
   decider?: string | null;
   reason_code?: string | null;
   decided_by?: DecidedBy | null;
+  thesis?: Thesis | null;
+  model?: { provider: string | null; model: string | null; model_version: string | null } | null;
+  execution?: {
+    tx_hash: string | null;
+    status: string | null;
+    refusal_code: string | null;
+    slippage_bps: number | null;
+    gas_cost_usd: number | null;
+    block_number: number | null;
+  } | null;
   symbol: string;
   quantity: number | null;
   price: number | null;
@@ -286,8 +306,25 @@ export type DecisionRow = {
     ingest_mode?: string | null;
     tick_time?: string | null;
     snapshot_url?: string | null;
+    prompt_hash?: string | null;
+    response_hash?: string | null;
+    evidence_url?: string | null;
     [k: string]: unknown;
   } | null;
+};
+
+/** The prompt and the raw model answer behind one decision. */
+export type Evidence = {
+  decision_id: number;
+  ts: string;
+  action: string;
+  symbol: string | null;
+  rationale: string | null;
+  thesis: Thesis | null;
+  model: { provider: string | null; model: string | null; model_version: string | null; params: unknown; note: string | null };
+  prompt: { hash: string | null; body: string | null; bytes: number | null; note: string | null };
+  response: { hash: string | null; body: string | null; bytes: number | null; note: string | null };
+  market_snapshot_ref: string | null;
 };
 
 export type DecisionsResponse = {

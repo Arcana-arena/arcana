@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { positionsOf } from '../common/positions';
+import { MarketPriceClient } from '../series/market-price.client';
 
 /**
  * What an agent holds, what is watching it, and what it is worth now.
@@ -27,7 +28,10 @@ import { positionsOf } from '../common/positions';
  */
 @Injectable()
 export class AgentPositionsService {
-  constructor(@InjectDataSource() private readonly db: DataSource) {}
+  constructor(
+    @InjectDataSource() private readonly db: DataSource,
+    private readonly marketPrices: MarketPriceClient,
+  ) {}
 
   async forAgent(agentId: string) {
     const agent = await this.db.query(`SELECT id, name FROM agents WHERE id = $1`, [agentId]);
@@ -42,10 +46,14 @@ export class AgentPositionsService {
       [agentId],
     );
 
-    // The market snapshot the agent's most recent decision cited, and the
-    // prices in it. This is what the agent SAW; it is not a live quote.
+    // The market snapshot the agent's most recent decision cited. The prices
+    // are NOT in this table — market_snapshots records the reference and the
+    // content hash, and the quotes themselves live in the object store behind
+    // MarketPriceClient. Reading ms.prices threw "column does not exist" the
+    // first time this endpoint was called, which is where a wrong column name
+    // belongs.
     const priced = await this.db.query(
-      `SELECT ms.ref, ms.tick_time, ms.prices
+      `SELECT ms.ref, ms.tick_time
          FROM decisions_counted d
          JOIN market_snapshots ms ON ms.ref = d.market_snapshot_ref
         WHERE d.agent_id = $1
@@ -72,9 +80,24 @@ export class AgentPositionsService {
     const round = (v: number | null | undefined, dp: number) =>
       v === null || v === undefined || !Number.isFinite(Number(v)) ? null : Number(Number(v).toFixed(dp));
 
-    const prices: Record<string, number> = (priced[0]?.prices as Record<string, number>) ?? {};
-    const priceRef = priced[0]?.ref ?? null;
+    const priceRef: string | null = priced[0]?.ref ?? null;
     const priceAt = priced[0]?.tick_time ? new Date(priced[0].tick_time).toISOString() : null;
+
+    // AND THE QUOTES COME FROM THE OBJECT STORE, through the same client the
+    // decision log uses. When it cannot be reached the prices are UNKNOWN and
+    // say so — they are not silently absent, and they are certainly not zero.
+    let prices: Record<string, number> = {};
+    let priceAvailable = true;
+    let priceReason: string | null = null;
+    if (priceRef) {
+      const lookup = await this.marketPrices.lookup([priceRef]);
+      priceAvailable = lookup?.available !== false;
+      priceReason = lookup?.reason ?? null;
+      prices = (lookup?.snapshots?.[priceRef]?.prices as Record<string, number>) ?? {};
+    } else {
+      priceAvailable = false;
+      priceReason = 'This agent has no decision citing a market snapshot, so there is no price to read.';
+    }
 
     const held = snap.length > 0 ? positionsOf(snap[0].holdings as Record<string, number>) : [];
 
@@ -108,10 +131,16 @@ export class AgentPositionsService {
             'to the position it opened. The entry is unknown rather than reconstructed.'
           : null,
         price: round(price, 6),
-        price_status: price === null ? 'unavailable' : 'from_snapshot',
-        price_note: price === null
-          ? 'The latest market snapshot this agent cited carries no quote for this symbol.'
-          : 'The price in the snapshot the agent last acted on — not a live quote.',
+        // THREE DIFFERENT ABSENCES, KEPT APART. The market could not be
+        // reached; the snapshot was read and has no quote for this symbol; or
+        // there is a price. Collapsing the first two into one would hide an
+        // outage behind a missing symbol.
+        price_status: !priceAvailable ? 'unavailable' : price === null ? 'symbol_not_in_snapshot' : 'from_snapshot',
+        price_note: !priceAvailable
+          ? `The market snapshot could not be read${priceReason ? `: ${priceReason}` : ''}. This is not a price of zero.`
+          : price === null
+            ? 'The snapshot this agent last acted on carries no quote for this symbol.'
+            : 'The price in the snapshot the agent last acted on — not a live quote.',
         value: round(value, 2),
         pnl: round(pnl, 2),
         pnl_pct: round(pnlPct, 4),
@@ -166,7 +195,13 @@ export class AgentPositionsService {
       as_of: snap.length > 0 ? new Date(snap[0].ts).toISOString() : null,
       nav: round(snap[0]?.nav, 2),
       cash: round(snap[0]?.cash, 2),
-      prices: { snapshot_ref: priceRef, tick_time: priceAt, source: 'the market snapshot the agent last acted on' },
+      prices: {
+        snapshot_ref: priceRef,
+        tick_time: priceAt,
+        available: priceAvailable,
+        reason: priceReason,
+        source: 'the market snapshot the agent last acted on, not a live quote',
+      },
       open,
       closed,
       note: open.length === 0

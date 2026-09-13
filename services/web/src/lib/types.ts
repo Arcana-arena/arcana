@@ -114,7 +114,8 @@ export type Agent = {
   strategyType: string;
   riskProfile: Record<string, number> | null;
   assetUniverse: string;
-  mandate: unknown;
+  /** The prose sent to the model every tick. Null for a deterministic strategy. */
+  mandate: string | null;
   mandateTemplate: string | null;
   mandateParams: Record<string, unknown> | null;
   mandateSource: string | null;

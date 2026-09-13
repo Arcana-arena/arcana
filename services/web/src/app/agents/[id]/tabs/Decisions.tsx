@@ -20,19 +20,44 @@
  * is a stop that did not fire, and it is rendered in red as the warning it is,
  * not as an exit.
  */
+import Link from 'next/link';
 import { agent } from '@/lib/api';
-import { int, money, num, utc } from '@/lib/format';
+import { int, money, num, txShort, utc } from '@/lib/format';
 import { ActionTag, Key, Num, Tag } from '@/components/ds/primitives';
 import { Callout, Empty, Failed, Unavailable } from '@/components/ds/states';
 import { Pager } from '@/components/ds/nav';
-import type { DecidedBy, DecisionsResponse, Passport } from '../shapes';
+import type { DecidedBy, DecisionsResponse, Evidence, Passport } from '../shapes';
 
 const PAGE_SIZE = 25;
 
-export async function DecisionsTab({ id, p, page }: { id: string; p: Passport | null; page: string }) {
+export async function DecisionsTab({
+  id,
+  p,
+  page,
+  open,
+  filters,
+  hrefFor,
+}: {
+  id: string;
+  p: Passport | null;
+  page: string;
+  /** The decision whose evidence is expanded, from the URL. */
+  open: string | null;
+  filters: { action: string; symbol: string };
+  hrefFor: (over: Record<string, string | undefined>) => string;
+}) {
   const r = await agent<DecisionsResponse>(
-    `/v1/agents/${id}/decisions?page=${encodeURIComponent(page)}&page_size=${PAGE_SIZE}`,
+    `/v1/agents/${id}/decisions?page=${encodeURIComponent(page)}&page_size=${PAGE_SIZE}` +
+      (filters.action ? `&action=${encodeURIComponent(filters.action)}` : '') +
+      (filters.symbol ? `&symbol=${encodeURIComponent(filters.symbol)}` : ''),
   );
+
+  // THE EXPANDED ROW IS A URL, not client state. It can be linked to, and the
+  // prompt and the raw answer are fetched on the server like everything else —
+  // the evidence is the product, and it should survive being sent to someone.
+  const evidence = open
+    ? await agent<Evidence>(`/v1/agents/${id}/decisions/${encodeURIComponent(open)}/evidence`)
+    : null;
 
   if (!r.ok) return <Failed what="The decision log" error={r} />;
   const d = r.data;
@@ -90,13 +115,19 @@ export async function DecisionsTab({ id, p, page }: { id: string; p: Passport | 
                   <th className="r" style={{ width: 110 }}>
                     Notional
                   </th>
-                  <th style={{ minWidth: 280 }}>Rationale</th>
-                  <th style={{ width: 150 }}>Evidence</th>
+                  <th className="r" style={{ width: 76 }}>Slip · bps</th>
+                  <th className="r" style={{ width: 84 }}>Gas · USD</th>
+                  <th style={{ minWidth: 260 }}>Thesis</th>
+                  <th style={{ width: 130 }}>Tx</th>
+                  <th style={{ width: 90 }} />
                 </tr>
               </thead>
               <tbody>
-                {d.decisions.map((row, i) => (
-                  <tr key={`${row.ts}-${i}`}>
+                {d.decisions.map((row, i) => {
+                  const isOpen = Boolean(row.decision_id && open === String(row.decision_id));
+                  return (
+                  <>
+                  <tr key={`${row.ts}-${i}`} style={isOpen ? { background: 'rgba(47,232,140,.05)' } : undefined}>
                     <td className="mono m2" style={{ fontSize: 11.5 }}>
                       {utc(row.ts)}
                     </td>
@@ -132,31 +163,80 @@ export async function DecisionsTab({ id, p, page }: { id: string; p: Passport | 
                         <Num value={money(row.notional)} />
                       )}
                     </td>
-                    <td className="m2" style={{ fontSize: 12 }}>
-                      {row.rationale || <span className="m3">no rationale recorded</span>}
-                      {row.resulting_allocation && Object.keys(row.resulting_allocation).length > 0 ? (
-                        <div className="mono m3" style={{ fontSize: 10.5, marginTop: 3 }}>
-                          after:{' '}
-                          {Object.entries(row.resulting_allocation)
-                            .map(([sym, v]) => `${sym} ${num(v, 2)}%`)
-                            .join(' · ')}
-                        </div>
-                      ) : null}
+                    <td className="r">
+                      <Num value={row.execution?.slippage_bps === null || row.execution === null || row.execution === undefined
+                        ? '—' : num(row.execution.slippage_bps, 2)} />
                     </td>
-                    <td className="mono m3" style={{ fontSize: 10.5 }}>
-                      {row.evidence?.market_snapshot_ref ? (
-                        <span title={`content hash ${row.evidence.content_hash ?? 'not recorded'}`}>
-                          {row.evidence.market_snapshot_ref}
-                          <br />
-                          {row.evidence.source ?? '—'}
-                          {row.evidence.ingest_mode ? ` · ${row.evidence.ingest_mode}` : ''}
+                    <td className="r">
+                      <Num value={row.execution?.gas_cost_usd === null || row.execution === null || row.execution === undefined
+                        ? '—' : num(row.execution.gas_cost_usd, 5)} />
+                    </td>
+                    <td className="m2" style={{ fontSize: 12 }}>
+                      {/* THE THESIS IS WHAT MAKES A DECISION FALSIFIABLE — a
+                          claim, a horizon, and the condition that would prove it
+                          wrong. A protective exit has none, and says so rather
+                          than borrowing the agent's words. */}
+                      {row.decided_by?.category?.startsWith('protective') ? (
+                        <span className="m3" style={{ fontStyle: 'italic' }}>
+                          No thesis — {row.decided_by.label.toLowerCase()}, decided by a level rather than by the agent.
                         </span>
+                      ) : row.thesis?.claim ? (
+                        <>
+                          {row.thesis.claim}
+                          <div className="mono m3" style={{ fontSize: 10.5, marginTop: 3 }}>
+                            {row.thesis.horizon_ticks ? `horizon ${row.thesis.horizon_ticks} ticks` : ''}
+                            {row.thesis.confidence !== null && row.thesis.confidence !== undefined
+                              ? ` · confidence ${num(row.thesis.confidence, 2)}` : ''}
+                          </div>
+                        </>
                       ) : (
-                        <span title="No market snapshot reference on this row.">—</span>
+                        <>
+                          {row.rationale || <span className="m3">no rationale recorded</span>}
+                          {row.model?.model ? null : (
+                            <div className="mono m3" style={{ fontSize: 10.5, marginTop: 3 }}>
+                              deterministic strategy — no model wrote a thesis
+                            </div>
+                          )}
+                        </>
                       )}
                     </td>
+                    <td className="mono m3" style={{ fontSize: 10.5 }} title={row.execution?.tx_hash ?? undefined}>
+                      {row.execution?.tx_hash ? (
+                        <>
+                          {txShort(row.execution.tx_hash)}
+                          <div style={{ fontSize: 9.5 }}>{row.execution.status}</div>
+                        </>
+                      ) : row.execution?.status ? (
+                        <span title={row.execution.refusal_code ?? undefined}>{row.execution.status}</span>
+                      ) : (
+                        <span title="This decision placed no order.">—</span>
+                      )}
+                    </td>
+                    <td>
+                      {row.decision_id ? (
+                        <Link
+                          href={hrefFor({ open: isOpen ? undefined : String(row.decision_id) })}
+                          style={{ fontSize: 11.5 }}
+                        >
+                          {isOpen ? 'Hide' : 'Evidence'}
+                        </Link>
+                      ) : null}
+                    </td>
                   </tr>
-                ))}
+                  {isOpen ? (
+                    <tr>
+                      <td colSpan={12} style={{ background: 'var(--color-surface)', padding: '16px 12px' }}>
+                        {!evidence ? null : !evidence.ok ? (
+                          <Failed what="The evidence" error={evidence} />
+                        ) : (
+                          <EvidenceBlock e={evidence.data} snapshot={row.evidence?.market_snapshot_ref ?? null} />
+                        )}
+                      </td>
+                    </tr>
+                  ) : null}
+                  </>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -167,7 +247,7 @@ export async function DecisionsTab({ id, p, page }: { id: string; p: Passport | 
             total={d.total_decisions}
             totalPages={d.total_pages}
             unit="decisions"
-            hrefFor={(n) => `/agents/${id}?tab=decisions&page=${Math.max(1, n)}`}
+            hrefFor={(n) => hrefFor({ page: String(Math.max(1, n)), open: undefined })}
           />
         </>
       )}
@@ -243,5 +323,70 @@ function PriceAbsent({ status }: { status: string | null }) {
     <span className="mono m3" title={status ? `price_status: ${status}` : 'No price and no status were recorded.'}>
       {status ?? '—'}
     </span>
+  );
+}
+
+/**
+ * The prompt, the raw answer, and the model that produced them.
+ *
+ * THIS IS THE PRODUCT. "Anyone replays the record — prompt, response, snapshot,
+ * fill, outcome — without a wallet and without asking the creator" is either
+ * true on this screen or it is a slogan. So the bodies are shown in full, not
+ * summarised, and a body that is missing says whether it was never recorded or
+ * has since been pruned — two different facts about the same empty space.
+ */
+function EvidenceBlock({ e, snapshot }: { e: Evidence; snapshot: string | null }) {
+  return (
+    <div style={{ display: 'grid', gap: 14 }}>
+      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'baseline' }}>
+        <span className="k">Evidence · decision {e.decision_id}</span>
+        <span className="mono m3" style={{ fontSize: 10.5 }}>
+          {e.model.model
+            ? `${e.model.provider ?? '—'} · ${e.model.model}${e.model.model_version ? ` · ${e.model.model_version}` : ''}`
+            : e.model.note}
+        </span>
+        {snapshot ? <span className="mono m3" style={{ fontSize: 10.5 }}>snapshot {snapshot}</span> : null}
+      </div>
+
+      {e.thesis ? (
+        <div className="node" style={{ padding: '10px 12px' }}>
+          <div className="lbl" style={{ marginBottom: 6 }}>THESIS</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr)', gap: '4px 12px', fontSize: 12.5 }}>
+            <span className="m3">claim</span><span>{e.thesis.claim ?? <span className="m3">not stated</span>}</span>
+            <span className="m3">horizon</span>
+            <span className="mono">{e.thesis.horizon_ticks ?? <span className="m3">not stated</span>}{e.thesis.horizon_ticks ? ' ticks' : ''}</span>
+            <span className="m3">invalidated if</span>
+            <span>{e.thesis.invalidated_if ?? <span className="m3">not stated</span>}</span>
+          </div>
+        </div>
+      ) : null}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14 }}>
+        <Body title="PROMPT" hash={e.prompt.hash} body={e.prompt.body} bytes={e.prompt.bytes} note={e.prompt.note} />
+        <Body title="RAW RESPONSE" hash={e.response.hash} body={e.response.body} bytes={e.response.bytes} note={e.response.note} />
+      </div>
+    </div>
+  );
+}
+
+function Body({
+  title, hash, body, bytes, note,
+}: { title: string; hash: string | null; body: string | null; bytes: number | null; note: string | null }) {
+  return (
+    <div className="node" style={{ padding: '10px 12px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 6 }}>
+        <span className="lbl">{title}</span>
+        <span className="mono m3" style={{ fontSize: 9.5 }} title={hash ?? undefined}>
+          {hash ? `${hash.slice(0, 12)}… · ${bytes ?? '?'} bytes` : 'no hash'}
+        </span>
+      </div>
+      {body ? (
+        <pre className="mono m2" style={{ fontSize: 11, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0, maxHeight: 320, overflow: 'auto' }}>
+          {body}
+        </pre>
+      ) : (
+        <div className="m3" style={{ fontSize: 11.5, lineHeight: 1.45 }}>{note ?? 'not recorded'}</div>
+      )}
+    </div>
   );
 }

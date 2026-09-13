@@ -2,55 +2,87 @@
  * Positions — what is open, and what is watching it.
  *
  * THIS TAB EXISTS BECAUSE OF A SPECIFIC FAILURE. An owner who asked for "get me
- * out if it drops 0.15%" ended up with a stop 15% away. Both numbers are
- * legitimate levels; the record stated the one that was armed; and nobody was
- * ever shown the two side by side. So every level here is printed in BOTH
- * scales — the fraction the engine stores and the percent a person reads —
- * because 0.15 and 0.15% only look like the same number until one of them fires.
+ * out if it drops 0.15%" ended up with a stop 15% away. Both are legitimate
+ * levels; the record stated the one that was armed; and nobody was ever shown
+ * the two side by side. So every level here is printed in BOTH scales — the
+ * fraction the engine stores and the percent a person reads.
  *
- * AN UNPROTECTED POSITION LOOKS UNPROTECTED. It gets its own block, in warning
- * colour, with the smallest level its pool would have accepted, so the answer to
- * "why isn't there a stop on this" is on the same row as the question.
+ * A POSITION WITH NO GUARD IS THE HEADLINE, NOT A FOOTNOTE. It is coloured as
+ * unprotected and carries the smallest level its pool would have accepted, so
+ * "why isn't there a stop on this" is answered on the row that raises it.
  *
- * A guard that was REFUSED is not a guard. The backend returns refused rows as
- * `unprotected`, and this page keeps them there.
+ * THREE KINDS OF MISSING PRICE ARE KEPT APART: the market could not be read,
+ * the snapshot has no quote for this symbol, or there is a price. Collapsing the
+ * first two would hide an outage behind a missing symbol. None of them is zero.
  *
- * `held_back_since` IS LOUDER THAN EVERYTHING ELSE. It means the price crossed a
- * level and the exit was not taken. A position that is armed but held back is
- * more dangerous than one with no level at all, because its owner believes it is
- * covered.
+ * P&L IS NULL UNLESS BOTH HALVES EXIST. An entry price only exists where a guard
+ * recorded one — the record does not pair a buy to the position it opened — and
+ * a P&L computed from one half of a subtraction is a number nobody can check.
  */
 import { agent } from '@/lib/api';
 import { frac, money, num, utc } from '@/lib/format';
-import { Key, Lbl, Num } from '@/components/ds/primitives';
-import { Callout, Empty, Failed } from '@/components/ds/states';
-import type { Err } from '@/lib/api';
-import type { DecisionsResponse, Passport } from '../shapes';
+import { Key, Num, Tag } from '@/components/ds/primitives';
+import { Callout, Empty, Failed, Unavailable } from '@/components/ds/states';
 
-export async function PositionsTab({
-  id,
-  p,
-  passportError,
-}: {
-  id: string;
-  p: Passport | null;
-  passportError: Err | null;
-}) {
-  if (passportError) return <Failed what="The protection record" error={passportError} />;
+type Protection =
+  | {
+      state: 'armed';
+      stop_loss: number | null;
+      stop_loss_fraction: number | null;
+      stop_loss_percent: number | null;
+      take_profit: number | null;
+      take_profit_fraction: number | null;
+      take_profit_percent: number | null;
+      set_at: string | null;
+      held_back_since: string | null;
+      held_back_because: string | null;
+    }
+  | { state: 'refused'; smallest_accepted_fraction: number | null; smallest_accepted_percent: number | null; because: string | null }
+  | { state: 'none'; because: string };
 
-  // The last decision carries the allocation the book was left in. It is the
-  // only published statement of what is currently held, so it is read here —
-  // and labelled with the moment it was written, because an allocation is only
-  // true as of its tick.
-  const lastR = await agent<DecisionsResponse>(`/v1/agents/${id}/decisions?page=1&page_size=1`);
-  const last = lastR.ok ? lastR.data.decisions[0] : null;
-  const allocation = last?.resulting_allocation ?? null;
-  const holdings = Object.entries(allocation ?? {});
+type OpenPosition = {
+  symbol: string;
+  quantity: number | null;
+  entry_price: number | null;
+  entry_known: boolean;
+  entry_note: string | null;
+  price: number | null;
+  price_status: 'unavailable' | 'symbol_not_in_snapshot' | 'from_snapshot';
+  price_note: string;
+  value: number | null;
+  pnl: number | null;
+  pnl_pct: number | null;
+  protection: Protection;
+};
 
-  const prot = p?.protection ?? null;
-  const armed = prot?.armed ?? [];
-  const unprotected = prot?.unprotected ?? [];
-  const heldBack = armed.filter((g) => g.held_back_since);
+type PositionsResp = {
+  as_of: string | null;
+  nav: number | null;
+  cash: number | null;
+  prices: { snapshot_ref: string | null; tick_time: string | null; available: boolean; reason: string | null; source: string };
+  open: OpenPosition[];
+  closed: Array<{
+    symbol: string;
+    status: string;
+    entry_price: number | null;
+    stop_loss: number | null;
+    stop_loss_percent: number | null;
+    take_profit: number | null;
+    take_profit_percent: number | null;
+    set_at: string | null;
+  }>;
+  note: string | null;
+};
+
+export async function PositionsTab({ id }: { id: string }) {
+  const r = await agent<PositionsResp>(`/v1/agents/${id}/positions`);
+  if (!r.ok) return <Failed what="The positions" error={r} />;
+  const d = r.data;
+
+  const unguarded = d.open.filter((p) => p.protection.state !== 'armed');
+  const heldBack = d.open.filter(
+    (p) => p.protection.state === 'armed' && (p.protection as { held_back_since: string | null }).held_back_since,
+  );
 
   return (
     <div style={{ display: 'grid', gap: 26 }}>
@@ -59,110 +91,135 @@ export async function PositionsTab({
           <strong>
             {heldBack.length} position{heldBack.length === 1 ? '' : 's'} crossed a level and the exit was not taken.
           </strong>{' '}
-          A level that is armed but held back is worse than no level, because the owner believes the position is
-          covered.{' '}
-          {heldBack.map((g) => `${g.symbol}: ${g.held_back_because ?? 'no reason recorded'}`).join(' · ')}
+          A level that is armed but held back is worse than no level, because its owner believes the position is
+          covered.
+        </Callout>
+      ) : null}
+
+      {unguarded.length > 0 ? (
+        <Callout tone="warn">
+          <strong>
+            {unguarded.length} of {d.open.length} open position{d.open.length === 1 ? '' : 's'} {unguarded.length === 1 ? 'has' : 'have'} no armed level.
+          </strong>{' '}
+          Nothing is watching {unguarded.length === 1 ? 'it' : 'them'} between ticks. That is not a failure — a level
+          is armed only when one is asked for — but it is the state of the book.
         </Callout>
       ) : null}
 
       <section>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
-          <Key>Holdings · as of the last recorded decision</Key>
+          <Key>Open positions</Key>
           <span className="mono m3" style={{ fontSize: 10.5 }}>
-            {last ? utc(last.ts) : 'no decision to read an allocation from'}
+            book read {utc(d.as_of)} · NAV {money(d.nav)} · cash {money(d.cash)}
           </span>
         </div>
-        {!lastR.ok ? (
-          <div style={{ marginTop: 8 }}>
-            <Failed what="The latest allocation" error={lastR} />
-          </div>
-        ) : holdings.length === 0 ? (
-          <div style={{ marginTop: 8 }}>
+
+        {d.open.length === 0 ? (
+          <div style={{ marginTop: 10 }}>
             <Empty title="The book holds nothing">
-              The last recorded decision left the portfolio with no position in any symbol. This is a recorded
-              all-cash book, not a missing reading.
+              {d.note ?? 'The last recorded snapshot left the portfolio all in cash. This is a recorded zero, not a missing reading.'}
             </Empty>
           </div>
         ) : (
           <div className="scroll-x">
-            <table className="table" style={{ marginTop: 8 }}>
+            <table className="table" style={{ marginTop: 10 }}>
               <thead>
                 <tr>
-                  <th style={{ width: 120 }}>Symbol</th>
-                  <th className="r" style={{ width: 160 }}>
-                    % of the book
-                  </th>
-                  <th style={{ width: 200 }}>Protection</th>
-                  <th>What is watching it</th>
+                  <th style={{ width: 90 }}>Symbol</th>
+                  <th className="r" style={{ width: 110 }}>Quantity</th>
+                  <th className="r" style={{ width: 110 }}>Entry</th>
+                  <th className="r" style={{ width: 110 }}>Price now</th>
+                  <th className="r" style={{ width: 110 }}>Value</th>
+                  <th className="r" style={{ width: 130 }}>P&amp;L</th>
+                  <th style={{ width: 180 }}>Protection</th>
+                  <th>Level · price / fraction / %</th>
                 </tr>
               </thead>
               <tbody>
-                {holdings.map(([symbol, pctOfBook]) => {
-                  const guard = armed.find((g) => g.symbol === symbol) ?? null;
-                  const refused = unprotected.find((g) => g.symbol === symbol) ?? null;
-                  return (
-                    <tr key={symbol}>
-                      <td className="mono">{symbol}</td>
-                      <td className="r">
-                        <Num value={num(pctOfBook, 2)} />
-                        <span className="m3"> %</span>
-                      </td>
-                      <td>
-                        {guard ? (
-                          guard.held_back_since ? (
-                            <span className="tag tag-red">ARMED · HELD BACK</span>
-                          ) : (
-                            <span className="tag tag-accent">ARMED</span>
-                          )
-                        ) : refused ? (
-                          <span className="tag tag-red">UNPROTECTED · REFUSED</span>
+                {d.open.map((p) => (
+                  <tr key={p.symbol}>
+                    <td className="mono">{p.symbol}</td>
+                    <td className="r"><Num value={num(p.quantity, 6)} /></td>
+                    <td className="r">
+                      {p.entry_known ? (
+                        <Num value={money(p.entry_price)} />
+                      ) : (
+                        <span className="mono m3" title={p.entry_note ?? undefined}>not recorded</span>
+                      )}
+                    </td>
+                    <td className="r">
+                      {p.price_status === 'from_snapshot' ? (
+                        <Num value={money(p.price)} />
+                      ) : p.price_status === 'unavailable' ? (
+                        <Unavailable reason={p.price_note} />
+                      ) : (
+                        <span className="mono m3" title={p.price_note}>not quoted</span>
+                      )}
+                    </td>
+                    <td className="r">
+                      {p.value === null ? <span className="mono m3">—</span> : <Num value={money(p.value)} />}
+                    </td>
+                    <td className="r">
+                      {p.pnl === null ? (
+                        <span className="mono m3" title={p.entry_known ? p.price_note : p.entry_note ?? undefined}>
+                          not computable
+                        </span>
+                      ) : (
+                        <>
+                          <Num value={money(p.pnl)} tone={p.pnl > 0 ? 'up' : p.pnl < 0 ? 'dn' : 'flat'} />
+                          <div className="mono m3" style={{ fontSize: 10.5 }}>{num(p.pnl_pct, 2)}%</div>
+                        </>
+                      )}
+                    </td>
+                    <td>
+                      {p.protection.state === 'armed' ? (
+                        (p.protection as { held_back_since: string | null }).held_back_since ? (
+                          <Tag tone="red">ARMED · HELD BACK</Tag>
                         ) : (
-                          <span
-                            className="tag tag-amber"
-                            title="No guard row exists for this symbol at all — nothing is watching it between ticks."
-                          >
-                            NOTHING IS WATCHING
-                          </span>
-                        )}
-                      </td>
-                      <td className="m2" style={{ fontSize: 12 }}>
-                        {guard ? (
-                          <span className="mono" style={{ fontSize: 11.5 }}>
-                            stop {money(guard.stop_loss)} <span className="m3">({frac(guard.stop_loss_fraction, 6)} = {num(guard.stop_loss_percent, 4)}%)</span>
-                            <br />
-                            target {money(guard.take_profit)} <span className="m3">({frac(guard.take_profit_fraction, 6)} = {num(guard.take_profit_percent, 4)}%)</span>
-                          </span>
-                        ) : refused ? (
-                          <>
-                            {refused.because ?? 'the guard was refused and no reason was recorded'}
-                            {refused.smallest_accepted_percent !== null ? (
-                              <div className="mono m3" style={{ fontSize: 11, marginTop: 2 }}>
-                                the smallest level this pool accepts is {frac(refused.smallest_accepted_fraction, 6)} ={' '}
-                                {num(refused.smallest_accepted_percent, 4)}%
-                              </div>
-                            ) : null}
-                          </>
-                        ) : (
-                          <span className="m3">no stop and no target have been armed for this symbol</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
+                          <Tag tone="accent">ARMED</Tag>
+                        )
+                      ) : p.protection.state === 'refused' ? (
+                        <Tag tone="red">REFUSED</Tag>
+                      ) : (
+                        <Tag tone="amber" title={p.protection.because}>NOTHING IS WATCHING</Tag>
+                      )}
+                    </td>
+                    <td className="m2" style={{ fontSize: 12 }}>
+                      {p.protection.state === 'armed' ? (
+                        <Levels g={p.protection} />
+                      ) : p.protection.state === 'refused' ? (
+                        <>
+                          {p.protection.because ?? 'the guard was refused and no reason was recorded'}
+                          {p.protection.smallest_accepted_percent !== null ? (
+                            <div className="mono m3" style={{ fontSize: 11, marginTop: 2 }}>
+                              smallest this pool accepts: {frac(p.protection.smallest_accepted_fraction, 6)} ={' '}
+                              {num(p.protection.smallest_accepted_percent, 4)}%
+                            </div>
+                          ) : null}
+                        </>
+                      ) : (
+                        <span className="m3">{p.protection.because}</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
         )}
+
+        <div className="mono m3" style={{ fontSize: 10.5, marginTop: 8 }}>
+          prices: {d.prices.available ? d.prices.source : `unavailable — ${d.prices.reason ?? 'no reason given'}`}
+          {d.prices.snapshot_ref ? ` · ${d.prices.snapshot_ref}` : ''}
+        </div>
       </section>
 
       <section>
-        <Key>Armed levels</Key>
-        {armed.length === 0 ? (
-          <div style={{ marginTop: 8 }}>
-            <Callout tone="warn">
-              <strong>No protective level is armed.</strong> That is not a failure — a level is armed only when one is
-              asked for — but nothing is watching these positions between ticks.
-            </Callout>
+        <Key>Closed positions</Key>
+        {d.closed.length === 0 ? (
+          <div className="m3" style={{ fontSize: 12, marginTop: 8 }}>
+            No position has been closed out with a recorded guard. The platform keeps a closing record only where a
+            protective level existed, so this is what it can show rather than the whole trading history.
           </div>
         ) : (
           <div className="scroll-x">
@@ -170,43 +227,26 @@ export async function PositionsTab({
               <thead>
                 <tr>
                   <th style={{ width: 90 }}>Symbol</th>
-                  <th className="r" style={{ width: 120 }}>
-                    Entry paid
-                  </th>
-                  <th className="r" style={{ width: 200 }}>
-                    Stop · price / fraction / %
-                  </th>
-                  <th className="r" style={{ width: 200 }}>
-                    Target · price / fraction / %
-                  </th>
-                  <th style={{ width: 170 }}>Armed at</th>
+                  <th style={{ width: 120 }}>Ended as</th>
+                  <th className="r" style={{ width: 120 }}>Entry</th>
+                  <th className="r" style={{ width: 190 }}>Stop · price / %</th>
+                  <th className="r" style={{ width: 190 }}>Target · price / %</th>
+                  <th style={{ width: 180 }}>Armed at</th>
                 </tr>
               </thead>
               <tbody>
-                {armed.map((g) => (
-                  <tr key={`${g.symbol}-${g.set_at}`}>
-                    <td className="mono">{g.symbol}</td>
-                    <td className="r">
-                      <Num value={money(g.entry_price)} />
+                {d.closed.map((c, i) => (
+                  <tr key={`${c.symbol}-${c.set_at}-${i}`}>
+                    <td className="mono">{c.symbol}</td>
+                    <td><Tag tone="outline">{c.status.toUpperCase()}</Tag></td>
+                    <td className="r"><Num value={money(c.entry_price)} /></td>
+                    <td className="r mono" style={{ fontSize: 11.5 }}>
+                      {money(c.stop_loss)} <span className="m3">({num(c.stop_loss_percent, 4)}%)</span>
                     </td>
-                    <td className="r">
-                      <TwoScales price={g.stop_loss} fraction={g.stop_loss_fraction} percent={g.stop_loss_percent} />
+                    <td className="r mono" style={{ fontSize: 11.5 }}>
+                      {money(c.take_profit)} <span className="m3">({num(c.take_profit_percent, 4)}%)</span>
                     </td>
-                    <td className="r">
-                      <TwoScales
-                        price={g.take_profit}
-                        fraction={g.take_profit_fraction}
-                        percent={g.take_profit_percent}
-                      />
-                    </td>
-                    <td className="mono m3" style={{ fontSize: 11 }}>
-                      {utc(g.set_at)}
-                      {g.held_back_since ? (
-                        <div className="dn" style={{ fontSize: 11 }}>
-                          held back since {utc(g.held_back_since)}
-                        </div>
-                      ) : null}
-                    </td>
+                    <td className="mono m3" style={{ fontSize: 11 }}>{utc(c.set_at)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -214,93 +254,53 @@ export async function PositionsTab({
           </div>
         )}
       </section>
-
-      {unprotected.length > 0 ? (
-        <section>
-          <Key>Open and unprotected</Key>
-          <div className="scroll-x">
-            <table className="table" style={{ marginTop: 8 }}>
-              <thead>
-                <tr>
-                  <th style={{ width: 90 }}>Symbol</th>
-                  <th className="r" style={{ width: 130 }}>
-                    Entry paid
-                  </th>
-                  <th className="r" style={{ width: 240 }}>
-                    Smallest level this pool accepts
-                  </th>
-                  <th>Why no level is armed</th>
-                </tr>
-              </thead>
-              <tbody>
-                {unprotected.map((g) => (
-                  <tr key={g.symbol}>
-                    <td className="mono">{g.symbol}</td>
-                    <td className="r">
-                      <Num value={money(g.entry_price)} />
-                    </td>
-                    <td className="r">
-                      {g.smallest_accepted_fraction === null ? (
-                        <span className="mono m3">not reported</span>
-                      ) : (
-                        <span className="mono">
-                          {frac(g.smallest_accepted_fraction, 6)} <span className="m3">=</span>{' '}
-                          {num(g.smallest_accepted_percent, 4)}%
-                        </span>
-                      )}
-                    </td>
-                    <td className="m2" style={{ fontSize: 12 }}>
-                      {g.because ?? 'no reason recorded'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
-
-      {prot?.note ? (
-        <section>
-          <Key>In words</Key>
-          <div style={{ marginTop: 8 }}>
-            <Callout tone={armed.length === 0 || unprotected.length > 0 ? 'warn' : 'note'}>{prot.note}</Callout>
-          </div>
-        </section>
-      ) : null}
     </div>
   );
 }
 
 /**
- * A level, in both scales, always.
+ * A level in both scales.
  *
  * The price is what will actually fire. The fraction is what the engine stores
  * and what a mandate should be written in. The percent is what a person reads.
- * Printing any one of them alone is how 0.15 became 15%.
+ * Printing any one alone is how 0.15 became 15%.
  */
-function TwoScales({
-  price,
-  fraction,
-  percent,
+function Levels({
+  g,
 }: {
-  price: number | null;
-  fraction: number | null;
-  percent: number | null;
+  g: {
+    stop_loss: number | null;
+    stop_loss_fraction: number | null;
+    stop_loss_percent: number | null;
+    take_profit: number | null;
+    take_profit_fraction: number | null;
+    take_profit_percent: number | null;
+    held_back_since: string | null;
+    held_back_because: string | null;
+  };
 }) {
-  if (price === null && fraction === null) {
-    return (
-      <span className="mono m3" title="No level of this kind is armed on this position.">
-        none armed
-      </span>
-    );
-  }
   return (
     <span className="mono" style={{ fontSize: 11.5 }}>
-      {money(price)}
-      <div className="m3" style={{ fontSize: 10.5 }}>
-        {frac(fraction, 6)} = {num(percent, 4)}%
-      </div>
+      {g.stop_loss === null && g.stop_loss_fraction === null ? (
+        <span className="m3">no stop armed</span>
+      ) : (
+        <>
+          stop {money(g.stop_loss)} <span className="m3">({frac(g.stop_loss_fraction, 6)} = {num(g.stop_loss_percent, 4)}%)</span>
+        </>
+      )}
+      <br />
+      {g.take_profit === null && g.take_profit_fraction === null ? (
+        <span className="m3">no target armed</span>
+      ) : (
+        <>
+          target {money(g.take_profit)} <span className="m3">({frac(g.take_profit_fraction, 6)} = {num(g.take_profit_percent, 4)}%)</span>
+        </>
+      )}
+      {g.held_back_since ? (
+        <div className="dn" style={{ fontSize: 11, marginTop: 3 }}>
+          crossed and NOT taken since {utc(g.held_back_since)} — {g.held_back_because ?? 'no reason recorded'}
+        </div>
+      ) : null}
     </span>
   );
 }

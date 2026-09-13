@@ -16,10 +16,10 @@
 import Link from 'next/link';
 import { agent } from '@/lib/api';
 import type { Agent } from '@/lib/types';
-import { int, utcDate } from '@/lib/format';
+import { int, score as fmtScore, utcDate } from '@/lib/format';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
-import { StatusTag, Tag } from '@/components/ds/primitives';
+import { Lbl, StatusTag, Tag } from '@/components/ds/primitives';
 import { Callout, Failed } from '@/components/ds/states';
 import { Tabs } from '@/components/ds/nav';
 import type { Passport } from './shapes';
@@ -57,10 +57,26 @@ export default async function AgentPage({
   const sp = await searchParams;
   const tab = TABS.some((t) => t.key === one(sp.tab)) ? (one(sp.tab) as string) : 'overview';
   const page = one(sp.page) || '1';
+  const open = one(sp.open) || null;
+  const filters = { action: one(sp.action) || '', symbol: one(sp.symbol) || '' };
 
-  const [agentR, passportR] = await Promise.all([
+  const hrefFor = (over: Record<string, string | undefined>) => {
+    const q: Record<string, string | undefined> = {
+      tab, page, open: open ?? undefined,
+      action: filters.action || undefined,
+      symbol: filters.symbol || undefined,
+      ...over,
+    };
+    const parts = Object.entries(q).filter(([, v]) => v !== undefined && v !== '');
+    return `/agents/${id}${parts.length ? '?' + parts.map(([k, v]) => `${k}=${encodeURIComponent(v as string)}`).join('&') : ''}`;
+  };
+
+  const [agentR, passportR, boardR] = await Promise.all([
     agent<Agent>(`/v1/agents/${id}`),
     agent<Passport>(`/v1/agents/${id}/passport`),
+    agent<{ items: Array<{ agent_id: string; rank: number | null; score: number | null }>; total_ranked: number }>(
+      '/v1/leaderboard?page_size=50&include_unranked=true',
+    ),
   ]);
 
   if (!agentR.ok && !passportR.ok) {
@@ -76,6 +92,7 @@ export default async function AgentPage({
   }
 
   const p = passportR.ok ? passportR.data : null;
+  const boardRow = boardR.ok ? boardR.data.items.find((i) => i.agent_id === id) ?? null : null;
   const a = agentR.ok ? agentR.data : null;
   const name = p?.agent?.name ?? a?.name ?? id.slice(0, 8);
   const version = p?.agent?.version ?? a?.version ?? null;
@@ -138,6 +155,35 @@ export default async function AgentPage({
           ) : null}
         </div>
 
+        {/* SCORE, RANK AND THE TWO ACTIONS, as the mockup places them. The
+            rank comes from the leaderboard rather than being counted here, and
+            an unranked agent gets the word UNRANKED where a number would go —
+            never a low number standing in for a withheld one. */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 32, flexWrap: 'wrap', marginTop: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 36, flexWrap: 'wrap' }}>
+            <div>
+              <Lbl>ARCANA SCORE</Lbl>
+              <div className="mono" style={{ fontSize: 52, fontWeight: 500, lineHeight: 1, marginTop: 4 }}>
+                {p?.participation?.ranked && boardRow?.score !== null && boardRow?.score !== undefined
+                  ? fmtScore(boardRow.score)
+                  : <span className="m3" style={{ fontSize: 22 }}>withheld</span>}
+              </div>
+            </div>
+            <div style={{ paddingBottom: 6 }}>
+              <Lbl>GLOBAL RANK</Lbl>
+              <div className="mono" style={{ fontSize: 28, lineHeight: 1, marginTop: 6 }}>
+                {boardRow?.rank
+                  ? <>#{boardRow.rank} <span className="m3" style={{ fontSize: 13 }}>/ {int(boardR.ok ? boardR.data.total_ranked : null)}</span></>
+                  : <span className="m3" style={{ fontSize: 15 }}>unranked</span>}
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 10, paddingBottom: 6 }}>
+            <Link href={`/leaderboard`} className="btn">Compare</Link>
+            <Link href={`/marketplace`} className="btn btn-primary">Subscribe</Link>
+          </div>
+        </div>
+
         {p && !p.participation?.ranked ? (
           <div style={{ marginTop: 14 }}>
             <Callout tone="warn">
@@ -166,13 +212,17 @@ export default async function AgentPage({
       </div>
 
       <div className="sec" style={{ paddingTop: 22, paddingBottom: 44, borderBottom: 'none' }}>
-        {tab === 'overview' ? <OverviewTab id={id} p={p} passportError={passportR.ok ? null : passportR} /> : null}
-        {tab === 'decisions' ? <DecisionsTab id={id} p={p} page={page} /> : null}
+        {tab === 'overview' ? (
+          <OverviewTab id={id} p={p} passportError={passportR.ok ? null : passportR} mandate={a?.mandate ?? null} />
+        ) : null}
+        {tab === 'decisions' ? (
+          <DecisionsTab id={id} p={p} page={page} open={open} filters={filters} hrefFor={hrefFor} />
+        ) : null}
         {tab === 'dna' ? <DnaTab id={id} /> : null}
         {tab === 'autopsy' ? <AutopsyTab id={id} /> : null}
         {tab === 'passport' ? <PassportTab p={p} passportError={passportR.ok ? null : passportR} /> : null}
         {tab === 'evolution' ? <EvolutionTab id={id} /> : null}
-        {tab === 'positions' ? <PositionsTab id={id} p={p} passportError={passportR.ok ? null : passportR} /> : null}
+        {tab === 'positions' ? <PositionsTab id={id} /> : null}
       </div>
 
       <div className="sec" style={{ paddingBottom: 24, borderBottom: 'none' }}>
