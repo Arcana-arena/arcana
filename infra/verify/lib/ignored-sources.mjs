@@ -28,13 +28,29 @@
  * output, so nothing under one may be ignored. It is deliberately blunt. A rule
  * with exceptions is a rule somebody argues with at the moment they are in a
  * hurry.
+ *
+ * TWO CHECKS, BECAUSE THE FIRST ONE ALONE WAITS FOR THE DAMAGE.
+ * ignoredSourcePaths() finds a file that has already been swallowed — it can
+ * only fire once somebody has written source under the bad pattern. A third
+ * pattern of the same shape, a bare `tmp/`, sat in .gitignore after both fixes
+ * and passed every run, because no file named tmp/ happened to exist yet.
+ * unanchoredSourcePatterns() asks about the PATTERN: would it swallow a
+ * directory of that name if one were created inside a source tree tomorrow.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** The directories inside a service or package that hold hand-written code. */
 export const SOURCE_DIRS = ['src', 'internal', 'cmd', 'app'];
+
+/**
+ * Directory names that tools own. Nobody writes source into a directory called
+ * node_modules, and anchoring these would un-ignore them wherever a tool drops
+ * one. This is a list of names, not a negation in .gitignore — it does not let
+ * any file into or out of the repository.
+ */
+export const TOOL_OWNED_DIRS = ['node_modules', '.idea', '.vscode'];
 
 /** Every source tree that exists in this repository right now. */
 export function sourceTrees(root) {
@@ -88,6 +104,60 @@ export function ignoredSourcePaths(root) {
   return { trees, ignored: found };
 }
 
+/**
+ * .gitignore directory patterns that WOULD swallow a directory inside a source
+ * tree, whether or not one exists yet.
+ *
+ * The pattern text only proposes names to try. Whether a name is actually
+ * ignored is still asked of git — `check-ignore --no-index` answers for paths
+ * that do not exist — so anchoring, negation and globbing keep git's meaning.
+ * Only matches attributed to the repository's own .gitignore count: a personal
+ * core.excludesFile is that machine's business, not the repository's.
+ */
+export function unanchoredSourcePatterns(root) {
+  const trees = sourceTrees(root);
+  let text = '';
+  try {
+    text = readFileSync(join(root, '.gitignore'), 'utf8');
+  } catch {
+    return { trees, patterns: [] };
+  }
+
+  const probes = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#') || line.startsWith('!') || !line.endsWith('/')) continue;
+    const body = line.slice(0, -1);
+    // A slash anywhere but the end anchors the pattern to the .gitignore's
+    // directory, which is what makes it safe.
+    if (body.includes('/')) continue;
+    const name = body.replace(/\[[^\]]*\]/g, 'x').replace(/[*?]/g, 'x');
+    if (TOOL_OWNED_DIRS.includes(name)) continue;
+    for (const tree of trees) probes.push(`${tree}/${name}/probe`);
+  }
+  if (probes.length === 0) return { trees, patterns: [] };
+
+  let out = '';
+  try {
+    out = execFileSync('git', ['check-ignore', '--no-index', '-v', '--stdin'],
+      { cwd: root, input: probes.join('\n') + '\n', encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] });
+  } catch (e) {
+    // Exit 1 is git saying "none of these is ignored", which is the good
+    // outcome. Anything else is a check that could not run; see above.
+    out = e && e.status === 1 ? '' : String((e && e.stdout) || '');
+  }
+
+  const byPattern = new Map();
+  for (const row of out.split('\n').filter(Boolean)) {
+    // <source>:<line>:<pattern>\t<path>
+    const m = row.match(/^(.*):(\d+):(.*)\t(.*)$/);
+    if (!m || m[1] !== '.gitignore') continue;
+    const key = `${m[2]}:${m[3]}`;
+    if (!byPattern.has(key)) byPattern.set(key, { line: Number(m[2]), pattern: m[3], example: m[4].replace(/\/probe$/, '/') });
+  }
+  return { trees, patterns: [...byPattern.values()].sort((a, b) => a.line - b.line) };
+}
+
 /** What to tell somebody who just tripped it. Same words in both callers. */
 export function explain(ignored) {
   return [
@@ -100,10 +170,7 @@ export function explain(ignored) {
     'have them at all. Nothing downstream can detect this: an untracked file has no',
     'place in the commit it would be compared against.',
     '',
-    'This has happened twice on this project. `vendor/` unanchored swallowed',
-    "services/market-data/internal/vendor; `build/` unanchored swallowed",
-    'services/web/src/app/api/build — the endpoint written to detect a stale deploy',
-    'was itself missing from the deploy.',
+    ...HISTORY,
     '',
     'THE FIX is almost always to anchor the pattern in .gitignore rather than to',
     'move the source. `build/` matches a directory of that name at ANY depth;',
@@ -114,3 +181,25 @@ export function explain(ignored) {
     'the next instance of this bug.',
   ].join('\n');
 }
+
+/** The same, for a pattern that has not swallowed anything YET. */
+export function explainPatterns(patterns) {
+  return [
+    'These .gitignore patterns are unanchored and would swallow a directory of that',
+    'name inside a service or package source tree — nothing has been lost yet:',
+    '',
+    ...patterns.map((p) => `    .gitignore:${p.line}  ${p.pattern.padEnd(22)} would ignore ${p.example}`),
+    '',
+    ...HISTORY,
+    '',
+    'THE FIX is to anchor it to where that output actually lands: `/tmp/`,',
+    '`/services/*/tmp/`, not `tmp/`.',
+  ].join('\n');
+}
+
+const HISTORY = [
+  'This has happened twice on this project. `vendor/` unanchored swallowed',
+  'services/market-data/internal/vendor; `build/` unanchored swallowed',
+  'services/web/src/app/api/build — the endpoint written to detect a stale deploy',
+  'was itself missing from the deploy.',
+];

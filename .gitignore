@@ -90,6 +90,8 @@ node_modules/
 !.env.*.example
 
 # --- IDE / OS ---
+# .idea/ and .vscode/ stay unanchored: they are named by tools, nobody writes
+# source into them, and ignored-sources.mjs exempts them by name.
 .idea/
 .vscode/
 *.swp
@@ -98,16 +100,22 @@ Thumbs.db
 
 # --- Logs & temp ---
 *.log
-tmp/
+# Anchored for the reason at the top. This was a bare `tmp/`, the third pattern
+# of the same shape, still sitting here after vendor/ and build/ were fixed. It
+# had not swallowed anything yet; planting services/web/src/app/tmp/page.tsx
+# while proving the pre-commit hook is how it was found.
+/tmp/
+/packages/*/tmp/
+/services/*/tmp/
 
 # --- Local tooling (never pushed to remote / VPS) ---
-.commandcode/
+/.commandcode/
 
 # Build artefacts produced on the host by infra/systemd/install.sh.
 # Untracked binaries made every deployed-version check report a dirty working
 # tree, which would have trained everyone to ignore the one signal that says
 # production is running code nobody reviewed.
-scheduler-bin/
+/scheduler-bin/
 services/*/server
 services/*/backfill
 # The lease-race binary guard-verify builds from cmd/leaserace and removes again.
@@ -125,15 +133,15 @@ services/*/backfill
 # The build stamp lives inside dist/ and is written by the installer.
 # Listed so a future dist/ ignore rule cannot silently take it with it.
 !services/*/dist/.build-commit
-.dust-verify-build/
+/.dust-verify-build/
 
 # Verbose go test logs written by `make test-go`.
-.test-logs/
+/.test-logs/
 
 # Full verifier output kept by `node infra/verify/run-all.mjs`. Kept on disk on
 # purpose: the tool it replaced scraped summary lines and threw the output away,
 # so a failure that did not repeat could not be looked at afterwards.
-.verify-logs/
+/.verify-logs/
 
 # Landing-page media supplied with the mockups. Kept OUT of git deliberately:
 # 20 MB of video and photographs that no mockup references, and git history is

@@ -15,20 +15,29 @@
  */
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ignoredSourcePaths, explain } from './ignored-sources.mjs';
+import { ignoredSourcePaths, unanchoredSourcePatterns, explain, explainPatterns } from './ignored-sources.mjs';
 
 const root = process.argv[2]
   ? resolve(process.argv[2])
   : resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
 const { ignored } = ignoredSourcePaths(root);
-if (ignored.length === 0) process.exit(0);
+const { patterns } = unanchoredSourcePatterns(root);
+if (ignored.length === 0 && patterns.length === 0) process.exit(0);
 
 console.error('');
-console.error('COMMIT REFUSED — source files are being ignored by git');
-console.error('');
-console.error(explain(ignored));
-console.error('');
+if (ignored.length > 0) {
+  console.error('COMMIT REFUSED — source files are being ignored by git');
+  console.error('');
+  console.error(explain(ignored));
+  console.error('');
+}
+if (patterns.length > 0) {
+  console.error('COMMIT REFUSED — a .gitignore pattern would swallow source');
+  console.error('');
+  console.error(explainPatterns(patterns));
+  console.error('');
+}
 console.error('To commit anyway: git commit --no-verify. The sweep will fail on the same thing.');
 console.error('');
 process.exit(1);

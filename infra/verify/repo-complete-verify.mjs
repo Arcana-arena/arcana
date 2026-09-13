@@ -28,7 +28,7 @@ import { existsSync, readdirSync, readFileSync, mkdtempSync, rmSync } from 'node
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { suite } from './lib/sections.mjs';
-import { ignoredSourcePaths, explain } from './lib/ignored-sources.mjs';
+import { ignoredSourcePaths, unanchoredSourcePatterns, explain, explainPatterns } from './lib/ignored-sources.mjs';
 
 const REPO = process.env.REPO || '/home/ubuntu/arcana';
 const { check, section, nothingToCheck, report } = suite('repo-complete-verify');
@@ -212,6 +212,14 @@ try {
     check('no path inside a service or package source tree is gitignored',
       ignored.length === 0,
       ignored.length === 0 ? '' : explain(ignored).replace(/\n+/g, ' '));
+
+    // AND NO PATTERN THAT WOULD, once somebody creates the directory. The check
+    // above can only see damage already done: a bare `tmp/` passed it on every
+    // run after vendor/ and build/ were fixed, because no tmp/ existed yet.
+    const { patterns } = unanchoredSourcePatterns(REPO);
+    check('no .gitignore pattern would swallow a directory inside a source tree',
+      patterns.length === 0,
+      patterns.length === 0 ? '' : explainPatterns(patterns).replace(/\n+/g, ' '));
 
     // AND THE HOOK THAT STOPS IT BEFORE THE COMMIT IS PRESENT AND EXECUTABLE.
     // The check above runs in the sweep, which happens after the commit, after
