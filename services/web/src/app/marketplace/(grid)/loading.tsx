@@ -1,3 +1,12 @@
+/*
+ * Scoped to the grid ONLY, by living in a route group.
+ *
+ * A loading.tsx at the marketplace segment wraps every child route, and a
+ * Suspense boundary means the response starts streaming before the page
+ * resolves — which makes a later notFound() arrive too late to set the status.
+ * A missing listing then rendered its "no listing at this address" page with a
+ * 200, telling every crawler and link checker that the address exists.
+ */
 import { SkeletonBlock } from '@/components/ds/states';
 
 /**

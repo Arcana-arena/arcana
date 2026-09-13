@@ -30,7 +30,7 @@ import { Key, Lbl, Num, Tag } from '@/components/ds/primitives';
 import { Callout, Empty, Failed } from '@/components/ds/states';
 import { Seg } from '@/components/ds/nav';
 import { Sparkline } from '@/components/ds/chart';
-import type { BrowseResponse, BrowseItem } from './shapes';
+import type { BrowseResponse, BrowseItem } from '../shapes';
 
 export const dynamic = 'force-dynamic';
 
