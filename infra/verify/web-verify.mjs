@@ -28,6 +28,7 @@ import { suite } from './lib/sections.mjs';
 const WEB = process.env.WEB_URL || 'http://127.0.0.1:3000';
 const AGENT = process.env.AGENT_URL || 'http://127.0.0.1:3001';
 const MARKET = process.env.MARKETPLACE_URL || 'http://127.0.0.1:3002';
+const ARCA = process.env.ARCA_URL || 'http://127.0.0.1:3004';
 
 const { check, section, nothingToCheck, report } = suite('web-verify');
 
@@ -328,29 +329,331 @@ await section('Seasons render what the season record says, including the unknown
 
 // ---------------------------------------------------------------------------
 
-await section('The marketplace separates "none listed" from "none active"', async () => {
-  const disc = await api(MARKET, '/v1/marketplace/agents?sort=score_desc');
-  const all = await api(MARKET, '/v1/marketplace/listings');
+await section('The marketplace prints the browse rows, in the browse order', async () => {
+  const b = await api(MARKET, '/v1/marketplace/browse');
   const p = await page('/marketplace');
   const t = text(p.html);
   check('the marketplace renders', p.status === 200, `status ${p.status}`);
+  check('and the browse endpoint answers', b.status === 200, `status ${b.status}`);
 
-  const rows = Array.isArray(disc.body) ? disc.body : [];
-  const listings = Array.isArray(all.body) ? all.body : [];
-  if (rows.length > 0) {
-    const missing = rows.filter((r) => r.agent_name && !t.includes(r.agent_name)).map((r) => r.agent_name);
-    check('every discoverable agent appears', missing.length === 0, `missing: ${missing.join(', ')}`);
-    const pos = positions(t, rows.filter((r) => r.agent_name).map((r) => r.agent_name));
-    check('in the order the service returned them', isAscending(pos), `positions ${pos.join(', ')}`);
-  } else if (listings.length > 0) {
-    check('an empty grid says the listings exist but are switched off',
-      /switched off|not active/i.test(t),
-      `${listings.length} listings exist and the page does not distinguish that from none existing`);
-    check('and it states how many', t.includes(String(listings.length)), `${listings.length} not printed`);
+  const rows = Array.isArray(b.body?.items) ? b.body.items : [];
+  if (rows.length === 0) {
+    // FOUR DIFFERENT FACTS RENDER AS NO CARDS, and the page has to say which.
+    const counts = b.body?.counts ?? {};
+    check('an empty grid distinguishes which kind of empty it is',
+      /No agent has been listed|Nothing here can be bought|No listing matches/i.test(t),
+      'the grid is empty and the page does not say why');
+    if ((counts.listings ?? 0) > 0) {
+      check('and it states how many listings exist', t.includes(String(counts.listings)),
+        `${counts.listings} listings exist and the count is not printed`);
+    }
   } else {
-    check('an empty grid says nobody has listed an agent',
-      /never been listed|No agent has ever been listed/i.test(t),
-      'the page does not say which kind of empty this is');
+    const named = rows.filter((r) => r.agent_name).map((r) => r.agent_name);
+    const missing = named.filter((n) => !t.includes(n));
+    check('every listed agent appears', missing.length === 0, `missing: ${missing.join(', ')}`);
+    const pos = positions(t, named);
+    check('in the order the service returned them', isAscending(pos), `positions ${pos.join(', ')}`);
+  }
+
+  // THE CARD THAT CANNOT BE BOUGHT MUST SAY SO WHERE THE BUTTON WOULD BE. A
+  // Subscribe button on a listing with no payee address invites somebody to
+  // send money nobody can receive and nobody can refund.
+  const unbuyable = rows.filter((r) => !r.buyable);
+  if (unbuyable.length === 0) {
+    nothingToCheck('no listing is currently unbuyable, so the refusal wording has nothing to assert against');
+  } else {
+    const silent = unbuyable.filter((r) => r.not_buyable_note && !t.includes(r.not_buyable_note.slice(0, 40)));
+    check('an unbuyable listing shows the reason it cannot be bought',
+      silent.length === 0,
+      `${silent.length} unbuyable listing(s) render without their reason`);
+    check('and no Subscribe control is offered for it',
+      !/Subscribe<\/a>/.test(p.html) || rows.some((r) => r.buyable),
+      'a Subscribe link is rendered while nothing on the page is buyable');
+  }
+
+  // AN ABSENT RETURN IS NOT A ZERO. The card prints a dash, never 0.00%.
+  const unmeasured = rows.filter((r) => r.performance?.return_pct === null);
+  if (unmeasured.length === 0) {
+    nothingToCheck('every listed agent has a measured return, so the absent case has nothing to assert against');
+  } else {
+    check('an unmeasured return is not printed as a zero',
+      !/\bRETURN\s+\+?0\.00%/i.test(t),
+      'a card shows +0.00% for a return the service reported as null');
+  }
+});
+
+await section('A listing page states what it costs before what it is', async () => {
+  const b = await api(MARKET, '/v1/marketplace/browse');
+  const rows = Array.isArray(b.body?.items) ? b.body.items : [];
+  if (rows.length === 0) {
+    nothingToCheck('no listing exists, so there is no listing page to open');
+    return;
+  }
+  const one = rows[0];
+  const d = await api(MARKET, `/v1/marketplace/listings/${one.listing_id}/detail`);
+  const p = await page(`/marketplace/${one.listing_id}`);
+  const t = text(p.html);
+  check('the listing page renders', p.status === 200, `status ${p.status}`);
+  check('the detail endpoint answers', d.status === 200, `status ${d.status}`);
+  if (one.agent_name) {
+    check('and names the agent it is selling', t.includes(one.agent_name), `${one.agent_name} not on the page`);
+  }
+
+  // THE NO-REFUND WARNING BELONGS TO THE QUOTE, which is the last moment a
+  // buyer can still decide. A buyable listing that does not carry it is
+  // selling an irreversible transfer without saying so.
+  if (one.buyable) {
+    check('a buyable listing warns that the payment cannot be refunded',
+      /No refunds|cannot refund|cannot be refunded/i.test(t),
+      'the quote panel does not carry the no-refund warning');
+  } else {
+    check('an unbuyable listing says why rather than quoting a price to pay',
+      d.body?.not_buyable_note ? t.includes(d.body.not_buyable_note.slice(0, 40)) : true,
+      'the page does not print the reason this listing cannot be bought');
+  }
+
+  // WIN RATE IS NOT COMPUTABLE FROM THIS RECORD and the page must not invent
+  // one. It is the single figure the design asks for that the data cannot
+  // honestly produce.
+  check('win rate is shown as not computable rather than as a percentage',
+    !/Win rate\s+\d+(\.\d+)?%/i.test(t),
+    'a win rate percentage is printed, and no closed round trips are recorded to compute one from');
+
+  // DECLARED AND MEASURED ARE NOT THE SAME FIELD. Showing the measurement
+  // under the declaration's heading lets a mislabelled agent present its own
+  // description as evidence.
+  check('declared limits and measured behaviour are labelled separately',
+    /DECLARED/i.test(t) && /MEASURED/i.test(t),
+    'the page does not distinguish what the creator declared from what was measured');
+});
+
+await section('A listing id that names nothing answers 404', async () => {
+  const p = await page('/marketplace/00000000-0000-0000-0000-000000000000');
+  // A 404 PAGE SERVED WITH A 200 IS A LIE TO EVERY CRAWLER AND LINK CHECKER.
+  // This regressed once: loading.tsx at the marketplace segment began the
+  // response before notFound() could set the status.
+  check('an unknown listing answers 404', p.status === 404, `status ${p.status}`);
+  check('and says no listing is at that address',
+    /No listing at this address/i.test(p.html),
+    'the listing not-found page did not render');
+});
+
+await section('The docs quote the engine, not a design document', async () => {
+  const params = await api(AGENT, '/v1/docs/parameters');
+  const p = await page('/docs/scoring');
+  const t = text(p.html);
+  check('the scoring page renders', p.status === 200, `status ${p.status}`);
+  check('the parameters endpoint answers', params.status === 200, `status ${params.status}`);
+
+  const weights = params.body?.scoring?.weights ?? [];
+  if (weights.length === 0) {
+    check('the parameters endpoint publishes weights', false, 'it returned none');
+  } else {
+    // EVERY WEIGHT THE ENGINE HOLDS MUST BE ON THE PAGE. A docs page that
+    // hard-coded the design document's .25/.20/.15 would be confidently wrong
+    // about the one thing it exists to explain.
+    const absent = weights.filter((w) => !t.includes(w.weight.toFixed(2))).map((w) => w.key);
+    check('every weight the engine holds is printed', absent.length === 0,
+      `not on the page: ${absent.join(', ')}`);
+    const sum = weights.reduce((a, w) => a + w.weight, 0);
+    check('the weights on the page sum to one', Math.abs(sum - 1) < 1e-9, `they sum to ${sum.toFixed(4)}`);
+
+    // THE TERM THAT MEASURES NOTHING MUST BE NAMED AS SUCH. It carries a real
+    // weight over a constant, which is exactly what looks like a measurement
+    // and is not.
+    const blind = weights.find((w) => w.measures === false);
+    if (!blind) {
+      nothingToCheck('every published component measures something, so there is nothing to disclose');
+    } else {
+      check(`${blind.key} is disclosed as measuring nothing`,
+        /measures nothing|arithmetic over a constant/i.test(t),
+        `${blind.key} carries weight ${blind.weight} and the page does not say it discriminates between no two agents`);
+    }
+  }
+
+  // STRATEGY IS A MULTIPLIER, NOT A SEVENTH WEIGHT. Listing it beside
+  // performance would tell a reader the two trade off against each other.
+  check('strategy is described as a multiplier rather than a weighted term',
+    /multiplier/i.test(t),
+    'the page does not say strategy multiplies the total');
+
+  check('the ranking threshold on the page is the engine\'s',
+    typeof params.body?.scoring?.min_decisions_to_rank === 'number'
+      ? t.includes(String(params.body.scoring.min_decisions_to_rank))
+      : true,
+    `engine says ${params.body?.scoring?.min_decisions_to_rank}`);
+});
+
+await section('The docs carry every section, and search says what it searched', async () => {
+  const slugs = [
+    'what-arcana-is', 'how-it-works', 'creating-an-agent', 'writing-a-mandate',
+    'triggers-and-protection', 'wallets-and-custody', 'scoring', 'dna', 'autopsy',
+    'marketplace', 'arca', 'api', 'faq',
+  ];
+  const bad = [];
+  for (const s of slugs) {
+    const p = await page(`/docs/${s}`);
+    if (p.status !== 200) bad.push(`${s}:${p.status}`);
+  }
+  check('all thirteen documentation pages render', bad.length === 0, bad.join(', '));
+
+  const miss = await page('/docs/not-a-real-page');
+  check('an unknown docs slug answers 404', miss.status === 404, `status ${miss.status}`);
+
+  // SEARCH THAT FINDS NOTHING MUST SAY WHAT IT LOOKED IN. "No results" reads
+  // as "that word appears nowhere in the documentation", which is a much
+  // stronger claim than this index can make.
+  const s = await page('/docs/scoring?q=zzzznotaword');
+  const st = text(s.html);
+  check('a search with no hits says which index it searched',
+    /titles, summaries, keywords and headings|not the body text/i.test(st),
+    'an empty search result does not say what was searched');
+
+  const hit = await page('/docs/scoring?q=drawdown');
+  check('a search with hits lists them', /result/i.test(text(hit.html)), 'no result line rendered');
+});
+
+await section('The subscription terms on the docs are the ones in force', async () => {
+  const terms = await api(ARCA, '/v1/arca/terms');
+  const p = await page('/docs/marketplace');
+  const t = text(p.html);
+  check('the marketplace docs render', p.status === 200, `status ${p.status}`);
+  if (terms.status !== 200) {
+    check('the terms endpoint answers', false, `status ${terms.status}`);
+    return;
+  }
+  check('the term length on the page is the service\'s',
+    t.includes(`${terms.body.term_days} days`), `service says ${terms.body.term_days} days`);
+  check('the grace window on the page is the service\'s',
+    t.includes(`${terms.body.grace_hours}h`), `service says ${terms.body.grace_hours}h`);
+  check('the confirmation depth on the page is the service\'s',
+    t.includes(String(terms.body.min_confirmations)), `service says ${terms.body.min_confirmations}`);
+  // THE CONFIRMATION COUNT IS MEANINGLESS WITHOUT THE BLOCK TIME. 12 on
+  // Ethereum is two and a half minutes; 12 here would be 1.2 seconds.
+  check('and it is stated in wall-clock terms as well as blocks',
+    t.includes(String(terms.body.approx_confirmation_seconds)),
+    `service says about ${terms.body.approx_confirmation_seconds}s`);
+  check('the page states that nothing can be refunded',
+    /cannot refund|no refunds|refundable\s+no/i.test(t),
+    'the docs do not say a payment cannot be refunded');
+});
+
+await section('System status never reports a missing check as a passing one', async () => {
+  const s = await api(AGENT, '/v1/status');
+  const p = await page('/status');
+  const t = text(p.html);
+  check('the status page renders', p.status === 200, `status ${p.status}`);
+  check('the status endpoint answers', s.status === 200, `status ${s.status}`);
+
+  const comps = s.body?.components ?? [];
+  check('it probes something', comps.length > 0, 'no components were returned');
+
+  const unknown = comps.filter((c) => c.state === 'unknown');
+  if (unknown.length === 0) {
+    nothingToCheck('every probe ran, so the unknown-is-not-green rule has nothing to assert against');
+  } else {
+    // THE RULE. A probe that could not run is not a probe that passed.
+    check('an unrunnable probe does not make the overall state operational',
+      s.body.overall !== 'operational',
+      `${unknown.length} probe(s) returned unknown and the overall state is still operational`);
+    check('and the page says so', /UNKNOWN/i.test(t), 'the unknown state is not rendered');
+  }
+
+  // A VERDICT WITHOUT ITS THRESHOLD CANNOT BE DISAGREED WITH.
+  const judged = comps.filter((c) => c.state !== 'unknown');
+  const noThreshold = judged.filter((c) => !c.threshold).map((c) => c.key);
+  check('every judged component states the threshold it was judged against',
+    noThreshold.length === 0, `without a threshold: ${noThreshold.join(', ')}`);
+
+  // NO UPTIME PERCENTAGE. There is no probe log to compute one from, and a
+  // figure with a decimal point and no measurement behind it is the most
+  // convincing kind of invented number.
+  check('no uptime percentage is claimed',
+    !/9\d\.\d+%\s*uptime|uptime\s*9\d/i.test(t),
+    'an uptime figure is printed and nothing measures one');
+});
+
+await section('A season page lists the rules nobody enforces', async () => {
+  const seasons = await api(AGENT, '/v1/seasons?page_size=1');
+  const s = seasons.body?.items?.[0];
+  if (!s) {
+    nothingToCheck('no season exists, so there is no season page to open');
+    return;
+  }
+  const rules = await api(AGENT, `/v1/seasons/${s.id}/rules`);
+  const ticks = await api(AGENT, `/v1/seasons/${s.id}/ticks`);
+  const p = await page(`/seasons/${s.id}`);
+  const t = text(p.html);
+  check('the season page renders', p.status === 200, `status ${p.status}`);
+  check('the rules endpoint answers', rules.status === 200, `status ${rules.status}`);
+  check('the ticks endpoint answers', ticks.status === 200, `status ${ticks.status}`);
+
+  const described = (rules.body?.rules ?? []).filter((r) => !r.enforced);
+  if (described.length === 0) {
+    nothingToCheck('every rule this season names is enforced, so there is nothing to disclose as unenforced');
+  } else {
+    // A FOUR-RULE TABLE READS AS A COMPLETE ONE. The rules the platform does
+    // not apply have to be visible, and without invented figures.
+    const hidden = described.filter((r) => !t.includes(r.label));
+    check('every rule the platform does not enforce is still listed',
+      hidden.length === 0, `not on the page: ${hidden.map((r) => r.label).join(', ')}`);
+    check('and they are marked as not enforced',
+      /not enforced|Described, not enforced/i.test(t),
+      'unenforced rules are listed without being marked as unenforced');
+    const withValues = described.filter((r) => r.value !== null);
+    check('none of them carries an invented figure',
+      withValues.length === 0,
+      `these have values while nothing applies them: ${withValues.map((r) => r.label).join(', ')}`);
+  }
+
+  // A DAY WITH NO TICK IS ABSENT, NOT ZERO.
+  if ((ticks.body?.ticks ?? 0) === 0) {
+    check('a season with no ticks says nothing has run in it',
+      /No tick has been recorded/i.test(t),
+      'the page draws an empty tick history without saying it is empty');
+  } else {
+    check('the tick total on the page is the endpoint\'s',
+      t.includes(String(ticks.body.ticks)), `endpoint says ${ticks.body.ticks}`);
+    check('and the page says a missing day is not a day of zero ticks',
+      /absent from this array|absent from the daily|rather than present with a count of zero/i.test(t),
+      'the daily tick chart does not disclose that absent days are absent rather than zero');
+  }
+});
+
+await section('An arena whose gate cannot be read does not read as open', async () => {
+  const seasons = await api(AGENT, '/v1/seasons?page_size=50');
+  const rows = seasons.body?.items ?? [];
+  const unknown = rows.filter((s) => s.access && s.access.enforced === null);
+  const marked = rows.filter((s) => s.access && s.access.enforced === false && s.accessTier === 'premium');
+  const p = await page('/seasons');
+  const t = text(p.html);
+  check('the seasons page renders', p.status === 200, `status ${p.status}`);
+
+  if (unknown.length === 0 && marked.length === 0) {
+    nothingToCheck('every gate reports a definite state, so the three-state rendering has nothing to assert against');
+  }
+  if (unknown.length > 0) {
+    // `enforced: null` IS NOT "NOT ENFORCED". It is "nobody could find out",
+    // and rendering it as open answers a question the platform could not.
+    check('an unreadable gate is shown as unknown, not as open',
+      /GATE UNKNOWN/i.test(t),
+      `${unknown.length} season(s) have enforced: null and the page does not mark them unknown`);
+  }
+  if (marked.length > 0) {
+    check('a premium arena whose gate admits everyone says it is marked, not guarded',
+      /NOT GUARDED|marked premium/i.test(t),
+      'a premium tier with an inactive gate is presented as though entry were checked');
+  }
+
+  // AN EMPTY SEASON IS NOT HIDDEN. Hiding empty arenas would hide one that is
+  // empty because it has not started, which is a different fact entirely.
+  const empty = rows.filter((s) => (s.progress?.participants ?? 0) === 0);
+  if (empty.length === 0) {
+    nothingToCheck('every season has entrants, so the empty-season rule has nothing to assert against');
+  } else {
+    const hidden = empty.filter((s) => !t.includes(s.name));
+    check('a season with no entrants is still listed', hidden.length === 0,
+      `hidden: ${hidden.map((s) => s.name).join(', ')}`);
   }
 });
 
