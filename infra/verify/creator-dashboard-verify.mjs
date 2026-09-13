@@ -206,6 +206,13 @@ try {
   });
 
   await section('Risk limits can be changed on a live agent, and removal is named', async () => {
+    // A DRAFT CAN BE STARTED FROM ITS OWN PAGE. The wizard's last screen was
+    // the only door, so an owner who left it had a draft nothing could start.
+    const dp = await page(`/me/agents/${agentId}`);
+    const dt = text(dp.html);
+    check('the manage page of a draft offers to activate it',
+      /is a draft/i.test(dt) && /Activate /.test(dt), 'no Activate button on a draft agent\'s page');
+
     const act = await api(`/v1/agents/${agentId}/activate`, { method: 'POST' });
     check('the draft activates', act.status < 300, `${act.status} ${JSON.stringify(act.body)}`);
 
@@ -246,6 +253,21 @@ try {
     check('and states the mandate is immutable rather than offering a field',
       /immutable for v/i.test(t) && /cannot be edited once an agent has started/i.test(t),
       'the page does not say the mandate is fixed');
+
+    // ENTERING A COMPETITION HAS A SCREEN. It had an endpoint and no button, so
+    // an owner could activate an agent that nothing ever asked to decide.
+    // Rendered only — clicking would seat a fixture in a real competition.
+    check('the manage page has a Competitions panel', /ENTER A COMPETITION/i.test(t),
+      'no Competitions panel rendered for an active agent');
+    const pendingIds = sql(`SELECT string_agg(left(id::text, 8), ',') FROM competitions WHERE status = 'pending'`)
+      .split(',').filter(Boolean);
+    if (pendingIds.length === 0) {
+      console.log('  NOTHING TO CHECK  no competition is pending, so the Enter button has nothing to offer here');
+    }
+    for (const pid of pendingIds) {
+      check(`and offers pending competition ${pid} with an Enter button`,
+        t.includes(pid) && /Enter /.test(t), `competition ${pid} is pending but the panel does not offer it`);
+    }
   });
 
   await section('Pausing stops the agent deciding and leaves the owner\'s levels running', async () => {
