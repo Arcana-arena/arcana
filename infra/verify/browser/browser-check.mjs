@@ -12,6 +12,18 @@ import { writeFileSync } from 'node:fs';
 
 const BASE = process.env.BASE || 'http://127.0.0.1:8080';
 const AGENT_ID = process.env.AGENT_ID;
+const LISTING_ID = process.env.LISTING_ID;
+const SEASON_ID = process.env.SEASON_ID;
+
+// EVERY DOCUMENTATION PAGE IS OPENED, not a sample of them. Each one carries a
+// copy button, which is the only client component in the docs, and a page that
+// throws on hydration still server-renders perfectly — which is the whole
+// reason this file drives a real browser.
+const DOC_SLUGS = [
+  'what-arcana-is', 'how-it-works', 'creating-an-agent', 'writing-a-mandate',
+  'triggers-and-protection', 'wallets-and-custody', 'scoring', 'dna', 'autopsy',
+  'marketplace', 'arca', 'api', 'faq',
+];
 
 const PAGES = [
   ['landing', '/'],
@@ -19,7 +31,14 @@ const PAGES = [
   ['leaderboard-performance', '/leaderboard?category=performance'],
   ['leaderboard-unranked', '/leaderboard?include_unranked=true'],
   ['marketplace', '/marketplace'],
+  ['marketplace-filtered', '/marketplace?sort=return&buyable_only=true'],
   ['seasons', '/seasons'],
+  ...(SEASON_ID ? [['season-detail', `/seasons/${SEASON_ID}`]] : []),
+  ...(LISTING_ID ? [['listing-detail', `/marketplace/${LISTING_ID}`]] : []),
+  ['status', '/status'],
+  ...DOC_SLUGS.map((s) => [`docs-${s}`, `/docs/${s}`]),
+  ['docs-search', '/docs/scoring?q=drawdown'],
+  ['signin', '/signin'],
   ...(AGENT_ID
     ? ['overview', 'decisions', 'dna', 'autopsy', 'passport', 'evolution', 'positions'].map((t) => [
         `agent-${t}`,
@@ -138,22 +157,36 @@ for (const [name, path] of PAGES) {
   await page.close();
 }
 
-// Phone width, on the one page densest with tables.
-const page = await browser.newPage();
-await page.setViewport({ width: 390, height: 900 });
-await page.goto(`${BASE}/leaderboard`, { waitUntil: 'networkidle0', timeout: 45000 });
-const narrow = await page.evaluate(() => ({
-  scrollWidth: document.documentElement.scrollWidth,
-  clientWidth: document.documentElement.clientWidth,
-}));
-await page.screenshot({ path: '/tmp/shots/leaderboard-390.png', fullPage: false });
-const narrowOk = narrow.scrollWidth <= narrow.clientWidth + 1;
-if (!narrowOk) failures++;
-console.log(
-  `${narrowOk ? 'PASS' : 'FAIL'}  leaderboard at 390px      ` +
-    `${narrow.scrollWidth} <= ${narrow.clientWidth}`,
-);
-await page.close();
+// Phone width, on the pages densest with fixed-width tracks.
+//
+// A three-column docs layout, a two-column listing page and a table-heavy
+// leaderboard are the three shapes most likely to widen a 390px viewport, and a
+// page that scrolls sideways on a phone is unusable in a way no desktop check
+// notices. A 320px fixed track once widened the seasons page to 359 here.
+for (const [name, path] of [
+  ['leaderboard', '/leaderboard'],
+  ['docs', '/docs/scoring'],
+  ['marketplace', '/marketplace'],
+  ['status', '/status'],
+  ...(LISTING_ID ? [['listing', `/marketplace/${LISTING_ID}`]] : []),
+  ...(SEASON_ID ? [['season', `/seasons/${SEASON_ID}`]] : []),
+]) {
+  const page = await browser.newPage();
+  await page.setViewport({ width: 390, height: 900 });
+  await page.goto(`${BASE}${path}`, { waitUntil: 'networkidle0', timeout: 45000 });
+  const narrow = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }));
+  await page.screenshot({ path: `/tmp/shots/${name}-390.png`, fullPage: false });
+  const narrowOk = narrow.scrollWidth <= narrow.clientWidth + 1;
+  if (!narrowOk) failures++;
+  console.log(
+    `${narrowOk ? 'PASS' : 'FAIL'}  ${name} at 390px`.padEnd(38) +
+      `${narrow.scrollWidth} <= ${narrow.clientWidth}`,
+  );
+  await page.close();
+}
 
 await browser.close();
 writeFileSync('/tmp/shots/report.json', JSON.stringify(rows, null, 1));
