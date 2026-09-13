@@ -1,6 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { MARKETPLACE_API } from '@/lib/api';
 import { authed } from '@/lib/session';
 import type { PauseResult, RiskResult } from '../../shapes';
 
@@ -136,5 +137,64 @@ export async function exportKey(
     method: 'POST',
   });
   if (r.ok) return { ok: true, data: r.data };
+  return { ok: false, status: r.status, reason: r.reason, code: codeOf(r.body) };
+}
+
+/**
+ * Put an agent on the marketplace, or take it off.
+ *
+ * THE PAYEE GATE LIVES IN THE SERVICE AND IS NOT WORKED AROUND HERE. Publishing
+ * asks arca-service whether this agent's creator can be paid at all, and
+ * refuses with `creator_has_no_wallet` if not — a listing nobody could ever buy
+ * is worse than no listing, and the refusal is returned unchanged so the owner
+ * is told the actual thing to fix.
+ *
+ * REACTIVATING RUNS THE SAME CHECK. A listing switched off because its creator
+ * had no wallet must not come back without one, or the gate is a formality that
+ * one toggle walks around.
+ */
+export async function publishListing(
+  agentId: string,
+  priceUsd: number,
+): Promise<{ ok: true; data: { id: string } } | Fail> {
+  const r = await authed<{ id: string }>('/v1/marketplace/listings', {
+    method: 'POST',
+    base: MARKETPLACE_API,
+    body: {
+      agentId,
+      accessType: 'subscription',
+      priceUsd,
+      // The amount a buyer actually sends is resolved from this by the same
+      // code that verifies the payment. Setting it equal to the price keeps
+      // one number on the listing rather than two that can disagree.
+      arcaGateAmount: priceUsd,
+      active: true,
+    },
+  });
+  if (r.ok) {
+    revalidatePath(`/me/agents/${agentId}`);
+    revalidatePath('/me');
+    revalidatePath('/marketplace');
+    return { ok: true, data: r.data };
+  }
+  return { ok: false, status: r.status, reason: r.reason, code: codeOf(r.body) };
+}
+
+export async function updateListing(
+  agentId: string,
+  listingId: string,
+  patch: { priceUsd?: number; active?: boolean },
+): Promise<{ ok: true; data: unknown } | Fail> {
+  const r = await authed<unknown>(`/v1/marketplace/listings/${listingId}`, {
+    method: 'PATCH',
+    base: MARKETPLACE_API,
+    body: patch,
+  });
+  if (r.ok) {
+    revalidatePath(`/me/agents/${agentId}`);
+    revalidatePath('/me');
+    revalidatePath('/marketplace');
+    return { ok: true, data: r.data };
+  }
   return { ok: false, status: r.status, reason: r.reason, code: codeOf(r.body) };
 }

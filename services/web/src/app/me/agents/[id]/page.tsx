@@ -19,7 +19,7 @@
  */
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
-import { agent as publicRead } from '@/lib/api';
+import { agent as publicRead, marketplace } from '@/lib/api';
 import { authed, getSession } from '@/lib/session';
 import { addr, int, num, txShort, utc, utcDate } from '@/lib/format';
 import { Header } from '@/components/layout/Header';
@@ -35,6 +35,7 @@ import {
   RiskEditor,
   TriggersPanel,
 } from './ManagePanels';
+import { ListingPanel } from './ListingPanel';
 import type { Triggers, WalletBalances, WalletTransactions } from '../../shapes';
 
 export const dynamic = 'force-dynamic';
@@ -107,9 +108,21 @@ export default async function ManageAgentPage({
 
   // Owner-only reads. A refusal is printed as a refusal: an agent that is not
   // yours must not render as an agent with nothing in it.
-  const [walletR, triggersR] = await Promise.all([
+  const [walletR, triggersR, listingsR, creatorR] = await Promise.all([
     authed<Wallet>(`/v1/agents/${id}/wallet`),
     authed<Triggers>(`/v1/agents/${id}/triggers`),
+    // PUBLIC, and a lookup by key rather than a search. The listing table is
+    // small and the page needs the one row whose agentId is this agent; asking
+    // the browse endpoint would apply a provenance filter that has nothing to
+    // do with whether the owner may see their own listing.
+    marketplace<Array<{ id: string; agentId: string; priceUsd: string | null; active: boolean }>>(
+      '/v1/marketplace/listings',
+    ),
+    s.state === 'signed_in' && s.session.creator_id
+      ? authed<{ creator: { can_be_paid: boolean }; agents: Array<{ id: string; listing: { subscribers_active: number } | null }> }>(
+          `/v1/creators/${s.session.creator_id}/dashboard`,
+        )
+      : Promise.resolve({ ok: false as const, status: null, reason: 'no creator profile', body: null }),
   ]);
 
   if (!walletR.ok && (walletR.status === 403 || walletR.status === 404)) {
@@ -124,6 +137,20 @@ export default async function ManageAgentPage({
       </Shell>
     );
   }
+
+  const rawListing = listingsR.ok ? listingsR.data.find((l) => l.agentId === id) ?? null : null;
+  const dashAgent = creatorR.ok ? creatorR.data.agents.find((x) => x.id === id) ?? null : null;
+  const listing = rawListing
+    ? {
+        id: rawListing.id,
+        priceUsd: rawListing.priceUsd === null ? null : Number(rawListing.priceUsd),
+        active: rawListing.active === true,
+        // The subscriber count comes from the dashboard, which counts it in
+        // SQL. Counting it here would be a second definition of "subscriber".
+        subscribersActive: dashAgent?.listing?.subscribers_active ?? 0,
+      }
+    : null;
+  const creatorCanBePaid = creatorR.ok ? creatorR.data.creator.can_be_paid : null;
 
   const wallet = walletR.ok ? walletR.data : null;
   const triggers = triggersR.ok ? triggersR.data : null;
@@ -202,6 +229,13 @@ export default async function ManageAgentPage({
             </section>
 
             <RiskEditor agentId={id} initial={a.riskProfile ?? null} editable={a.status !== 'retired'} />
+
+            <ListingPanel
+              agentId={id}
+              listing={listing}
+              agentStatus={a.status}
+              creatorCanBePaid={creatorCanBePaid}
+            />
 
             <LifecyclePanel agentId={id} agentName={a.name} status={a.status} armedSymbols={armedSymbols} />
           </div>
