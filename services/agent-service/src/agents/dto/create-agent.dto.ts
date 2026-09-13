@@ -1,4 +1,5 @@
 import {
+  IsIn,
   IsJSON,
   IsNotEmpty,
   IsObject,
@@ -106,4 +107,16 @@ export class CreateAgentDto {
   @IsOptional()
   @IsObject()
   mandateParams?: Record<string, unknown>;
+
+  /**
+   * PRIVATE AGENT. PUBLIC PROOF. 'private' withholds the mandate, risk rules and
+   * the evidence behind each decision; the record stays public and every
+   * decision carries a commitment. Default 'public'.
+   *
+   * Decided HERE, at creation, because the choice only moves one way: a private
+   * agent can be made public later, a public one can never be made private.
+   */
+  @IsOptional()
+  @IsIn(['public', 'private'], { message: "visibility must be 'public' or 'private'." })
+  visibility?: 'public' | 'private';
 }

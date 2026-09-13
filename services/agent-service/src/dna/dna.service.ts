@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import { MarketIndexService, MarketTick } from '../market/market-index.service';
 import { positionsOf } from '../common/positions';
 import { MIN_DECISIONS } from '../common/ranking';
+import { withoutConfiguredLimits as stripConfiguredLimits } from '../intelligence/intelligence';
 
 /**
  * Agent DNA — a behavioural fingerprint computed from what an agent actually
@@ -524,7 +525,7 @@ export class DnaService {
   /** GET /v1/agents/:id/dna — human-readable summary, not 256 raw numbers. */
   async getDna(agentId: string) {
     const rows = await this.db.query(
-      `SELECT d.agent_id, a.name AS agent_name, a.strategy_type,
+      `SELECT d.agent_id, a.name AS agent_name, a.strategy_type, a.visibility,
               d.risk_personality, d.regime_strengths, d.computed_at
        FROM agent_dna d JOIN agents a ON a.id = d.agent_id
        WHERE d.agent_id = $1`,
@@ -537,7 +538,12 @@ export class DnaService {
       );
     }
     const row = rows[0];
-    const { features, ...risk } = row.risk_personality ?? {};
+    // DNA STAYS PUBLIC FOR A PRIVATE AGENT. It is measured from decisions that
+    // are public anyway, and it is what gives a private agent's reputation any
+    // meaning. The only values removed are the two copied from the private risk
+    // profile — what the owner told the agent, not what the agent did.
+    const { features, ...measured } = row.risk_personality ?? {};
+    const risk = row.visibility === 'private' ? stripConfiguredLimits(measured) : measured;
 
     return {
       agent_id: row.agent_id,

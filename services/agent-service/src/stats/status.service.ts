@@ -130,13 +130,17 @@ export class StatusService {
     // rather than counted as fast.
     try {
       const rows = await this.db.query(
-        `SELECT provider, model,
+        // PUBLIC AGENTS ONLY. A private agent's model is withheld (0047), and a
+        // platform-wide "busiest model" line would name it whenever it was the
+        // only agent calling one.
+        `SELECT d.provider, d.model,
                 count(*)::int AS calls,
-                percentile_disc(0.5) WITHIN GROUP (ORDER BY latency_ms)::bigint AS median_ms,
-                max(ts) AS last_call
-           FROM decisions_counted
-          WHERE ts > now() - interval '24 hours' AND latency_ms IS NOT NULL
-          GROUP BY provider, model
+                percentile_disc(0.5) WITHIN GROUP (ORDER BY d.latency_ms)::bigint AS median_ms,
+                max(d.ts) AS last_call
+           FROM decisions_counted d
+           JOIN agents a ON a.id = d.agent_id AND a.visibility = 'public'
+          WHERE d.ts > now() - interval '24 hours' AND d.latency_ms IS NOT NULL
+          GROUP BY d.provider, d.model
           ORDER BY count(*) DESC LIMIT 1`,
       );
       const r = rows[0] ?? null;

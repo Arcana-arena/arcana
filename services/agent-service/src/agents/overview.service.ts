@@ -29,7 +29,11 @@ export class AgentOverviewService {
   async forAgent(agentId: string) {
     const agentRows = await this.db.query(
       `SELECT a.id, a.name, a.created_at, a.strategy_type,
-              (a.risk_profile->>'max_position_pct')::float8 AS cap_exposure
+              -- The cap is a declared risk rule, so a private agent's is withheld
+              -- here, in the query, rather than trusted to every consumer.
+              CASE WHEN a.visibility = 'private' THEN NULL
+                   ELSE (a.risk_profile->>'max_position_pct')::float8 END AS cap_exposure,
+              a.visibility
          FROM agents a WHERE a.id = $1`,
       [agentId],
     );

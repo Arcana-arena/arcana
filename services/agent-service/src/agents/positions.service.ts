@@ -3,6 +3,8 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { positionsOf } from '../common/positions';
 import { MarketPriceClient } from '../series/market-price.client';
+import { IntelligenceService } from '../intelligence/intelligence.service';
+import { COMMITMENT_EXPLAINED, isPrivate } from '../intelligence/intelligence';
 
 /**
  * What an agent holds, what is watching it, and what it is worth now.
@@ -31,6 +33,7 @@ export class AgentPositionsService {
   constructor(
     @InjectDataSource() private readonly db: DataSource,
     private readonly marketPrices: MarketPriceClient,
+    private readonly intelligence: IntelligenceService,
   ) {}
 
   async forAgent(agentId: string) {
@@ -190,8 +193,43 @@ export class AgentPositionsService {
         set_at: g.set_at ? new Date(g.set_at).toISOString() : null,
       }));
 
+    // PROTECTIVE LEVELS ARE RISK RULES. A private agent's holdings, values and
+    // P&L stay public — they are what it did — but the level each stop sits at
+    // is what its owner told it, and is withheld. Which positions are watched is
+    // still stated, so "no protection" and "protection you cannot see" never
+    // look alike.
+    const vis = await this.intelligence.visibilityOf(agentId);
+    const privateAgent = isPrivate(vis?.visibility);
+    const LEVELS_WITHHELD =
+      'This agent keeps its risk rules private, so the level is not shown. Every exit a level takes is a ' +
+      'public decision.';
+    if (privateAgent) {
+      for (const o of open as Array<Record<string, any>>) {
+        if (o.protection?.state === 'armed') {
+          o.protection = {
+            state: 'armed',
+            levels: 'withheld',
+            held_back_since: o.protection.held_back_since ?? null,
+            note: LEVELS_WITHHELD,
+          };
+        } else if (o.protection?.state === 'refused') {
+          o.protection = { state: 'refused', levels: 'withheld', note: LEVELS_WITHHELD };
+        }
+      }
+    }
+    const closedOut = privateAgent
+      ? closed.map((c: Record<string, any>) => ({
+          symbol: c.symbol,
+          status: c.status,
+          entry_price: c.entry_price,
+          set_at: c.set_at,
+          levels: 'withheld',
+        }))
+      : closed;
+
     return {
       agent_id: agentId,
+      visibility: privateAgent ? 'private' : 'public',
       as_of: snap.length > 0 ? new Date(snap[0].ts).toISOString() : null,
       nav: round(snap[0]?.nav, 2),
       cash: round(snap[0]?.cash, 2),
@@ -203,7 +241,7 @@ export class AgentPositionsService {
         source: 'the market snapshot the agent last acted on, not a live quote',
       },
       open,
-      closed,
+      closed: closedOut,
       note: open.length === 0
         ? 'This agent holds no position. That is a recorded all-cash book, not a missing reading.'
         : null,
@@ -219,10 +257,68 @@ export class AgentPositionsService {
    * which is the whole claim this platform makes.
    */
   async evidence(agentId: string, decisionId: number) {
+    const vis = await this.intelligence.visibilityOf(agentId);
+    if (!vis) throw new NotFoundException(`Agent ${agentId} not found`);
+    const opened = isPrivate(vis.visibility)
+      ? (await this.intelligence.openedDecisions(agentId)).has(decisionId)
+      : false;
+
+    // THE DECISION ITSELF IS PUBLIC FOR EVERY AGENT, and so is its seal.
+    const head = await this.db.query(
+      `SELECT d.id, d.ts, d.action, d.symbol, d.decider, d.reason_code,
+              d.commitment, d.commitment_scheme, d.market_snapshot_ref
+         FROM decisions_counted d
+        WHERE d.id = $1 AND d.agent_id = $2`,
+      [decisionId, agentId],
+    );
+    if (head.length === 0) throw new NotFoundException(`Decision ${decisionId} not found for this agent`);
+    const h = head[0];
+    const commitment = h.commitment ? String(h.commitment).trim() : null;
+    const decision = {
+      decision_id: Number(h.id),
+      ts: new Date(h.ts).toISOString(),
+      action: h.action,
+      symbol: h.symbol || null,
+      decider: h.decider ?? null,
+      reason_code: h.reason_code ?? null,
+      market_snapshot_ref: h.market_snapshot_ref ?? null,
+      commitment: {
+        value: commitment,
+        scheme: h.commitment_scheme ?? null,
+        explained: commitment
+          ? COMMITMENT_EXPLAINED
+          : 'This decision has no commitment: it was recorded before commitments existed, or could not be ' +
+            'sealed when it was recorded. None is ever added afterwards.',
+      },
+    };
+
+    // A PRIVATE, UNOPENED DECISION: the bodies are not even read. What cannot
+    // be loaded cannot be leaked by a later edit to the shape below.
+    if (isPrivate(vis.visibility) && !opened) {
+      return {
+        ...decision,
+        intelligence: {
+          visibility: 'private' as const,
+          opened: false,
+          withheld: ['rationale', 'thesis', 'model and version', 'prompt', 'raw model response'],
+          note:
+            'The creator keeps the reasoning behind this decision private. The decision, its execution and ' +
+            'its outcome are public, and the commitment above proves the hidden reasoning was fixed when the ' +
+            'decision was made. The creator can open it; if they do, that is recorded permanently.',
+        },
+        rationale: null,
+        thesis: null,
+        model: null,
+        prompt: null,
+        response: null,
+        verification: null,
+      };
+    }
+
     const rows = await this.db.query(
       `SELECT d.id, d.ts, d.action, d.symbol, d.rationale, d.thesis,
               d.provider, d.model, d.model_version, d.params,
-              d.prompt_hash, d.response_hash, d.market_snapshot_ref,
+              d.prompt_hash, d.response_hash, d.system_prompt_hash, d.market_snapshot_ref,
               pe.body AS prompt_body, pe.bytes AS prompt_bytes,
               re.body AS response_body, re.bytes AS response_bytes
          -- decisions_counted, NOT the raw table. The view excludes rows
@@ -239,11 +335,23 @@ export class AgentPositionsService {
     if (rows.length === 0) throw new NotFoundException(`Decision ${decisionId} not found for this agent`);
     const r = rows[0];
 
+    // Readable, so the manifest may be shown and checked: every check the
+    // service ran, not a bare "verified".
+    const verification = commitment ? await this.intelligence.verifyCommitment(agentId, decisionId) : null;
+
     return {
-      decision_id: Number(r.id),
-      ts: new Date(r.ts).toISOString(),
-      action: r.action,
-      symbol: r.symbol || null,
+      ...decision,
+      intelligence: {
+        visibility: vis.visibility,
+        opened,
+        withheld: [] as string[],
+        note: opened
+          ? 'This agent is private, and its creator opened the reasoning behind this decision. The opening is ' +
+            'on the agent’s public record of disclosures.'
+          : null,
+      },
+      verification,
+      system_prompt: { hash: r.system_prompt_hash ? String(r.system_prompt_hash).trim() : null },
       rationale: r.rationale ?? null,
       thesis: r.thesis ?? null,
       model: {

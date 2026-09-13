@@ -16,6 +16,7 @@ import { PassportModule } from './passport/passport.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { EvolutionModule } from './evolution/evolution.module';
 import { AutopsyModule } from './autopsy/autopsy.module';
+import { IntelligenceModule } from './intelligence/intelligence.module';
 
 @Module({
   imports: [

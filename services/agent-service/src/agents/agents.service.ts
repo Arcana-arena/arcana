@@ -84,6 +84,8 @@ export class AgentsService {
       // Recorded at creation and frozen there by a database trigger. See
       // common/verification.ts for why this is not inferred from the name.
       provenance,
+      // Chosen now because it only moves one way (migration 0047).
+      visibility: dto.visibility ?? 'public',
     });
     return this.agents.save(agent);
   }
@@ -508,6 +510,20 @@ export class AgentsService {
     const template = overrides.mandateTemplate ?? agent.mandateTemplate ?? undefined;
     const params = overrides.mandateParams ?? agent.mandateParams ?? undefined;
 
+    // A VERSION OF A PRIVATE AGENT IS PRIVATE. Said here with a reason rather
+    // than left to the database trigger (0047), which would refuse it with a
+    // message written for operators.
+    if (agent.visibility === 'private' && overrides.visibility === 'public') {
+      throw new BadRequestException({
+        code: 'private_lineage',
+        message:
+          'This is a version of a private agent, so it starts private: its template, parameters and risk ' +
+          'rules come from the parent, and a public version would publish them. Make the parent public ' +
+          'first if that is what you want.',
+      });
+    }
+    const visibility = agent.visibility === 'private' ? 'private' : overrides.visibility ?? agent.visibility;
+
     return this.create(
       {
         name: agent.name,
@@ -515,6 +531,7 @@ export class AgentsService {
         riskProfile: overrides.riskProfile ?? JSON.stringify(agent.riskProfile),
         assetUniverse: overrides.assetUniverse ?? agent.assetUniverse,
         parentAgentId: agent.id,
+        visibility,
         mandateTemplate: template,
         // When the template is inherited but the params are not stated, the
         // parent's params come through as-is; renderMandate validates them

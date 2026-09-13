@@ -77,6 +77,15 @@ export class Agent {
   @Column({ type: 'varchar', length: 20, default: 'live' })
   provenance: string;
 
+  /**
+   * 'public' or 'private'. A private agent's mandate, risk rules and decision
+   * evidence are withheld; its record is not. Chosen at creation; private may
+   * become public (recorded), public never becomes private — both enforced by
+   * migration 0047. See src/intelligence/intelligence.ts.
+   */
+  @Column({ type: 'varchar', length: 10, default: 'public' })
+  visibility: 'public' | 'private';
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 }

@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import { MarketPriceClient } from './market-price.client';
 import { MIN_DECISIONS } from '../common/ranking';
 import { decidedBy } from '../common/decided-by';
+import { isPrivate } from '../intelligence/intelligence';
 import {
   DECISIONS_PAGE_SIZE_DEFAULT,
   DECISIONS_PAGE_SIZE_MAX,
@@ -59,7 +60,7 @@ export class SeriesService {
 
   private async loadAgent(agentId: string) {
     const rows = await this.db.query(
-      `SELECT id, name, version, status, creator_id FROM agents WHERE id = $1`,
+      `SELECT id, name, version, status, creator_id, visibility FROM agents WHERE id = $1`,
       [agentId],
     );
     if (rows.length === 0) throw new NotFoundException(`Agent ${agentId} not found`);
@@ -529,6 +530,9 @@ export class SeriesService {
               d.id AS decision_id, d.thesis,
               d.provider, d.model, d.model_version,
               d.prompt_hash, d.response_hash,
+              -- THE SEAL (0047). Public for every agent: it is how a private
+              -- agent's hidden reasoning is proven unchanged.
+              d.commitment, d.commitment_scheme,
               -- AND WHAT THE CHAIN DID ABOUT IT. A decision and its execution
               -- are different events: one is what the agent chose, the other is
               -- what happened, and they differ whenever an order was blocked,
@@ -640,6 +644,37 @@ export class SeriesService {
             : null,
         },
       };
+    });
+
+    // PRIVATE AGENT. PUBLIC PROOF. Every row keeps what the agent DID — action,
+    // symbol, quantity, price, who decided, the execution and its transaction
+    // hash — and gains its commitment. A private agent's rows lose only its
+    // reasoning, unless the creator opened that decision. The prompt and
+    // response hashes go too: a prompt is mostly public inputs plus a mandate
+    // from a small template space, so its bare sha256 could be searched for.
+    const privateAgent = isPrivate(agent.visibility);
+    const opened = privateAgent
+      ? new Set<number>(
+          (
+            await this.db.query(
+              `SELECT decision_id FROM intelligence_disclosures WHERE agent_id = $1 AND scope = 'decision'`,
+              [agentId],
+            )
+          ).map((o: { decision_id: string | number }) => Number(o.decision_id)),
+        )
+      : new Set<number>();
+    items.forEach((item: any, i: number) => {
+      item.commitment = rows[i].commitment ? String(rows[i].commitment).trim() : null;
+      item.commitment_scheme = rows[i].commitment_scheme ?? null;
+      const withheld = privateAgent && !(item.decision_id !== null && opened.has(item.decision_id));
+      item.intelligence = !privateAgent ? 'public' : withheld ? 'withheld' : 'opened';
+      if (withheld) {
+        item.rationale = null;
+        item.thesis = null;
+        item.model = null;
+        item.evidence.prompt_hash = null;
+        item.evidence.response_hash = null;
+      }
     });
 
     const seasonIds = [...new Set(items.map((i: { season_id: string }) => i.season_id))] as string[];

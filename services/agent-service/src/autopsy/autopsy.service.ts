@@ -697,9 +697,14 @@ export class AutopsyService {
     const rows = await this.db.query(
       `SELECT ps.ts, ps.nav::float8 AS nav, ps.cash::float8 AS cash, ps.holdings,
               d.market_snapshot_ref, d.action, d.symbol, d.quantity::float8 AS quantity,
-              d.rationale, d.decider, d.reason_code
+              -- A private agent's rationale is its reasoning, and withheld (0047).
+              -- Done in the query so the timing and drawdown samples built from
+              -- these rows cannot carry it by accident.
+              CASE WHEN ag.visibility = 'private' THEN NULL ELSE d.rationale END AS rationale,
+              d.decider, d.reason_code
        FROM portfolio_snapshots ps
        JOIN portfolios p ON p.id = ps.portfolio_id
+       JOIN agents ag ON ag.id = p.agent_id
        LEFT JOIN LATERAL (
          SELECT market_snapshot_ref, action, symbol, quantity, rationale, decider, reason_code
          FROM decisions_counted

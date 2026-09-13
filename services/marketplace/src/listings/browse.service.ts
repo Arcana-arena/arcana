@@ -38,6 +38,24 @@ import { DataSource } from 'typeorm';
  * blinked.
  */
 
+/**
+ * Measured DNA minus the values that are copies of the declared risk profile.
+ *
+ * The same rule as agent-service src/intelligence/intelligence.ts. This service
+ * cannot import that file, so it is restated here — and private-agent-verify
+ * plants a canary in a private agent's risk profile and checks that neither
+ * service prints it, which is what keeps the two copies honest.
+ */
+function withoutConfiguredLimits(riskPersonality: unknown): Record<string, unknown> | null {
+  if (!riskPersonality || typeof riskPersonality !== 'object') return null;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(riskPersonality as Record<string, unknown>)) {
+    if (k.startsWith('configured_') || k === 'risk_budget_utilisation') continue;
+    out[k] = v;
+  }
+  return out;
+}
+
 /** Why a listing cannot be bought right now. `null` means it can. */
 type Unbuyable =
   | 'listing_inactive'
@@ -252,7 +270,7 @@ export class BrowseService {
               -- behaviour under the heading "the limits this will trade under"
               -- — and it is what this query did on its first run, which failed
               -- loudly because the column is not on the agents table at all.
-              a.provenance, a.mandate, a.risk_profile,
+              a.provenance, a.visibility, a.mandate, a.risk_profile,
               d.risk_personality, d.computed_at AS dna_computed_at,
               c.id::text AS creator_id, c.handle AS creator_handle,
               c.wallet_address AS creator_wallet,
@@ -296,14 +314,28 @@ export class BrowseService {
       [r.agent_id],
     );
 
+    // PRIVATE AGENT. PUBLIC PROOF. A private agent's mandate and declared risk
+    // rules are not shown here either, and a subscription does not unlock them:
+    // the agent trades in the buyer's wallet under the buyer's own limits, so
+    // the buyer never needs to know HOW it decides — only WHAT it has done,
+    // which stays fully public. The measured DNA stays, minus the two values
+    // that are copies of the private risk profile.
+    const isPrivate = r.visibility === 'private';
     return {
       ...base,
-      mandate: r.mandate ?? null,
+      visibility: r.visibility ?? 'public',
+      mandate: isPrivate ? null : r.mandate ?? null,
+      intelligence_note: isPrivate
+        ? 'The creator keeps this agent’s intelligence private — its mandate, risk rules, prompts and model. ' +
+          'A subscription mirrors its decisions into your wallet under your own limits; it does not include ' +
+          'that intelligence. Every decision, result and score is public, and each decision carries a ' +
+          'commitment proving its hidden reasoning was not changed afterwards.'
+        : null,
       // WHAT THE CREATOR DECLARED. Labelled as the creator's own sizing: it
       // describes what the agent does in ITS wallet. A subscriber's positions
       // are sized by the subscriber's own limits, which is the whole point of
       // mirroring rather than copying a portfolio.
-      risk_profile: r.risk_profile ?? null,
+      risk_profile: isPrivate ? null : r.risk_profile ?? null,
       risk_note:
         'These limits size the agent in ITS OWN wallet. In yours, your own limits apply — the creator ' +
         'chooses only the direction.',
@@ -311,7 +343,7 @@ export class BrowseService {
       // limits on purpose: the distance between the two is the whole content of
       // the strategy multiplier, and collapsing them would let a mislabelled
       // agent present its own description as evidence.
-      risk_personality: r.risk_personality ?? null,
+      risk_personality: isPrivate ? withoutConfiguredLimits(r.risk_personality) : r.risk_personality ?? null,
       risk_personality_computed_at: r.dna_computed_at ? new Date(r.dna_computed_at).toISOString() : null,
       risk_personality_note:
         r.risk_personality

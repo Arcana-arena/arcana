@@ -3,6 +3,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { EvolutionService } from '../evolution/evolution.service';
 import { MIN_DECISIONS } from '../common/ranking';
+import { intelligenceBlock, isPrivate, withoutConfiguredLimits } from '../intelligence/intelligence';
 
 /**
  * Agent Passport — the career record: what an agent has been through.
@@ -67,10 +68,30 @@ export class PassportService {
 
     const seasons = await this.loadSeasonRecords(agentId);
     const scores = await this.loadScoreHistory(agentId);
-    const dna = await this.loadDna(agentId);
+    const privateAgent = isPrivate(agent.visibility);
+    const dnaRaw = await this.loadDna(agentId);
+    // DNA stays public; only the values copied from the private risk profile go.
+    const dna = dnaRaw && privateAgent
+      ? { ...dnaRaw, risk_personality: withoutConfiguredLimits(dnaRaw.risk_personality) }
+      : dnaRaw;
     const lineage = await this.loadLineage(agentId, agent.version);
     const badges = ranked ? await this.loadBadges(agentId, seasons, scores.series) : [];
-    const protection = await this.loadProtection(agentId);
+    const protectionRaw = await this.loadProtection(agentId);
+    // WHICH positions are protected is part of the record; AT WHAT LEVEL is a
+    // risk rule, and a private agent keeps its risk rules.
+    const protection = privateAgent
+      ? {
+          armed: protectionRaw.armed.map((g: any) => ({
+            symbol: g.symbol,
+            protected: true,
+            held_back_since: g.held_back_since ?? null,
+          })),
+          unprotected: protectionRaw.unprotected.map((g: any) => ({ symbol: g.symbol })),
+          note:
+            'This agent keeps its risk rules private, so the levels are not shown. Which open positions ' +
+            'a protective level is watching is public; every exit a level takes is a public decision.',
+        }
+      : protectionRaw;
 
     // Only agents that actually have a lineage pay for the evolution read: it
     // loads the market index, and most agents are a single version with nothing
@@ -92,7 +113,10 @@ export class PassportService {
         strategy_type: agent.strategy_type,
         asset_universe: agent.asset_universe,
         created_at: agent.created_at,
+        visibility: privateAgent ? 'private' : 'public',
       },
+      // Stated, never inferred from which fields are missing.
+      intelligence: intelligenceBlock(agent.visibility),
       creator: agent.creator_id
         ? {
             id: agent.creator_id,
@@ -186,7 +210,7 @@ export class PassportService {
   private async loadAgent(agentId: string) {
     const rows = await this.db.query(
       `SELECT a.id, a.name, a.version, a.status, a.strategy_type, a.asset_universe,
-              a.created_at, a.parent_agent_id,
+              a.created_at, a.parent_agent_id, a.visibility,
               c.id AS creator_id, c.handle AS creator_handle,
               c.reputation_score AS creator_reputation
        FROM agents a LEFT JOIN creators c ON c.id = a.creator_id

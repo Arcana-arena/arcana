@@ -35,6 +35,8 @@ import { AgentWalletViewService } from './wallet-view.service';
 import { PauseAgentDto, SetRiskDto } from './dto/lifecycle.dto';
 import { parsePage } from '../common/pagination';
 import { ambiguousRiskKeys, unrecognisedRiskKeys } from './risk-profile';
+import { maskAgentEntity } from '../intelligence/intelligence';
+import { IntelligenceService } from '../intelligence/intelligence.service';
 
 /**
  * The agent, plus every risk_profile key nothing will read.
@@ -113,6 +115,7 @@ export class AgentsController {
     private readonly lifecycle: AgentLifecycleService,
     private readonly triggersSvc: AgentTriggersService,
     private readonly walletView: AgentWalletViewService,
+    private readonly intelligence: IntelligenceService,
   ) {}
 
   // --- 🔑 login required ----------------------------------------------------
@@ -196,10 +199,10 @@ export class AgentsController {
    * costs.
    */
   @Get()
-  findAll(@Query() query: AgentsListQueryDto) {
+  async findAll(@Query() query: AgentsListQueryDto) {
     const { page: p, pageSize: ps, offset } = parsePage(
       query.page, query.page_size);
-    return this.agents.findAll({
+    const page = await this.agents.findAll({
       page: p, pageSize: ps, offset,
       q: query.q?.trim() || undefined,
       status: query.status?.trim() || undefined,
@@ -207,6 +210,9 @@ export class AgentsController {
       strategyType: query.strategy_type?.trim() || undefined,
       provenance: query.provenance?.trim() || undefined,
     });
+    // Every row masked through the one definition of "private"; see
+    // src/intelligence/intelligence.ts.
+    return { ...page, items: page.items.map((a) => maskAgentEntity(a)) };
   }
 
   /**
@@ -227,11 +233,13 @@ export class AgentsController {
   }
 
   /**
-   * 🌐 The prompt and the raw model response behind one decision.
+   * 🌐 The prompt and the raw model response behind one decision — or, for a
+   * private agent, the proof of them.
    *
-   * PUBLIC, and that is the whole claim. "Anyone replays the record — prompt,
-   * response, snapshot, fill, outcome — without a wallet and without asking the
-   * creator" is either true here or it is marketing.
+   * PUBLIC for every agent. A public agent's bodies are returned in full, with
+   * the commitment checked against them. A private agent's are withheld unless
+   * its creator opened this decision; the decision itself and its commitment are
+   * returned either way. See src/intelligence.
    */
   @Get(':id/decisions/:decisionId/evidence')
   evidence(
@@ -248,9 +256,18 @@ export class AgentsController {
     return this.positionsService.evidence(id, n);
   }
 
+  /**
+   * 🌐 One agent. A private agent's mandate, template, parameters and risk
+   * profile are removed, and every response says which visibility it has
+   * rather than leaving a reader to infer it from nulls.
+   */
   @Get(':id')
-  findOne(@Param('id', ParseUuidAllPipe) id: string) {
-    return this.agents.findOne(id);
+  async findOne(@Param('id', ParseUuidAllPipe) id: string) {
+    const agent = await this.agents.findOne(id);
+    // A once-private agent says when it was made public, so a reader knows the
+    // evidence behind its earlier decisions was withheld at the time.
+    const vis = await this.intelligence.visibilityOf(id);
+    return maskAgentEntity(agent, vis?.disclosedAt ?? null);
   }
 
   // --- 🔒 login + ownership -------------------------------------------------

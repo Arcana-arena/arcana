@@ -81,11 +81,11 @@ export class EvolutionService {
     return this.db.query(
       `WITH RECURSIVE down AS (
          SELECT id, name, version, status, strategy_type, risk_profile,
-                asset_universe, parent_agent_id, created_at, 0 AS depth
+                asset_universe, parent_agent_id, created_at, visibility, 0 AS depth
          FROM agents WHERE id = $1
          UNION ALL
          SELECT a.id, a.name, a.version, a.status, a.strategy_type, a.risk_profile,
-                a.asset_universe, a.parent_agent_id, a.created_at, down.depth + 1
+                a.asset_universe, a.parent_agent_id, a.created_at, a.visibility, down.depth + 1
          FROM agents a JOIN down ON a.parent_agent_id = down.id
        )
        SELECT * FROM down ORDER BY depth ASC, version ASC`,
@@ -143,9 +143,12 @@ export class EvolutionService {
       agent_id: agent.id,
       version: agent.version,
       status: agent.status,
+      // PER VERSION: a private version withholds its risk profile even when the
+      // chain around it is public, and the comparison below does not diff it.
+      visibility: agent.visibility === 'private' ? 'private' : 'public',
       config: {
         strategy_type: agent.strategy_type,
-        risk_profile: agent.risk_profile,
+        risk_profile: agent.visibility === 'private' ? null : agent.risk_profile,
         asset_universe: agent.asset_universe,
       },
       created_at: agent.created_at,
@@ -273,6 +276,15 @@ export class EvolutionService {
     const diff: Record<string, { from: unknown; to: unknown }> = {};
     for (const key of ['strategy_type', 'asset_universe']) {
       if (before[key] !== after[key]) diff[key] = { from: before[key], to: after[key] };
+    }
+    // NOT COMPARED WHEN EITHER SIDE IS PRIVATE. A diff against a public parent
+    // would print the private child's values as the "to" side of every change.
+    if (before.risk_profile === null || after.risk_profile === null) {
+      return {
+        changed: Object.keys(diff).length > 0,
+        fields: diff,
+        risk_profile: 'not compared: at least one of these versions keeps its risk rules private',
+      };
     }
     const b = before.risk_profile ?? {};
     const a = after.risk_profile ?? {};

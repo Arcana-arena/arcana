@@ -1,4 +1,4 @@
-import { IsJSON, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsIn, IsJSON, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 
 /** Partial overrides applied when evolving an agent to a new version. */
 export class EvolveAgentDto {
@@ -31,4 +31,14 @@ export class EvolveAgentDto {
   @IsOptional()
   @IsObject()
   mandateParams?: Record<string, unknown>;
+
+  /**
+   * Omitted means inherit the parent's visibility. A version of a PRIVATE agent
+   * is always private — its template, parameters and risk rules come from the
+   * parent, so a public child would publish them under another id. A version of
+   * a public agent may start private: it is a new record from its first tick.
+   */
+  @IsOptional()
+  @IsIn(['public', 'private'], { message: "visibility must be 'public' or 'private'." })
+  visibility?: 'public' | 'private';
 }
