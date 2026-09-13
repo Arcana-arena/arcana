@@ -36,8 +36,19 @@ const DB = process.env.DATABASE_URL || 'postgres://arcana:arcana@localhost:5432/
 
 const { check, section, nothingToCheck, report } = suite('marketplace-flow-verify');
 
+/**
+ * One value out of psql.
+ *
+ * `-q` matters. Without it an INSERT ... RETURNING prints the returned row AND
+ * the "INSERT 0 1" command tag, and the id handed to the next statement is a
+ * uuid with a line of English stapled to it. The first line is taken as well,
+ * so a stray notice cannot do the same thing again.
+ */
 const sql = (q) =>
-  execFileSync('psql', [DB, '-At', '-c', q], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  execFileSync('psql', [DB, '-At', '-q', '-c', q], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+    .trim()
+    .split('\n')[0]
+    .trim();
 
 async function api(base, path) {
   const r = await fetch(`${base}${path}`, { headers: { accept: 'application/json' } });
