@@ -273,9 +273,16 @@ h2 { font-size: 22px; }
   align-items: center;
   gap: 32px;
   padding: 0 32px;
-  height: 52px;
+  /* min-height, not height: the bar wraps on a narrow screen, and a fixed
+     height let the second row spill over the page beneath it. */
+  min-height: 52px;
   border-bottom: 1px solid var(--color-divider);
   flex-wrap: wrap;
+}
+@media (max-width: 720px) {
+  .hdr { gap: 8px 16px; padding-block: 6px; }
+  .hdr-nav { order: 3; width: 100%; overflow-x: auto; gap: 18px; }
+  .hdr-chain { display: none !important; }
 }
 .hdr-brand { display: flex; align-items: center; gap: 10px; }
 .hdr-word { font-family: var(--font-heading), sans-serif; font-weight: 600; font-size: 16px; letter-spacing: .14em; }

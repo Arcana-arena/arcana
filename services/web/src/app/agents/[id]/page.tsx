@@ -82,7 +82,7 @@ export default async function AgentPage({
   if (!agentR.ok && !passportR.ok) {
     return (
       <div className="page">
-        <Header />
+        <Header current="Agents" />
         <div className="sec" style={{ padding: '48px 32px', borderBottom: 'none' }}>
           <Failed what="This agent" error={agentR} />
         </div>
@@ -99,7 +99,7 @@ export default async function AgentPage({
 
   return (
     <div className="page">
-      <Header />
+      <Header current="Agents" />
 
       <div className="sec" style={{ paddingTop: 26, paddingBottom: 18, borderBottom: 'none' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>

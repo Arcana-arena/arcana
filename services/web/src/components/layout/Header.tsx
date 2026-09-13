@@ -74,7 +74,7 @@ export async function Header({ current }: { current?: string }) {
       </nav>
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 20 }}>
         <div
-          className="mono m2"
+          className="mono m2 hdr-chain"
           style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11 }}
           title="The chain, and the highest block ARCANA has a settled transaction in. It is not the chain head: nothing here polls the node for that."
         >
