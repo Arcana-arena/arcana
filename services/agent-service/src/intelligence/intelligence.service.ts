@@ -23,6 +23,11 @@ export type Check = { name: string; ok: boolean; detail?: string };
  * a transaction the database itself polices (migration 0047): a visibility change
  * without a disclosure row in the same transaction is refused, a disclosure can
  * never be edited, and public can never become private.
+ *
+ * DECISIONS ARE READ THROUGH decisions_counted, like every other reader — a
+ * measurement artefact cannot be opened or verified, because no public surface
+ * treats it as a decision. The one exception is the chain lookup, which must see
+ * every row the engine chained over, marked where it happens.
  */
 @Injectable()
 export class IntelligenceService {
@@ -132,6 +137,11 @@ export class IntelligenceService {
    * Open the intelligence behind ONE decision of a private agent: its manifest,
    * prompt, raw response, model and thesis. Recorded permanently. Opening the
    * same decision twice returns the first record rather than writing a second.
+   *
+   * THE TIMESTAMP TRAVELS AS TEXT. A decision's ts is part of its key and is
+   * stored to the microsecond; read into a JavaScript Date it loses the last
+   * three digits, and the disclosure then names a decision that does not exist —
+   * which the database refuses, correctly. That refusal was the first run's 500.
    */
   async revealDecision(agentId: string, decisionId: number, wallet: string) {
     return this.db.transaction(async (m) => {
@@ -144,7 +154,7 @@ export class IntelligenceService {
         });
       }
       const d = await m.query(
-        `SELECT id, ts, commitment FROM decisions WHERE id = $1 AND agent_id = $2`,
+        `SELECT id, ts::text AS ts_text, commitment FROM decisions_counted WHERE id = $1 AND agent_id = $2`,
         [decisionId, agentId],
       );
       if (d.length === 0) throw new NotFoundException(`Decision ${decisionId} not found for this agent`);
@@ -152,9 +162,9 @@ export class IntelligenceService {
       await m.query(
         `INSERT INTO intelligence_disclosures
            (agent_id, scope, decision_id, decision_ts, commitment, disclosed_by_wallet, creator_id)
-         VALUES ($1, 'decision', $2, $3, $4, $5, $6)
+         VALUES ($1, 'decision', $2, $3::timestamptz, $4, $5, $6)
          ON CONFLICT (agent_id, decision_id, decision_ts) WHERE scope = 'decision' DO NOTHING`,
-        [agentId, decisionId, d[0].ts, d[0].commitment, wallet.toLowerCase(), agent[0].creator_id],
+        [agentId, decisionId, d[0].ts_text, d[0].commitment, wallet.toLowerCase(), agent[0].creator_id],
       );
       const rec = await m.query(
         `SELECT id, disclosed_at FROM intelligence_disclosures
@@ -191,7 +201,7 @@ export class IntelligenceService {
               d.decider, d.reason_code, d.provider, d.model, d.model_version, d.params, d.thesis,
               d.system_prompt_hash, d.prompt_hash, d.response_hash, d.commitment, d.commitment_scheme,
               m.body AS manifest
-         FROM decisions d
+         FROM decisions_counted d
          LEFT JOIN decision_evidence m ON m.hash = d.commitment
         WHERE d.id = $1 AND d.agent_id = $2`,
       [decisionId, agentId],
@@ -270,8 +280,12 @@ export class IntelligenceService {
         }
       }
 
+      // THE CHAIN WALKS THE RAW LOG, deliberately. The engine names the previous
+      // commitment over every row it wrote, including one later marked as a
+      // measurement artefact; asking the counted view would report a gap the
+      // chain does not have. This reads order, it counts nothing.
       const prev = await this.db.query(
-        `SELECT commitment FROM decisions
+        `SELECT commitment FROM decisions -- raw-by-design: the commitment chain spans every written row, artefacts included
           WHERE agent_id = $1 AND commitment IS NOT NULL AND id < $2
           ORDER BY id DESC LIMIT 1`,
         [agentId, decisionId],

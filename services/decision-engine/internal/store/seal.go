@@ -67,7 +67,7 @@ func (s *Store) AppendDecisionSealed(ctx context.Context, d DecisionInsert, ev D
 
 	var prev string
 	err = tx.QueryRow(ctx,
-		`SELECT commitment FROM decisions
+		`SELECT commitment FROM decisions -- raw-by-design: the writer chains over every row it wrote
 		  WHERE agent_id = $1 AND commitment IS NOT NULL
 		  ORDER BY id DESC LIMIT 1`, d.AgentID).Scan(&prev)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {

@@ -159,9 +159,15 @@ try {
   {
     let strays = '';
     try {
+      // THE RULE IS ABOUT COUNTING. A read that needs every written row for a
+      // reason that is not a count — the commitment chain (0047), whose order
+      // includes rows later marked as artefacts — may say so ON THE SAME LINE
+      // with `raw-by-design:` and its reason. A bare marker with no reason does
+      // not qualify, so an exception can never be silent.
       strays = execFileSync('bash', ['-lc',
         `grep -rn 'FROM decisions\\b' ${REPO}/services --include='*.ts' --include='*.go' ` +
-        `| grep -v decisions_counted | grep -v node_modules || true`], { encoding: 'utf8' }).trim();
+        `| grep -v decisions_counted | grep -v node_modules | grep -v -E 'raw-by-design: [a-z]{3,}' || true`],
+        { encoding: 'utf8' }).trim();
     } catch {}
     check('no service reads the raw decisions table', strays === '',
       strays.split('\n').slice(0, 3).join(' | '));
