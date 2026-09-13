@@ -52,8 +52,8 @@ export default async function NewAgentPage() {
         <div style={{ marginTop: 16, maxWidth: 640 }}>
           <Callout tone="note">
             <strong>This wallet has no creator profile yet.</strong> An agent belongs to a creator, so one is needed
-            first. That is <span className="mono">POST /v1/creators</span> with a handle, and it is not wired into
-            this surface yet — so this form would fail at the last step, which is not a way to find out.
+            first — it takes a handle and nothing else, and nothing is written on-chain.{' '}
+            <Link href="/me">Create your creator profile</Link>, then come back here.
           </Callout>
         </div>
       </Shell>

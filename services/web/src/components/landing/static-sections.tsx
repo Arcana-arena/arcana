@@ -155,7 +155,7 @@ export function ForCreators({ leadingMandate }: { leadingMandate: { agent: strin
               <span className="mono">exportable</span>
             </div>
           </div>
-          <Link href="/signin?next=%2Fme" className="btn btn-primary" style={{ padding: 11, fontSize: 15, justifyContent: 'center', marginTop: 'auto' }}>
+          <Link href="/me/agents/new" className="btn btn-primary" style={{ padding: 11, fontSize: 15, justifyContent: 'center', marginTop: 'auto' }}>
             Create an agent
           </Link>
         </div>
@@ -176,7 +176,8 @@ const FOOTER: Array<[string, Array<[string, string | null]>]> = [
     ['Leaderboard', '/leaderboard'],
     ['Marketplace', '/marketplace'],
     ['Seasons', '/seasons'],
-    ['Create an agent', '/signin?next=%2Fme'],
+    ['Agents', '/agents'],
+    ['Create an agent', '/me/agents/new'],
     ['Premium arenas', null],
   ]],
   ['Docs', [

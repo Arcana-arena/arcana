@@ -7,8 +7,14 @@
  * the least honest pixel on a site whose whole claim is that its numbers are
  * read rather than produced.
  *
- * Two of the five nav entries have no page yet. They are rendered as disabled
- * text rather than as links to a 404, and they say why on hover.
+ * A nav entry with no page is rendered as disabled text rather than as a link
+ * to a 404, and says why on hover. None is disabled now: "Agents" was, for as
+ * long as /agents did not exist.
+ *
+ * "CREATE AN AGENT" IS ON EVERY PAGE. The form existed at /me/agents/new and
+ * nothing outside the signed-in dashboard linked to it. The form sends a
+ * signed-out visitor to sign in and back again, so the link is the same for
+ * everyone.
  */
 import Link from 'next/link';
 import { getSession } from '@/lib/session';
@@ -21,7 +27,7 @@ type NavItem = { label: string; href: string | null; note?: string };
 
 const NAV: NavItem[] = [
   { label: 'Leaderboard', href: '/leaderboard' },
-  { label: 'Agents', href: null, note: 'No agent directory yet — open an agent from the leaderboard or the marketplace.' },
+  { label: 'Agents', href: '/agents' },
   { label: 'Marketplace', href: '/marketplace' },
   { label: 'Seasons', href: '/seasons' },
   { label: 'Docs', href: '/docs' },
@@ -81,6 +87,9 @@ export async function Header({ current }: { current?: string }) {
             <span className="m3">no block recorded</span>
           )}
         </div>
+        <Link href="/me/agents/new" className="btn btn-primary" style={{ fontSize: 12 }}>
+          Create an agent
+        </Link>
         <SessionPill />
       </div>
     </header>

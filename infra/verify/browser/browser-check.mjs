@@ -44,6 +44,7 @@ const PAGES = [
   // redirect that only half works shows up.
   ['me-signed-out', '/me'],
   ['me-new-agent-signed-out', '/me/agents/new'],
+  ['agents-directory', '/agents'],
   ...(AGENT_ID
     ? ['overview', 'decisions', 'dna', 'autopsy', 'passport', 'evolution', 'positions'].map((t) => [
         `agent-${t}`,

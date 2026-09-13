@@ -801,6 +801,28 @@ await section('The creator surface is private, and says so rather than rendering
       !/Needs attention|My agents/i.test(t), 'private content rendered without a session');
   }
 });
+await section('The agent directory exists, lists the live agents, and the header opens it', async () => {
+  // "Agents" in the header was disabled text for as long as /agents was a 404,
+  // and the create form was linked from nowhere a signed-out visitor could see.
+  const p = await page('/agents');
+  const t = text(p.html);
+  check('/agents renders', p.status === 200, `status ${p.status}`);
+  const live = await api(AGENT, '/v1/agents?provenance=live&page_size=50');
+  const total = live.body?.total;
+  check('the count is the endpoint\'s LIVE total, so no verification fixture is advertised',
+    typeof total === 'number' && new RegExp(`\\b${total}\\s+live agent`).test(t),
+    `API live total ${total}`);
+  const missing = (live.body?.items ?? []).filter((a) => !p.html.includes(`/agents/${a.id}`));
+  check('every live agent on the first page links to its own page',
+    (live.body?.items ?? []).length > 0 && missing.length === 0,
+    missing.map((a) => a.name).join(', ') || 'the endpoint returned no agents');
+  const home = await page('/');
+  check('the header Agents entry is a link, not disabled text',
+    /<a[^>]*href="\/agents"[^>]*>Agents<\/a>/.test(home.html), 'the nav renders Agents without a link');
+  check('the header links to the create form',
+    home.html.includes('href="/me/agents/new"'), 'no link to /me/agents/new on the landing page');
+});
+
 await section('A URL that names nothing says so', async () => {
   const p = await page('/no-such-page-here');
   check('an unknown path answers 404', p.status === 404, `status ${p.status}`);
