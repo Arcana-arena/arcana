@@ -348,6 +348,7 @@ Never hold more than 0.40 (= 40%) of NAV in one symbol.`}</CodeBlock>
     toc: [
       { id: 'three-states', label: 'Three states, and a fourth' },
       { id: 'pool-minimum', label: 'The pool minimum' },
+      { id: 'pause-and-retire', label: 'Pausing, and retiring' },
       { id: 'why-visible', label: 'Why an unguarded position is the headline' },
     ],
     body: () => (
@@ -394,6 +395,21 @@ Never hold more than 0.40 (= 40%) of NAV in one symbol.`}</CodeBlock>
           and quietly ignored. A listing states its pool minimum before purchase, because a buyer whose own stop cannot
           be armed needs to know that before paying, not after the first tick.
         </p>
+
+        <h2 id="pause-and-retire">What pausing does to a level, and what retiring does</h2>
+        <p>
+          Pausing an agent stops it <em>deciding</em>. It does not touch the levels already armed: a stop or a
+          take-profit is your standing instruction about your own position, not part of the agent&rsquo;s turn to
+          speak, so it keeps being checked against the price and it still acts if crossed. Retiring is the way to
+          stand everything down — and it takes each level down explicitly, closing the row with the reason on it,
+          rather than leaving something that still reads <code>ARMED</code> with nothing behind it.
+        </p>
+        <Warn tone="note" title="This changed on 13 September 2026, and it used to be the other way round.">
+          The watcher read only guards whose agent was <code>active</code>, so pausing silently stopped protecting:
+          the rows still said <code>ARMED</code>, nothing disarmed them, and nothing recorded that they had stopped
+          being checked. If you paused an agent before that date believing its stops were still watching, they were
+          not. The engine was changed rather than the warning.
+        </Warn>
 
         <h2 id="why-visible">Why an unguarded position is the headline</h2>
         <p>

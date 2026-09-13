@@ -209,10 +209,22 @@ export type MandateTemplates = {
 export type PauseResult = {
   agent_id: string;
   status: string;
+  /**
+   * False. It is still sent, and still read, because the field is the answer
+   * to a question an owner is right to ask — and because it was TRUE until the
+   * engine stopped filtering armed guards on `a.status = 'active'`. A field
+   * that quietly disappeared on the day the answer changed would leave every
+   * older client rendering the absence of a warning as a reassurance.
+   */
   protection_stops?: boolean;
-  guards_left_unwatched?: string[];
+  /** The levels that keep being checked through the pause, by symbol. */
+  guards_still_watched?: string[];
   protection_note?: string;
   keeps?: string;
+  /** What the pause actually stops: new decisions. */
+  stops?: string;
+  /** Sent by resume: the same levels, which were never suspended. */
+  protection_unchanged?: string[];
   seat?: string;
   note?: string | null;
 };

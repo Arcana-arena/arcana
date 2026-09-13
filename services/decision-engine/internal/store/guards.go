@@ -108,6 +108,24 @@ func (s *Store) ArmGuard(ctx context.Context, in GuardInsert) (int64, error) {
 //
 // The watcher reads them all in one query and then reads one price per guard.
 // An agent with no armed guard costs nothing at all: no row, no call.
+//
+// IT NO LONGER FILTERS ON THE AGENT'S STATUS, and that is the point.
+//
+// This clause used to read `AND a.status = 'active'`, which made a pause
+// silently stop protecting. The rows still said "armed", nothing disarmed them
+// and nothing recorded that they had stopped being checked — a position with a
+// stop loss on it simply stopped having one, and the owner had no way to see
+// the difference. Two states that must never look alike looked identical.
+//
+// The rule now: a pause stops the AGENT from deciding. It does not cancel the
+// OWNER's standing instruction about their own money. Retiring is the way to
+// stand everything down, and it takes the levels down explicitly rather than
+// hiding them from the watcher.
+//
+// So every armed row is read here, and guardSubjectFor decides what each one
+// means — including standing down a retired agent's levels and RECORDING that
+// it did, which the old clause could never do: a guard the query cannot see is
+// a guard nothing can close.
 func (s *Store) ArmedGuards(ctx context.Context) ([]Guard, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT g.id, g.agent_id, g.subscription_id::text, g.symbol,
@@ -117,7 +135,7 @@ func (s *Store) ArmedGuards(ctx context.Context) ([]Guard, error) {
 		        g.set_at, g.set_by_decision_id
 		   FROM position_guards g
 		   JOIN agents a ON a.id = g.agent_id
-		  WHERE g.status = 'armed' AND a.status = 'active'
+		  WHERE g.status = 'armed'
 		  ORDER BY g.set_at ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("read armed guards: %w", err)

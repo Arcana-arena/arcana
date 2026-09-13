@@ -51,6 +51,34 @@ func (s *Store) GetActiveAgent(ctx context.Context, agentID string) (*AgentRow, 
 	return &a, nil
 }
 
+// GetAgent loads an agent WITHOUT requiring it to be active.
+//
+// GetActiveAgent is the right call on the decision path: a paused agent must
+// not be asked for a decision, and refusing by name is how that stays true.
+// It is the wrong call on the PROTECTIVE path, where the question is not "may
+// this agent decide" but "whose position is this and under whose limits". A
+// paused agent's stop loss still belongs to its owner, and reading its risk
+// profile through a call that refuses non-active agents meant the owner's own
+// cost brake quietly became "unmetered" the moment they paused.
+//
+// The status comes back with the row so the caller can act on it explicitly
+// rather than inferring it from an error.
+func (s *Store) GetAgent(ctx context.Context, agentID string) (*AgentRow, error) {
+	row := s.pool.QueryRow(ctx,
+		`SELECT id, status, COALESCE(strategy_type,''), risk_profile, asset_universe,
+		        COALESCE(mandate,'')
+		 FROM agents WHERE id = $1`, agentID)
+	var a AgentRow
+	var risk []byte
+	if err := row.Scan(&a.ID, &a.Status, &a.StrategyType, &risk, &a.AssetUniverse, &a.Mandate); err != nil {
+		return nil, fmt.Errorf("load agent %s: %w", agentID, err)
+	}
+	if err := json.Unmarshal(risk, &a.RiskProfile); err != nil {
+		return nil, fmt.Errorf("parse risk_profile: %w", err)
+	}
+	return &a, nil
+}
+
 // SeasonRuleset returns the season ruleset JSON (for initial capital etc).
 func (s *Store) GetSeasonRuleset(ctx context.Context, seasonID string) (map[string]any, error) {
 	var raw []byte

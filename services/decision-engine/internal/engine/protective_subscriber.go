@@ -95,13 +95,45 @@ func (e *Engine) guardSubjectFor(ctx context.Context, g store.Guard) (*guardSubj
 				Permanent: true,
 			}, nil
 		}
-		var budget float64
-		if ag, aerr := e.store.GetActiveAgent(ctx, g.AgentID); aerr == nil && ag != nil {
-			budget = riskLimitsFrom(ag.RiskProfile).CostBudgetMonthlyPct
-		} else if aerr != nil {
-			log.Printf("%s: risk profile unreadable for the cost check, treating the agent as "+
-				"unmetered: %v", who, aerr)
+		// THE AGENT'S OWN STATUS DECIDES WHAT THIS LEVEL MEANS.
+		//
+		// Read through GetAgent rather than GetActiveAgent on purpose: the
+		// second refuses anything but 'active', and using it here had two
+		// consequences that were never intended. It meant a paused agent's
+		// owner silently lost their cost brake (the error was tolerated and
+		// the budget fell back to "unmetered"), and it encoded the idea that
+		// a level belongs to a running agent rather than to the person whose
+		// money is in the position.
+		ag, aerr := e.store.GetAgent(ctx, g.AgentID)
+		if aerr != nil {
+			// UNREADABLE IS NOT ABSENT — the same rule the subscription branch
+			// below keeps. A row that cannot be read must not become a
+			// stand-down that quietly disarms a stop loss, and it must not
+			// become an unmetered exit either. The level stays armed and the
+			// watcher reports it.
+			return nil, nil, fmt.Errorf("agent %s for guard %d: %w", g.AgentID, g.ID, aerr)
 		}
+		switch ag.Status {
+		case "active", "paused":
+			// A PAUSE STOPS DECIDING, NOT PROTECTING. The owner's standing
+			// instruction about their own position outlives the agent's turn
+			// to speak; retiring is the way to stand everything down.
+		default:
+			// RETIRED OR NEVER STARTED: permanent. The level comes down and
+			// the reason is written on the row, which is the part the old
+			// `a.status = 'active'` filter could not do — a guard the query
+			// cannot see is a guard nothing can ever close, so a retired
+			// agent's levels stayed "armed" forever with nothing watching
+			// them.
+			return nil, &guardStandDown{
+				Reason: fmt.Sprintf(
+					"the agent is %s, so it will not act again. The position was NOT closed — it is "+
+						"yours and it stays where it is — but this level is taken down rather than "+
+						"left saying \"armed\" with nothing watching it", ag.Status),
+				Permanent: true,
+			}, nil
+		}
+		budget := riskLimitsFrom(ag.RiskProfile).CostBudgetMonthlyPct
 		return &guardSubject{
 			AgentID: g.AgentID, Chain: w, Wallet: w.Address, SignerID: g.AgentID,
 			Budget: budget, Meter: e.agentSubject(g.AgentID), Who: who,

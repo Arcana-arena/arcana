@@ -387,6 +387,52 @@ A *pause* stands the level down temporarily and leaves it armed. An agent nobody
 is paying must not keep signing; a level that will never fire must not keep
 looking like protection.
 
+## Pausing an agent does not stand its levels down
+
+Until 2026-09-13 it did, and nothing said so. `ArmedGuards` selected
+
+```sql
+WHERE g.status = 'armed' AND a.status = 'active'
+```
+
+so the moment an owner paused an agent the watcher stopped seeing its guards.
+The rows still said `armed`. Nothing disarmed them, nothing recorded that they
+had stopped being checked, and `GET /v1/agents/:id/passport` went on listing
+them under `protection.armed`. A position with a stop loss on it simply stopped
+having one, and the only way to find out was to read the engine.
+
+Two different things were one switch, and they have been separated:
+
+| | what it stops | what it leaves |
+|---|---|---|
+| **pause** | the agent deciding — no new entries or exits of its own | every armed level, still checked, still able to fire |
+| **retire** | everything | nothing: each level is closed with the reason written on its row |
+
+The reasoning is the same one that governs an ended subscription. A stop is not
+part of the agent's turn to speak; it is the owner's standing instruction about
+their own money, and pausing the speaker is not withdrawing the instruction.
+Somebody who wants everything stood down has a word for that, and it is
+*retire* — which now takes the levels down **explicitly**, through the watcher,
+rather than by hiding them from it. A guard the query cannot see is a guard
+nothing can ever close, which is why the old filter left retired agents' levels
+armed forever with nothing behind them.
+
+`ArmedGuards` therefore no longer filters on agent status at all.
+`guardSubjectFor` decides what each row means:
+
+* `active`, `paused` — watched.
+* `retired`, `draft` — a *permanent* stand-down: `CloseGuard(..., 'expired')`
+  with the reason on the row.
+* unreadable — an **error**, not a stand-down. Same rule as the subscription
+  branch: a row that cannot be read must not quietly disarm a stop loss. The
+  level stays armed and the watcher reports it.
+
+One consequence worth stating because it is easy to miss: the owner's cost
+budget is read from the same agent row. It used to come through
+`GetActiveAgent`, which refuses anything but `active` — so a paused agent's
+exit ran **unmetered**, the error tolerated and the budget defaulted to zero.
+It now reads through `GetAgent`, and a pause changes nothing about the brake.
+
 ## Where an owner sees what is armed
 
 `GET /v1/agents/:id/passport` → `protection`:

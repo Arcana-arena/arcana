@@ -124,25 +124,30 @@ export class AgentLifecycleService {
   }
 
   /**
-   * Stop deciding — and stop being watched, which is the part nobody expects.
+   * Stop deciding. Keep protecting.
    *
-   * PAUSING TURNS OFF THIS AGENT'S PROTECTIVE EXITS. That is not a design
-   * choice made here; it is what the engine does, and it was found by reading
-   * it rather than assuming. `ArmedGuards` in
-   * services/decision-engine/internal/store/guards.go selects
+   * WHAT THIS USED TO SAY, AND WHY IT CHANGED. Pausing really did turn off
+   * this agent's protective exits: `ArmedGuards` in
+   * services/decision-engine/internal/store/guards.go selected
    *
    *     WHERE g.status = 'armed' AND a.status = 'active'
    *
-   * so the moment an agent stops being `active` the watcher no longer sees its
-   * guards. The rows still say `armed`. Nothing disarms them and nothing
-   * records that they stopped being checked. A position with a stop loss on it
-   * simply stops having one.
+   * so the moment an agent stopped being `active` the watcher no longer saw
+   * its guards. The rows still said `armed`, nothing disarmed them, and
+   * nothing recorded that they had stopped being checked — a position with a
+   * stop loss on it simply stopped having one. This endpoint reported that
+   * honestly, which was the right thing to do about a wrong behaviour.
    *
-   * The design this was built from says the opposite — "Pause keeps positions
-   * and armed stops" — and an owner who believes that will pause an agent
-   * holding an open position and walk away from an unwatched book. So the
-   * response says what actually happens, in the field the caller cannot miss,
-   * and the confirmation in the UI is built from it.
+   * The behaviour is now the one the design always claimed: a pause stops the
+   * AGENT from deciding and leaves the OWNER's standing instruction about
+   * their own money running. Two different things stopped being one switch.
+   * Retiring is the way to stand everything down, and it takes the levels down
+   * explicitly — the engine closes them with a reason on the row rather than
+   * hiding them from the watcher.
+   *
+   * The response still names every level by symbol. "2 positions still
+   * protected" and "no positions at all" are different situations, and an
+   * owner is entitled to which one they are in whichever way the answer falls.
    */
   async pause(id: string, because: string | null) {
     const agent = await this.load(id);
@@ -157,8 +162,8 @@ export class AgentLifecycleService {
           'started and a retired one has stopped for good.',
       });
     }
-    // WHAT IS LEFT UNWATCHED, COUNTED BEFORE THE PAUSE TAKES EFFECT. An owner
-    // is entitled to the number, not a general warning: "2 positions" and "no
+    // WHAT KEEPS WATCHING, COUNTED BEFORE THE PAUSE TAKES EFFECT. An owner is
+    // entitled to the number, not a general reassurance: "2 positions" and "no
     // positions" are completely different decisions to be making.
     const exposed = await this.db.query(
       `SELECT symbol FROM position_guards
@@ -173,18 +178,23 @@ export class AgentLifecycleService {
       keeps:
         'Open positions stay open and stay yours. Subscribers keep their term and are not refunded; the ' +
         'agent decides nothing for them either.',
-      // THE HEADLINE, and it is not the reassuring one.
-      protection_stops: true,
-      guards_left_unwatched: exposed.map((g: { symbol: string }) => g.symbol),
+      // WHAT A PAUSE DOES NOT TAKE AWAY. Stated as a field rather than left to
+      // the absence of a warning, because "protection continues" and "nobody
+      // mentioned protection" read the same to somebody skimming.
+      protection_stops: false,
+      guards_still_watched: exposed.map((g: { symbol: string }) => g.symbol),
       protection_note:
         exposed.length === 0
-          ? 'This agent has no armed protective level, so pausing takes nothing away. Note that it would: ' +
-            'the guard watcher only reads guards whose agent is active, so a paused agent is not watched.'
-          : `${exposed.length} armed protective level(s) STOP BEING CHECKED while this agent is paused ` +
-            `(${exposed.map((g: { symbol: string }) => g.symbol).join(', ')}). The rows still say "armed" ` +
-            'and nothing disarms them — the watcher simply only reads guards belonging to an ACTIVE agent, ' +
-            'so these positions have no stop while the pause lasts. Close them, or resume, rather than ' +
-            'leaving an open book nothing is watching.',
+          ? 'This agent has no armed protective level, so there is none to keep watching. If it had one, ' +
+            'pausing would not take it away: a pause stops the agent from deciding and leaves your own ' +
+            'stops and take-profits running.'
+          : `${exposed.length} armed protective level(s) KEEP BEING CHECKED while this agent is paused ` +
+            `(${exposed.map((g: { symbol: string }) => g.symbol).join(', ')}). A pause stops the agent ` +
+            'from deciding; it does not cancel your standing instruction about your own position. If one ' +
+            'of these levels is crossed while the pause lasts, it acts. Retire the agent instead if you ' +
+            'want everything stood down.',
+      stops:
+        'New decisions. The agent will not open or close anything of its own accord until you resume.',
       seat:
         'The agent keeps its seat in any running competition. It will be asked for a decision and will not ' +
         'answer, which is recorded as it happens rather than counted as a decision it made.',
@@ -214,12 +224,15 @@ export class AgentLifecycleService {
     );
     return {
       ...this.state(id, 'active', 'Deciding resumes at the next tick.'),
-      protection_resumes: rearmed.map((g: { symbol: string }) => g.symbol),
+      // NOT "protection_resumes" — nothing was suspended. Naming it that way
+      // would tell an owner that the pause they just ended had left their
+      // positions bare, which is exactly the belief this change removes.
+      protection_unchanged: rearmed.map((g: { symbol: string }) => g.symbol),
       protection_note:
         rearmed.length === 0
           ? 'No armed protective level exists on this agent.'
-          : `${rearmed.length} armed level(s) are visible to the watcher again. A level is checked against ` +
-            'the price from here on; it does not act on what the price did while the agent was paused.',
+          : `${rearmed.length} armed level(s) were checked throughout the pause and still are. Resuming ` +
+            'changes nothing about them; it lets the agent decide again.',
     };
   }
 

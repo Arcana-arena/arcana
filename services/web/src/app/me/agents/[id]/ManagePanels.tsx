@@ -22,13 +22,19 @@ import type { PauseResult, RiskResult, Triggers } from '../../shapes';
  * the platform's behaviour is what is printed. Three of those differences are
  * on this screen:
  *
- *   PAUSE stops protective exits. The guard watcher only reads guards whose
- *   agent is ACTIVE, so pausing leaves open positions with no stop while the
- *   rows still say "armed". The design says pause keeps them.
+ *   PAUSE keeps protective exits running, and this screen used to say the
+ *   opposite because the engine did the opposite: the guard watcher read only
+ *   guards whose agent was ACTIVE, so a pause left open positions with no stop
+ *   while the rows still said "armed". The engine was changed rather than the
+ *   warning — a pause stops the AGENT deciding and leaves the OWNER's standing
+ *   instruction about their own position running. Retire is the way to stand
+ *   everything down.
  *
  *   RETIRE does not close positions and does not return funds. It sets the
- *   status and gives up the agent's seat in every running competition. The
- *   design says it sells out at market.
+ *   status, gives up the agent's seat in every running competition, and takes
+ *   its protective levels DOWN — with the reason written on each row, rather
+ *   than leaving them saying "armed" with nothing watching. The design says it
+ *   sells out at market. It does not.
  *
  *   EVOLVE does not lose the seat — activating the child hands the parent's
  *   seat over. What it loses is the RECORD: the child starts at zero decisions
@@ -261,21 +267,26 @@ export function LifecyclePanel({
               Pause
             </button>
           ) : (
-            <div className="callout callout-bad" style={{ marginTop: 10 }}>
-              {/* THE CONSEQUENCE THE DESIGN GETS WRONG, stated before the click. */}
-              <strong>Pausing stops this agent&rsquo;s protective exits.</strong>
+            <div className="callout callout-note" style={{ marginTop: 10 }}>
+              {/* WHAT STOPS AND WHAT DOES NOT, both stated before the click.
+                  Saying only "this pauses the agent" would leave somebody to
+                  guess about the stops, and the guess that costs money is the
+                  one where they assume wrong in either direction. */}
+              <strong>Pausing stops {agentName} deciding. Your protective levels keep running.</strong>
               <div style={{ marginTop: 4 }}>
-                The guard watcher only reads levels belonging to an <em>active</em> agent, so while{' '}
-                {agentName} is paused its armed stops are not checked against the price. The rows will still say
-                ARMED and nothing will disarm them — they simply stop being watched.
+                No new positions are opened or closed by the agent until you resume. Stops and take-profits you
+                already have stay armed and stay checked against the price — they are your standing instruction
+                about your own position, not part of the agent&rsquo;s turn to speak.
                 {armedSymbols.length > 0 ? (
                   <>
                     {' '}
-                    <span className="mono">{armedSymbols.join(', ')}</span> would be left unwatched.
+                    <span className="mono">{armedSymbols.join(', ')}</span> will still be watched, and will still
+                    act if crossed.
                   </>
                 ) : (
-                  ' This agent has no armed level right now, so nothing is being taken away today.'
-                )}
+                  ' This agent has no armed level right now, so there is none to keep.'
+                )}{' '}
+                To stand everything down instead, retire it.
               </div>
               <input
                 className="input"
@@ -287,7 +298,6 @@ export function LifecyclePanel({
               <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                 <button
                   className="btn"
-                  style={{ color: 'var(--red)', borderColor: 'rgba(210,96,91,.4)' }}
                   disabled={pending}
                   onClick={() =>
                     run(
@@ -296,7 +306,7 @@ export function LifecyclePanel({
                     )
                   }
                 >
-                  {pending ? 'Pausing…' : 'Pause anyway'}
+                  {pending ? 'Pausing…' : 'Pause deciding'}
                 </button>
                 <button className="btn btn-ghost" onClick={() => setConfirm(null)}>
                   Cancel
@@ -314,7 +324,7 @@ export function LifecyclePanel({
           disabled={pending}
           onClick={() => run(() => resumeAgent(agentId), (d) => setPaused(d as PauseResult))}
         >
-          {pending ? 'Resuming…' : 'Resume — protective levels are watched again'}
+          {pending ? 'Resuming…' : 'Resume deciding'}
         </button>
       ) : null}
 
@@ -388,10 +398,12 @@ export function LifecyclePanel({
               <strong>Retiring is permanent, and it does NOT sell anything.</strong>
               <div style={{ marginTop: 4 }}>
                 {agentName} stops deciding and gives up its seat in every running competition. Its positions are{' '}
-                <em>not</em> closed and its funds are <em>not</em> returned — whatever it holds stays in its wallet,
-                and its protective levels stop being watched for the same reason a pause stops them. The key is
-                exportable afterwards exactly as before. A retired agent cannot be restarted: its record has closed,
-                and attaching new decisions to a finished one would misdescribe it.
+                <em>not</em> closed and its funds are <em>not</em> returned — whatever it holds stays in its wallet.
+                Its protective levels are taken down: unlike a pause, which leaves your stops running, retiring
+                stands everything down, and the watcher closes each level with the reason written on the row rather
+                than leaving it saying ARMED with nothing behind it. Anything still open is then yours to manage —
+                the key is exportable afterwards exactly as before. A retired agent cannot be restarted: its record
+                has closed, and attaching new decisions to a finished one would misdescribe it.
               </div>
               <div className="field" style={{ marginTop: 10 }}>
                 <label htmlFor="confirmname">Type {agentName} to confirm</label>

@@ -9,21 +9,30 @@
  * the whole lifecycle to it, and removes it.
  *
  * THE CHECK THIS FILE EXISTS FOR is that pausing an agent tells its owner the
- * truth. `ArmedGuards` in the engine reads
- * `WHERE g.status = 'armed' AND a.status = 'active'`, so pausing stops the
- * guard watcher from seeing that agent's levels — the rows still say "armed"
- * and nothing is checking them. The design this platform was built from says
- * the opposite. A pause response that did not say so would send somebody away
- * from an open position believing it had a stop.
+ * truth. `ArmedGuards` in the engine used to read
+ * `WHERE g.status = 'armed' AND a.status = 'active'`, so pausing stopped the
+ * guard watcher from seeing that agent's levels — the rows still said "armed"
+ * and nothing was checking them, which is how a position loses its stop without
+ * anybody being told. That filter is gone: a pause now stops the AGENT from
+ * deciding and leaves the OWNER's standing instruction running, and retire is
+ * the way to stand everything down.
+ *
+ * So this asserts the behaviour in three places at once — what the endpoint
+ * says, what the watcher's query returns, and what the engine source actually
+ * contains. Any one of them alone can agree with a stale belief.
  *
  *   node infra/verify/creator-dashboard-verify.mjs
  */
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { privateKeyToAccount, generatePrivateKey } from 'viem/accounts';
 import { suite } from './lib/sections.mjs';
-import { signIn as sharedSignIn, SIWE_DOMAIN, SIWE_URI } from './lib/rate-aware.mjs';
+import { signIn as sharedSignIn, SIWE_DOMAIN, SIWE_URI, VERIFICATION_HEADER } from './lib/rate-aware.mjs';
 
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const AGENT = process.env.AGENT_URL || 'http://127.0.0.1:3001';
 const WEB = process.env.WEB_URL || 'http://127.0.0.1:3000';
 const DB = process.env.DATABASE_URL || 'postgres://arcana:arcana@localhost:5432/arcana?sslmode=disable';
@@ -120,12 +129,20 @@ try {
   });
 
   // --- the fixture ---------------------------------------------------------
-  const c = await api('/v1/creators', { method: 'POST', body: { handle: TAG } });
+  // MARKED AS WHAT THEY ARE. These rows used to be created with no
+  // verification header, which meant a suite minted LIVE creators and LIVE
+  // agents on every run and relied on its own teardown to keep the platform's
+  // own census honest. `provenance` is set once and frozen by a trigger, so it
+  // has to be right at creation or not at all.
+  const c = await api('/v1/creators', {
+    method: 'POST', body: { handle: TAG }, headers: VERIFICATION_HEADER,
+  });
   if (c.status >= 300) throw new Error('creator: ' + JSON.stringify(c.body));
   creatorId = c.body.id;
 
   const made = await api('/v1/agents', {
     method: 'POST',
+    headers: VERIFICATION_HEADER,
     body: {
       name: `${TAG}_agent`,
       assetUniverse: 'us_equities',
@@ -218,10 +235,10 @@ try {
       'the page does not say the mandate is fixed');
   });
 
-  await section('Pausing says that protective exits stop — which is what the engine does', async () => {
-    // An armed guard, so the pause has something to leave unwatched. Inserted
-    // directly: arming one for real needs a fill, and the claim under test is
-    // about what the WATCHER reads, not about how the row got there.
+  await section('Pausing stops the agent deciding and leaves the owner\'s levels running', async () => {
+    // An armed guard, so the pause has something to keep. Inserted directly:
+    // arming one for real needs a fill, and the claim under test is about what
+    // the WATCHER reads, not about how the row got there.
     sql(`INSERT INTO position_guards (agent_id, symbol, status, entry_price, entry_qty, stop_loss, stop_loss_pct, set_at)
          VALUES ('${agentId}', 'AAPL', 'armed', 100, 1, 98.5, 0.015, now())`);
 
@@ -229,34 +246,92 @@ try {
     check('an active agent can be paused', r.status === 200, `${r.status} ${JSON.stringify(r.body)}`);
     check('the status is paused', r.body?.status === 'paused', String(r.body?.status));
 
-    // THE POINT OF THIS SUITE.
-    check('the response leads with the fact that protection stops',
-      r.body?.protection_stops === true, JSON.stringify(r.body?.protection_stops));
-    check('and names the levels left unwatched',
-      (r.body?.guards_left_unwatched ?? []).includes('AAPL'),
-      JSON.stringify(r.body?.guards_left_unwatched));
-    check('saying the rows still read armed while nothing checks them',
-      /still say "armed"|STOP BEING CHECKED/i.test(r.body?.protection_note ?? ''),
-      r.body?.protection_note ?? '');
+    // THE POINT OF THIS SUITE. It used to assert the opposite of every line
+    // below, and it was right to: the watcher read
+    // `WHERE g.status = 'armed' AND a.status = 'active'`, so a pause really did
+    // stop protecting. The engine changed, so what an owner is told changed
+    // with it — in both directions at once, which is the only way the two can
+    // be checked against each other.
+    check('the response says protection does not stop',
+      r.body?.protection_stops === false, JSON.stringify(r.body?.protection_stops));
+    check('and names the levels that keep being checked',
+      (r.body?.guards_still_watched ?? []).includes('AAPL'),
+      JSON.stringify(r.body?.guards_still_watched));
+    check('while naming what a pause actually stops',
+      /new decisions/i.test(r.body?.stops ?? ''), r.body?.stops ?? '');
+    check('and pointing at retire for standing everything down',
+      /retire/i.test(r.body?.protection_note ?? ''), r.body?.protection_note ?? '');
+    check('without the old warning surviving anywhere in the answer',
+      !/STOP BEING CHECKED|left unwatched/i.test(JSON.stringify(r.body)),
+      'the response still carries the pre-change warning');
 
-    // THE ENGINE'S OWN QUERY, RUN HERE. If this ever stops being true the
-    // warning above becomes a lie, and a suite that only checked the wording
-    // would go on passing.
+    // THE ENGINE'S OWN QUERY, RUN HERE. A suite that only read the wording
+    // would go on passing while the behaviour said something else.
     const visible = sql(
       `SELECT count(*) FROM position_guards g JOIN agents a ON a.id = g.agent_id
-        WHERE g.status = 'armed' AND a.status = 'active' AND g.agent_id = '${agentId}'`,
+        WHERE g.status = 'armed' AND g.agent_id = '${agentId}'`,
     );
-    check('and the guard watcher genuinely cannot see them while paused', visible === '0',
+    check('and the guard watcher genuinely still sees the level while paused', visible === '1',
       `the watcher's own query returns ${visible} row(s) for a paused agent`);
+
+    // AND THE CLAUSE THAT USED TO BE THERE IS GONE FROM THE SOURCE. Without
+    // this, someone restoring the filter would break the behaviour while both
+    // the copy and the query above still agreed with each other.
+    const watcher = readFileSync(
+      join(ROOT, 'services/decision-engine/internal/store/guards.go'), 'utf8');
+    const armedQuery = watcher.slice(watcher.indexOf('func (s *Store) ArmedGuards'));
+    check('the watcher no longer filters armed guards on the agent being active',
+      !/WHERE g\.status = 'armed' AND a\.status = 'active'/.test(armedQuery),
+      "ArmedGuards has been narrowed back to active agents, which silently unprotects every paused one");
 
     const resumed = await api(`/v1/agents/${agentId}/resume`, { method: 'POST' });
     check('resuming restores it', resumed.status === 200 && resumed.body?.status === 'active',
       `${resumed.status} ${JSON.stringify(resumed.body?.status)}`);
-    const back = sql(
-      `SELECT count(*) FROM position_guards g JOIN agents a ON a.id = g.agent_id
-        WHERE g.status = 'armed' AND a.status = 'active' AND g.agent_id = '${agentId}'`,
-    );
-    check('and the watcher can see the level again', back === '1', `${back} row(s)`);
+    check('and resume does not claim to have brought protection back',
+      !/protection_resumes/.test(JSON.stringify(resumed.body)) &&
+        (resumed.body?.protection_unchanged ?? []).includes('AAPL'),
+      JSON.stringify(resumed.body?.protection_unchanged));
+  });
+
+  await section('A verification artefact is excluded from the live census while it exists', async () => {
+    /*
+     * THE CHECK THAT COULD ONLY BE MADE HERE.
+     *
+     * decided-by-verify asserts that `?provenance=live` and
+     * `?provenance=verification` add up to the unfiltered total, and then has to
+     * declare itself unproven: with no fixture on the platform, dbFix is 0 and
+     * "live == everything" is true for the trivial reason. A filter that did
+     * nothing at all would pass that.
+     *
+     * This suite is holding a real artefact — a creator and an agent it just
+     * built through the real endpoints — so for the length of this section the
+     * condition exists. It is the only moment anything can prove the filter
+     * actually removes a row rather than merely returning all of them.
+     */
+    const provenance = sql(`SELECT provenance FROM agents WHERE id = '${agentId}'`);
+    check('the fixture agent is recorded as a verification artefact',
+      provenance === 'verification', `provenance=${provenance}`);
+    check('and so is its creator',
+      sql(`SELECT provenance FROM creators WHERE id = '${creatorId}'`) === 'verification',
+      'the creator was recorded as a live signup');
+
+    const all = await api('/v1/agents?page_size=1');
+    const live = await api('/v1/agents?provenance=live&page_size=1');
+    const fixtures = await api('/v1/agents?provenance=verification&page_size=1');
+    check('the unfiltered list counts it', all.body?.total > live.body?.total,
+      `unfiltered ${all.body?.total}, live ${live.body?.total} — the artefact is not in the difference`);
+    check('and the live filter genuinely leaves it out',
+      all.body?.total - live.body?.total === fixtures.body?.total,
+      `unfiltered ${all.body?.total}, live ${live.body?.total}, verification ${fixtures.body?.total}`);
+    check('the verification filter finds at least this one',
+      fixtures.body?.total >= 1, String(fixtures.body?.total));
+
+    // AND IT IS NOT ON THE PUBLIC RECORD. The census is one thing; the
+    // leaderboard is what a stranger reads.
+    const onBoard = sql(
+      `SELECT count(*) FROM score_snapshots WHERE agent_id = '${agentId}'`);
+    check('a fixture agent has no score row, so it cannot reach the board', onBoard === '0',
+      `${onBoard} score snapshot(s) exist for a verification agent`);
   });
 
   await section('Triggers show what is armed, and refuse to offer what nothing evaluates', async () => {
