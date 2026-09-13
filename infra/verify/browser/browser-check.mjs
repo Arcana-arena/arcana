@@ -39,6 +39,11 @@ const PAGES = [
   ...DOC_SLUGS.map((s) => [`docs-${s}`, `/docs/${s}`]),
   ['docs-search', '/docs/scoring?q=drawdown'],
   ['signin', '/signin'],
+  // THE CREATOR SURFACE, SIGNED OUT. Each of these must send a visitor to sign
+  // in rather than render an empty dashboard, and the browser is where a
+  // redirect that only half works shows up.
+  ['me-signed-out', '/me'],
+  ['me-new-agent-signed-out', '/me/agents/new'],
   ...(AGENT_ID
     ? ['overview', 'decisions', 'dna', 'autopsy', 'passport', 'evolution', 'positions'].map((t) => [
         `agent-${t}`,
