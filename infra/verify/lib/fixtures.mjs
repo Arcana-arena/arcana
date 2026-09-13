@@ -131,6 +131,9 @@ export function sweepFixtures({ quiet = false } = {}) {
     DELETE FROM agent_dna            WHERE agent_id IN (SELECT id FROM doomed);
     DELETE FROM score_snapshots      WHERE agent_id IN (SELECT id FROM doomed);
     DELETE FROM decision_artefacts   WHERE agent_id IN (SELECT id FROM doomed);
+    -- Before agents (FK), and allowed only because these agents are marked as
+    -- verification: the trigger in 0047 refuses deleting a real disclosure.
+    DELETE FROM intelligence_disclosures WHERE agent_id IN (SELECT id FROM doomed);
     DELETE FROM decisions_counted    WHERE agent_id IN (SELECT id FROM doomed);
     DELETE FROM position_guards      WHERE agent_id IN (SELECT id FROM doomed);
     DELETE FROM marketplace_listings WHERE agent_id IN (SELECT id FROM doomed);

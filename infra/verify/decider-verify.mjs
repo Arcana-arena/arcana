@@ -124,8 +124,13 @@ function cleanup() {
     // Evidence bodies are content-addressed and not owned by any one decision,
     // so deleting the decisions leaves them behind. Collect the ones nothing
     // cites any more — otherwise every run of this suite grows the table.
+    // A manifest and the system prompt are bodies too (0047), cited by
+    // commitment and system_prompt_hash. Collecting only prompt and response
+    // references would delete every live decision's manifest.
     sql(`DELETE FROM decision_evidence e WHERE NOT EXISTS (
-           SELECT 1 FROM decisions d WHERE d.prompt_hash = e.hash OR d.response_hash = e.hash)`);
+           SELECT 1 FROM decisions d
+            WHERE d.prompt_hash = e.hash OR d.response_hash = e.hash
+               OR d.system_prompt_hash = e.hash OR d.commitment = e.hash)`);
   } catch (e) { console.log('  cleanup warning: ' + e.message); }
 }
 
