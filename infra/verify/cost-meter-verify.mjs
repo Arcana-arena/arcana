@@ -238,9 +238,27 @@ try {
     proc.stdout.on('data', (c) => (out += c));
     proc.stderr.on('data', (c) => (out += c));
     const r = await cycle(a1, ref);
-    check('the exhausted agent decides again when nothing is metering it',
-      ok2xx(r.status) && row(r.body.decision_id).reason !== 'inference_budget_exhausted',
-      row(r.body?.decision_id ?? 0).reason);
+    // TWO FACTS, REPORTED SEPARATELY.
+    //
+    // This used to be one && with a detail that read the reason of
+    // `decision_id ?? 0` — an id that exists nowhere. So when the REQUEST
+    // failed there was no decision to read, the detail came back empty, and
+    // the suite printed a bare "FAIL" with nothing after the dash. A check
+    // that cannot say which of its two halves broke is a check that costs more
+    // to diagnose than it saves.
+    const decided = ok2xx(r.status) && !!r.body?.decision_id;
+    check('the exhausted agent is allowed to decide when nothing is metering it',
+      decided,
+      `status ${r.status} body ${JSON.stringify(r.body).slice(0, 220)}`);
+    if (decided) {
+      const d = row(r.body.decision_id);
+      check('and it was NOT stood down for a budget that is switched off',
+        d.reason !== 'inference_budget_exhausted',
+        `reason=${d.reason || '(none)'} action=${d.action}`);
+    } else {
+      check('and it was NOT stood down for a budget that is switched off', false,
+        'no decision was recorded, so what the meter did cannot be read — see the status above');
+    }
     await new Promise((s) => setTimeout(s, 300));
     check('and the log warns rather than staying silent about it',
       /inference meter INACTIVE/.test(out), out.slice(-200) || '(no output captured)');
