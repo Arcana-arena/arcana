@@ -148,7 +148,9 @@ export class ReputationService {
           `recomputed ${recomputed.outputs[key]}, manifest ${m.outputs[key]}`);
       }
       push('recomputed strategy multiplier and ranked equal the manifest',
-        recomputed.outputs.strategy_multiplier === m.outputs.strategy_multiplier && recomputed.outputs.ranked === m.outputs.ranked);
+        recomputed.outputs.strategy_multiplier === m.outputs.strategy_multiplier && recomputed.outputs.ranked === m.outputs.ranked,
+        `multiplier recomputed ${recomputed.outputs.strategy_multiplier}, manifest ${m.outputs.strategy_multiplier}; ` +
+          `ranked recomputed ${recomputed.outputs.ranked}, manifest ${m.outputs.ranked}`);
     }
     for (const [key, col] of SCORE_COLUMNS) {
       const stored = row[col];

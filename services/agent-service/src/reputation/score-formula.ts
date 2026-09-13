@@ -141,6 +141,30 @@ const mustParse = (s: string): number => {
   return Number(s);
 };
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+/**
+ * 1 − c, computed the way Go computes it for a constant: exactly, in decimal,
+ * and only then rounded to a double.
+ *
+ * WHY THIS IS NOT `1 - c`. In score.go `strategyFloor` is an untyped constant,
+ * so `(1-strategyFloor)` is folded at compile time with exact arithmetic and
+ * becomes the double nearest 0.3. At run time `1 - 0.7` is 0.30000000000000004,
+ * and the strategy multiplier of a score with a checkable strategy then differs
+ * in its last bit (0.9967 against the engine's 0.9966999999999999). Reproducing
+ * the engine exactly means reproducing that fold.
+ */
+export const exactOneMinus = (c: number): number => {
+  const s = String(c);
+  if (!/^\d+(\.\d+)?$/.test(s)) return 1 - c;
+  const decimals = s.includes('.') ? s.split('.')[1].length : 0;
+  const scale = 10n ** BigInt(decimals);
+  const diff = scale - BigInt(s.replace('.', ''));
+  const neg = diff < 0n;
+  const abs = neg ? -diff : diff;
+  const whole = abs / scale;
+  const frac = (abs % scale).toString().padStart(decimals, '0');
+  return Number(`${neg ? '-' : ''}${whole}${decimals ? `.${frac}` : ''}`);
+};
 /** Go math.Round: half away from zero. */
 const round1 = (v: number) => (v < 0 ? -Math.round(-v * 10) : Math.round(v * 10)) / 10;
 const mean = (xs: number[]) => {
@@ -247,7 +271,8 @@ export function recomputeV1(m: Pick<ScoreManifest, 'constants' | 'strategy_type'
     strategy = round1((c.w_strat_turnover * turnoverFit + c.w_strat_sell_share * sellFit) * 100);
     checkable = true;
   }
-  const multiplier = checkable ? c.strategy_floor + (1 - c.strategy_floor) * (strategy / 100) : 1;
+  // (1 − strategy_floor) is a constant expression in score.go, folded exactly.
+  const multiplier = checkable ? c.strategy_floor + exactOneMinus(c.strategy_floor) * (strategy / 100) : 1;
 
   // --- score.go ComputeFactors
   const ranked = decisionCount >= c.min_participation_decisions;
@@ -343,7 +368,7 @@ export const FORMULAS: Record<string, { version: string; constants: FormulaConst
       'creator_peer_mean = sum of creator_peers[].performance_score, added in listed order, divided by their count; absent if there are none.',
       'ranked = decision_count ≥ min_participation_decisions.',
       'strategy: if strategy_profiles has strategy_type and decision_count ≥ strategy_min_decisions — trades = buys + sells, turnover = trades / decision_count, fit(v, lo, hi) = 1 inside [lo, hi], else clamp01(1 − distance / strategy_fit_tolerance); sell_fit = 1 when trades = 0, else fit(sells / trades, sell_share band); strategy = round1((w_strat_turnover · fit(turnover) + w_strat_sell_share · sell_fit) · 100) and it is checkable. Otherwise strategy = neutral, not checkable.',
-      'strategy_multiplier = strategy_floor + (1 − strategy_floor) · strategy / 100 when checkable, else 1.',
+      'strategy_multiplier = strategy_floor + (1 − strategy_floor) · (strategy / 100) when checkable, else 1. (1 − strategy_floor) involves only constants, so compute it EXACTLY in decimal first (1 − 0.7 = 0.3, then the double nearest 0.3) — not as a floating-point subtraction, which gives 0.30000000000000004 and changes the last bit of the result.',
       'regime = neutral. longevity = clamp01(len(navs) / longevity_ticks) · 100. creator = clamp01(creator_peer_mean / 100) · 100, or neutral.',
       'If there are no navs: performance = risk = consistency = neutral. Otherwise returns[i] = (navs[i] − navs[i−1]) / navs[i−1] for every i ≥ 1 with navs[i−1] > 0.',
       'performance = clamp01(0.5 + ((last − first) / first) / perf_scale) · 100 when first > 0, else neutral.',

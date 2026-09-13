@@ -103,7 +103,17 @@ function recompute(m) {
     strategy = r1((k.w_strat_turnover * tf + k.w_strat_sell_share * sf) * 100);
     checkable = true;
   }
-  const mult = checkable ? k.strategy_floor + (1 - k.strategy_floor) * (strategy / 100) : 1;
+  // The published steps: (1 − strategy_floor) is a constant expression and is
+  // taken exactly in decimal before it becomes a double, as Go folds it.
+  const oneMinusFloor = (() => {
+    const [w, f = ''] = String(k.strategy_floor).split('.');
+    if (!/^\d+$/.test(w) || !/^\d*$/.test(f)) return 1 - k.strategy_floor;
+    const scale = 10n ** BigInt(f.length);
+    const d = scale - BigInt(w + f);
+    const abs = d < 0n ? -d : d;
+    return Number(`${d < 0n ? '-' : ''}${abs / scale}${f.length ? '.' + (abs % scale).toString().padStart(f.length, '0') : ''}`);
+  })();
+  const mult = checkable ? k.strategy_floor + oneMinusFloor * (strategy / 100) : 1;
   const longevity = c01(navs.length / k.longevity_ticks) * 100;
   const creator = peer === null ? k.neutral : c01(peer / 100) * 100;
   let performance = k.neutral, risk = k.neutral, consistency = k.neutral;
