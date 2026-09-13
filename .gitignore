@@ -1,3 +1,35 @@
+# READ THIS BEFORE ADDING A PATTERN
+#
+# ANCHOR IT. A pattern without a leading slash matches a directory of that
+# name at ANY DEPTH, including inside source trees.
+#
+# This has cost this project twice, eleven months apart, the same way both
+# times:
+#
+#   vendor/  swallowed services/market-data/internal/vendor — the market-data
+#            adapter, not vendored dependencies. A fresh clone could not build
+#            that service.
+#   build/   swallowed services/web/src/app/api/build — the route that reports
+#            which commit the running bundle is. The endpoint written to
+#            detect a stale deploy was itself missing from the deploy.
+#
+# The second happened AFTER the first was fixed and explained in this file,
+# because the lesson was applied to one pattern and not to the three sitting
+# beside it. Comments do not stop it, so two things now do:
+#
+#   .githooks/pre-commit        refuses the commit  (git config core.hooksPath .githooks)
+#   repo-complete-verify        fails the sweep
+#
+# Both call infra/verify/lib/ignored-sources.mjs, which is the one definition
+# of the rule: NOTHING under services/*/{src,internal,cmd,app} or
+# packages/*/{src,internal,cmd,app} may be ignored. If something there really
+# is generated, move it out of the source tree — do not write a negation. An
+# exception to this rule is the next instance of this bug.
+#
+# WHY NOTHING ELSE CATCHES IT: `git add -A` says nothing, the commit succeeds,
+# and an untracked file has no place in the commit it would be compared
+# against. There is nothing to differ. It shows up as a missing file on a
+# server, days later.
 # --- Dependencies ---
 node_modules/
 # GO DEPENDENCY VENDORING, AT MODULE ROOTS ONLY.

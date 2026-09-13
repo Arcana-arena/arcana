@@ -28,6 +28,7 @@ import { existsSync, readdirSync, readFileSync, mkdtempSync, rmSync } from 'node
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { suite } from './lib/sections.mjs';
+import { ignoredSourcePaths, explain } from './lib/ignored-sources.mjs';
 
 const REPO = process.env.REPO || '/home/ubuntu/arcana';
 const { check, section, nothingToCheck, report } = suite('repo-complete-verify');
@@ -198,49 +199,50 @@ try {
      * The rule is simple enough to hold: nothing under a service or package
      * SOURCE tree is ever build output, so nothing under one may be ignored.
      */
-    const sourceDirs = [];
-    for (const base of ['services', 'packages']) {
-      let entries = [];
-      try {
-        entries = readdirSync(join(REPO, base), { withFileTypes: true });
-      } catch {
-        continue;
-      }
-      for (const e of entries) {
-        if (!e.isDirectory()) continue;
-        for (const src of ['src', 'internal', 'cmd', 'app']) {
-          const dir = join(REPO, base, e.name, src);
-          if (existsSync(dir)) sourceDirs.push(`${base}/${e.name}/${src}`);
-        }
-      }
-    }
-    if (sourceDirs.length === 0) {
+    // THE RULE LIVES IN ONE PLACE, and the pre-commit hook calls the same
+    // function. Two implementations of "what counts as a source tree" would
+    // agree until the day one of them was edited — which is the shape of the
+    // bug this whole section is about.
+    const { trees, ignored } = ignoredSourcePaths(REPO);
+    if (trees.length === 0) {
       nothingToCheck('no service or package source tree was found to check');
       return;
     }
 
-    // git check-ignore reads the real rules rather than this file guessing at
-    // them: a reimplementation of gitignore semantics would be a second set of
-    // rules that agree until one of them is edited.
-    const ignored = [];
-    for (const dir of sourceDirs) {
-      let files = [];
-      try {
-        files = execFileSync('git', ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', dir], {
-          cwd: REPO, encoding: 'utf8',
-        }).split('\n').filter(Boolean);
-      } catch {
-        files = [];
-      }
-      for (const f of files) ignored.push(f);
-    }
-
     check('no path inside a service or package source tree is gitignored',
       ignored.length === 0,
-      ignored.length === 0
-        ? ''
-        : `ignored source path(s): ${ignored.join(', ')} — these exist on this machine and are NOT in the ` +
-          'repository, and nothing else here can see that');
+      ignored.length === 0 ? '' : explain(ignored).replace(/\n+/g, ' '));
+
+    // AND THE HOOK THAT STOPS IT BEFORE THE COMMIT IS PRESENT AND EXECUTABLE.
+    // The check above runs in the sweep, which happens after the commit, after
+    // the push and usually after the deploy — both times this bug was found by
+    // its consequences rather than its cause.
+    const hook = join(REPO, '.githooks/pre-commit');
+    check('a pre-commit hook exists to refuse it before the commit', existsSync(hook),
+      '.githooks/pre-commit is missing — the only thing standing between this bug and a push is a ' +
+      'check that runs minutes after the push');
+    if (existsSync(hook)) {
+      const body = readFileSync(hook, 'utf8');
+      check('and it calls the same rule rather than restating it',
+        body.includes('ignored-sources.mjs'),
+        'the hook has its own copy of the rule, which is how the two come to disagree');
+    }
+
+    // WHETHER IT IS ACTUALLY WIRED ON THIS MACHINE. Reported, not failed: a
+    // clone that has not run the one-liner is not a broken repository, and
+    // failing here would make a fresh checkout look like a defect.
+    let hooksPath = '';
+    try {
+      hooksPath = execFileSync('git', ['config', '--get', 'core.hooksPath'],
+        { cwd: REPO, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    } catch { /* unset, which is the default */ }
+    if (hooksPath !== '.githooks') {
+      nothingToCheck(
+        'core.hooksPath is not set to .githooks on this machine, so the pre-commit hook is present ' +
+        'but not armed here. Run: git config core.hooksPath .githooks');
+    } else {
+      check('and the hook is armed on this machine', true);
+    }
   });
 
   await section('The shape of the machine config is recorded, even though its values are not', async () => {

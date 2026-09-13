@@ -36,6 +36,20 @@ REPO=/home/ubuntu/arcana
 BUILD_USER="$(sed -n 's/^User=//p' "$REPO/infra/systemd/arcana-web.service" | head -1)"
 BUILD_USER="${BUILD_USER:-$(stat -c %U "$REPO")}"
 asbuilder() { if [ "$(id -un)" = "$BUILD_USER" ]; then sh -c "$1"; else sudo -u "$BUILD_USER" sh -c "$1"; fi; }
+# ARM THE PRE-COMMIT HOOK ON THIS MACHINE.
+#
+# .githooks/pre-commit refuses a commit that leaves source out of the
+# repository — the failure that swallowed services/market-data/internal/vendor
+# and then services/web/src/app/api/build. A hook that ships in the repo but is
+# never wired protects nobody, and core.hooksPath is per-clone: it cannot be
+# committed. So every deploy sets it, which is the one moment this script is
+# already standing in the checkout.
+if [ -x "$REPO/.githooks/pre-commit" ] || [ -f "$REPO/.githooks/pre-commit" ]; then
+  chmod +x "$REPO/.githooks/pre-commit" 2>/dev/null || true
+  asbuilder "cd '$REPO' && git config core.hooksPath .githooks" 2>/dev/null || true
+  echo "    pre-commit hook armed (core.hooksPath=.githooks)"
+fi
+
 UNIT_DIR=/etc/systemd/system
 BIN_DIR="$REPO/scheduler-bin"
 

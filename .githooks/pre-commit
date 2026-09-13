@@ -1,0 +1,27 @@
+#!/bin/sh
+#
+# Refuse a commit that would silently leave source out of the repository.
+#
+# WHY A HOOK AND NOT ONLY A CHECK IN THE SWEEP. The sweep catches it, but the
+# sweep runs after the commit, after the push, and usually after the deploy —
+# and this particular bug is invisible until something on the server goes
+# looking for a file that was never sent. Twice now it has been found by its
+# consequences rather than by its cause. The moment to stop it is the moment
+# somebody writes the pattern.
+#
+# The rule and the explanation live in infra/verify/lib/ignored-sources.mjs, so
+# this hook and repo-complete-verify cannot come to disagree about what counts.
+#
+# INSTALL:  git config core.hooksPath .githooks
+# BYPASS:   git commit --no-verify   (and then read what it said, because the
+#           sweep will fail on the same thing later and you will have to anyway)
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+cli="$root/infra/verify/lib/ignored-sources-cli.mjs"
+
+# NO NODE, NO OPINION. A hook that blocks every commit on a machine without the
+# toolchain is a hook people delete — and then the rule protects nobody.
+command -v node >/dev/null 2>&1 || exit 0
+[ -f "$cli" ] || exit 0
+
+node "$cli" "$root"
