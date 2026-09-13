@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   ForbiddenException,
@@ -14,6 +15,8 @@ import {
 import { CurrentWallet, JwtAuthGuard, RateLimit } from '@arcana/auth';
 import { randomUUID } from 'node:crypto';
 import { AgentsService } from './agents.service';
+import { AgentOverviewService } from './overview.service';
+import { AgentPositionsService } from './positions.service';
 import { AgentWalletsService } from './agent-wallets.service';
 import { ParseUuidAllPipe } from '../common/parse-uuid-all.pipe';
 import { CreateAgentDto } from './dto/create-agent.dto';
@@ -90,6 +93,8 @@ export class AgentsController {
     private readonly agentWallets: AgentWalletsService,
     private readonly ownership: OwnershipService,
     private readonly decisions: DecisionClient,
+    private readonly overviewService: AgentOverviewService,
+    private readonly positionsService: AgentPositionsService,
   ) {}
 
   // --- 🔑 login required ----------------------------------------------------
@@ -184,6 +189,45 @@ export class AgentsController {
       strategyType: query.strategy_type?.trim() || undefined,
       provenance: query.provenance?.trim() || undefined,
     });
+  }
+
+  /**
+   * 🌐 The eight figures on an agent's Overview, in one window.
+   *
+   * Counted in SQL rather than assembled by a page from three other reads,
+   * which would have each box quietly measuring a different period.
+   */
+  @Get(':id/overview')
+  overview(@Param('id', ParseUuidAllPipe) id: string) {
+    return this.overviewService.forAgent(id);
+  }
+
+  /** 🌐 What the agent holds, what is watching it, and what it is worth. */
+  @Get(':id/positions')
+  positions(@Param('id', ParseUuidAllPipe) id: string) {
+    return this.positionsService.forAgent(id);
+  }
+
+  /**
+   * 🌐 The prompt and the raw model response behind one decision.
+   *
+   * PUBLIC, and that is the whole claim. "Anyone replays the record — prompt,
+   * response, snapshot, fill, outcome — without a wallet and without asking the
+   * creator" is either true here or it is marketing.
+   */
+  @Get(':id/decisions/:decisionId/evidence')
+  evidence(
+    @Param('id', ParseUuidAllPipe) id: string,
+    @Param('decisionId') decisionId: string,
+  ) {
+    const n = Number(decisionId);
+    if (!Number.isInteger(n) || n <= 0) {
+      throw new BadRequestException({
+        code: 'invalid_decision_id',
+        message: `decisionId must be a positive integer. Got '${decisionId.slice(0, 20)}'.`,
+      });
+    }
+    return this.positionsService.evidence(id, n);
   }
 
   @Get(':id')

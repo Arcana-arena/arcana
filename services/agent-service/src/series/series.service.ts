@@ -521,8 +521,30 @@ export class SeriesService {
               -- Without these two columns a sale that a stop loss took is byte
               -- for byte an ordinary sell, and every reader has to guess.
               d.decider, d.reason_code,
+              -- WHAT THE MODEL SAID AND WHICH MODEL SAID IT. The thesis is the
+              -- falsifiable part of a decision — claim, horizon, and the
+              -- condition that would prove it wrong — and it was being written
+              -- to the database and never shown. The hashes are how anyone
+              -- fetches the prompt and the raw answer from the evidence store.
+              d.id AS decision_id, d.thesis,
+              d.provider, d.model, d.model_version,
+              d.prompt_hash, d.response_hash,
+              -- AND WHAT THE CHAIN DID ABOUT IT. A decision and its execution
+              -- are different events: one is what the agent chose, the other is
+              -- what happened, and they differ whenever an order was blocked,
+              -- reverted, or filled away from the price the model saw.
+              x.tx_hash, x.status AS execution_status, x.refusal_code,
+              x.slippage_bps::float8 AS slippage_bps,
+              x.gas_cost_usd::float8 AS gas_cost_usd,
+              x.block_number,
               ms.content_hash, ms.source, ms.ingest_mode, ms.trading_date, ms.tick_time
          FROM decisions_counted d
+         LEFT JOIN LATERAL (
+           SELECT tx_hash, status, refusal_code, slippage_bps, gas_cost_usd, block_number
+             FROM executions e
+            WHERE e.decision_id = d.id
+            ORDER BY e.ts DESC LIMIT 1
+         ) x ON true
          LEFT JOIN market_snapshots ms ON ms.ref = d.market_snapshot_ref
         WHERE ${where}
         ORDER BY d.ts DESC
@@ -579,6 +601,28 @@ export class SeriesService {
         // cost_budget_exceeded is a level that was crossed and NOT acted on,
         // which is close to the opposite of a protective exit.
         decided_by: decidedBy(r),
+        decision_id: r.decision_id === null || r.decision_id === undefined ? null : Number(r.decision_id),
+        // The falsifiable part, as the model wrote it. Null when the decision
+        // came from a deterministic strategy, which has no thesis to state.
+        thesis: r.thesis ?? null,
+        model: {
+          provider: r.provider ?? null,
+          model: r.model ?? null,
+          model_version: r.model_version ?? null,
+        },
+        execution: r.tx_hash || r.execution_status
+          ? {
+              tx_hash: r.tx_hash ?? null,
+              status: r.execution_status ?? null,
+              refusal_code: r.refusal_code ?? null,
+              slippage_bps: r.slippage_bps ?? null,
+              gas_cost_usd: r.gas_cost_usd ?? null,
+              block_number: r.block_number === null || r.block_number === undefined ? null : Number(r.block_number),
+            }
+          // NOT AN EMPTY OBJECT. A hold places no order, and a decision that
+          // was never executed is a different fact from one that executed with
+          // nothing to report.
+          : null,
         evidence: {
           market_snapshot_ref: ref,
           content_hash: r.content_hash ?? null,
@@ -587,6 +631,13 @@ export class SeriesService {
           trading_date: r.trading_date ?? null,
           tick_time: r.tick_time ? new Date(r.tick_time).toISOString() : null,
           snapshot_url: ref ? `/v1/market/snapshots/${encodeURIComponent(ref)}` : null,
+          prompt_hash: r.prompt_hash ?? null,
+          response_hash: r.response_hash ?? null,
+          // Where the prompt and the raw answer can be fetched. Public: the
+          // claim is that anyone can replay the record without asking.
+          evidence_url: r.decision_id
+            ? `/v1/agents/${agentId}/decisions/${r.decision_id}/evidence`
+            : null,
         },
       };
     });

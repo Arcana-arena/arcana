@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { MIN_DECISIONS, unrankedNote } from '../common/ranking';
+import { MIN_DECISIONS, REGIME_WEIGHT_NOTE, SCORE_WEIGHTS, STRATEGY_NOTE, unrankedNote } from '../common/ranking';
 import { Page } from '../common/pagination';
 
 /**
@@ -289,9 +289,20 @@ export class LeaderboardService {
       category,
       category_column: column,
       category_about: CATEGORIES[category].about,
+      // THE WEIGHT IS ON THE CATEGORY, so a page showing a breakdown does not
+      // have to keep its own copy of the formula. `overall` is the composite
+      // itself and has no weight; `strategy` has none because it is a
+      // multiplier rather than a term.
       categories: Object.entries(CATEGORIES).map(([key, v]) => ({
         key, label: v.label, about: v.about,
+        weight: SCORE_WEIGHTS[key] ?? null,
+        weight_note:
+          key === 'strategy' ? STRATEGY_NOTE
+          : key === 'regime' ? REGIME_WEIGHT_NOTE
+          : null,
       })),
+      weights_sum: Object.values(SCORE_WEIGHTS).reduce((a, b) => a + b, 0),
+      strategy_note: STRATEGY_NOTE,
       include_unranked: opts.includeUnranked,
       threshold_decisions: MIN_DECISIONS,
       facets: {

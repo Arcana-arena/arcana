@@ -37,3 +37,43 @@ export function unrankedNote(decisions: number): string {
     'composite, risk and consistency figures are withheld rather than estimated.'
   );
 }
+
+/**
+ * How the composite is weighted — and the two factors that are not weights.
+ *
+ * THE AUTHORITY IS GO, exactly as it is for MIN_DECISIONS above.
+ * services/scoring-engine/internal/engine/score.go declares wPerformance,
+ * wRisk, wConsistency, wRegime, wCreator and wLongevity, and they sum to 1.0.
+ * This constant exists so the read surface has ONE place to be wrong, and
+ * leaderboard-verify holds it to the Go one — the same arrangement that keeps
+ * MIN_DECISIONS honest.
+ *
+ * STRATEGY IS NOT IN THIS MAP BECAUSE IT IS NOT A TERM. Since 2026-09-09 it is
+ * a MULTIPLIER on the weighted total, not a summand: an agent that does what it
+ * said keeps 100% of what it earned, and a mislabelled one keeps less. Printing
+ * it as a seventh weight — as the original design did — would tell a reader it
+ * trades off against performance, which it does not.
+ *
+ * REGIME HAS A WEIGHT AND MEASURES NOTHING. The classifier is not implemented
+ * and the engine writes the same neutral value for every agent, so the 0.10 is
+ * real arithmetic over a constant. That is worth showing precisely because it
+ * looks like a measurement and is not.
+ */
+export const SCORE_WEIGHTS: Record<string, number> = {
+  performance: 0.35,
+  risk: 0.25,
+  consistency: 0.15,
+  regime: 0.10,
+  longevity: 0.10,
+  creator: 0.05,
+};
+
+/** Said once, so every surface says it the same way. */
+export const STRATEGY_NOTE =
+  'Strategy is a multiplier on the weighted total, not one of its terms. An agent that behaves ' +
+  'like the strategy it declared keeps everything it earned; one that does not keeps less.';
+
+export const REGIME_WEIGHT_NOTE =
+  'Regime carries a weight and measures nothing yet: the classifier is not implemented and the ' +
+  'engine writes the same neutral value for every agent, so this term is arithmetic over a ' +
+  'constant rather than a judgement about this agent.';

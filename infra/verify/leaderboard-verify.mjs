@@ -237,6 +237,49 @@ await section('The threshold is the scoring engine\'s, not a copy of it', async 
   console.log(`      score.go minParticipationDecisions = ${m[1]}`);
 });
 
+await section("The weights are the scoring engine's, not a copy of them", async () => {
+  // SAME ARRANGEMENT AS THE THRESHOLD ABOVE, for the same reason. The weights
+  // are declared in Go and repeated once in TypeScript so the read surface has
+  // one place to be wrong. Nothing would notice them drifting: every score on
+  // the page would still be the engine's, and only the breakdown beside it
+  // would be explaining the total with the wrong arithmetic.
+  const go = readFileSync(`${REPO}/services/scoring-engine/internal/engine/score.go`, 'utf8');
+  const want = {};
+  for (const [name, key] of [
+    ['wPerformance', 'performance'], ['wRisk', 'risk'], ['wConsistency', 'consistency'],
+    ['wRegime', 'regime'], ['wCreator', 'creator'], ['wLongevity', 'longevity'],
+  ]) {
+    const m = go.match(new RegExp(name + '\s*=\s*([0-9.]+)'));
+    if (m) want[key] = Number(m[1]);
+  }
+  check('score.go declares six weights', Object.keys(want).length === 6,
+    `found ${Object.keys(want).join(', ') || 'none'}`);
+  if (Object.keys(want).length !== 6) return;
+
+  check('and they sum to 1.0 in the engine',
+    Math.abs(Object.values(want).reduce((a, b) => a + b, 0) - 1) < 1e-9,
+    `they sum to ${Object.values(want).reduce((a, b) => a + b, 0)}`);
+
+  const got = Object.fromEntries(
+    (board.body?.categories ?? []).filter((c) => c.weight !== null && c.weight !== undefined)
+      .map((c) => [c.key, c.weight]));
+  const wrong = Object.entries(want)
+    .filter(([k, v]) => Math.abs((got[k] ?? -1) - v) > 1e-9)
+    .map(([k, v]) => `${k}: score.go ${v}, endpoint ${JSON.stringify(got[k])}`);
+  check('the endpoint publishes the same six weights', wrong.length === 0, wrong.join('; '));
+
+  // STRATEGY MUST NOT BE PUBLISHED AS A WEIGHT. It is a multiplier on the
+  // total; showing it as a seventh term would tell a reader it trades off
+  // against performance, which it does not.
+  const strategy = (board.body?.categories ?? []).find((c) => c.key === 'strategy');
+  check('strategy is offered as a category but carries no weight',
+    strategy && (strategy.weight === null || strategy.weight === undefined),
+    `strategy weight = ${JSON.stringify(strategy?.weight)}`);
+  check('and it says why', typeof strategy?.weight_note === 'string' && /multiplier/i.test(strategy.weight_note),
+    JSON.stringify(strategy?.weight_note));
+  console.log(`      score.go weights: ${Object.entries(want).map(([k, v]) => k + '=' + v).join(' ')}`);
+});
+
 await section('Paging continues the ranking rather than restarting it', async () => {
   const total = board.body?.total ?? 0;
   if (total < 3) {
