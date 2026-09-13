@@ -195,14 +195,25 @@ export class ReputationService {
     );
     push('no decision counted today before the score is missing from it', missed[0].n === 0, `${missed[0].n} not listed`);
 
+    // ONE QUERY FOR EVERY PEER ROW, in listed order. The creator factor averages
+    // every score snapshot of the creator's other active agents, which is
+    // hundreds of rows for a long-running creator; a query per row made this
+    // endpoint as slow as the list is long.
     let peerMismatch = 0;
-    for (const p of m.creator_peers) {
-      const r = await this.db.query(
-        `SELECT performance_score::text AS performance_score, trim(seal) AS seal FROM score_snapshots
-          WHERE agent_id = $1 AND season_id = $2 AND ts = $3::timestamptz`,
-        [p.agent_id, p.season_id, p.ts],
+    if (m.creator_peers.length) {
+      const found: Array<{ performance_score: string | null; seal: string | null }> = await this.db.query(
+        `SELECT ss.performance_score::text AS performance_score, trim(ss.seal) AS seal
+           FROM unnest($1::uuid[], $2::uuid[], $3::timestamptz[]) WITH ORDINALITY AS x(agent_id, season_id, ts, n)
+           LEFT JOIN score_snapshots ss ON ss.agent_id = x.agent_id AND ss.season_id = x.season_id AND ss.ts = x.ts
+          ORDER BY x.n`,
+        [m.creator_peers.map((p) => p.agent_id), m.creator_peers.map((p) => p.season_id), m.creator_peers.map((p) => p.ts)],
       );
-      if (!r.length || Number(r[0].performance_score) !== p.performance_score || (r[0].seal ?? null) !== (p.seal ?? null)) peerMismatch++;
+      m.creator_peers.forEach((p, i) => {
+        const r = found[i];
+        if (!r || r.performance_score === null || Number(r.performance_score) !== p.performance_score || (r.seal ?? null) !== (p.seal ?? null)) {
+          peerMismatch++;
+        }
+      });
     }
     push('every creator peer score exists with that performance score and seal', peerMismatch === 0, `${peerMismatch} differ or are missing`);
 

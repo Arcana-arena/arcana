@@ -259,11 +259,20 @@ await section('Every sealed score recomputes here, a third time, from inputs tha
     const decBad = m.decisions.filter((d) => { const r = decs[d.id]; return !r || r.ts !== d.ts || r.action !== d.action || (r.commitment ?? null) !== (d.commitment ?? null); });
     check(`${tag}: every decision it counted is the recorded decision`, decBad.length === 0, `${decBad.length} differ`);
 
+    // ONE QUERY FOR EVERY PEER ROW. A manifest lists every score snapshot the
+    // creator factor averaged — hundreds for a creator with long-running agents —
+    // and one psql call per row ran this suite past its timeout.
     const peerBad = [];
-    for (const p of m.creator_peers) {
-      const r = json(`SELECT json_build_object('p', performance_score::text, 's', trim(seal)) FROM score_snapshots
-                       WHERE agent_id = '${p.agent_id}' AND season_id = '${p.season_id}' AND ts = '${p.ts}'`);
-      if (!r || Number(r.p) !== p.performance_score || (r.s ?? null) !== (p.seal ?? null)) peerBad.push(p.agent_id.slice(0, 8));
+    if (m.creator_peers.length) {
+      const want = JSON.stringify(m.creator_peers.map((p) => ({ a: p.agent_id, s: p.season_id, t: p.ts }))).replace(/'/g, "''");
+      const found = json(`SELECT coalesce(json_agg(json_build_object('p', ss.performance_score::text, 'seal', trim(ss.seal)) ORDER BY x.n), '[]')
+                            FROM jsonb_array_elements('${want}'::jsonb) WITH ORDINALITY AS x(v, n)
+                            LEFT JOIN score_snapshots ss ON ss.agent_id = (x.v->>'a')::uuid AND ss.season_id = (x.v->>'s')::uuid
+                                                        AND ss.ts = (x.v->>'t')::timestamptz`);
+      m.creator_peers.forEach((p, i) => {
+        const r = found[i];
+        if (!r || r.p === null || Number(r.p) !== p.performance_score || (r.seal ?? null) !== (p.seal ?? null)) peerBad.push(p.agent_id.slice(0, 8));
+      });
     }
     check(`${tag}: every peer score it averaged is the recorded score`, peerBad.length === 0, peerBad.join(', '));
   }
