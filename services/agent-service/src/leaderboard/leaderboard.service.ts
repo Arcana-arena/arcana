@@ -225,6 +225,20 @@ export class LeaderboardService {
        ORDER BY ranked DESC, ${column} DESC NULLS LAST, agent_name ASC, agent_id ASC
        LIMIT $8 OFFSET $9`;
 
+    // THE FILTER OPTIONS, COUNTED OVER THE WHOLE SEASON AND NOT OVER THE PAGE.
+    //
+    // A facet list built from the rows currently shown disappears as you use
+    // it: filter to one universe and the other options vanish, so there is no
+    // way back except clearing by hand. These are every universe and status
+    // present in the season, whatever the current filters are.
+    const facets = await this.db.query(
+      `SELECT DISTINCT a.asset_universe AS universe, a.status
+         FROM score_snapshots s
+         JOIN agents a ON a.id = s.agent_id AND a.provenance = 'live'
+        WHERE s.season_id = $1`,
+      [season.id],
+    );
+
     const rows = await this.db.query(sql, [
       season.id, opts.includeUnranked,
       opts.q ?? null, opts.universe ?? null, opts.status ?? null,
@@ -280,6 +294,10 @@ export class LeaderboardService {
       })),
       include_unranked: opts.includeUnranked,
       threshold_decisions: MIN_DECISIONS,
+      facets: {
+        universes: [...new Set(facets.map((f: any) => f.universe).filter(Boolean))].sort(),
+        statuses: [...new Set(facets.map((f: any) => f.status).filter(Boolean))].sort(),
+      },
       total_ranked: totalRanked,
       total_unranked: total - totalRanked,
       regime_note: REGIME_NOTE,

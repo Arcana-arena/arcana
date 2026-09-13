@@ -54,6 +54,7 @@ export type LeaderboardResponse = {
   page_size: number;
   total_pages?: number;
   has_more?: boolean;
+  facets?: { universes: string[]; statuses: string[] };
   items: LeaderboardRow[];
   note: string | null;
   regime_note: string | null;

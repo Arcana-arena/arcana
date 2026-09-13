@@ -386,3 +386,61 @@ h2 { font-size: 22px; }
   .feed-row { grid-template-columns: 58px minmax(0, 1fr) 46px 56px; }
   .feed-row > :nth-child(n + 5) { display: none; }
 }
+
+/* -------------------------------------------------- leaderboard chips/cards */
+
+/* CSS-ONLY DISCLOSURE. Both of these are revealed on hover and on keyboard
+   focus, with no client JavaScript: the page is otherwise entirely
+   server-rendered, and a control that needs a bundle to open is a control that
+   does not work while the bundle is still arriving. */
+.chip { position: relative; display: inline-block; font-size: 12px; }
+.chip-face {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--color-divider);
+  white-space: nowrap;
+}
+.chip-menu {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 2px);
+  z-index: 5;
+  display: none;
+  flex-direction: column;
+  min-width: 100%;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+  padding: 4px 0;
+}
+.chip:hover .chip-menu,
+.chip:focus-within .chip-menu { display: flex; }
+.chip-opt { padding: 5px 12px; color: var(--ink-2); white-space: nowrap; }
+.chip-opt:hover { background: rgba(47, 232, 140, .07); color: var(--color-text); text-decoration: none; }
+.chip-opt[aria-current="true"] { color: var(--color-accent); }
+
+/* The row card. Anchored to the agent cell, shown on row hover. Every value in
+   it arrived with the row — nothing is fetched to open it. */
+.lb-card {
+  position: absolute;
+  left: 100%;
+  top: -18px;
+  z-index: 4;
+  display: none;
+  width: 320px;
+  padding: 14px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+  white-space: normal;
+}
+.lb-table tbody tr:hover .lb-card { display: block; }
+
+/* Near the right edge the card would leave the page; flip it to the left. */
+.lb-table tbody tr:hover .lb-agent:last-child .lb-card { left: auto; right: 100%; }
+
+@media (max-width: 900px) {
+  /* A hover card is meaningless without a pointer, and at this width it would
+     cover the row it describes. The agent page has all of it, in full. */
+  .lb-card { display: none !important; }
+}
