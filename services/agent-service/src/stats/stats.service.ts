@@ -50,19 +50,29 @@ export class StatsService {
       this.db.query(`SELECT count(*)::int AS total FROM creators WHERE provenance = 'live'`),
       // decisions_counted, not decisions: the view already excludes measurement
       // artefacts, and it is the same population every other surface counts.
+      //
+      // AND JOINED TO provenance = 'live'. Today that changes nothing — every
+      // agent on this platform is live and there is not one verification row —
+      // so this is not a number moving, it is a door closing. A verification
+      // suite creates agents to prove something and sweeps them afterwards; if
+      // one ever outlives its run, the front page must not count its decisions
+      // as platform activity. The filter belongs in the query rather than in
+      // the page, because every other reader deserves the same answer.
       this.db.query(`
         SELECT count(*)::int AS total,
-               count(*) FILTER (WHERE ts > now() - interval '24 hours')::int AS last_24h,
-               count(*) FILTER (WHERE action <> 'hold')::int AS trades,
-               max(ts) AS last_at
-          FROM decisions_counted`),
+               count(*) FILTER (WHERE d.ts > now() - interval '24 hours')::int AS last_24h,
+               count(*) FILTER (WHERE d.action <> 'hold')::int AS trades,
+               max(d.ts) AS last_at
+          FROM decisions_counted d
+          JOIN agents a ON a.id = d.agent_id AND a.provenance = 'live'`),
       this.db.query(`
-        SELECT count(*) FILTER (WHERE status = 'mined')::int    AS settled,
-               count(*) FILTER (WHERE status = 'blocked')::int  AS blocked,
-               count(*) FILTER (WHERE status = 'reverted')::int AS reverted,
+        SELECT count(*) FILTER (WHERE e.status = 'mined')::int    AS settled,
+               count(*) FILTER (WHERE e.status = 'blocked')::int  AS blocked,
+               count(*) FILTER (WHERE e.status = 'reverted')::int AS reverted,
                count(*)::int AS total
-          FROM executions
-         WHERE intent_action IN ${TRADE_ACTIONS}`),
+          FROM executions e
+          JOIN agents a ON a.id = e.agent_id AND a.provenance = 'live'
+         WHERE e.intent_action IN ${TRADE_ACTIONS}`),
       // THE USDG LEG OF EVERY MINED SWAP.
       //
       // A buy spends USDG (token_in) and receives stock; a sell spends stock and
@@ -73,21 +83,23 @@ export class StatsService {
       this.db.query(`
         SELECT coalesce(sum(
                  CASE
-                   WHEN lower(token_in)  = lower($1) THEN amount_in
-                   WHEN lower(token_out) = lower($1) THEN filled_out
+                   WHEN lower(e.token_in)  = lower($1) THEN e.amount_in
+                   WHEN lower(e.token_out) = lower($1) THEN e.filled_out
                  END
                ) / power(10, $2), 0)::float8 AS usdg,
                count(*) FILTER (
-                 WHERE lower(token_in) <> lower($1) AND lower(token_out) <> lower($1)
+                 WHERE lower(e.token_in) <> lower($1) AND lower(e.token_out) <> lower($1)
                )::int AS legs_without_usdg
-          FROM executions
-         WHERE status = 'mined' AND intent_action IN ${TRADE_ACTIONS}`,
+          FROM executions e
+          JOIN agents a ON a.id = e.agent_id AND a.provenance = 'live'
+         WHERE e.status = 'mined' AND e.intent_action IN ${TRADE_ACTIONS}`,
         [USDG_ADDRESS, USDG_DECIMALS]),
       this.db.query(`
-        SELECT max(block_number)::bigint AS last_block,
-               max(ts) FILTER (WHERE block_number IS NOT NULL) AS last_block_at,
-               count(block_number)::int AS blocks_seen
-          FROM executions`),
+        SELECT max(e.block_number)::bigint AS last_block,
+               max(e.ts) FILTER (WHERE e.block_number IS NOT NULL) AS last_block_at,
+               count(e.block_number)::int AS blocks_seen
+          FROM executions e
+          JOIN agents a ON a.id = e.agent_id AND a.provenance = 'live'`),
       this.db.query(`
         SELECT count(*)::int AS total,
                count(*) FILTER (WHERE now() >= start_at AND now() <= end_at)::int AS running,
