@@ -279,10 +279,74 @@ h2 { font-size: 22px; }
   border-bottom: 1px solid var(--color-divider);
   flex-wrap: wrap;
 }
+/* THE PHONE MENU. Hidden on a wide screen; below 720px it replaces the inline
+   nav so the bar stays one row (it wrapped to 98px before). */
+.hdr { position: relative; }
+.hdr-menu { display: none; }
+.hdr-menu-btn { font-family: var(--font-mono), monospace; font-size: 12px; padding: 6px 10px; }
+.hdr-menu-panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 16px 12px;
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-divider);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, .6);
+}
+.hdr-menu-panel a {
+  padding: 13px 0;
+  font-family: var(--font-heading), sans-serif;
+  font-size: 17px;
+  letter-spacing: .04em;
+  color: var(--ink-2);
+  border-bottom: 1px solid var(--color-divider);
+}
+.hdr-menu-panel a:last-child { border-bottom: none; }
+.hdr-menu-panel a[aria-current="page"] { color: var(--color-text); }
 @media (max-width: 720px) {
-  .hdr { gap: 8px 16px; padding-block: 6px; }
-  .hdr-nav { order: 3; width: 100%; overflow-x: auto; gap: 18px; }
-  .hdr-chain { display: none !important; }
+  .hdr { flex-wrap: nowrap; gap: 10px; padding-block: 8px; }
+  .hdr-nav, .hdr-chain { display: none !important; }
+  .hdr-menu { display: block; }
+  .hdr-right { gap: 8px !important; min-width: 0; }
+  .hdr-cta, .hdr-pill { padding: 6px 10px; font-size: 12px !important; white-space: nowrap; }
+}
+@media (max-width: 420px) {
+  .hdr-word { display: none; }
+}
+
+/* A TABLE THAT SCROLLS SAYS SO. A shadow sits on whichever edge has more
+   table behind it, and disappears at the end — the covers scroll with the
+   content (local), the shadows stay with the box (scroll). Nothing is drawn
+   when the table fits. The cover is the background the box sits on. */
+.scroll-x {
+  --scroll-cover: var(--color-bg);
+  background:
+    linear-gradient(to right, var(--scroll-cover) 40%, transparent) left center / 36px 100% no-repeat local,
+    linear-gradient(to left, var(--scroll-cover) 40%, transparent) right center / 36px 100% no-repeat local,
+    linear-gradient(to right, rgba(47, 232, 140, .22), transparent) left center / 16px 100% no-repeat scroll,
+    linear-gradient(to left, rgba(47, 232, 140, .22), transparent) right center / 16px 100% no-repeat scroll;
+}
+.callout .scroll-x, .surface .scroll-x { --scroll-cover: var(--color-surface); }
+
+/* NOTHING UNDER 11px ON A PHONE. The labels (.lbl at 9.5px, .k, tags, table
+   heads) are drawn at desktop density and were unreadable at arm's length:
+   121 text elements under 11px on the landing page alone. Only the size moves;
+   letter-spacing and case are the design's. Inline sizes are matched in both
+   the server's serialisation and the browser's. */
+@media (max-width: 720px) {
+  .k, .lbl, .table th, .tag, .act-buy, .act-sell, .act-hold, .field > label,
+  .steps, .docnav .grp, .code-copy, .param-head, .wz i,
+  [style*="font-size:8px"], [style*="font-size: 8px"],
+  [style*="font-size:9px"], [style*="font-size: 9px"],
+  [style*="font-size:9.5px"], [style*="font-size: 9.5px"],
+  [style*="font-size:10px"], [style*="font-size: 10px"],
+  [style*="font-size:10.5px"], [style*="font-size: 10.5px"] {
+    font-size: 11px !important;
+  }
 }
 .hdr-brand { display: flex; align-items: center; gap: 10px; }
 .hdr-word { font-family: var(--font-heading), sans-serif; font-weight: 600; font-size: 16px; letter-spacing: .14em; }

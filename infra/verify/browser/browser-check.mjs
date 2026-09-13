@@ -188,13 +188,16 @@ for (const [name, path] of [
   const narrow = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
     clientWidth: document.documentElement.clientWidth,
+    headerHeight: Math.round(document.querySelector('.hdr')?.getBoundingClientRect().height ?? 0),
   }));
   await page.screenshot({ path: `/tmp/shots/${name}-390.png`, fullPage: false });
-  const narrowOk = narrow.scrollWidth <= narrow.clientWidth + 1;
+  // AND THE BAR STAYS ONE ROW. It wrapped to 98px — a quarter of the first
+  // screen — until the nav folded into a menu on a phone.
+  const narrowOk = narrow.scrollWidth <= narrow.clientWidth + 1 && narrow.headerHeight > 0 && narrow.headerHeight <= 64;
   if (!narrowOk) failures++;
   console.log(
     `${narrowOk ? 'PASS' : 'FAIL'}  ${name} at 390px`.padEnd(38) +
-      `${narrow.scrollWidth} <= ${narrow.clientWidth}`,
+      `${narrow.scrollWidth} <= ${narrow.clientWidth}, header ${narrow.headerHeight}px`,
   );
   await page.close();
 }

@@ -15,11 +15,14 @@
  * nothing outside the signed-in dashboard linked to it. The form sends a
  * signed-out visitor to sign in and back again, so the link is the same for
  * everyone.
+ *
+ * ON A PHONE THE NAV FOLDS INTO A MENU (MobileMenu), so the bar stays one row.
  */
 import Link from 'next/link';
 import { getSession } from '@/lib/session';
 import { agent } from '@/lib/api';
 import { addr, int } from '@/lib/format';
+import { MobileMenu } from './MobileMenu';
 
 const CHAIN_ID = process.env.NEXT_PUBLIC_ARCANA_CHAIN_ID || '4663';
 
@@ -72,7 +75,7 @@ export async function Header({ current }: { current?: string }) {
           ),
         )}
       </nav>
-      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 20 }}>
+      <div className="hdr-right" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 20 }}>
         <div
           className="mono m2 hdr-chain"
           style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11 }}
@@ -87,10 +90,14 @@ export async function Header({ current }: { current?: string }) {
             <span className="m3">no block recorded</span>
           )}
         </div>
-        <Link href="/me/agents/new" className="btn btn-primary" style={{ fontSize: 12 }}>
+        <Link href="/me/agents/new" className="btn btn-primary hdr-cta" style={{ fontSize: 12 }}>
           Create an agent
         </Link>
         <SessionPill />
+        <MobileMenu
+          current={current}
+          items={NAV.filter((n): n is NavItem & { href: string } => n.href !== null).map((n) => ({ label: n.label, href: n.href }))}
+        />
       </div>
     </header>
   );
@@ -112,7 +119,7 @@ async function SessionPill() {
     return (
       <Link
         href="/me"
-        className="btn"
+        className="btn hdr-pill"
         style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, gap: 8 }}
         title={s.session.wallet_address}
       >
@@ -125,7 +132,7 @@ async function SessionPill() {
   if (s.state === 'unknown') {
     return (
       <span
-        className="btn"
+        className="btn hdr-pill"
         style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, gap: 8, borderStyle: 'dashed' }}
         title={`A session cookie is present and could not be confirmed: ${s.reason}. This is not the same as being signed out.`}
       >
@@ -136,7 +143,7 @@ async function SessionPill() {
   }
 
   return (
-    <Link href="/signin" className="btn">
+    <Link href="/signin" className="btn hdr-pill">
       Sign in
     </Link>
   );
