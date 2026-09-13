@@ -348,6 +348,25 @@ try {
   r = await claim(real.from, listingId, real.hash);
   check('paid to a different wallet than the listing\'s creator → no_matching_transfer',
     code(r) === 'no_matching_transfer', code(r));
+  // AND IT SAYS WHERE THE MONEY ACTUALLY WENT.
+  //
+  // "no matching transfer" is true and nearly useless: the buyer cannot tell a
+  // wrong address from a wrong token from a hash pasted by mistake, and those
+  // are three different next steps. The receipt is already in hand, so the
+  // recipients it really paid are listed beside the one it should have.
+  {
+    const b = r.body || {};
+    check('and it names the recipient the payment was supposed to reach',
+      typeof b.expected_recipient === 'string' && b.expected_recipient.startsWith('0x'),
+      String(b.expected_recipient));
+    check('and lists the transfers the transaction actually made',
+      Array.isArray(b.transfers) && b.transfers.length > 0,
+      `transfers: ${JSON.stringify(b.transfers)}`);
+    check('marking this one as the right token sent to the wrong recipient',
+      b.wrong_recipient === true &&
+      (b.transfers || []).some((t) => t.right_token === true && t.right_recipient === false),
+      JSON.stringify({ wrong_recipient: b.wrong_recipient, transfers: b.transfers }));
+  }
   sql(`UPDATE creators SET wallet_address = '${real.to}' WHERE id = '${creatorId}'`);
 
   // Wrong token: same transfer, a token address nobody configured.
@@ -366,6 +385,32 @@ try {
   sql(`UPDATE marketplace_listings SET arca_gate_amount = ${tooMuch} WHERE id = '${listingId}'`);
   r = await claim(real.from, listingId, real.hash);
   check('underpayment → insufficient_amount', code(r) === 'insufficient_amount', code(r));
+  // AND IT SAYS BY HOW MUCH, in the units the buyer typed.
+  //
+  // "transferred 39950000 base units; costs 40000000" is arithmetic somebody
+  // who has just lost money should not have to do, and the shortfall is the
+  // only number that tells them what to send next. The screen that shows this
+  // failure is built entirely from these fields.
+  {
+    const b = r.body || {};
+    check('and it names what arrived, what was owed, and the difference',
+      typeof b.paid_base_units === 'string' && typeof b.required_base_units === 'string' &&
+      typeof b.shortfall_base_units === 'string',
+      JSON.stringify({ paid: b.paid_base_units, required: b.required_base_units, short: b.shortfall_base_units }));
+    check('in human units as well as base units',
+      typeof b.paid === 'string' && typeof b.required === 'string' && typeof b.shortfall === 'string',
+      JSON.stringify({ paid: b.paid, required: b.required, shortfall: b.shortfall }));
+    check('the shortfall is exactly required minus paid',
+      b.shortfall_base_units === String(BigInt(b.required_base_units || '0') - BigInt(b.paid_base_units || '0')),
+      `${b.required_base_units} - ${b.paid_base_units} != ${b.shortfall_base_units}`);
+    // THE REMEDY MUST NOT PROMISE A FEATURE THAT DOES NOT EXIST. Each claim is
+    // checked against ONE transaction and the sum inside it, so "send the
+    // difference and the two will be matched" would be a lie told to somebody
+    // who has already lost money once by trusting this page.
+    check('and the remedy does not promise that a top-up will be matched',
+      typeof b.remedy === 'string' && /single transfer/i.test(b.remedy) && !/will be matched/i.test(b.remedy),
+      b.remedy || 'no remedy stated');
+  }
   sql(`UPDATE marketplace_listings SET arca_gate_amount = ${priceHuman} WHERE id = '${listingId}'`);
 
   // Confirmations: demand more than the chain can have produced.
@@ -375,6 +420,19 @@ try {
   r = await claim(real.from, listingId, real.hash);
   check('too few confirmations → insufficient_confirmations',
     code(r) === 'insufficient_confirmations', code(r));
+  // A WAIT, NOT A REFUSAL, and the difference has to be legible to whatever
+  // draws the screen. Without `pending` and the counts, a buyer whose payment
+  // is simply young is shown an error.
+  {
+    const b = r.body || {};
+    check('and it is marked as pending rather than as a rejection', b.pending === true, JSON.stringify(b.pending));
+    check('with the depth reached and the depth required',
+      typeof b.confirmations === 'number' && typeof b.required_confirmations === 'number',
+      JSON.stringify({ have: b.confirmations, need: b.required_confirmations }));
+    check('and the remainder in wall-clock seconds, not only in blocks',
+      typeof b.estimated_seconds_remaining === 'number' && b.estimated_seconds_remaining >= 0,
+      String(b.estimated_seconds_remaining));
+  }
   await stop();
 
   // Age: a window so short that a transaction minted seconds ago is too old.
@@ -493,6 +551,25 @@ try {
   r = await claim(real.from, listingId, real.hash);
   check('the SAME hash on the SAME listing → tx_already_claimed',
     code(r) === 'tx_already_claimed', code(r));
+  // AND IT SAYS WHAT THE HASH ALREADY BOUGHT.
+  //
+  // The bare refusal named a listing id and nothing else, which leaves the
+  // buyer unable to tell an honest mistake — pasting last month's renewal —
+  // from somebody else having used their transaction. Both end in the same
+  // 409, so the body has to carry the difference.
+  {
+    const b = r.body || {};
+    check('naming the listing it bought', b.claimed_listing_id === listingId, String(b.claimed_listing_id));
+    check('and the wallet that bought it', typeof b.claimed_by_wallet === 'string' &&
+      b.claimed_by_wallet.toLowerCase() === real.from.toLowerCase(), String(b.claimed_by_wallet));
+    check('and when', typeof b.claimed_at === 'string' && !Number.isNaN(Date.parse(b.claimed_at)),
+      String(b.claimed_at));
+    check('and whether that term is still running',
+      b.term === null || (b.term && typeof b.term.expires_at === 'string' && typeof b.term.in_grace === 'boolean'),
+      JSON.stringify(b.term));
+    check('and it says nothing was charged by the attempt',
+      typeof b.remedy === 'string' && /nothing was charged/i.test(b.remedy), b.remedy || 'no remedy stated');
+  }
 
   r = await claim(real.from, listingId2, real.hash);
   check('the SAME hash on a DIFFERENT listing → tx_already_claimed',
