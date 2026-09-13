@@ -158,7 +158,22 @@ async function up(ms = 60000) {
   }
   return false;
 }
+/**
+ * One tick, with the engine's own words kept when it refuses.
+ *
+ * THE BODY IS NOT DISCARDED, and that is why this comment is here. A failing
+ * sweep reported `the tick still HAPPENED — 422` six times and the suite had
+ * thrown away the only sentence that said what went wrong — the same defect
+ * this repository keeps removing from its instruments, one layer down. The
+ * engine answers 422 for every reason Execute can fail, from an unreadable
+ * snapshot to a context deadline, and those need completely different fixes.
+ *
+ * `ms` is recorded too. A 422 that arrives after fifteen seconds is a timeout
+ * wearing the same status code as a 422 that arrives instantly, and the
+ * difference is the whole diagnosis.
+ */
 async function cycle(agentId, ref) {
+  const t0 = Date.now();
   const r = await fetch(`http://127.0.0.1:${PORT}/internal/v1/decisions/execute`, {
     method: 'POST',
     headers: {
@@ -170,7 +185,13 @@ async function cycle(agentId, ref) {
     },
     body: JSON.stringify({ agent_id: agentId, season_id: SEASON, market_snapshot_ref: ref }),
   });
-  return { status: r.status, body: await r.json().catch(() => null) };
+  const body = await r.json().catch(() => null);
+  const ms = Date.now() - t0;
+  if (!ok2xx(r.status)) {
+    const why = body?.error?.message ?? body?.message ?? JSON.stringify(body);
+    console.log(`      engine refused a tick after ${ms}ms: ${r.status} ${why}`);
+  }
+  return { status: r.status, body, ms, why: body?.error?.message ?? body?.message ?? null };
 }
 const decision = (id) => {
   if (id === undefined || id === null) return { action: '', reason: '(no decision row)', rationale: '' };
@@ -225,9 +246,24 @@ async function freshCase(label, ref, opts = {}) {
   const act = await req(`${AGENT}/v1/agents/${id}/activate`, { method: 'POST', headers: bearer(tk) });
   if (!ok2xx(act.status)) throw new Error('activate: ' + JSON.stringify(act.body));
 
-  await cycle(id, ref);   // writes the first snapshot
-  psql(`UPDATE portfolio_snapshots SET nav = ${CAPITAL}, cash = ${CAPITAL}, holdings = '{}'::jsonb
-         WHERE portfolio_id IN (SELECT id FROM portfolios WHERE agent_id = '${id}')`);
+  // THE FIRST TICK IS WHAT PINS THE CAPITAL, and its result used to be thrown
+  // away. If it fails, the UPDATE below touches nothing, the agent has no
+  // snapshot, and every case built on it reports a meter that did not fire —
+  // which reads as a defect in the meter rather than a fixture that was never
+  // built. A setup step that can fail silently is a setup step that will.
+  const first = await cycle(id, ref);
+  if (!ok2xx(first.status)) {
+    throw new Error(
+      `the first tick for ${label} failed (${first.status} after ${first.ms}ms: ${first.why ?? 'no message'}), ` +
+      'so its capital was never pinned and nothing built on it would mean anything',
+    );
+  }
+  const pinned = psql(`UPDATE portfolio_snapshots SET nav = ${CAPITAL}, cash = ${CAPITAL}, holdings = '{}'::jsonb
+         WHERE portfolio_id IN (SELECT id FROM portfolios WHERE agent_id = '${id}')
+         RETURNING 1`);
+  if (!pinned) {
+    throw new Error(`no portfolio snapshot exists for ${label} after its first tick, so capital could not be pinned`);
+  }
   return id;
 }
 
