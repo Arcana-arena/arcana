@@ -67,7 +67,9 @@ const text = (html) =>
   html.replace(/<script[\s\S]*?<\/script>/g, ' ').replace(/<[^>]+>/g, ' ').replace(/&#x27;|&apos;/g, "'")
     .replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ');
 
-const TAG = `verify-dash-${randomUUID().slice(0, 8)}`;
+// Lowercase alphanumeric and underscore only — the handle validator's rule,
+// matched here rather than discovered from a 400 halfway through a run.
+const TAG = `verify_dash_${randomUUID().replace(/-/g, '').slice(0, 8)}`;
 let creatorId = null;
 let agentId = null;
 
@@ -86,11 +88,11 @@ function teardown() {
   }
 }
 try {
-  const stale = sql(`SELECT count(*) FROM creators WHERE handle LIKE 'verify-dash-%'`);
+  const stale = sql(`SELECT count(*) FROM creators WHERE handle LIKE 'verify_dash_%'`);
   if (stale !== '0') {
     console.log(`  (clearing ${stale} fixture creator(s) left by an interrupted run)`);
-    sql(`DELETE FROM agents WHERE creator_id IN (SELECT id FROM creators WHERE handle LIKE 'verify-dash-%')`);
-    sql(`DELETE FROM creators WHERE handle LIKE 'verify-dash-%'`);
+    sql(`DELETE FROM agents WHERE creator_id IN (SELECT id FROM creators WHERE handle LIKE 'verify_dash_%')`);
+    sql(`DELETE FROM creators WHERE handle LIKE 'verify_dash_%'`);
   }
 } catch (e) {
   console.log('  stale-cleanup warning: ' + e.message);
@@ -125,7 +127,7 @@ try {
   const made = await api('/v1/agents', {
     method: 'POST',
     body: {
-      name: `${TAG}-agent`,
+      name: `${TAG}_agent`,
       assetUniverse: 'us_equities',
       mandate: 'Buy strength and exit any position that falls 0.0150 (= 1.50%) below entry.',
       // ONE KEY THAT WORKS, ONE THAT IS NEVER READ, ONE WHOSE NAME LIES ABOUT
