@@ -55,6 +55,23 @@ export class AgentsService {
   ): Promise<Agent> {
     const m = this.buildMandate(dto.mandate, dto.mandateTemplate, dto.mandateParams);
 
+    // A MANDATE AND A BUILT-IN STRATEGY CONTRADICT EACH OTHER, so the pair is
+    // refused rather than stored. The engine picks the decider from
+    // strategy_type alone: anything but 'llm' runs a deterministic rule that
+    // never reads the mandate. An agent created from a template with
+    // strategyType 'momentum' (the wizard's own placeholder) ran the momentum
+    // rule while its mandate and private reasoning sat in the row unused — every
+    // decision had no prompt, and "private" protected nothing.
+    if (m.mandate && dto.strategyType && dto.strategyType !== 'llm') {
+      throw new BadRequestException({
+        code: 'mandate_needs_model',
+        message:
+          `strategyType '${dto.strategyType}' runs a built-in rule that never reads a mandate, so this agent's ` +
+          'mandate would be stored and ignored. Omit strategyType (a mandate implies the model), or omit the ' +
+          'mandate to run the built-in strategy.',
+      });
+    }
+
     const latest = await this.agents.findOne({
       where: { creatorId, name: dto.name },
       order: { version: 'DESC' },
@@ -71,8 +88,8 @@ export class AgentsService {
       // template and left with no strategy_type therefore ran momentum or
       // mean-reversion while its mandate sat in the row doing nothing, and
       // nothing anywhere said so -- the agent simply was not what its own
-      // record described. An explicit strategyType still wins, because asking
-      // for a deterministic strategy is a real thing to want.
+      // record described. Asking for a deterministic strategy is still a real
+      // thing to want — without a mandate; with one it is refused above.
       strategyType: dto.strategyType ?? (m.mandate ? 'llm' : null),
       riskProfile: dto.riskProfile ? JSON.parse(dto.riskProfile) : {},
       assetUniverse: dto.assetUniverse,
@@ -527,7 +544,11 @@ export class AgentsService {
     return this.create(
       {
         name: agent.name,
-        strategyType: overrides.strategyType ?? agent.strategyType ?? undefined,
+        // A VERSION WITH A MANDATE IS DECIDED BY THE MODEL. Inheriting a
+        // built-in strategy_type alongside an inherited template would carry the
+        // contradiction create() refuses into every version — and evolving is
+        // the way out of it for an agent created before that refusal existed.
+        strategyType: overrides.strategyType ?? (template ? 'llm' : agent.strategyType ?? undefined),
         riskProfile: overrides.riskProfile ?? JSON.stringify(agent.riskProfile),
         assetUniverse: overrides.assetUniverse ?? agent.assetUniverse,
         parentAgentId: agent.id,

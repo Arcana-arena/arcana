@@ -212,7 +212,11 @@ function OpenDecisions({
               {decisions.map((d) => {
                 const did = d.decision_id ?? null;
                 const isOpen = did !== null && (openedSet.has(did) || d.intelligence === 'opened' || done[did]);
-                const noPrompt = d.reason_code ? NO_PROMPT[d.reason_code] : undefined;
+                // A deterministic strategy asks no model either, whatever its
+                // reason code: there is no prompt behind it to open.
+                const noPrompt =
+                  (d.reason_code ? NO_PROMPT[d.reason_code] : undefined) ??
+                  (d.decider === 'deterministic' ? 'strategy rule, no model was asked' : undefined);
                 return (
                   <tr key={`${d.ts}-${did}`}>
                     <td className="mono m2" style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>

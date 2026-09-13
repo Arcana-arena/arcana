@@ -207,6 +207,7 @@ try {
       r.body?.mandateTemplate === 'momentum' && r.body?.mandateParams?.max_names === 2,
       JSON.stringify({ t: r.body?.mandateTemplate, p: r.body?.mandateParams }));
     check('a new agent is always a draft', r.body?.status === 'draft', r.body?.status);
+    check('and a mandate means the model decides it', r.body?.strategyType === 'llm', String(r.body?.strategyType));
   }
 
   // -------------------------------------------------------------------------
@@ -257,6 +258,16 @@ try {
       both.status === 400 && /mandate_and_template/.test(errCode(both.body)),
       `${both.status} ${errCode(both.body)}`);
     if (both.body?.id) created.push(both.body.id);
+
+    // A MANDATE AND A BUILT-IN STRATEGY. The engine chooses the decider from
+    // strategy_type alone, so this pair stored a mandate nothing ever read.
+    const ignored = await makeAgent(aliceToken, 'phase12-verify-ignoredmandate', {
+      mandateTemplate: 'momentum', strategyType: 'momentum',
+    });
+    check('a mandate with a built-in strategyType is refused, not stored unread',
+      ignored.status === 400 && /mandate_needs_model/.test(errCode(ignored.body)),
+      `${ignored.status} ${errCode(ignored.body)}`);
+    if (ignored.body?.id) created.push(ignored.body.id);
 
     const bad = await makeAgent(aliceToken, 'phase12-verify-badtpl', { mandateTemplate: 'does_not_exist' });
     check('an unknown template is refused', bad.status === 400 && /unknown_mandate_template/.test(errCode(bad.body)),

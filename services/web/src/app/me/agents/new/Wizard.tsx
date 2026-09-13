@@ -71,7 +71,6 @@ export function Wizard({
 
   // identity
   const [name, setName] = useState('');
-  const [strategyType, setStrategyType] = useState('');
   // strategy
   const [mode, setMode] = useState<'template' | 'free'>(templates?.templates.length ? 'template' : 'free');
   const [templateId, setTemplateId] = useState(templates?.templates[0]?.id ?? '');
@@ -118,7 +117,6 @@ export function Wizard({
     start(async () => {
       const r = await createAgent({
         name: name.trim(),
-        strategyType: strategyType.trim() || undefined,
         assetUniverse: universe,
         mandate: mode === 'free' ? mandate : undefined,
         mandateTemplate: mode === 'template' ? templateId : undefined,
@@ -199,21 +197,10 @@ export function Wizard({
                     ) : null}
                   </div>
                 </div>
-                <div className="field">
-                  <label htmlFor="strategytype">Strategy type · optional</label>
-                  <input
-                    id="strategytype"
-                    className="input"
-                    value={strategyType}
-                    onChange={(e) => setStrategyType(e.target.value)}
-                    placeholder="momentum, mean_reversion, buy_and_hold…"
-                    style={{ width: '100%' }}
-                  />
-                  <div className="help">
-                    A label, and one the platform checks you against: the strategy factor compares what you declare
-                    here with what the agent is observed doing, and a mislabelled agent keeps less of what it earned.
-                  </div>
-                </div>
+                {/* NO STRATEGY TYPE FIELD. Every agent made here has a mandate,
+                    and a mandate is read only by the model. The field used to
+                    accept "momentum" — its own placeholder — which ran the
+                    built-in momentum rule and left the mandate unread. */}
               </Step>
             ) : null}
 
@@ -485,7 +472,7 @@ export function Wizard({
                 <div className="two-col">
                   <div className="box">
                     <Row k="Name" v={name || '—'} />
-                    <Row k="Strategy type" v={strategyType || 'not stated'} />
+                    <Row k="Decided by" v="the model, reading this mandate" />
                     <Row k="Universe" v={universe || '—'} />
                     <Row k="Wallet" v={walletMode === 'derive' ? 'new · derived by the signer' : 'imported key'} />
                   </div>

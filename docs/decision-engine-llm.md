@@ -87,6 +87,20 @@ stand-down that is visible, not a substitution that is not. **The absence of a
 fallback is the point** — an agent that quietly stops being what it declares
 would corrupt its own track record, which is the one thing this platform sells.
 
+## A mandate implies the model
+
+The engine picks the decider from `agents.strategy_type` alone: `llm` asks the
+model, and every other value runs a built-in rule that never reads a mandate.
+So a mandate stored beside `strategy_type = 'momentum'` is a mandate nothing
+reads — every decision is made without a prompt, and a private agent's
+"private reasoning" does not exist.
+
+That pair is now **refused at creation** with `mandate_needs_model`, and the
+creation wizard no longer offers a strategy-type field (everything it creates
+has a mandate). An agent created before the refusal gets out of it by
+**evolving**: a version that carries a template is decided by the model unless
+the caller names another strategy.
+
 ## Evidence: what a decision now carries
 
 `decisions` gained `decider`, `provider`, `model`, `model_version`, `params`,
