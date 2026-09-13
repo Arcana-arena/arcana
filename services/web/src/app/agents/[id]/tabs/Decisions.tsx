@@ -176,7 +176,18 @@ export async function DecisionsTab({
                           claim, a horizon, and the condition that would prove it
                           wrong. A protective exit has none, and says so rather
                           than borrowing the agent's words. */}
-                      {row.decided_by?.category?.startsWith('protective') ? (
+                      {row.intelligence === 'withheld' ? (
+                        // WITHHELD, NOT MISSING: "no rationale recorded" would be
+                        // false. The commitment is what the public gets instead.
+                        <span className="m3" title={row.commitment ?? undefined}>
+                          <span className="tag tag-outline">PRIVATE</span> reasoning withheld
+                          {row.commitment ? (
+                            <div className="mono" style={{ fontSize: 10.5, marginTop: 3 }}>
+                              sealed {row.commitment.slice(0, 12)}…
+                            </div>
+                          ) : null}
+                        </span>
+                      ) : row.decided_by?.category?.startsWith('protective') ? (
                         <span className="m3" style={{ fontStyle: 'italic' }}>
                           No thesis — {row.decided_by.label.toLowerCase()}, decided by a level rather than by the agent.
                         </span>
@@ -327,28 +338,48 @@ function PriceAbsent({ status }: { status: string | null }) {
 }
 
 /**
- * The prompt, the raw answer, and the model that produced them.
+ * The prompt, the raw answer, and the model that produced them — or, for a
+ * private agent, the proof that they exist and have not changed.
  *
- * THIS IS THE PRODUCT. "Anyone replays the record — prompt, response, snapshot,
- * fill, outcome — without a wallet and without asking the creator" is either
- * true on this screen or it is a slogan. So the bodies are shown in full, not
- * summarised, and a body that is missing says whether it was never recorded or
- * has since been pruned — two different facts about the same empty space.
+ * THIS IS THE PRODUCT, and for a private agent it changes shape rather than
+ * disappearing. A public agent's bodies are shown in full, not summarised, and a
+ * body that is missing says whether it was never recorded or has since been
+ * pruned. A private agent's are not shown, and the panel SAYS so: "private"
+ * reads as a choice, an empty box reads as nothing there. What stands in for
+ * them is the commitment, written when the decision was made.
  */
 function EvidenceBlock({ e, snapshot }: { e: Evidence; snapshot: string | null }) {
+  const withheld = e.intelligence?.visibility === 'private' && !e.intelligence.opened;
   return (
     <div style={{ display: 'grid', gap: 14 }}>
       <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'baseline' }}>
         <span className="k">Evidence · decision {e.decision_id}</span>
-        <span className="mono m3" style={{ fontSize: 10.5 }}>
-          {e.model.model
-            ? `${e.model.provider ?? '—'} · ${e.model.model}${e.model.model_version ? ` · ${e.model.model_version}` : ''}`
-            : e.model.note}
-        </span>
+        {withheld ? (
+          <Tag tone="outline" title="The creator keeps this agent's intelligence private.">PRIVATE</Tag>
+        ) : e.intelligence?.opened ? (
+          <Tag tone="amber" title={e.intelligence.note ?? undefined}>OPENED BY ITS CREATOR</Tag>
+        ) : null}
+        {e.model ? (
+          <span className="mono m3" style={{ fontSize: 10.5 }}>
+            {e.model.model
+              ? `${e.model.provider ?? '—'} · ${e.model.model}${e.model.model_version ? ` · ${e.model.model_version}` : ''}`
+              : e.model.note}
+          </span>
+        ) : null}
         {snapshot ? <span className="mono m3" style={{ fontSize: 10.5 }}>snapshot {snapshot}</span> : null}
       </div>
 
-      {e.thesis ? (
+      <CommitmentBlock e={e} />
+
+      {withheld ? (
+        <Callout tone="note">
+          <strong>The reasoning behind this decision is private.</strong>{' '}
+          {e.intelligence?.note ??
+            'The creator keeps it private. The decision, its execution and its outcome are public.'}
+        </Callout>
+      ) : null}
+
+      {!withheld && e.thesis ? (
         <div className="node" style={{ padding: '10px 12px' }}>
           <div className="lbl" style={{ marginBottom: 6 }}>THESIS</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr)', gap: '4px 12px', fontSize: 12.5 }}>
@@ -361,10 +392,75 @@ function EvidenceBlock({ e, snapshot }: { e: Evidence; snapshot: string | null }
         </div>
       ) : null}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14 }}>
-        <Body title="PROMPT" hash={e.prompt.hash} body={e.prompt.body} bytes={e.prompt.bytes} note={e.prompt.note} />
-        <Body title="RAW RESPONSE" hash={e.response.hash} body={e.response.body} bytes={e.response.bytes} note={e.response.note} />
+      {!withheld && e.prompt && e.response ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', gap: 14 }}>
+          <Body title="PROMPT" hash={e.prompt.hash} body={e.prompt.body} bytes={e.prompt.bytes} note={e.prompt.note} />
+          <Body title="RAW RESPONSE" hash={e.response.hash} body={e.response.body} bytes={e.response.bytes} note={e.response.note} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The seal on a decision and, once its reasoning is readable, every check the
+ * platform ran against it.
+ *
+ * LISTED, NOT SUMMARISED. "Verified" is a claim; the checks are the evidence
+ * for it, and the manifest is there so anyone can re-run them without trusting
+ * this page.
+ */
+function CommitmentBlock({ e }: { e: Evidence }) {
+  const c = e.commitment ?? null;
+  const v = e.verification ?? null;
+  const passed = v ? v.checks.filter((x) => x.ok).length : 0;
+  return (
+    <div className="node" style={{ padding: '10px 12px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
+        <span className="lbl">COMMITMENT{c?.scheme ? ` · ${c.scheme}` : ''}</span>
+        {v ? (
+          <span className={`mono ${v.status === 'verified' ? 'up' : 'dn'}`} style={{ fontSize: 11 }}>
+            {v.status === 'verified'
+              ? `verified · ${passed} of ${v.checks.length} checks pass`
+              : v.status.replace(/_/g, ' ')}
+          </span>
+        ) : null}
       </div>
+      {c?.value ? (
+        <div className="mono" style={{ fontSize: 11.5, wordBreak: 'break-all' }}>
+          {c.value}
+        </div>
+      ) : (
+        <div className="mono m3" style={{ fontSize: 11.5 }}>
+          no commitment on this decision
+        </div>
+      )}
+      <div className="m2" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5 }}>
+        {c?.explained ?? v?.explained ?? null}
+      </div>
+      {v && v.checks.length > 0 ? (
+        <details style={{ marginTop: 8 }}>
+          <summary className="m3" style={{ fontSize: 11.5, cursor: 'pointer' }}>
+            Every check, and the manifest
+          </summary>
+          <ul style={{ margin: '6px 0 0 16px', padding: 0, fontSize: 11.5, lineHeight: 1.6 }}>
+            {v.checks.map((x) => (
+              <li key={x.name} className={x.ok ? 'm2' : 'dn'}>
+                {x.ok ? '✓' : '✗'} {x.name}
+                {x.detail ? ` — ${x.detail}` : ''}
+              </li>
+            ))}
+          </ul>
+          {v.manifest ? (
+            <pre
+              className="mono m2"
+              style={{ fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 260, overflow: 'auto', margin: '8px 0 0' }}
+            >
+              {v.manifest}
+            </pre>
+          ) : null}
+        </details>
+      ) : null}
     </div>
   );
 }

@@ -7,7 +7,7 @@ import { Header } from '@/components/layout/Header';
 import { ActionTag, Key, Lbl, Num, ScoreBar, StatusTag, Tag } from '@/components/ds/primitives';
 import { Empty, Failed } from '@/components/ds/states';
 import { LineChart } from '@/components/ds/chart';
-import { HowItWorks, ForCreators, LandingFooter } from '@/components/landing/static-sections';
+import { HowItWorks, ForCreators, LandingFooter, PrivateProof } from '@/components/landing/static-sections';
 
 /**
  * The landing page, in the order the mockup lays it out.
@@ -114,7 +114,9 @@ export default async function LandingPage() {
               lineHeight: 1.45,
             }}
           >
-            <div><span className="mono up">→</span> Thesis and order land in one transaction, before the fill.</div>
+            {/* Was "Thesis and order land in one transaction, before the fill" —
+                untrue: nothing about a decision is written on chain. */}
+            <div><span className="mono up">→</span> Every decision is sealed with a commitment when it is recorded, before its outcome is known.</div>
             <div><span className="mono up">→</span> Protective stops are the platform&rsquo;s, and are never counted as the agent&rsquo;s decision.</div>
             <div><span className="mono up">→</span> Scores exist only inside a season, then freeze.</div>
             <div><span className="mono up">→</span> Reading everything needs no wallet.</div>
@@ -649,6 +651,8 @@ export default async function LandingPage() {
           </div>
         )}
       </section>
+
+      <PrivateProof />
 
       <ForCreators
         leadingMandate={

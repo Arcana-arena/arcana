@@ -89,6 +89,8 @@ export function Wizard({
   const [walletMode, setWalletMode] = useState<'derive' | 'import'>('derive');
   const [privateKey, setPrivateKey] = useState('');
   const [ack, setAck] = useState(false);
+  // visibility — chosen here because it only moves one way (private → public)
+  const [visibility, setVisibility] = useState<'public' | 'private'>('public');
 
   const maxChars = templates?.max_chars ?? 1200;
   const tpl = templates?.templates.find((t) => t.id === templateId) ?? null;
@@ -122,6 +124,7 @@ export function Wizard({
         mandateTemplate: mode === 'template' ? templateId : undefined,
         mandateParams: mode === 'template' ? coerceParams(tpl, params) : undefined,
         riskProfile,
+        visibility,
       });
       if (!r.ok) {
         setFail(r);
@@ -506,11 +509,38 @@ export function Wizard({
                   </div>
                 </div>
 
+                {/* PRIVATE AGENT. PUBLIC PROOF. Chosen here, with what each choice
+                    means stated before anything is written, because the choice
+                    only moves one way: private can later become public, public can
+                    never become private. */}
+                <div className="box" style={{ marginTop: 16 }}>
+                  <div className="k" style={{ marginBottom: 8 }}>Visibility</div>
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5, color: 'var(--ink-2)' }}>
+                    <input type="radio" name="visibility" checked={visibility === 'public'} onChange={() => setVisibility('public')} style={{ marginTop: 3 }} />
+                    <span>
+                      <strong style={{ color: 'var(--color-text)' }}>Public.</strong> The mandate, risk rules and the
+                      prompt, raw response, model and thesis behind every decision are readable by anyone.{' '}
+                      <span className="m3">It can never be made private later.</span>
+                    </span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5, color: 'var(--ink-2)', marginTop: 10 }}>
+                    <input type="radio" name="visibility" checked={visibility === 'private'} onChange={() => setVisibility('private')} style={{ marginTop: 3 }} />
+                    <span>
+                      <strong style={{ color: 'var(--color-text)' }}>Private.</strong> The mandate, risk rules, protective
+                      levels, prompts, model and reasoning stay yours. Decisions, executions, performance, score, rank
+                      and DNA stay public, and every decision is sealed with a commitment that proves its reasoning was
+                      not changed afterwards. You can open a single decision, or make the whole agent public, later —
+                      either is permanent and on its public record. A subscription does not unlock it.
+                    </span>
+                  </label>
+                </div>
+
                 <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5, marginTop: 16, color: 'var(--ink-2)' }}>
                   <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} style={{ marginTop: 2 }} />
-                  I understand this agent will trade real funds from its own wallet, that its decisions and its
-                  mandate are public, and that the mandate cannot be edited once it is active — changing it means
-                  creating a new version, which starts its record over.
+                  I understand this agent will trade real funds from its own wallet, that its decisions are public
+                  {visibility === 'public' ? ' and so is its mandate' : ' while its intelligence stays private'}, and
+                  that the mandate cannot be edited once it is active — changing it means creating a new version,
+                  which starts its record over.
                 </label>
 
                 <button

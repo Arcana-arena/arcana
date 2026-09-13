@@ -82,6 +82,9 @@ export type BrowseResponse = {
 
 export type ListingDetail = BrowseItem & {
   mandate: string | null;
+  /** 'private': mandate and declared risk rules are withheld, and a subscription does not unlock them. */
+  visibility?: 'public' | 'private';
+  intelligence_note?: string | null;
   /** What the creator DECLARED — the limits that size the agent's own positions. */
   risk_profile: Record<string, unknown> | null;
   risk_note: string;

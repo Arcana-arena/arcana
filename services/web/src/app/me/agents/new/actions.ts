@@ -46,10 +46,14 @@ export async function createAgent(input: {
   mandateTemplate?: string;
   mandateParams?: Record<string, unknown>;
   riskProfile: Record<string, unknown>;
+  visibility?: 'public' | 'private';
 }): Promise<{ ok: true; data: Created } | Fail> {
   const body: Record<string, unknown> = {
     name: input.name,
     assetUniverse: input.assetUniverse,
+    // PRIVATE AGENT. PUBLIC PROOF. Sent explicitly either way, so the choice the
+    // owner made is the choice recorded rather than a default nobody saw.
+    visibility: input.visibility ?? 'public',
     // The service takes this as a JSON STRING and parses it into jsonb. Sending
     // an object here is a 400 that names the field — which is the API being
     // strict rather than silently ignoring it, and worth matching exactly.

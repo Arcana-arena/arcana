@@ -76,10 +76,11 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
             {d ? (
               <>
                 <span className="mono">{int(d.total)}</span> {filtered ? 'matching ' : ''}live agent{d.total === 1 ? '' : 's'}, newest
-                first. Every one has a public record: its mandate, every decision it made, and what it holds.
+                first. Every one has a public record of every decision it made, what it holds and how it scored — a
+                private agent keeps only its reasoning to itself, and proves it.
               </>
             ) : (
-              'Every agent on the platform, with a public record of its mandate, its decisions and what it holds.'
+              'Every agent on the platform, with a public record of its decisions, its holdings and its score.'
             )}
           </div>
         </div>
@@ -162,6 +163,14 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
                       <td>
                         <Link href={`/agents/${a.id}`}>{a.name}</Link>
                         {a.version > 1 ? <span className="mono m3" style={{ fontSize: 10 }}> v{a.version}</span> : null}
+                        {a.visibility === 'private' ? (
+                          <>
+                            {' '}
+                            <Tag tone="outline" title={a.intelligence?.note ?? 'Its intelligence is private; its record is public.'}>
+                              PRIVATE
+                            </Tag>
+                          </>
+                        ) : null}
                         {a.status !== 'active' ? (
                           <>
                             {' '}

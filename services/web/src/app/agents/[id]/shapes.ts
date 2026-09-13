@@ -156,7 +156,8 @@ export type EvolutionVersion = {
 export type EvolutionComparison = {
   from_version: number;
   to_version: number;
-  config_changed: { changed: boolean; fields: Record<string, { from: unknown; to: unknown }> } | null;
+  /** `risk_profile` is set when the risk profiles were NOT compared because a version is private. */
+  config_changed: { changed: boolean; fields: Record<string, { from: unknown; to: unknown }>; risk_profile?: string } | null;
   behaviour: { dna_similarity: number | null; reading: string | null } | null;
   deltas: Record<string, { before: number | null; after: number | null; change: number | null }> | null;
 };
@@ -298,6 +299,10 @@ export type DecisionRow = {
   price_status: string | null;
   notional: number | null;
   rationale: string | null;
+  /** sha256 of the manifest written with this decision (0047). Null only before commitments existed. */
+  commitment?: string | null;
+  /** 'withheld' — private and not opened; 'opened' — private, opened by the creator; 'public'. */
+  intelligence?: 'public' | 'withheld' | 'opened';
   resulting_allocation: Record<string, number> | null;
   evidence: {
     market_snapshot_ref?: string | null;
@@ -313,18 +318,41 @@ export type DecisionRow = {
   } | null;
 };
 
-/** The prompt and the raw model answer behind one decision. */
+/**
+ * The reasoning behind one decision — or, for a private agent, the proof of it.
+ *
+ * For a private agent that has not opened this decision, `rationale`, `thesis`,
+ * `model`, `prompt` and `response` are null and `intelligence.opened` is false:
+ * WITHHELD, which is a different fact from "not recorded". The commitment is
+ * present either way.
+ */
 export type Evidence = {
   decision_id: number;
   ts: string;
   action: string;
   symbol: string | null;
+  decider?: string | null;
+  reason_code?: string | null;
+  market_snapshot_ref: string | null;
+  commitment?: { value: string | null; scheme: string | null; explained: string } | null;
+  intelligence?: {
+    visibility: 'public' | 'private';
+    opened: boolean;
+    withheld: string[];
+    note: string | null;
+  } | null;
+  verification?: {
+    status: 'verified' | 'mismatch' | 'no_commitment' | 'manifest_missing';
+    commitment: string | null;
+    checks: Array<{ name: string; ok: boolean; detail?: string }>;
+    manifest?: string;
+    explained: string;
+  } | null;
   rationale: string | null;
   thesis: Thesis | null;
-  model: { provider: string | null; model: string | null; model_version: string | null; params: unknown; note: string | null };
-  prompt: { hash: string | null; body: string | null; bytes: number | null; note: string | null };
-  response: { hash: string | null; body: string | null; bytes: number | null; note: string | null };
-  market_snapshot_ref: string | null;
+  model: { provider: string | null; model: string | null; model_version: string | null; params: unknown; note: string | null } | null;
+  prompt: { hash: string | null; body: string | null; bytes: number | null; note: string | null } | null;
+  response: { hash: string | null; body: string | null; bytes: number | null; note: string | null } | null;
 };
 
 export type DecisionsResponse = {

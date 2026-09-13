@@ -198,3 +198,43 @@ export async function updateListing(
   }
   return { ok: false, status: r.status, reason: r.reason, code: codeOf(r.body) };
 }
+
+/**
+ * Make a private agent public — permanently.
+ *
+ * `confirm: true` is sent because the service requires it, and the service
+ * requires it because there is no way back: the database refuses a public agent
+ * becoming private. The panel states every consequence before the button.
+ */
+export async function discloseAgent(
+  agentId: string,
+): Promise<{ ok: true; data: { disclosed_at: string; note: string } } | Fail> {
+  const r = await authed<{ disclosed_at: string; note: string }>(`/v1/agents/${agentId}/disclose`, {
+    method: 'POST',
+    body: { confirm: true },
+  });
+  if (r.ok) {
+    revalidatePath(`/me/agents/${agentId}`);
+    revalidatePath(`/agents/${agentId}`);
+    revalidatePath('/me');
+    return { ok: true, data: r.data };
+  }
+  return { ok: false, status: r.status, reason: r.reason, code: codeOf(r.body) };
+}
+
+/** Open the intelligence behind one decision of a private agent — permanently, and on its public record. */
+export async function revealDecision(
+  agentId: string,
+  decisionId: number,
+): Promise<{ ok: true; data: { disclosed_at: string; commitment: string | null; note: string } } | Fail> {
+  const r = await authed<{ disclosed_at: string; commitment: string | null; note: string }>(
+    `/v1/agents/${agentId}/decisions/${decisionId}/reveal`,
+    { method: 'POST' },
+  );
+  if (r.ok) {
+    revalidatePath(`/me/agents/${agentId}`);
+    revalidatePath(`/agents/${agentId}`);
+    return { ok: true, data: r.data };
+  }
+  return { ok: false, status: r.status, reason: r.reason, code: codeOf(r.body) };
+}

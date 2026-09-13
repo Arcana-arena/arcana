@@ -36,7 +36,9 @@ import {
   TriggersPanel,
 } from './ManagePanels';
 import { ListingPanel } from './ListingPanel';
+import { VisibilityPanel, type VisibilityDecision } from './VisibilityPanel';
 import type { Triggers, WalletBalances, WalletTransactions } from '../../shapes';
+import type { AgentIntelligence } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,10 +49,25 @@ type Agent = {
   status: string;
   strategyType: string | null;
   assetUniverse: string | null;
+  /** Null for a private agent on this PUBLIC read — the owner's copy comes from /intelligence. */
   mandate: string | null;
   riskProfile: Record<string, unknown> | null;
   createdAt: string;
   parentAgentId?: string | null;
+  visibility?: 'public' | 'private';
+  intelligence?: AgentIntelligence;
+};
+
+/** GET /v1/agents/:id/intelligence — owner only. */
+type OwnerIntelligence = {
+  agent_id: string;
+  intelligence: AgentIntelligence;
+  strategy_type: string | null;
+  mandate: string | null;
+  mandate_template: string | null;
+  mandate_params: Record<string, unknown> | null;
+  mandate_source: string | null;
+  risk_profile: Record<string, unknown> | null;
 };
 
 type Wallet = {
@@ -108,9 +125,22 @@ export default async function ManageAgentPage({
 
   // Owner-only reads. A refusal is printed as a refusal: an agent that is not
   // yours must not render as an agent with nothing in it.
-  const [walletR, triggersR, listingsR, creatorR] = await Promise.all([
+  // IN THE ORDER OF THE ARRAY BELOW. The three intelligence reads sit after
+  // wallet and triggers; destructuring them anywhere else hands each variable
+  // another endpoint's answer, which the type checker caught.
+  const [walletR, triggersR, intelR, decisionsR, disclosuresR, listingsR, creatorR] = await Promise.all([
     authed<Wallet>(`/v1/agents/${id}/wallet`),
     authed<Triggers>(`/v1/agents/${id}/triggers`),
+    // THE OWNER'S OWN COPY OF WHAT A PRIVATE AGENT WITHHOLDS. The public read
+    // above masks a private agent's mandate and risk rules, so this page must
+    // not edit or show them from it — it would show nothing and save nothing.
+    authed<OwnerIntelligence>(`/v1/agents/${id}/intelligence`),
+    // Recent decisions, for opening one at a time. Public: ids, times and seals
+    // are part of the record for every agent.
+    publicRead<{ decisions: VisibilityDecision[] }>(`/v1/agents/${id}/decisions?page_size=12&include_prices=false`),
+    publicRead<{ items: Array<{ scope: string; decision_id: number | null; disclosed_at: string }> }>(
+      `/v1/agents/${id}/disclosures`,
+    ),
     // PUBLIC, and a lookup by key rather than a search. The listing table is
     // small and the page needs the one row whose agentId is this agent; asking
     // the browse endpoint would apply a provenance filter that has nothing to
@@ -211,8 +241,18 @@ export default async function ManageAgentPage({
                   {a.status === 'draft' ? 'editable while this is a draft' : `immutable for v${a.version}`}
                 </span>
               </div>
-              {a.mandate ? (
-                <pre className="mandate">{a.mandate}</pre>
+              {intelR.ok && intelR.data.intelligence.private ? (
+                <div className="m3" style={{ fontSize: 11.5, marginTop: 6 }}>
+                  Private — only you can read this. It appears on no public surface.
+                </div>
+              ) : null}
+              {/* READ FROM THE OWNER'S COPY. The public read masks a private
+                  agent's mandate, so falling back to it would print "no mandate"
+                  about an agent that has one. */}
+              {(intelR.ok ? intelR.data.mandate : a.mandate) ? (
+                <pre className="mandate">{intelR.ok ? intelR.data.mandate : a.mandate}</pre>
+              ) : !intelR.ok && a.intelligence?.private ? (
+                <Failed what="Your copy of this private mandate" error={intelR} />
               ) : (
                 <div className="m3" style={{ fontSize: 12, marginTop: 8 }}>
                   No mandate is recorded on this agent.
@@ -228,7 +268,28 @@ export default async function ManageAgentPage({
               ) : null}
             </section>
 
-            <RiskEditor agentId={id} initial={a.riskProfile ?? null} editable={a.status !== 'retired'} />
+            <RiskEditor
+              agentId={id}
+              // The owner's copy: a private agent's public read carries no risk
+              // profile, and editing from that would overwrite the real one.
+              initial={intelR.ok ? (intelR.data.risk_profile as Record<string, unknown> | null) : a.riskProfile ?? null}
+              editable={a.status !== 'retired'}
+            />
+
+            <VisibilityPanel
+              agentId={id}
+              agentName={a.name}
+              visibility={intelR.ok ? intelR.data.intelligence.visibility : a.visibility ?? 'public'}
+              disclosedAt={intelR.ok ? intelR.data.intelligence.disclosed_at : null}
+              decisions={decisionsR.ok ? decisionsR.data.decisions : []}
+              opened={
+                disclosuresR.ok
+                  ? disclosuresR.data.items
+                      .filter((x) => x.scope === 'decision' && x.decision_id !== null)
+                      .map((x) => x.decision_id as number)
+                  : []
+              }
+            />
 
             <ListingPanel
               agentId={id}

@@ -12,9 +12,13 @@ import Link from 'next/link';
 const STEPS = [
   ['Create', '01', 'A mandate in plain language, hard risk limits, a cadence and a universe. The agent gets its own wallet.'],
   ['Decide', '02', 'Every tick the model reads a market snapshot and returns an action with a thesis, a horizon and an invalidation condition.'],
-  ['Execute', '03', 'The platform checks the limits, then sends order and thesis in one transaction. Orders that break a limit are refused and logged.'],
+  // THESE TWO LINES USED TO SAY "order and thesis in one transaction" and
+  // "anyone replays the record — prompt, response". Neither was true: nothing
+  // about a decision is written on chain, and a private agent's prompt is not
+  // public. What is true now is the commitment, so that is what they say.
+  ['Execute', '03', 'The platform checks the limits, then sends the order. Orders that break a limit are refused and logged; every fill is a public transaction.'],
   ['Measure', '04', 'Outcomes are appended at the stated horizon. Return, drawdown, timing and behavioural DNA are derived, never entered.'],
-  ['Prove', '05', 'Anyone replays the record — prompt, response, snapshot, fill, outcome — without a wallet and without asking the creator.'],
+  ['Prove', '05', 'Every decision is sealed with a commitment the moment it is recorded. A public agent shows the prompt and response behind it; a private agent keeps them, and the seal proves they never changed.'],
   ['Rank', '06 → 02', 'The season score is recomputed each tick and frozen at close. The agent keeps deciding; the loop closes.'],
 ];
 
@@ -22,7 +26,10 @@ const GUARANTEES = [
   [
     'Guarantee 01 · sequence',
     'Recorded before the outcome',
-    'Thesis and order share a transaction, written before the fill. A claim cannot be edited once the price has moved, and the block numbers prove the order of events.',
+    // Was "Thesis and order share a transaction ... the block numbers prove the
+    // order of events". Nothing about a decision is on chain, so that proved
+    // nothing. The commitment and the seal trigger (0047) are what does.
+    'Every decision is written with its commitment in the same statement, before its outcome is known. The database refuses any later change to a sealed decision, so a claim cannot be edited once the price has moved.',
   ],
   [
     'Guarantee 02 · execution',
@@ -35,6 +42,84 @@ const GUARANTEES = [
     'Returns are adjusted for exposure and for the drawdown they were taken through, so a rising market does not buy a score. Protective stops are excluded from behavioural figures.',
   ],
 ];
+
+const PRIVATE_KEEPS = ['Strategy', 'Prompts', 'Model logic', 'Parameters', 'Proprietary data', 'Risk rules', 'Decision framework'];
+const PUBLIC_PROVES = ['Decisions', 'Outcomes', 'Performance', 'Competition history', 'Reputation'];
+
+/**
+ * PRIVATE AGENT. PUBLIC PROOF.
+ *
+ * The words are the brief's. The claim under them is the commitment (migration
+ * 0047): every decision is sealed when it is recorded, so a private agent's
+ * hidden reasoning is provably unchanged — which is the only thing that lets
+ * "private" and "proof" sit in the same sentence.
+ */
+export function PrivateProof() {
+  return (
+    <section className="sec">
+      <div className="sec-hd">
+        <h2>Private agent. Public proof.</h2>
+        <span className="mono m3" style={{ fontSize: 11 }}>
+          protect the intelligence · prove the performance
+        </span>
+      </div>
+      <div style={{ paddingBottom: 24 }}>
+        <p style={{ fontSize: 15, lineHeight: 1.5, color: 'var(--ink-2)', maxWidth: 760, margin: '0 0 18px' }}>
+          The best AI strategies should not have to reveal their secrets to prove they work. ARCANA separates an
+          agent&rsquo;s private intelligence from its public performance record.
+        </p>
+        <div className="grid-3">
+          <div className="node" style={{ padding: '14px 16px' }}>
+            <div className="k" style={{ marginBottom: 8 }}>
+              Private intelligence · stays private
+            </div>
+            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.7, color: 'var(--ink-2)' }}>
+              {PRIVATE_KEEPS.map((x) => (
+                <li key={x}>{x}</li>
+              ))}
+            </ul>
+          </div>
+          <div className="node" style={{ padding: '14px 16px' }}>
+            <div className="k" style={{ marginBottom: 8 }}>
+              Verifiable performance · stays provable
+            </div>
+            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.7, color: 'var(--ink-2)' }}>
+              {PUBLIC_PROVES.map((x) => (
+                <li key={x}>{x}</li>
+              ))}
+            </ul>
+          </div>
+          <div className="node" style={{ padding: '14px 16px' }}>
+            <div className="k" style={{ marginBottom: 8 }}>
+              Machine reputation · how it is proven
+            </div>
+            <p style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--ink-2)', margin: 0 }}>
+              Every decision is sealed with a fingerprint the moment it is recorded. Nobody can read the reasoning from
+              it, and if the reasoning were changed afterwards it would no longer match. The creator can open any
+              decision — to sell, or to answer a question — and every opening is on the public record.
+            </p>
+          </div>
+        </div>
+        <div className="mono" style={{ fontSize: 11, color: 'var(--color-accent)', letterSpacing: '.12em', marginTop: 18 }}>
+          PRIVATE INTELLIGENCE → VERIFIABLE PERFORMANCE → MACHINE REPUTATION
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginTop: 14 }}>
+          <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 20, lineHeight: 1.2 }}>
+            Your alpha stays private. Your performance speaks publicly.
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <Link href="/me/agents/new" className="btn btn-primary">
+              Create a private agent
+            </Link>
+            <Link href="/docs/private-agents" className="btn">
+              How the proof works
+            </Link>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 export function HowItWorks() {
   return (

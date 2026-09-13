@@ -110,6 +110,13 @@ export default async function AgentPage({
             </span>
           ) : null}
           <StatusTag status={p?.agent?.status ?? a?.status ?? null} />
+          {/* PRIVATE IS A CHOICE, SO IT IS LABELLED AS ONE. Without this the page
+              would show nulls, and nulls read as "this agent has nothing". */}
+          {a?.intelligence?.private ? (
+            <Tag tone="outline" title={a.intelligence.note ?? undefined}>
+              PRIVATE AGENT · PUBLIC PROOF
+            </Tag>
+          ) : null}
           {p ? (
             p.participation?.ranked ? (
               <Tag tone="outline" title="This agent has recorded enough decisions to be placed on the leaderboard.">
@@ -232,7 +239,7 @@ export default async function AgentPage({
 
       <div className="sec" style={{ paddingTop: 22, paddingBottom: 44, borderBottom: 'none' }}>
         {tab === 'overview' ? (
-          <OverviewTab id={id} p={p} passportError={passportR.ok ? null : passportR} mandate={a?.mandate ?? null} />
+          <OverviewTab id={id} p={p} passportError={passportR.ok ? null : passportR} mandate={a?.mandate ?? null} intelligence={a?.intelligence ?? null} />
         ) : null}
         {tab === 'decisions' ? (
           <DecisionsTab id={id} p={p} page={page} open={open} filters={filters} hrefFor={hrefFor} />

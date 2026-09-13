@@ -132,6 +132,13 @@ export async function EvolutionTab({ id }: { id: string }) {
                   ))}
                 </div>
               )}
+              {c.config_changed?.risk_profile ? (
+                // A private version's risk rules are not diffed; saying so keeps
+                // "nothing changed" from being read into the silence.
+                <div className="m3" style={{ fontSize: 11.5, marginTop: 6, lineHeight: 1.45 }}>
+                  risk profile {c.config_changed.risk_profile}
+                </div>
+              ) : null}
 
               {c.behaviour ? (
                 <div style={{ marginTop: 14 }}>

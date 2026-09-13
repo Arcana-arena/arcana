@@ -58,11 +58,14 @@ export async function OverviewTab({
   p,
   passportError,
   mandate,
+  intelligence = null,
 }: {
   id: string;
   p: Passport | null;
   passportError: Err | null;
   mandate: string | null;
+  /** From GET /v1/agents/:id. `private: true` means the mandate is withheld, not absent. */
+  intelligence?: { private: boolean; note: string | null } | null;
 }) {
   const [navR, scoreR, overR, boardR] = await Promise.all([
     agent<NavSeries>(`/v1/agents/${id}/series/nav?page_size=500`),
@@ -157,9 +160,17 @@ export async function OverviewTab({
               describing an agent instead of showing it. */}
           <div style={{ borderLeft: '2px solid var(--color-accent)', padding: '4px 0 4px 16px' }}>
             <div className="k" style={{ marginBottom: 8 }}>
-              Mandate · verbatim
+              {intelligence?.private ? 'Mandate · private' : 'Mandate · verbatim'}
             </div>
-            {mandate ? (
+            {intelligence?.private ? (
+              // A CHOICE, SHOWN AS ONE. The deterministic-strategy sentence below
+              // would be false here: there is a mandate, and its owner keeps it.
+              <div className="m2" style={{ fontSize: 12.5, lineHeight: 1.55 }}>
+                <span className="tag tag-outline">PRIVATE</span> The creator keeps this agent&rsquo;s mandate private.
+                Its decisions, results and score are public, and every decision carries a commitment proving the
+                reasoning behind it was not changed after the fact.
+              </div>
+            ) : mandate ? (
               <div style={{ fontSize: 14.5, lineHeight: 1.5 }}>&ldquo;{mandate}&rdquo;</div>
             ) : (
               <div className="m3" style={{ fontSize: 12.5, lineHeight: 1.5 }}>

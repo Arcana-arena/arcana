@@ -308,11 +308,20 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
                   present its own description as evidence. */}
               <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--color-divider)' }}>
                 <Lbl>DECLARED · THE CREATOR&rsquo;S OWN LIMITS</Lbl>
-                <RiskBlock
-                  rp={d.risk_profile}
-                  note={d.risk_note}
-                  absent="No risk profile is recorded on this agent. That is an absent record, not a set of limits equal to zero."
-                />
+                {d.visibility === 'private' ? (
+                  // WITHHELD, SAID AS WITHHELD. "No risk profile is recorded" would
+                  // be false here, and would read as an agent trading without limits.
+                  <div className="m2" style={{ fontSize: 12, marginTop: 8, lineHeight: 1.5 }}>
+                    <span className="tag tag-outline">PRIVATE</span> The creator keeps this agent&rsquo;s risk rules
+                    private. In your wallet, your own limits apply either way.
+                  </div>
+                ) : (
+                  <RiskBlock
+                    rp={d.risk_profile}
+                    note={d.risk_note}
+                    absent="No risk profile is recorded on this agent. That is an absent record, not a set of limits equal to zero."
+                  />
+                )}
               </div>
               <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--color-divider)' }}>
                 <Lbl>
@@ -324,7 +333,17 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
             </section>
           </div>
 
-          {d.mandate ? (
+          {d.visibility === 'private' ? (
+            <section className="box">
+              <Key>Private agent · public proof</Key>
+              <div className="m2" style={{ fontSize: 12.5, marginTop: 8, lineHeight: 1.55 }}>
+                {d.intelligence_note}
+              </div>
+              <div style={{ marginTop: 10, fontSize: 12 }}>
+                <a href={`/agents/${d.agent_id}?tab=decisions`}>Every decision, and the commitment sealing each one →</a>
+              </div>
+            </section>
+          ) : d.mandate ? (
             <section className="box">
               <Key>The mandate, as written</Key>
               <pre className="mandate">{d.mandate}</pre>

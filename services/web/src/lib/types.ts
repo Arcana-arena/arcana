@@ -126,6 +126,21 @@ export type Agent = {
   status: string;
   provenance: string | null;
   createdAt: string;
+  /**
+   * PRIVATE AGENT. PUBLIC PROOF. For a private agent `mandate*` and `riskProfile`
+   * come back null and `intelligence.private` is true — withheld, which is not
+   * the same fact as "this agent has no mandate".
+   */
+  visibility?: 'public' | 'private';
+  intelligence?: AgentIntelligence;
+};
+
+export type AgentIntelligence = {
+  visibility: 'public' | 'private';
+  private: boolean;
+  withheld: string[];
+  disclosed_at: string | null;
+  note: string | null;
 };
 
 export type SeriesPoint = {

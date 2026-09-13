@@ -24,20 +24,34 @@ import { frac, money, num, utc } from '@/lib/format';
 import { Key, Num, Tag } from '@/components/ds/primitives';
 import { Callout, Empty, Failed, Unavailable } from '@/components/ds/states';
 
+/**
+ * `levels: 'withheld'` is a PRIVATE agent's armed or refused guard: which
+ * position is watched is public, the level it sits at is a risk rule and is not.
+ * The level fields are absent then, not null — nothing was measured as zero.
+ */
 type Protection =
   | {
       state: 'armed';
-      stop_loss: number | null;
-      stop_loss_fraction: number | null;
-      stop_loss_percent: number | null;
-      take_profit: number | null;
-      take_profit_fraction: number | null;
-      take_profit_percent: number | null;
-      set_at: string | null;
+      levels?: 'withheld';
+      note?: string;
+      stop_loss?: number | null;
+      stop_loss_fraction?: number | null;
+      stop_loss_percent?: number | null;
+      take_profit?: number | null;
+      take_profit_fraction?: number | null;
+      take_profit_percent?: number | null;
+      set_at?: string | null;
       held_back_since: string | null;
-      held_back_because: string | null;
+      held_back_because?: string | null;
     }
-  | { state: 'refused'; smallest_accepted_fraction: number | null; smallest_accepted_percent: number | null; because: string | null }
+  | {
+      state: 'refused';
+      levels?: 'withheld';
+      note?: string;
+      smallest_accepted_fraction?: number | null;
+      smallest_accepted_percent?: number | null;
+      because?: string | null;
+    }
   | { state: 'none'; because: string };
 
 type OpenPosition = {
@@ -187,14 +201,36 @@ export async function PositionsTab({ id }: { id: string }) {
                       )}
                     </td>
                     <td className="m2" style={{ fontSize: 12 }}>
-                      {p.protection.state === 'armed' ? (
-                        <Levels g={p.protection} />
+                      {p.protection.state !== 'none' && p.protection.levels === 'withheld' ? (
+                        // PRIVATE, NOT MISSING. The position is watched; the level
+                        // is the owner's risk rule and is not published.
+                        <span className="m3" title={p.protection.note}>
+                          <span className="tag tag-outline">PRIVATE</span> level withheld
+                          {p.protection.state === 'armed' && p.protection.held_back_since ? (
+                            <div className="dn" style={{ fontSize: 11, marginTop: 3 }}>
+                              crossed and NOT taken since {utc(p.protection.held_back_since)}
+                            </div>
+                          ) : null}
+                        </span>
+                      ) : p.protection.state === 'armed' ? (
+                        <Levels
+                          g={{
+                            stop_loss: p.protection.stop_loss ?? null,
+                            stop_loss_fraction: p.protection.stop_loss_fraction ?? null,
+                            stop_loss_percent: p.protection.stop_loss_percent ?? null,
+                            take_profit: p.protection.take_profit ?? null,
+                            take_profit_fraction: p.protection.take_profit_fraction ?? null,
+                            take_profit_percent: p.protection.take_profit_percent ?? null,
+                            held_back_since: p.protection.held_back_since,
+                            held_back_because: p.protection.held_back_because ?? null,
+                          }}
+                        />
                       ) : p.protection.state === 'refused' ? (
                         <>
                           {p.protection.because ?? 'the guard was refused and no reason was recorded'}
-                          {p.protection.smallest_accepted_percent !== null ? (
+                          {p.protection.smallest_accepted_percent != null ? (
                             <div className="mono m3" style={{ fontSize: 11, marginTop: 2 }}>
-                              smallest this pool accepts: {frac(p.protection.smallest_accepted_fraction, 6)} ={' '}
+                              smallest this pool accepts: {frac(p.protection.smallest_accepted_fraction ?? null, 6)} ={' '}
                               {num(p.protection.smallest_accepted_percent, 4)}%
                             </div>
                           ) : null}
@@ -242,12 +278,20 @@ export async function PositionsTab({ id }: { id: string }) {
                     <td className="mono">{c.symbol}</td>
                     <td><Tag tone="outline">{c.status.toUpperCase()}</Tag></td>
                     <td className="r"><Num value={money(c.entry_price)} /></td>
-                    <td className="r mono" style={{ fontSize: 11.5 }}>
-                      {money(c.stop_loss)} <span className="m3">({num(c.stop_loss_percent, 4)}%)</span>
-                    </td>
-                    <td className="r mono" style={{ fontSize: 11.5 }}>
-                      {money(c.take_profit)} <span className="m3">({num(c.take_profit_percent, 4)}%)</span>
-                    </td>
+                    {(c as { levels?: string }).levels === 'withheld' ? (
+                      <td className="r m3" colSpan={2} style={{ fontSize: 11.5 }}>
+                        <span className="tag tag-outline">PRIVATE</span> levels withheld
+                      </td>
+                    ) : (
+                      <>
+                        <td className="r mono" style={{ fontSize: 11.5 }}>
+                          {money(c.stop_loss)} <span className="m3">({num(c.stop_loss_percent, 4)}%)</span>
+                        </td>
+                        <td className="r mono" style={{ fontSize: 11.5 }}>
+                          {money(c.take_profit)} <span className="m3">({num(c.take_profit_percent, 4)}%)</span>
+                        </td>
+                      </>
+                    )}
                     <td className="mono m3" style={{ fontSize: 11 }}>{utc(c.set_at)}</td>
                   </tr>
                 ))}
