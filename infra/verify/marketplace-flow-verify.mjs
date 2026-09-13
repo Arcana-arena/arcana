@@ -27,7 +27,9 @@
  */
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { privateKeyToAccount, generatePrivateKey } from 'viem/accounts';
 import { suite } from './lib/sections.mjs';
+import { signIn as sharedSignIn, SIWE_DOMAIN, SIWE_URI } from './lib/rate-aware.mjs';
 
 const WEB = process.env.WEB_URL || 'http://127.0.0.1:3000';
 const MARKET = process.env.MARKETPLACE_URL || 'http://127.0.0.1:3002';
@@ -62,8 +64,18 @@ async function api(base, path) {
   return { status: r.status, body };
 }
 
-async function page(path) {
-  const r = await fetch(`${WEB}${path}`, { headers: { accept: 'text/html' } });
+/**
+ * A page, optionally as a signed-in wallet.
+ *
+ * The session cookie is httpOnly and set by /api/session, but the pages render
+ * on the server and read the cookie there — so handing the access token over as
+ * `arcana_at` is exactly what a browser would do, and it lets this suite reach
+ * the signed-in half of the marketplace without driving a wallet extension.
+ */
+async function page(path, token = null) {
+  const r = await fetch(`${WEB}${path}`, {
+    headers: { accept: 'text/html', ...(token ? { cookie: `arcana_at=${token}` } : {}) },
+  });
   return { status: r.status, html: await r.text() };
 }
 
@@ -224,15 +236,17 @@ try {
       check(`the step rail shows ${step}`, t.includes(step), `${step} not rendered`);
     }
 
-    // THE WARNING IS ON STEP ONE. This is the whole reason the panel starts on
-    // the quote: it is the last moment a buyer can still decide, and a warning
-    // shown after the transfer is a confession rather than a disclosure.
-    check('the no-refund warning is on the first step',
+    // THE WARNING IS ON STEP ONE, FOR EVERYBODY.
+    //
+    // This failed on its first run and the failure was real: the panel showed
+    // a signed-out visitor the price and the term and NOT the fact that the
+    // payment cannot be refunded. Somebody evaluating a purchase — which is
+    // precisely what a signed-out visitor is doing — could decide to buy
+    // without ever being told, and nothing stops them paying the address from
+    // outside this flow. The warning belongs to the quote, not to the session.
+    check('the no-refund warning is shown to a signed-out visitor too',
       /No refunds/i.test(t) && /cannot refund|never receives/i.test(t),
-      'the quote panel does not carry the warning');
-    check('and the acknowledgement is asked for before continuing',
-      /I understand the payment is final/i.test(t),
-      'no acknowledgement is required before the transfer step');
+      'the quote panel does not carry the warning before sign-in');
 
     const q = await api(MARKET, `/v1/marketplace/listings/${listingId}/quote`);
     if (q.status === 200) {
@@ -272,6 +286,56 @@ try {
         t.includes(String(d.body.pool_minimum_percent)),
         `${d.body.pool_minimum_percent}% not on the page`);
     }
+  });
+
+  await section('A signed-in buyer is gated on acknowledging the warning', async () => {
+    // THE LOGIN-GATED HALF, driven with a real SIWE session rather than
+    // deferred. It is the part of a marketplace that matters, and a suite that
+    // stopped at the sign-in wall would be proving the wall.
+    const buyer = privateKeyToAccount(generatePrivateKey());
+    const s = await sharedSignIn(process.env.AGENT_URL || 'http://127.0.0.1:3001', buyer, {
+      chainId: 4663,
+      domain: SIWE_DOMAIN,
+      uri: SIWE_URI,
+    });
+    if (s.status !== 200 || !s.body?.access_token) {
+      check('a wallet can sign in', false, `status ${s.status} ${JSON.stringify(s.body)}`);
+      return;
+    }
+    check('a wallet can sign in', true);
+    const token = s.body.access_token;
+
+    const p = await page(`/marketplace/${listingId}`, token);
+    const t = text(p.html);
+    check('the listing page renders for a signed-in buyer', p.status === 200, `status ${p.status}`);
+    check('the sign-in gate is gone', !/Sign in to subscribe/i.test(t), 'still asking a signed-in buyer to sign in');
+    check('the no-refund warning is still on the quote step',
+      /No refunds/i.test(t), 'the warning disappeared once signed in');
+    // THE BUTTON IS DISABLED UNTIL THE WARNING IS ACKNOWLEDGED. An
+    // irreversible transfer should not be one accidental click away.
+    check('an acknowledgement is required before the transfer step',
+      /I understand the payment is final/i.test(t),
+      'no acknowledgement is asked for');
+    check('and the continue control starts disabled',
+      /disabled=""|disabled\b/.test(p.html),
+      'the continue button is not disabled before the box is ticked');
+
+    // MY SUBSCRIPTIONS, for a wallet that has none. The distinction that
+    // matters is a counted zero rather than a failure to read.
+    const mine = await page('/me/subscriptions', token);
+    const mt = text(mine.html);
+    check('the subscriptions page renders for a signed-in wallet', mine.status === 200, `status ${mine.status}`);
+    check('and a wallet with no subscription is told so, as a counted zero',
+      /Nothing is trading in this wallet/i.test(mt),
+      'the empty subscription list does not say which kind of empty it is');
+    check('rather than reporting a failure to read',
+      !/could not be read/i.test(mt), 'the page reports a read failure for an empty list');
+
+    // AND A SIGNED-OUT VISITOR IS SENT TO SIGN IN, not shown an empty list.
+    const out = await page('/me/subscriptions');
+    check('a signed-out visitor is redirected to sign in rather than shown an empty list',
+      out.status === 200 && /Sign in|signin/i.test(out.html),
+      `status ${out.status}`);
   });
 
   await section('A fixture listing does not leak into the public grid', async () => {

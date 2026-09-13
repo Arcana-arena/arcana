@@ -123,7 +123,19 @@ export function SubscribeFlow({
       <aside className="blueprint panel">
         <StepBar step="quote" />
         <QuoteBody quote={quote} agentName={agentName} />
-        <div className="callout callout-note" style={{ marginTop: 14 }}>
+        {/*
+          THE WARNING IS SHOWN BEFORE SIGN-IN, and the first version of this
+          panel did not do that. A signed-out visitor is exactly the person
+          deciding whether to buy — they can read the price, the payee and the
+          term here, and nothing stops them sending the money from their wallet
+          without ever coming back to this page. Withholding "this cannot be
+          refunded" until after they authenticate puts the disclosure on the
+          wrong side of the decision it exists to inform.
+        */}
+        <div className="callout callout-bad" style={{ marginTop: 16 }}>
+          <strong>No refunds.</strong> {quote.warning}
+        </div>
+        <div className="callout callout-note" style={{ marginTop: 12 }}>
           Subscribing needs a signed-in wallet, because the payment is matched against the wallet that sent it. Reading
           this listing does not.
         </div>
