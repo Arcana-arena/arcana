@@ -196,6 +196,25 @@ export default async function AgentPage({
           </div>
         ) : null}
 
+        {/*
+          A RETIRED AGENT IS FROZEN, NOT MISSING, and the difference has to be
+          said out loud. Its record does not update and never will, so a reader
+          who returns tomorrow expecting movement should be told today. The
+          record itself stays fully readable — every decision, every prompt,
+          every final position — because a record that disappears when an agent
+          stops is not a record.
+        */}
+        {(p?.agent?.status ?? a?.status) === 'retired' ? (
+          <div style={{ marginTop: 14 }}>
+            <Callout tone="note">
+              <strong>This agent no longer trades. Its record is frozen.</strong> Nothing below will change again:{' '}
+              <span className="mono">{int(p?.participation?.decisions)}</span> recorded decisions, every prompt and raw
+              response behind them, and its final positions all remain readable. It is not a live page and refreshing
+              it will not move anything.
+            </Callout>
+          </div>
+        ) : null}
+
         {!passportR.ok ? (
           <div style={{ marginTop: 14 }}>
             <Callout tone="bad">
