@@ -27,6 +27,7 @@ import { ActionTag, Key, Num, Tag } from '@/components/ds/primitives';
 import { Callout, Empty, Failed, Unavailable } from '@/components/ds/states';
 import { Pager } from '@/components/ds/nav';
 import type { DecidedBy, DecisionsResponse, Evidence, Passport } from '../shapes';
+import { AnchorBlock } from './AnchorBlock';
 
 const PAGE_SIZE = 25;
 
@@ -240,7 +241,15 @@ export async function DecisionsTab({
                         {!evidence ? null : !evidence.ok ? (
                           <Failed what="The evidence" error={evidence} />
                         ) : (
-                          <EvidenceBlock e={evidence.data} snapshot={row.evidence?.market_snapshot_ref ?? null} />
+                          <>
+                            <EvidenceBlock e={evidence.data} snapshot={row.evidence?.market_snapshot_ref ?? null} />
+                            {/* The commitment proves the reasoning was fixed when
+                                recorded; the anchor proves the commitment was, too,
+                                against data ARCANA does not control. */}
+                            <div style={{ marginTop: 14 }}>
+                              <AnchorBlock agentId={id} decisionId={String(row.decision_id)} />
+                            </div>
+                          </>
                         )}
                       </td>
                     </tr>

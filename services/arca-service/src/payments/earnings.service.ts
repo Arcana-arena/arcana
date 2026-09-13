@@ -106,8 +106,12 @@ export class EarningsService {
            FROM subscriptions s
            JOIN marketplace_listings l ON l.id = s.listing_id
            JOIN agents a ON a.id = l.agent_id
-          WHERE a.creator_id = $2`,
-        [wallet, creatorId],
+          WHERE a.creator_id = $1`,
+        // ONE PLACEHOLDER, ONE PARAMETER. This passed [wallet, creatorId] and
+        // used only $2, so Postgres could not type $1 and refused the query —
+        // "could not determine data type of parameter $1", a 500 for every
+        // creator with a wallet, from 2026-09-13 until this line.
+        [creatorId],
       ),
       // Claims in some OTHER token. Counted and named, never added in.
       tokenAddress

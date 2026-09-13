@@ -208,6 +208,45 @@ func (k *Keyring) SignHash(agentID string, hash []byte) (r, s [32]byte, v byte, 
 	if err != nil {
 		return r, s, 0, err
 	}
+	return SignHashWith(priv, hash)
+}
+
+// LoadStandaloneKey reads ONE private key from a file: a key that is not derived
+// from the master seed and so cannot be reached through any agent id.
+//
+// It exists for the anchoring signer (cmd/anchor). Its key writes Merkle roots
+// and holds only gas; deriving it from the seed that holds every agent's wallet
+// would put it one mistyped agent id away from those wallets, and put those
+// wallets in a process whose job is to publish data. Same file-mode rule as the
+// seed: readable by anyone but its owner, and it is refused.
+func LoadStandaloneKey(path string) (*secp256k1.PrivateKey, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("key file: %w", err)
+	}
+	if mode := info.Mode().Perm(); mode&0o077 != 0 {
+		return nil, fmt.Errorf(
+			"key file %s has mode %04o: readable or writable by group or others. Set it to 0400 "+
+				"and own it by the service user. Refusing to start", path, mode)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("key file: %w", err)
+	}
+	return parsePrivateKey(string(raw))
+}
+
+// ParsePrivateKeyHex validates a 32-byte secp256k1 key given as hex.
+func ParsePrivateKeyHex(text string) (*secp256k1.PrivateKey, error) {
+	return parsePrivateKey(text)
+}
+
+// SignHashWith signs a 32-byte hash with a given key. SignHash uses it, so the
+// low-S compact signature this service produces has one implementation.
+func SignHashWith(priv *secp256k1.PrivateKey, hash []byte) (r, s [32]byte, v byte, err error) {
+	if len(hash) != 32 {
+		return r, s, 0, fmt.Errorf("sign: hash must be 32 bytes, got %d", len(hash))
+	}
 	sig := ecdsa.SignCompact(priv, hash, false)
 	// SignCompact layout: [recovery+27] [R 32] [S 32]
 	if len(sig) != 65 {

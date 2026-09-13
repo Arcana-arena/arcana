@@ -9,11 +9,26 @@ export type VisibilityDecision = {
   ts: string;
   action: string;
   symbol: string | null;
+  reason_code?: string | null;
+  decider?: string | null;
   commitment?: string | null;
   intelligence?: 'public' | 'withheld' | 'opened';
 };
 
 type Fail = { ok: false; status: number | null; reason: string; code: string | null };
+
+/**
+ * Reasons a decision was recorded WITHOUT asking the model. Opening one reveals
+ * no prompt and no response, because there were none — so the table says so
+ * before somebody spends a permanent disclosure on it. The reason code is public
+ * for every agent; this reveals nothing new.
+ */
+const NO_PROMPT: Record<string, string> = {
+  no_material_move: 'nothing moved, no model was asked',
+  inference_budget_exhausted: 'budget spent, no model was asked',
+  cost_budget_exceeded: 'cost budget, no model was asked',
+  llm_unavailable: 'model unavailable',
+};
 
 /**
  * PRIVATE AGENT. PUBLIC PROOF. — the owner's controls.
@@ -173,10 +188,13 @@ function OpenDecisions({
           Opening a decision reveals them.
         </li>
         <li>It is permanent and is written to the agent&rsquo;s public record of disclosures.</li>
+        <li>A decision marked &ldquo;no model was asked&rdquo; has no prompt behind it; opening it shows nothing new.</li>
       </ul>
 
       {decisions.length === 0 ? (
-        <div className="m3" style={{ fontSize: 12, marginTop: 10 }}>This agent has recorded no decision yet.</div>
+        <div className="m3" style={{ fontSize: 12, marginTop: 10 }}>
+          This agent has recorded no decision yet. An agent decides only once it holds a seat in a running competition.
+        </div>
       ) : (
         <div className="scroll-x" style={{ marginTop: 10 }}>
           <table className="table">
@@ -185,6 +203,7 @@ function OpenDecisions({
                 <th>Time (UTC)</th>
                 <th>Action</th>
                 <th>Symbol</th>
+                <th>Why</th>
                 <th>Commitment</th>
                 <th />
               </tr>
@@ -193,6 +212,7 @@ function OpenDecisions({
               {decisions.map((d) => {
                 const did = d.decision_id ?? null;
                 const isOpen = did !== null && (openedSet.has(did) || d.intelligence === 'opened' || done[did]);
+                const noPrompt = d.reason_code ? NO_PROMPT[d.reason_code] : undefined;
                 return (
                   <tr key={`${d.ts}-${did}`}>
                     <td className="mono m2" style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>
@@ -200,6 +220,9 @@ function OpenDecisions({
                     </td>
                     <td className="mono">{d.action}</td>
                     <td className="mono">{d.symbol || <span className="m3">—</span>}</td>
+                    <td className={noPrompt ? 'm3' : 'm2'} style={{ fontSize: 11.5 }}>
+                      {noPrompt ?? d.reason_code ?? (d.decider === 'protective' ? 'a protective level' : 'the agent decided')}
+                    </td>
                     <td className="mono m3" style={{ fontSize: 11 }} title={d.commitment ?? undefined}>
                       {d.commitment ? `${d.commitment.slice(0, 12)}…` : 'none'}
                     </td>

@@ -1,0 +1,16 @@
+# arcana-error-watch.timer — every ten minutes.
+#
+# Chosen against how long a broken read can go unnoticed, not against load: the
+# script reads only what was logged since its last run. Ten minutes means a new
+# class of server error is in front of a person within one coffee, rather than
+# days later by accident, which is how the earnings 500 was found.
+[Unit]
+Description=Run the ARCANA error watch every ten minutes
+
+[Timer]
+OnCalendar=*:0/10
+RandomizedDelaySec=30
+Persistent=true
+
+[Install]
+WantedBy=timers.target

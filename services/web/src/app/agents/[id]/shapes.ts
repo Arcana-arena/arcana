@@ -387,3 +387,36 @@ export type NavSeries = {
   seasons: Array<{ season_id: string; season_name: string; start_at: string; end_at: string; market_sources?: string[] }>;
   points: Array<{ ts: string; season_id: string | null; agg?: string | null; nav?: number | null; arcana_score?: number | null }>;
 };
+
+/**
+ * GET /v1/agents/:id/decisions/:d/anchor — which on-chain root contains a
+ * decision, and the evidence for it. `pending` is sealed and not yet anchored;
+ * `anchoring` is in a transaction that is not mined yet.
+ */
+export type AnchorProofResp = {
+  decision_id: number;
+  status: 'anchored' | 'anchoring' | 'mismatch' | 'pending' | 'no_commitment';
+  commitment: string | null;
+  note?: string;
+  anchor?: {
+    id: number;
+    scheme: string;
+    root: string;
+    leaf_count: number;
+    chain_id: number;
+    sender: string;
+    tx_hash: string;
+    explorer_url: string | null;
+    status: string;
+    block_number: number | null;
+    mined_at: string | null;
+    gas_cost_usd: number | null;
+  };
+  leaf_index?: number;
+  leaf_count?: number;
+  proof?: Array<{ sibling: string; position: 'left' | 'right' }>;
+  expected_input?: string;
+  checks?: Array<{ name: string; ok: boolean; detail?: string }>;
+  on_chain?: { reachable: boolean; block_number: number | null; reason: string | null };
+  how_to_check?: string;
+};

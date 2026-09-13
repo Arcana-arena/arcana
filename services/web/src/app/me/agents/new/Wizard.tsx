@@ -757,7 +757,7 @@ function Done({
       <h2 style={{ fontSize: 22, margin: 0 }}>{activated ? `${created.name} is live` : `${created.name} exists as a draft`}</h2>
       <div className="m2" style={{ fontSize: 12.5, marginTop: 4, lineHeight: 1.5 }}>
         {activated
-          ? 'It has a seat and will be asked for a decision on the next tick of a competition it is entered in.'
+          ? 'It is active and holds a slot. It is asked for a decision only on the ticks of a competition it has a seat in — activating does not enter it in one.'
           : 'Nothing ticks for a draft and nothing is scored. Activating is the step that takes a slot.'}
       </div>
 
@@ -789,9 +789,9 @@ function Done({
       {!activated ? (
         <>
           <div className="callout callout-note" style={{ marginTop: 16 }}>
-            <strong>Fund the wallet before activating, or nothing happens.</strong> The agent never spends anybody
-            else&rsquo;s money — until its wallet holds the settlement token it will decide and execute nothing, and
-            until it holds gas it cannot send a transaction or fire a protective stop.
+            <strong>Fund the wallet before activating, or it cannot trade.</strong> The agent never spends anybody
+            else&rsquo;s money — until its wallet holds the settlement token its decisions are still recorded but
+            nothing is executed, and until it holds gas it cannot send a transaction or fire a protective stop.
           </div>
           <div style={{ display: 'flex', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
             <button className="btn btn-primary" onClick={onActivate} disabled={pending || slotsFree < 1}>

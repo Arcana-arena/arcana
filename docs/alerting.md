@@ -25,7 +25,7 @@ So there are two layers.
 
 ## Layer 1 — `OnFailure=` on every job
 
-Thirteen units declare `OnFailure=arcana-alert@%n.service`:
+Sixteen units declare `OnFailure=arcana-alert@%n.service`:
 
 | Unit | What it does |
 |---|---|
@@ -43,6 +43,9 @@ Thirteen units declare `OnFailure=arcana-alert@%n.service`:
 | `arcana-signer` | the isolated key-custody service |
 | `arcana-backup` | daily full backup |
 | `arcana-backup-verify` | weekly restore rehearsal |
+| `arcana-error-watch` | reads the journals of agent, arca, marketplace and web every ten minutes and alerts on new server errors (`ExceptionsHandler`, `QueryFailedError`). A service answering requests with 500s is an active unit, so `OnFailure=` alone cannot see it — the earnings read failed for every creator for a day that way |
+| `arcana-anchor` | writes the next Merkle root of decision commitments on chain every fifteen minutes. Alerts when anchoring has worked before and cannot now (unfunded wallet, signer refusing, broadcast failing); before the first anchor ever lands, an unfunded wallet is left to `anchor-verify` rather than alerted every run |
+| `arcana-anchor-signer` | the anchoring signer: one key, not derived from the agent seed, one transaction shape (a self-send carrying a root) |
 | ~~`arcana-tick-watchdog`~~ | **RETIRED 2026-09-11.** Asked "was there a tick on a day the market was open" — a question about a calendar that no longer exists. Replaced by `arcana-decision-watchdog`, which asks whether a DECISION has been recorded in the last twelve hours. |
 
 One template rather than one handler per unit, because a second copy would

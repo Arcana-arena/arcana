@@ -1,0 +1,54 @@
+# arcana-anchor-signer.service — signs anchoring transactions, and nothing else.
+#
+# A SEPARATE PROCESS FROM arcana-signer, ON PURPOSE. That signer holds the seed
+# for every agent wallet and accepts no caller-influenced bytes. Anchoring puts
+# a caller-chosen root into a transaction, so it lives here: its own user, its
+# own key (not derived from the agent seed), its own caps. See docs/anchoring.md.
+#
+# The key is created deliberately, never by the installer:
+#   sudo -u arcana-anchor /usr/local/bin/arcana-anchor-signer keygen
+# Without it the service boots, serves /healthz, and refuses every request.
+[Unit]
+Description=ARCANA anchoring signer (Merkle roots on chain)
+After=network-online.target
+Wants=network-online.target
+OnFailure=arcana-alert@%n.service
+
+[Service]
+Type=simple
+User=arcana-anchor
+Group=arcana-anchor
+WorkingDirectory=/etc/arcana/anchor
+Environment=PORT=8087
+Environment=ANCHOR_KEY_FILE=/etc/arcana/anchor/anchor.key
+Environment=ANCHOR_CHAIN_ID=4663
+# Caps. 5 gwei is ~40x the gas price measured when this was written (0.087-0.16
+# gwei); 150k gas is ~4x an anchor's measured need. 96 a day is one every fifteen
+# minutes, the timer's own ceiling.
+Environment=ANCHOR_MAX_FEE_WEI=5000000000
+Environment=ANCHOR_MAX_GAS=150000
+Environment=ANCHOR_MAX_PER_DAY=96
+Environment=ANCHOR_SIGNATURE_COUNT_FILE=/etc/arcana/anchor/state/signatures.json
+EnvironmentFile=-/etc/arcana/anchor/anchor.env
+ExecStart=/usr/local/bin/arcana-anchor-signer
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=/etc/arcana/anchor
+ReadWritePaths=/etc/arcana/anchor/state
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target

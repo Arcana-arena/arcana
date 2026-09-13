@@ -287,3 +287,41 @@ func (c *RPC) EthUSD(ctx context.Context, feed string) (float64, error) {
 	out, _ := f.Float64()
 	return out, nil
 }
+
+// GasPrice is eth_gasPrice: what the chain says one unit of gas costs now.
+func (c *RPC) GasPrice(ctx context.Context) (*big.Int, error) {
+	s, err := c.hexString(ctx, "eth_gasPrice", []any{})
+	if err != nil {
+		return nil, err
+	}
+	return hexToBig(s)
+}
+
+// NonceLatest counts MINED transactions from an address. Nonce counts pending
+// ones too; the difference is how an anchor whose nonce was spent by another
+// transaction is told apart from one that is merely slow.
+func (c *RPC) NonceLatest(ctx context.Context, addr string) (uint64, error) {
+	s, err := c.hexString(ctx, "eth_getTransactionCount", []any{addr, "latest"})
+	if err != nil {
+		return 0, err
+	}
+	v, err := hexToBig(s)
+	if err != nil {
+		return 0, err
+	}
+	return v.Uint64(), nil
+}
+
+// EstimateGas asks the chain what a call would use, including any data cost the
+// chain charges on top of execution.
+func (c *RPC) EstimateGas(ctx context.Context, from, to, data string) (uint64, error) {
+	s, err := c.hexString(ctx, "eth_estimateGas", []any{map[string]string{"from": from, "to": to, "data": data}})
+	if err != nil {
+		return 0, err
+	}
+	v, err := hexToBig(s)
+	if err != nil {
+		return 0, err
+	}
+	return v.Uint64(), nil
+}

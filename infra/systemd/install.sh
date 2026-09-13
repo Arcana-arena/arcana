@@ -107,6 +107,11 @@ echo "==> building cadence binary"
 echo "==> building position guard binary"
 (cd "$REPO/services/decision-engine" && /usr/local/go/bin/go build -ldflags "$LDFLAGS" -o "$BIN_DIR/guard" ./cmd/guard)
 
+# The anchoring job: Merkle roots of decision commitments, written on chain by
+# arcana-anchor-signer (built below, with the signer). It holds no key.
+echo "==> building anchor job binary"
+(cd "$REPO/services/decision-engine" && /usr/local/go/bin/go build -ldflags "$LDFLAGS" -o "$BIN_DIR/anchor" ./cmd/anchor)
+
 # Operator tool, not a scheduled job: it loads historical sessions into
 # market_snapshots so /previous and Agent DNA have depth from day one. Built
 # here so it is on hand rather than rebuilt from memory at the moment it is
@@ -187,6 +192,36 @@ if [ -f "$REPO/.env.auth" ]; then
   grep -m1 "^INTERNAL_API_KEY=" "$REPO/.env.auth" | sudo tee /etc/arcana/signer/signer.env >/dev/null
   sudo chmod 0640 /etc/arcana/signer/signer.env
   sudo chgrp arcana-signer /etc/arcana/signer/signer.env
+fi
+
+# THE ANCHORING SIGNER: a second key-holding identity, deliberately not the
+# first. arcana-signer holds the seed for every agent wallet and accepts no
+# caller-influenced bytes; anchoring puts a caller-chosen root into a
+# transaction, so it gets its own user, its own key and its own caps. See
+# docs/anchoring.md.
+#
+# As with the signer's seed, NO KEY IS CREATED HERE. The service boots without
+# one and refuses every request until somebody runs keygen on purpose.
+echo "==> anchoring signer identity and key directory"
+if ! id arcana-anchor >/dev/null 2>&1; then
+  sudo useradd --system --no-create-home --shell /usr/sbin/nologin arcana-anchor
+  echo "    created system user arcana-anchor (nologin)"
+fi
+sudo install -d -o arcana-anchor -g arcana-anchor -m 0700 /etc/arcana/anchor
+sudo install -d -o arcana-anchor -g arcana-anchor -m 0700 /etc/arcana/anchor/state
+(cd "$REPO/services/signer" && /usr/local/go/bin/go build -ldflags "$LDFLAGS" -o /tmp/arcana-anchor-signer ./cmd/anchor)
+sudo install -o root -g root -m 0755 /tmp/arcana-anchor-signer /usr/local/bin/arcana-anchor-signer
+rm -f /tmp/arcana-anchor-signer
+if [ -f "$REPO/.env.auth" ]; then
+  sudo install -o root -g arcana-anchor -m 0640 /dev/null /etc/arcana/anchor/anchor.env
+  grep -m1 "^INTERNAL_API_KEY=" "$REPO/.env.auth" | sudo tee /etc/arcana/anchor/anchor.env >/dev/null
+  sudo chmod 0640 /etc/arcana/anchor/anchor.env
+  sudo chgrp arcana-anchor /etc/arcana/anchor/anchor.env
+fi
+if ! sudo test -f /etc/arcana/anchor/anchor.key; then
+  echo "    NOTE: no anchoring key yet. Nothing is anchored until one is created deliberately:"
+  echo "          sudo -u arcana-anchor /usr/local/bin/arcana-anchor-signer keygen"
+  echo "          and its address is funded with the chain's gas token."
 fi
 
 echo "==> installing units"

@@ -1,0 +1,22 @@
+# arcana-anchor.timer — every fifteen minutes, and only spends when there is something new.
+#
+# THE WINDOW. Until its root is mined, a sealed decision is protected by the
+# database alone. Fifteen minutes keeps that window far shorter than anything a
+# rewrite could exploit: agents decide on a four-hour cadence, and a thesis is
+# judged over ticks, so the root is public long before any outcome is known.
+#
+# THE COST. A run with no new commitment sends nothing. Decisions arrive in
+# clusters at each tick, so in practice this is a handful of anchors a day, not
+# ninety-six. Measured when written: gas price 0.087-0.16 gwei, an approve at
+# ~60k gas costing ~$0.02, so an anchor (~22-40k gas) is roughly a cent. The
+# ceiling, one every run, is about $1.25 a day and is enforced by the signer.
+[Unit]
+Description=Anchor decision commitments on chain every fifteen minutes
+
+[Timer]
+OnCalendar=*:0/15
+RandomizedDelaySec=60
+Persistent=true
+
+[Install]
+WantedBy=timers.target

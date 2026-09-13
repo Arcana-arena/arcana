@@ -190,6 +190,19 @@ try {
     const t = text(p.html);
     check('and the page prints the cap rather than a number of its own',
       t.includes(`of ${d.body.slots.cap}`), `expected "of ${d.body.slots.cap}" on the page`);
+
+    // THE CHECKS THAT WERE MISSING. The earnings read failed for every creator
+    // with a wallet from 2026-09-13, and this suite loaded /me for such a
+    // creator on every run and passed: agent-service turns arca's 500 into a
+    // 200 with `available: false`, and the page renders that as a tolerated
+    // "could not be read". Both are right for an outage and both hid a bug, so
+    // with arca reachable the answer has to be an actual answer.
+    const e = await api(`/v1/creators/${creatorId}/earnings`);
+    check('the earnings read answers for a creator with a wallet', e.status === 200, `status ${e.status}`);
+    check('and is available, not a tolerated failure', e.body?.available === true,
+      `available=${e.body?.available} reason=${e.body?.reason ?? ''}`);
+    check('so the dashboard does not say the payment record could not be read',
+      !/payment record could not be read/i.test(t), 'the /me page renders the earnings failure state');
   });
 
   await section('Risk limits can be changed on a live agent, and removal is named', async () => {

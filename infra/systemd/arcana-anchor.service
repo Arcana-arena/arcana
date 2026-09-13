@@ -1,0 +1,31 @@
+# arcana-anchor.service — writes the next Merkle root of decision commitments on chain.
+#
+# One run settles any pending anchor, then anchors every sealed decision not yet
+# anchored, if there is one. It holds no key: arcana-anchor-signer signs. See
+# docs/anchoring.md.
+#
+# Fails (and alerts) when anchoring has worked before and cannot now — an
+# unfunded wallet after the first anchor, a signer that refuses, a broadcast
+# that fails. Before the first anchor ever lands, an unfunded wallet is a setup
+# step and is left to anchor-verify rather than alerted every fifteen minutes.
+[Unit]
+Description=ARCANA anchor (Merkle root of decision commitments on chain)
+After=network-online.target docker.service arcana-anchor-signer.service
+Wants=network-online.target
+OnFailure=arcana-alert@%n.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+SyslogIdentifier=arcana-anchor
+WorkingDirectory=/home/ubuntu/arcana
+Environment=DATABASE_URL=postgres://arcana:arcana@localhost:5432/arcana?sslmode=disable
+Environment=EXECUTION_RPC_URLS=https://robinhood-rpc.publicnode.com,https://rpc.mainnet.chain.robinhood.com
+Environment=ANCHOR_SIGNER_URL=http://127.0.0.1:8087
+Environment=ANCHOR_CHAIN_ID=4663
+EnvironmentFile=-/home/ubuntu/arcana/.env.auth
+ExecStart=/usr/bin/flock -n /tmp/arcana-anchor.lock /home/ubuntu/arcana/scheduler-bin/anchor
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,24 @@
+# arcana-error-watch.service — the failure OnFailure= cannot see, again.
+#
+# A service that answers requests with 500s is still an active unit. The earnings
+# read failed for every creator from 2026-09-13 for that reason: arca-service
+# logged it, nothing read the log, and every unit stayed green.
+#
+# READ-ONLY. It reads journals and sends alerts; it restarts nothing.
+[Unit]
+Description=ARCANA error watch (server errors in service journals)
+After=network-online.target
+Wants=network-online.target
+OnFailure=arcana-alert@%n.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+SyslogIdentifier=arcana-error-watch
+WorkingDirectory=/home/ubuntu/arcana
+EnvironmentFile=-/home/ubuntu/arcana/.env.alerts
+ExecStart=/usr/bin/flock -n /tmp/arcana-error-watch.lock /home/ubuntu/arcana/infra/alerting/arcana-error-watch.sh
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

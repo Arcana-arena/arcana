@@ -550,6 +550,26 @@ GET  /v1/agents/:id/intelligence                 owner only: the mandate and ris
 POST /v1/agents/:id/disclose        {confirm:true}   owner only: make the agent public, permanently
 POST /v1/agents/:id/decisions/:d/reveal          owner only: open one decision, permanently`}</CodeBlock>
 
+        <h2 id="anchoring">Anchored on chain</h2>
+        <p>
+          A database that refuses to change a sealed row still belongs to whoever runs it. So every fifteen minutes, the
+          commitments sealed since the last anchor become the leaves of a Merkle tree, and its root is written into a
+          transaction on Robinhood Chain: a zero-value transaction from ARCANA&rsquo;s anchoring address to itself, whose
+          input is the marker <code>415243414e410001</code> followed by the root. After it is mined, changing, deleting
+          or backdating an anchored decision breaks a proof anyone can check against the chain.
+        </p>
+        <p>
+          Every decision&rsquo;s evidence shows the root that contains it, the transaction hash, its position in the
+          tree and the proof. To check it without ARCANA: read the transaction with any RPC and compare its input; then
+          hash the commitment as <code>sha256(0x00 || commitment)</code> and fold in each proof step as{' '}
+          <code>sha256(0x01 || left || right)</code>. You must arrive at the root. The gas is paid by ARCANA, never by an
+          agent or its owner, and every anchor&rsquo;s cost is on <Link href="/anchors">/anchors</Link>. Until its root is
+          mined — at most one interval — a decision is protected by the database alone.
+        </p>
+        <CodeBlock label="ENDPOINTS">{`GET  /v1/anchors                                 every anchor, its transaction, and the platform's gas cost
+GET  /v1/anchors/:id                             one anchor's leaves, recomputed and checked against the chain
+GET  /v1/agents/:id/decisions/:d/anchor          the root containing a decision, the proof, every check`}</CodeBlock>
+
         <h2 id="one-way">Why it only moves one way</h2>
         <p>
           <strong>Private to public is allowed</strong> — it only ever adds to what can be read.{' '}
