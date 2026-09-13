@@ -72,6 +72,36 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
     quoteError = d.not_buyable_note;
   }
 
+  /*
+   * THE PAYMENT QR, RENDERED ON THE SERVER FROM THE SERVICE'S OWN URI.
+   *
+   * The EIP-681 string is built by arca-service, beside the address and the
+   * amount it verifies against — this page does not assemble one. That matters
+   * more here than anywhere else on the site: a QR is the one control a buyer
+   * cannot proofread, so if the page composed its own, the address on screen
+   * and the address in the code could differ and only the chain would find out.
+   *
+   * Encoded here rather than in the browser so the panel needs no extra
+   * bundle, and so a page with JavaScript still loading is not showing an
+   * empty square where a payment instruction belongs.
+   */
+  let qrSvg: string | null = null;
+  if (quote?.eip681) {
+    try {
+      const QRCode = (await import('qrcode')).default;
+      qrSvg = await QRCode.toString(quote.eip681, {
+        type: 'svg',
+        margin: 1,
+        errorCorrectionLevel: 'M',
+        color: { dark: '#050b07', light: '#e4ede7' },
+      });
+    } catch {
+      // A QR that could not be drawn is left out, and the address and amount
+      // are on the page in full either way. Nothing here is only scannable.
+      qrSvg = null;
+    }
+  }
+
   const signedIn = sessionState.state === 'signed_in';
   const perf = d.performance;
   const chartPoints = perf.series.map((p) => ({ ts: p.ts, value: p.nav, agg: p.agg }));
@@ -310,6 +340,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
           agentName={name}
           quote={quote}
           quoteError={quoteError}
+          qrSvg={qrSvg}
           signedIn={signedIn}
           signInHref={`/signin?next=${encodeURIComponent(`/marketplace/${d.listing_id}`)}`}
         />

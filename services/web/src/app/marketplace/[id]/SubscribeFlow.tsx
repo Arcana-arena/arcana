@@ -43,6 +43,7 @@ export function SubscribeFlow({
   agentName,
   quote,
   quoteError,
+  qrSvg,
   signedIn,
   signInHref,
 }: {
@@ -50,6 +51,8 @@ export function SubscribeFlow({
   agentName: string;
   quote: Quote | null;
   quoteError: string | null;
+  /** Rendered on the server from the service's own EIP-681 URI. Never built here. */
+  qrSvg: string | null;
   signedIn: boolean;
   signInHref: string;
 }) {
@@ -220,6 +223,29 @@ export function SubscribeFlow({
                 · {quote.amount_base_units} base units at {quote.decimals} decimals
               </span>
             </div>
+
+            {/* THE SAME INSTRUCTION, SCANNABLE. Encoded by the server from the
+                URI arca-service built beside the address it will check against.
+                Nothing here composes a payment URI: a QR is the one control a
+                buyer cannot proofread. */}
+            {qrSvg ? (
+              <>
+                <div className="lbl" style={{ margin: '16px 0 4px' }}>
+                  EIP-681 · SCAN
+                </div>
+                <div className="qr" dangerouslySetInnerHTML={{ __html: qrSvg }} />
+                <div className="m3" style={{ fontSize: 10.5, marginTop: 6, lineHeight: 1.45 }}>
+                  Scanning fills in the token, the recipient and the exact amount. Check the address your wallet shows
+                  against the one above before signing — this code encodes it, it does not vouch for it.
+                </div>
+              </>
+            ) : quote.eip681 === null ? (
+              <div className="m3" style={{ fontSize: 10.5, marginTop: 14, lineHeight: 1.45 }}>
+                No scannable payment code is offered, because the service did not state a chain id and a payment URI
+                without one would send a wallet to whichever network it happens to be on. Copy the address and the
+                amount instead.
+              </div>
+            ) : null}
           </div>
 
           <div

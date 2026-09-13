@@ -109,6 +109,8 @@ export type Quote = {
   min_confirmations: number;
   term_days: number;
   grace_hours: number;
+  /** The scannable form of the same instruction, built by the service that verifies it. */
+  eip681: string | null;
   warning: string;
 };
 

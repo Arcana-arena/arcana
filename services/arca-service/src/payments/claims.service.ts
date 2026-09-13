@@ -662,6 +662,7 @@ export class ClaimsService {
     min_confirmations: number;
     term_days: number;
     grace_hours: number;
+    eip681: string | null;
     warning: string;
   }> {
     const { listing, creatorWallet } = await this.resolvePayable(listingId);
@@ -695,6 +696,22 @@ export class ClaimsService {
       // address and had to guess how long it lasted.
       term_days: this.subs.termDays,
       grace_hours: this.subs.graceHours,
+      // THE SCANNABLE FORM OF THE SAME INSTRUCTION, built HERE.
+      //
+      // EIP-681 encodes an ERC-20 transfer as a URI a wallet can act on
+      // directly, which is the one part of this flow a buyer does not have to
+      // retype — and retyping an address is how people lose money.
+      //
+      // It is assembled in this service, from the values resolvePayable() and
+      // requiredBaseUnits() just produced, rather than in a page. A client
+      // building its own would be a second place deciding where the money
+      // goes, and the divergence would be silent: the address on screen and
+      // the address in the QR could differ, and only the chain would know.
+      eip681:
+        this.token.chainId === null
+          ? null
+          : `ethereum:${this.token.tokenAddress!.toLowerCase()}@${this.token.chainId}` +
+            `/transfer?address=${creatorWallet.toLowerCase()}&uint256=${required.toString()}`,
       // SAID BEFORE THE MONEY MOVES, not after. ARCANA never receives this
       // payment and therefore cannot return it — that is a direct consequence
       // of a fee-free P2P marketplace and it is the right trade, but a buyer

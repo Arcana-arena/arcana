@@ -209,6 +209,22 @@ try {
     // THE WARNING IS PART OF THE QUOTE, not part of the page. A page could
     // forget to render it; a quote that carries it makes every client say the
     // same thing.
+    // THE SCANNABLE FORM IS BUILT BY THE SERVICE, and it has to encode the
+    // same address and the same amount as the text beside it. A QR is the one
+    // control a buyer cannot proofread, so a divergence here would be found by
+    // the chain and by nobody else.
+    check('it carries an EIP-681 payment URI',
+      typeof q.body.eip681 === 'string' && q.body.eip681.startsWith('ethereum:'), String(q.body.eip681));
+    if (typeof q.body.eip681 === 'string') {
+      check('the URI names the same token as the quote',
+        q.body.eip681.includes(q.body.token), q.body.eip681);
+      check('the same recipient as the quote',
+        q.body.eip681.includes(q.body.pay_to), q.body.eip681);
+      check('the same amount in base units as the quote',
+        q.body.eip681.includes('uint256=' + q.body.amount_base_units), q.body.eip681);
+      check('and a chain id, so a wallet cannot offer it on the wrong network',
+        new RegExp('@[0-9]+/').test(q.body.eip681), q.body.eip681);
+    }
     check('the quote itself carries the no-refund warning',
       typeof q.body.warning === 'string' && /cannot refund|never receives/i.test(q.body.warning),
       q.body.warning ?? 'no warning');

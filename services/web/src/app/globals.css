@@ -679,3 +679,7 @@ select.input { padding-right: 24px; }
   .docnav { position: static; max-height: none; }
   .param-row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
 }
+
+/* The payment QR. The SVG is generated on the server; this only sizes it. */
+.qr { width: 140px; max-width: 100%; background: #e4ede7; padding: 6px; }
+.qr svg { display: block; width: 100%; height: auto; }

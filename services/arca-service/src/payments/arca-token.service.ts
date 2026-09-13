@@ -31,6 +31,15 @@ export class Erc20Reader {
   readonly tokenAddress: `0x${string}` | null;
   private readonly client;
   readonly chainName: string;
+  /**
+   * The chain this reader is pointed at.
+   *
+   * Needed because a payment URI has to name it: a wallet handed an ERC-20
+   * transfer without a chain id will offer it on whichever network happens to
+   * be selected, and the same token address on another chain is a different
+   * contract — or nothing at all.
+   */
+  readonly chainId: number | null;
   /** Which variable this instance came from, for boot logs and refusals. */
   readonly configVar: string;
   /** What this token is FOR, so a refusal can say which one is missing. */
@@ -58,6 +67,10 @@ export class Erc20Reader {
     const rawAddress = config.get<string>(configVar);
     const rpc = config.get<string>('ARCA_RPC_URL');
     this.chainName = config.get<string>('ARCA_CHAIN_NAME') ?? 'robinhood';
+    // NOT DEFAULTED. A guessed chain id in a payment URI would send a wallet to
+    // the wrong network with a straight face; unset means no URI is offered.
+    const cid = Number(config.get<string>('ARCA_CHAIN_ID'));
+    this.chainId = Number.isFinite(cid) && cid > 0 ? cid : null;
 
     // VALIDATED AS AN ADDRESS, never trusted as a name. A malformed value
     // becomes null — which disables this reader loudly — rather than being
