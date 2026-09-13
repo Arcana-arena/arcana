@@ -243,7 +243,17 @@ export class BrowseService {
               l.active,
               a.name AS agent_name, a.version AS agent_version, a.status AS agent_status,
               a.strategy_type, a.asset_universe, a.created_at AS agent_created_at,
-              a.provenance, a.mandate, a.risk_personality,
+              -- TWO DIFFERENT THINGS, AND THEY LIVE IN TWO PLACES.
+              --
+              -- agents.risk_profile is what the creator DECLARED: the limits
+              -- that size positions. agent_dna.risk_personality is what the
+              -- platform MEASURED the agent doing. Reading the second and
+              -- calling it the first is how a buyer ends up shown observed
+              -- behaviour under the heading "the limits this will trade under"
+              -- — and it is what this query did on its first run, which failed
+              -- loudly because the column is not on the agents table at all.
+              a.provenance, a.mandate, a.risk_profile,
+              d.risk_personality, d.computed_at AS dna_computed_at,
               c.id::text AS creator_id, c.handle AS creator_handle,
               c.wallet_address AS creator_wallet,
               (SELECT count(*) FILTER (WHERE status = 'active') FROM subscriptions WHERE listing_id = l.id)::int AS subs_active,
@@ -251,6 +261,7 @@ export class BrowseService {
               (SELECT count(*) FROM subscriptions WHERE listing_id = l.id)::int AS subs_ever
          FROM marketplace_listings l
          JOIN agents a ON a.id = l.agent_id
+         LEFT JOIN agent_dna d ON d.agent_id = a.id
          LEFT JOIN creators c ON c.id = a.creator_id
         WHERE l.id = $1`,
       [listingId],
@@ -288,13 +299,25 @@ export class BrowseService {
     return {
       ...base,
       mandate: r.mandate ?? null,
-      // Labelled as the CREATOR's sizing. It describes what the agent does in
-      // its own wallet; a subscriber's positions are sized by the subscriber's
-      // own limits, which is the whole point of mirroring rather than copying.
-      risk_personality: r.risk_personality ?? null,
+      // WHAT THE CREATOR DECLARED. Labelled as the creator's own sizing: it
+      // describes what the agent does in ITS wallet. A subscriber's positions
+      // are sized by the subscriber's own limits, which is the whole point of
+      // mirroring rather than copying a portfolio.
+      risk_profile: r.risk_profile ?? null,
       risk_note:
         'These limits size the agent in ITS OWN wallet. In yours, your own limits apply — the creator ' +
         'chooses only the direction.',
+      // WHAT THE PLATFORM MEASURED IT DOING. Kept separate from the declared
+      // limits on purpose: the distance between the two is the whole content of
+      // the strategy multiplier, and collapsing them would let a mislabelled
+      // agent present its own description as evidence.
+      risk_personality: r.risk_personality ?? null,
+      risk_personality_computed_at: r.dna_computed_at ? new Date(r.dna_computed_at).toISOString() : null,
+      risk_personality_note:
+        r.risk_personality
+          ? 'Measured from this agent’s own decision log — what it did, not what it said it would do.'
+          : 'No behavioural DNA has been computed for this agent yet, so there is nothing measured to set ' +
+            'against what it declared. That is an absent measurement, not agreement.',
       traded_symbols: symbols.map((s) => ({ symbol: s.symbol, decisions: Number(s.decisions) })),
       traded_symbols_note:
         'Symbols this agent has actually recorded a decision on, not the universe it is permitted to ' +

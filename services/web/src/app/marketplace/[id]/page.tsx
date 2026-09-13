@@ -270,9 +270,26 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
                   </div>
                 </>
               )}
+              {/* DECLARED AND MEASURED, SIDE BY SIDE AND NEVER MERGED. The
+                  first is what the creator wrote down; the second is what the
+                  platform observed. The distance between them is the whole
+                  content of the strategy multiplier, and a page that showed one
+                  under the other's heading would let a mislabelled agent
+                  present its own description as evidence. */}
               <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--color-divider)' }}>
-                <Lbl>THE CREATOR&rsquo;S OWN LIMITS</Lbl>
-                <RiskBlock rp={d.risk_personality} note={d.risk_note} />
+                <Lbl>DECLARED · THE CREATOR&rsquo;S OWN LIMITS</Lbl>
+                <RiskBlock
+                  rp={d.risk_profile}
+                  note={d.risk_note}
+                  absent="No risk profile is recorded on this agent. That is an absent record, not a set of limits equal to zero."
+                />
+              </div>
+              <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--color-divider)' }}>
+                <Lbl>
+                  MEASURED · WHAT IT ACTUALLY DOES
+                  {d.risk_personality_computed_at ? ` · ${utcDate(d.risk_personality_computed_at)}` : ''}
+                </Lbl>
+                <RiskBlock rp={d.risk_personality} note={d.risk_personality_note} absent={d.risk_personality_note} />
               </div>
             </section>
           </div>
@@ -322,13 +339,21 @@ function Stat({ label, value, tone: t, why }: { label: string; value: string; to
  * silently drop every limit added since it was written, and a buyer would read
  * a short list as a complete one.
  */
-function RiskBlock({ rp, note }: { rp: Record<string, unknown> | null; note: string }) {
+function RiskBlock({
+  rp,
+  note,
+  absent,
+}: {
+  rp: Record<string, unknown> | null;
+  note: string;
+  absent: string;
+}) {
   const entries = rp && typeof rp === 'object' ? Object.entries(rp).filter(([, v]) => v !== null && typeof v !== 'object') : [];
   const nested = rp && typeof rp === 'object' ? Object.entries(rp).filter(([, v]) => v && typeof v === 'object') : [];
   if (!rp || (entries.length === 0 && nested.length === 0)) {
     return (
       <div className="m3" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5 }}>
-        No risk profile is recorded on this agent. That is an absent record, not a set of limits equal to zero.
+        {absent}
       </div>
     );
   }

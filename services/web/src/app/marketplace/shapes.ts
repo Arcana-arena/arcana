@@ -82,8 +82,13 @@ export type BrowseResponse = {
 
 export type ListingDetail = BrowseItem & {
   mandate: string | null;
-  risk_personality: Record<string, unknown> | null;
+  /** What the creator DECLARED — the limits that size the agent's own positions. */
+  risk_profile: Record<string, unknown> | null;
   risk_note: string;
+  /** What the platform MEASURED. Never the same field as the declaration. */
+  risk_personality: Record<string, unknown> | null;
+  risk_personality_computed_at: string | null;
+  risk_personality_note: string;
   traded_symbols: Array<{ symbol: string; decisions: number }>;
   traded_symbols_note: string;
   pool_minimum_fraction: number | null;
