@@ -20,6 +20,22 @@
 set -euo pipefail
 
 REPO=/home/ubuntu/arcana
+
+# WHO THE BUILD RUNS AS, and it is not root.
+#
+# This script needs root to write unit files and restart services, so it also
+# ran every `npm run build` as root — leaving .next/types and
+# .next/diagnostics owned by root inside a tree owned by ubuntu. The web
+# service runs as ubuntu and Next writes into .next while serving, so the
+# deploy was producing a build directory its own service could not fully use,
+# and a later build as the normal user died with EACCES on a path root had
+# created.
+#
+# Taken from the unit that declares it rather than hardcoded, so the two
+# cannot drift apart.
+BUILD_USER="$(sed -n 's/^User=//p' "$REPO/infra/systemd/arcana-web.service" | head -1)"
+BUILD_USER="${BUILD_USER:-$(stat -c %U "$REPO")}"
+asbuilder() { if [ "$(id -un)" = "$BUILD_USER" ]; then sh -c "$1"; else sudo -u "$BUILD_USER" sh -c "$1"; fi; }
 UNIT_DIR=/etc/systemd/system
 BIN_DIR="$REPO/scheduler-bin"
 
@@ -224,11 +240,11 @@ FAILED_UNITS=""
 
 echo "==> building shared packages"
 for pkg in auth; do
-  if (cd "$REPO/packages/$pkg" && npm run build >/dev/null 2>&1); then
+  if asbuilder "cd '$REPO/packages/$pkg' && npm run build" >/dev/null 2>&1; then
     echo "    @arcana/$pkg"
   else
     echo "    @arcana/$pkg BUILD FAILED — refusing to build services against a stale package"
-    (cd "$REPO/packages/$pkg" && npm run build 2>&1 | tail -20 | sed 's/^/        /')
+    asbuilder "cd '$REPO/packages/$pkg' && npm run build" 2>&1 | tail -20 | sed 's/^/        /'
     FAILED_UNITS="$FAILED_UNITS @arcana/$pkg(build)"
     PKG_FAILED=1
   fi
@@ -237,6 +253,16 @@ done
 # Build the Node services too. They run from dist/, so a pull that changes
 # src/ leaves them running the previous build — the same trap as the Go
 # binaries, one language over.
+# Undo what earlier root-run deploys left behind. Without this the first
+# build as the service user still fails on the root-owned directories it
+# inherited, and the fix above would look like it had not worked.
+for d in "$REPO"/services/*/dist "$REPO"/services/*/.next "$REPO"/packages/*/dist; do
+  [ -e "$d" ] || continue
+  [ "$(stat -c %U "$d")" = "$BUILD_USER" ] && [ -z "$(find "$d" ! -user "$BUILD_USER" -print -quit)" ] && continue
+  echo "    repairing ownership of ${d#$REPO/} (left by a root-run build)"
+  chown -R "$BUILD_USER" "$d" 2>/dev/null || true
+done
+
 echo "==> building Node services"
 # The web surface IS IN THIS LIST BECAUSE IT WAS NOT, AND THAT COST A SESSION.
 # `next start` serves whatever .next happens to hold, so a pull plus a restart
@@ -248,7 +274,7 @@ for svc in agent-service marketplace arca-service web; do
     echo "    $svc SKIPPED — a shared package failed to build"
     continue
   fi
-  if (cd "$REPO/services/$svc" && npm run build >/dev/null 2>&1); then
+  if asbuilder "cd '$REPO/services/$svc' && npm run build" >/dev/null 2>&1; then
     # Stamp the build with the commit, the same as the Go binaries.
     #
     # An earlier version compared file mtimes instead, and that cannot work:
