@@ -202,6 +202,8 @@ lapsed buyer must still be able to read what they hold and take the key. See
 | `GET /internal/v1/payments/quote` | ⚙️ — what a buyer must send and to whom. Fronted publicly by `GET /v1/marketplace/listings/:id/quote`; canonical here because the payee and the amount come from the rows the *verification* reads |
 | `GET /internal/v1/payments/payable` | ⚙️ — can this agent's creator receive a payment at all? Asked by marketplace before publishing a listing, so a listing with no payee is never created |
 | `GET /internal/v1/payments/unclaimed` | ⚙️ — transfers this buyer already made to this creator. **Grants nothing**: candidate hashes only, and claiming one still passes every check. The wallet searched is the session's, passed as a proven fact |
+| `GET /internal/v1/chain/balances` | ⚙️ — what one address holds: the settlement token and the native gas, each with its own `available` so a failed read is never rendered as a balance of zero. Machine tier because the map from an agent to its wallet is not public; agent-service fronts it for the owner |
+| `GET /internal/v1/creators/:id/earnings` | ⚙️ — what a creator has been paid, summed over `payment_claims` (money) and never over `subscriptions` (access). agent-service fronts it, having proved the caller owns the creator profile — this service does not hold the session and must not be the thing deciding who may read somebody’s revenue |
 | `POST /internal/v1/payments/reminder/run` | ⚙️ |
 
 ### marketplace `:3002`

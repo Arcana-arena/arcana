@@ -284,10 +284,34 @@ func main() {
 	//
 	// It is raised only when chain execution is actually attached, so a purely
 	// virtual deployment keeps the tight bound that suits it.
+	//
+	// AND IT IS CONFIGURABLE, because the bound is about the DEPLOYMENT rather
+	// than about correctness. The two verification suites that spawn their own
+	// engine run against the same Postgres as everything else in a full sweep,
+	// and under that contention a purely virtual cycle takes longer than
+	// fifteen seconds and dies on the final insert — reporting "append
+	// decision: context deadline exceeded" for a database that was fine.
+	//
+	// That failure was intermittent for exactly as long as it took to notice
+	// the elapsed time in it: 15004ms, which is the deadline and not a query.
+	// The defaults below are unchanged, so no deployment moves unless somebody
+	// sets the variable.
 	executeTimeout := 15 * time.Second
 	if eng.HasBroker() {
 		executeTimeout = 4 * time.Minute
 	}
+	if v := os.Getenv("DECISION_EXECUTE_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			executeTimeout = d
+		} else {
+			// A MALFORMED VALUE IS NOT SILENTLY THE DEFAULT. An operator who
+			// wrote "30" meaning seconds should be told the unit was missing,
+			// not left believing a limit they set is in force.
+			log.Printf("DECISION_EXECUTE_TIMEOUT=%q is not a duration (want e.g. 45s, 2m); "+
+				"keeping %s", v, executeTimeout)
+		}
+	}
+	log.Printf("execute timeout: %s (broker attached: %v)", executeTimeout, eng.HasBroker())
 	srv := &server{engine: eng, executeTimeout: executeTimeout}
 
 	guard := internalauth.New("decision-engine")

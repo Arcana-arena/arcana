@@ -111,6 +111,13 @@ function start(budget) {
       ...process.env, ...llmEnv,
       DATABASE_URL: DB, PORT: String(PORT),
       MARKET_DATA_URL: 'http://127.0.0.1:8083', INTERNAL_API_KEY: KEY,
+           // A SWEEP SHARES ONE POSTGRES. A virtual cycle normally finishes
+           // well inside the engine's fifteen-second default; under the load of
+           // a full verification run it does not, and dies on the final insert
+           // with "append decision: context deadline exceeded" — a timeout
+           // blamed on a database that was fine. This suite is measuring the
+           // cost meter, not the deadline, so it gives itself room.
+           DECISION_EXECUTE_TIMEOUT: '90s',
       INFERENCE_TOKENS_PER_AGENT_PER_DAY: String(budget),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
