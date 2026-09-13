@@ -20,24 +20,24 @@ Environment=MARKETPLACE_API=http://127.0.0.1:3002
 Environment=ARCA_API=http://127.0.0.1:3004
 Environment=NEXT_PUBLIC_ARCANA_CHAIN_ID=4663
 
-# THESE MUST EQUAL AUTH_SIWE_DOMAIN/URI ON arcana-agent.service, and both must
-# name the origin this site is served from. The sign-in page compares them
-# against the host the browser is actually on and REFUSES to sign when they
-# differ, rather than putting a domain the visitor is not on into the text
-# their wallet shows them.
+# WHICH ORIGIN SIGN-IN IS FOR — the same file the agent service reads, under
+# the same names, so the page always compares its own host against what the
+# server will actually accept. Read at request time, not baked into the build,
+# so changing the domain is a restart and not a rebuild.
 #
-# They are read at request time, not baked into the build, so changing them is
-# a restart and not a rebuild. Today they say arcana.local, which is the
-# placeholder from before a frontend existed: sign-in therefore cannot complete
-# in a browser until the real domain is decided and set in BOTH units.
-Environment=SIWE_DOMAIN=arcana.local
-Environment=SIWE_URI=https://arcana.local
+# The web app was briefly going to read SIWE_DOMAIN/SIWE_URI and have this unit
+# copy the values across — which would have been a second name for one fact,
+# and systemd does
+# not expand ${VAR} in Environment= anyway, so the copy would have been the
+# literal string. It reads AUTH_SIWE_DOMAIN/AUTH_SIWE_URI directly instead.
+EnvironmentFile=-/home/ubuntu/arcana/.env.siwe
 
 # Set to the https origin once TLS is on, so session cookies are marked Secure.
 # Left unset on loopback http, where a Secure cookie would simply never be sent.
 # Environment=PUBLIC_ORIGIN=https://arcana.example
-# No secrets. This process has no session, no key and no write path: every page
-# it serves is public, which is why there is no EnvironmentFile here at all.
+# No secrets. This process has no session, no key and no write path: the only
+# thing it stores is the visitor’s own session cookie, which it never reads back
+# into a page.
 ExecStart=/usr/bin/npx next start -p 3000
 Restart=on-failure
 RestartSec=5

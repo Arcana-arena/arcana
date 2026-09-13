@@ -159,7 +159,7 @@ const subcheck = (...args) => JSON.parse(
 // --- fixtures ---------------------------------------------------------------
 async function freshWallet() {
   const acct = privateKeyToAccount(generatePrivateKey());
-  const tk = await signInToken(AGENT, acct, { chainId: 4663, domain: 'arcana.local', uri: 'https://arcana.local' });
+  const tk = await signInToken(AGENT, acct);
   return { acct, tk, address: acct.address };
 }
 

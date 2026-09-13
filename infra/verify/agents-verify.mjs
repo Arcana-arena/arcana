@@ -32,14 +32,16 @@ import { privateKeyToAccount, generatePrivateKey } from 'viem/accounts';
 // before printing a summary. See infra/verify/lib/rate-aware.mjs.
 import {
   req, signInToken, bearer,
+  SIWE_DOMAIN,
+  SIWE_URI,
 } from './lib/rate-aware.mjs';
 
 const AGENT = process.env.AGENT_URL || 'http://127.0.0.1:3001';
 const SIGNER = process.env.SIGNER_URL || 'http://127.0.0.1:8085';
 const PG_CONTAINER = process.env.PG_CONTAINER || 'arcana-postgres';
 const ENV_FILE = process.env.AUTH_ENV || '/home/ubuntu/arcana/.env.auth';
-const DOMAIN = process.env.AUTH_SIWE_DOMAIN || 'arcana.local';
-const URI = process.env.AUTH_SIWE_URI || 'https://arcana.local';
+const DOMAIN = SIWE_DOMAIN;
+const URI = SIWE_URI;
 const CHAIN_ID = Number(process.env.AUTH_CHAIN_ID || 4663);
 
 const env = Object.fromEntries(

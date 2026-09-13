@@ -19,8 +19,13 @@ Environment=PORT=3001
 # AUTH_ALLOWED_CHAIN_IDS pins Robinhood Chain (4663 mainnet, 46630 testnet):
 # an EIP-191 signature is not chain-bound, so the Chain ID line is a claim that
 # must be checked rather than trusted.
-Environment=AUTH_SIWE_DOMAIN=arcana.local
-Environment=AUTH_SIWE_URI=https://arcana.local
+# The two SIWE values are NOT inline here. They must equal what the web unit
+# serves from and what every verification run signs for, and a value written in
+# three places is a decision made three times. They come from .env.siwe, read
+# last so it is the single answer to "which origin". If that file is absent the
+# service still starts and sign-in alone answers 503 naming the missing
+# configuration — a loud, specific failure rather than a quiet acceptance of any
+# domain.
 Environment=AUTH_ALLOWED_CHAIN_IDS=4663,46630
 Environment=AUTH_ACCESS_TTL_SECONDS=900
 Environment=AUTH_REFRESH_TTL_SECONDS=2592000
@@ -35,6 +40,7 @@ Environment=SIGNER_URL=http://127.0.0.1:8085
 # mode 600. They are NEVER inline here: unit files are world-readable and
 # systemctl show prints Environment= to any user.
 EnvironmentFile=-/home/ubuntu/arcana/.env.auth
+EnvironmentFile=-/home/ubuntu/arcana/.env.siwe
 ExecStart=/usr/bin/node dist/main.js
 Restart=on-failure
 RestartSec=5

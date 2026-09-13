@@ -31,8 +31,8 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
   // build can serve any origin and the page always compares against what the
   // service will actually accept.
   const siwe = {
-    domain: process.env.SIWE_DOMAIN || '',
-    uri: process.env.SIWE_URI || '',
+    domain: process.env.AUTH_SIWE_DOMAIN || '',
+    uri: process.env.AUTH_SIWE_URI || '',
     chainId: Number(process.env.NEXT_PUBLIC_ARCANA_CHAIN_ID || '4663'),
   };
 

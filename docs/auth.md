@@ -324,6 +324,19 @@ broken signing key, `/v1/agents`, `/v1/creators`, `/v1/seasons`,
 `/v1/competitions`, passport, evolution and autopsy all returned 200 while every
 protected endpoint returned 503.
 
+### Which origin sign-in is for
+
+The domain and uri are read from `.env.siwe` at the repository root, which BOTH
+systemd units load and every verification run sources. They used to be written
+in the agent unit, the web unit and eight suites — a decision made eleven times,
+where any place that was missed would sign for a site that no longer exists and
+fail somewhere with nothing to do with domains.
+
+They must equal the origin the browser is actually on. The sign-in page compares
+them against its own host and refuses to sign when they differ, because a
+message naming a domain the visitor is not on is the exact thing EIP-4361’s
+domain field exists to let them catch.
+
 ### Boot log
 
 Each service states its posture at startup, alongside arca-service's five
@@ -331,7 +344,7 @@ warnings and market-data's vendor warning:
 
 ```
 auth ACTIVE: HS256 access tokens enforced, ttl=900s, refresh ttl=2592000s, chains=[4663,46630], admin wallets=0
-SIWE sign-in ACTIVE: domain=arcana.local, uri=https://arcana.local, nonce ttl=300s
+SIWE sign-in ACTIVE: domain=arcana-arena.com, uri=https://arcana-arena.com, nonce ttl=300s
 internal (machine) tier ACTIVE: X-Internal-Key required on /internal/*
 WARN: auth configuration: AUTH_ADMIN_WALLETS is empty — no wallet can perform admin actions
 ```

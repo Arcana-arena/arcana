@@ -15,6 +15,8 @@ import { sweepOnExit } from './lib/fixtures.mjs';
 import {
   req, reqRL, ensureHeadroom, getNonce as sharedGetNonce,
   signIn as sharedSignIn, bearer,
+  SIWE_DOMAIN,
+  SIWE_URI,
 } from './lib/rate-aware.mjs';
 
 
@@ -30,8 +32,8 @@ const SCORING = 'http://127.0.0.1:8082';
 const MARKETDATA = 'http://127.0.0.1:8083';
 const DECISION = 'http://127.0.0.1:8081';
 
-const DOMAIN = 'arcana.local';
-const URI = 'https://arcana.local';
+const DOMAIN = SIWE_DOMAIN;
+const URI = SIWE_URI;
 const CHAIN_ID = 4663;
 
 const env = Object.fromEntries(

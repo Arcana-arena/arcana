@@ -61,7 +61,7 @@ const psql = (s) => execFileSync('docker', ['exec', PG, 'psql', '-U', 'arcana', 
 
 // --- a creator to hang the hostile agents off ------------------------------
 const account = privateKeyToAccount(generatePrivateKey());
-const token = await signInToken(AGENT, account, { chainId: 4663, domain: 'arcana.local', uri: 'https://arcana.local' });
+const token = await signInToken(AGENT, account);
 if (!token) { console.error('prompt-injection-verify: could not sign in'); process.exit(2); }
 const handle = `inj_${Date.now().toString(36)}`;
 const creator = await req(`${AGENT}/v1/creators`, { method: 'POST', headers: bearer(token), body: JSON.stringify({ handle }) });
@@ -80,7 +80,7 @@ const handles = [handle];
  */
 async function freshIdentity() {
   const acct = privateKeyToAccount(generatePrivateKey());
-  const tk = await signInToken(AGENT, acct, { chainId: 4663, domain: 'arcana.local', uri: 'https://arcana.local' });
+  const tk = await signInToken(AGENT, acct);
   const h = `inj_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`;
   const c = await req(`${AGENT}/v1/creators`, { method: 'POST', headers: bearer(tk), body: JSON.stringify({ handle: h }) });
   if (!ok2xx(c.status)) throw new Error('could not create a creator: ' + JSON.stringify(c.body));

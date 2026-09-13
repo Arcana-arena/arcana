@@ -44,6 +44,36 @@
  */
 import { createSiweMessage } from 'viem/siwe';
 
+/**
+ * THE ORIGIN ARCANA ACCEPTS SIGN-INS FOR — read here and nowhere else.
+ *
+ * `arcana.local` used to be a literal in eight suites and two systemd units.
+ * That is not a duplicated constant, it is a duplicated DECISION: the day the
+ * domain changed, every place that was missed would have kept signing for a
+ * site that no longer exists, and the failure would have surfaced somewhere
+ * with nothing to do with domains.
+ *
+ * It throws rather than falling back. A default here would let a run that
+ * forgot to source .env.siwe sign for the wrong domain and then report eleven
+ * unrelated failures — which is exactly how the last orphan-engine bug wasted
+ * an afternoon. Refusing to start says the one useful sentence instead.
+ */
+function required(name) {
+  const v = process.env[name];
+  if (!v || !v.trim()) {
+    throw new Error(
+      `${name} is not set. Sign-in messages name the origin they are for and the ` +
+      'server matches it exactly, so a verification run has to be told which one. ' +
+      'Source it first:  set -a; . ./.env.siwe; set +a',
+    );
+  }
+  return v.trim();
+}
+
+export const SIWE_DOMAIN = required('AUTH_SIWE_DOMAIN');
+export const SIWE_URI = required('AUTH_SIWE_URI');
+export const SIWE_CHAIN_ID = Number(process.env.AUTH_SIWE_CHAIN_ID || 4663);
+
 export const sleep = (seconds) => new Promise((r) => setTimeout(r, seconds * 1000));
 
 /**
@@ -159,9 +189,9 @@ export async function getNonce(agentUrl) {
  */
 export async function signIn(agentUrl, account, opts = {}) {
   const {
-    chainId = 4663,
-    domain = 'arcana.local',
-    uri = 'https://arcana.local',
+    chainId = SIWE_CHAIN_ID,
+    domain = SIWE_DOMAIN,
+    uri = SIWE_URI,
     statement = 'Sign in to ARCANA.',
     nonce: givenNonce,
     signature: givenSignature,

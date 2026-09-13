@@ -61,7 +61,7 @@ try {
 
   // --- a fresh agent ------------------------------------------------------
   const acct = privateKeyToAccount(generatePrivateKey());
-  const tk = await signInToken(AGENT, acct, { chainId: 4663, domain: 'arcana.local', uri: 'https://arcana.local' });
+  const tk = await signInToken(AGENT, acct);
   handle = `artefact_${Date.now().toString(36)}`;
   const c = await req(`${AGENT}/v1/creators`, { method: 'POST', headers: bearer(tk), body: JSON.stringify({ handle }) });
   if (!ok2xx(c.status)) throw new Error('creator: ' + JSON.stringify(c.body));
