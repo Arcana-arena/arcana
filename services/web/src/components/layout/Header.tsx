@@ -1,21 +1,19 @@
 /**
  * The bar at the top of every page.
  *
- * TWO THINGS IN THE MOCKUP ARE NOT HERE, AND THEIR ABSENCE IS VISIBLE. The
- * mockups show a live chain readout ("4663 · #8,214,006 · 41ms") and a wallet
- * pill. The chain height and RPC latency are not exposed by any endpoint this
- * surface can read, and the wallet belongs to Stage 4. Rather than print a
- * plausible block number — which would be the single most convincing lie on the
- * page, since the footer of every mockup says "every number on this page is
- * read from the chain" — the readout shows the chain id it is configured for
- * and says the height is not being read.
+ * THE CHAIN READOUT IS A REAL BLOCK. It shows the highest block ARCANA has a
+ * settled transaction in, counted by /v1/stats. It is deliberately NOT called
+ * the chain head: nothing here polls the node, and a plausible height would be
+ * the least honest pixel on a site whose whole claim is that its numbers are
+ * read rather than produced.
  *
  * Two of the five nav entries have no page yet. They are rendered as disabled
  * text rather than as links to a 404, and they say why on hover.
  */
 import Link from 'next/link';
 import { getSession } from '@/lib/session';
-import { addr } from '@/lib/format';
+import { agent } from '@/lib/api';
+import { addr, int } from '@/lib/format';
 
 const CHAIN_ID = process.env.NEXT_PUBLIC_ARCANA_CHAIN_ID || '4663';
 
@@ -30,6 +28,11 @@ const NAV: NavItem[] = [
 ];
 
 export async function Header({ current }: { current?: string }) {
+  // The latest block ARCANA has a settled transaction in. It is a real number
+  // now that /v1/stats counts it; the readout used to say "height not read"
+  // because nothing published one, and a plausible block number would have been
+  // the least honest pixel on the page.
+  const stats = await agent<{ chain: { id: number; last_block_seen: number | null } }>('/v1/stats');
   return (
     <header className="hdr">
       <Link href="/" className="hdr-brand" style={{ color: 'var(--color-text)' }}>
@@ -67,12 +70,16 @@ export async function Header({ current }: { current?: string }) {
         <div
           className="mono m2"
           style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11 }}
-          title="The chain id this deployment is configured for. Block height and RPC latency are not exposed by any read endpoint, so they are not shown — a number here that nothing measured would be the least honest pixel on the page."
+          title="The chain, and the highest block ARCANA has a settled transaction in. It is not the chain head: nothing here polls the node for that."
         >
           <span style={{ width: 6, height: 6, background: 'var(--color-accent)' }} className="pulse" />
-          {CHAIN_ID}
+          {stats.ok ? stats.data.chain.id : CHAIN_ID}
           <span className="m3">·</span>
-          <span className="m3">height not read</span>
+          {stats.ok && stats.data.chain.last_block_seen !== null ? (
+            <span>#{int(stats.data.chain.last_block_seen)}</span>
+          ) : (
+            <span className="m3">no block recorded</span>
+          )}
         </div>
         <SessionPill />
       </div>

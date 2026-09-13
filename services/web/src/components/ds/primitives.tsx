@@ -94,13 +94,42 @@ export function StatusTag({ status }: { status: string | null | undefined }) {
   return <Tag tone="outline">{status.toUpperCase()}</Tag>;
 }
 
-/** BUY / SELL / HOLD, in the colours the mockups give them. */
+/**
+ * BUY / SELL / HOLD, in the colours the mockups give them.
+ *
+ * THE FALLBACK IS ABBREVIATED, NOT PRINTED WHOLE. The decision log carries
+ * actions beyond the three the design anticipated — `trade_failed` is a real
+ * one — and rendering it at full length blew a 52px column wide enough to
+ * collide with the symbol beside it. The short form keeps the column, the title
+ * keeps the word, and nothing is hidden: an action this component has not been
+ * taught still gets its own colour and its own text rather than being folded
+ * into HOLD.
+ */
+const ACTION_SHORT: Record<string, { label: string; cls: string }> = {
+  buy: { label: 'BUY', cls: 'act-buy' },
+  sell: { label: 'SELL', cls: 'act-sell' },
+  hold: { label: 'HOLD', cls: 'act-hold' },
+  trade_failed: { label: 'FAILED', cls: 'act-sell' },
+};
+
 export function ActionTag({ action }: { action: string | null | undefined }) {
-  const a = (action || '').toLowerCase();
-  if (a === 'buy') return <span className="act-buy">BUY</span>;
-  if (a === 'sell') return <span className="act-sell">SELL</span>;
-  if (a === 'hold') return <span className="act-hold">HOLD</span>;
-  return <span className="act-hold">{(action || ABSENT).toUpperCase()}</span>;
+  const raw = action || '';
+  const known = ACTION_SHORT[raw.toLowerCase()];
+  if (known) {
+    return (
+      <span className={known.cls} title={raw}>
+        {known.label}
+      </span>
+    );
+  }
+  // Initials of an unknown action, so a new vocabulary word is visible and
+  // legible without silently becoming one of the three above.
+  const short = raw ? raw.replace(/[^a-z0-9]+/gi, ' ').trim().split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 4) : ABSENT;
+  return (
+    <span className="act-hold" title={raw || 'no action recorded'}>
+      {short}
+    </span>
+  );
 }
 
 /**
