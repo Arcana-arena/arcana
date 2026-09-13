@@ -24,7 +24,7 @@
  * IT WRITES NOTHING. A clone, some builds, and a diff.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { suite } from './lib/sections.mjs';
@@ -175,6 +175,72 @@ try {
       '. A file running in production that the repository does not contain cannot be compared to ' +
       'any commit, is not in any backup, and exists on exactly one machine. Commit it, or add a ' +
       'category here saying why it must not be');
+  });
+
+  await section('No source file can be silently excluded from the repository', async () => {
+    /*
+     * THE FAILURE THIS CATCHES, which every other check here is blind to.
+     *
+     * A .gitignore pattern that matches a SOURCE path removes the file from the
+     * repository without a word: `git add -A` says nothing, the commit
+     * succeeds, and the file exists only on the machine that wrote it. Nothing
+     * above can see it, because every check above compares the clone with this
+     * machine — and an untracked file has no place in the commit it is being
+     * compared against, so there is nothing to differ.
+     *
+     * It has happened twice. `vendor/` unanchored swallowed
+     * services/market-data/internal/vendor, and the fix was written into
+     * .gitignore as a comment. `build/`, left unanchored beside it, then
+     * swallowed services/web/src/app/api/build — the route that reports which
+     * commit the running bundle is. The endpoint written to detect a stale
+     * deploy was itself missing from the deploy.
+     *
+     * The rule is simple enough to hold: nothing under a service or package
+     * SOURCE tree is ever build output, so nothing under one may be ignored.
+     */
+    const sourceDirs = [];
+    for (const base of ['services', 'packages']) {
+      let entries = [];
+      try {
+        entries = readdirSync(join(REPO, base), { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const e of entries) {
+        if (!e.isDirectory()) continue;
+        for (const src of ['src', 'internal', 'cmd', 'app']) {
+          const dir = join(REPO, base, e.name, src);
+          if (existsSync(dir)) sourceDirs.push(`${base}/${e.name}/${src}`);
+        }
+      }
+    }
+    if (sourceDirs.length === 0) {
+      nothingToCheck('no service or package source tree was found to check');
+      return;
+    }
+
+    // git check-ignore reads the real rules rather than this file guessing at
+    // them: a reimplementation of gitignore semantics would be a second set of
+    // rules that agree until one of them is edited.
+    const ignored = [];
+    for (const dir of sourceDirs) {
+      let files = [];
+      try {
+        files = execFileSync('git', ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', dir], {
+          cwd: REPO, encoding: 'utf8',
+        }).split('\n').filter(Boolean);
+      } catch {
+        files = [];
+      }
+      for (const f of files) ignored.push(f);
+    }
+
+    check('no path inside a service or package source tree is gitignored',
+      ignored.length === 0,
+      ignored.length === 0
+        ? ''
+        : `ignored source path(s): ${ignored.join(', ')} — these exist on this machine and are NOT in the ` +
+          'repository, and nothing else here can see that');
   });
 
   await section('The shape of the machine config is recorded, even though its values are not', async () => {

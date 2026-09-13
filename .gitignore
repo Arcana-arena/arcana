@@ -15,13 +15,33 @@ node_modules/
 /services/*/vendor/
 
 # --- Build output ---
-dist/
-build/
+# ANCHORED, FOR THE REASON WRITTEN ABOVE `vendor/` — and these were left
+# unanchored after that lesson was learned for one pattern and not the rest.
+#
+# `build/` matched any directory of that name at any depth, so
+# services/web/src/app/api/build — a Next route reporting which commit the
+# running bundle is — was silently excluded. It existed locally, compiled
+# locally, passed typecheck locally, and was never committed. `git add -A`
+# said nothing, the commit succeeded, and the route simply did not exist on
+# the server: the endpoint written to detect a stale deploy was itself missing
+# from the deploy. An untracked file cannot fail a comparison against the
+# commit it has no place in.
+#
+# Build output lands in known places. These say those places.
+/dist/
+/packages/*/dist/
+/services/*/dist/
+/build/
+/services/*/build/
 *.tsbuildinfo
-coverage/
+/coverage/
+/packages/*/coverage/
+/services/*/coverage/
 
 # --- Go ---
-bin/
+/bin/
+/packages/*/bin/
+/services/*/bin/
 *.exe
 *.test
 *.out
