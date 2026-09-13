@@ -36,6 +36,9 @@ Environment=DECISION_ENGINE_URL=http://127.0.0.1:8081
 # Agent wallets. agent-service never holds key material itself; it asks the
 # signer, which is the only component with a Linux identity that can read any.
 Environment=SIGNER_URL=http://127.0.0.1:8085
+# /v1/docs/parameters asks arca-service for the subscription terms rather than
+# restating them: a copy here would be the figure a buyer actually reads.
+Environment=ARCA_SERVICE_URL=http://127.0.0.1:3004
 # Secrets (AUTH_JWT_SIGNING_KEY, INTERNAL_API_KEY) come from this file at
 # mode 600. They are NEVER inline here: unit files are world-readable and
 # systemctl show prints Environment= to any user.
