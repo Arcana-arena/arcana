@@ -15,7 +15,7 @@ import { Subscription } from './subscription.entity';
 export class SubscriptionsService {
   private readonly logger = new Logger(SubscriptionsService.name);
   private readonly durationDays: number;
-  private readonly graceHours: number;
+  private readonly graceHours_: number;
 
   constructor(
     @InjectRepository(Subscription)
@@ -27,12 +27,22 @@ export class SubscriptionsService {
     // Same default as ReminderService — the two must agree or access would be
     // revoked on a different clock than the one that flips the status.
     const g = parseInt(config.get<string>('ARCA_GRACE_HOURS') ?? '48', 10);
-    this.graceHours = Number.isFinite(g) && g > 0 ? g : 48;
+    this.graceHours_ = Number.isFinite(g) && g > 0 ? g : 48;
+  }
+
+  /** How long one payment buys, in days. Published in the quote before paying. */
+  get termDays(): number {
+    return this.durationDays;
+  }
+
+  /** How long access outlives expiry. Published beside the term, for the same reason. */
+  get graceHours(): number {
+    return this.graceHours_;
   }
 
   /** Start of the grace window: subscriptions expiring after this still count. */
   graceCutoff(now = new Date()): Date {
-    return new Date(now.getTime() - this.graceHours * 3600 * 1000);
+    return new Date(now.getTime() - this.graceHours_ * 3600 * 1000);
   }
 
   /**
@@ -142,11 +152,202 @@ export class SubscriptionsService {
       where: { userWallet },
       order: { updatedAt: 'DESC' },
     });
+    const extra = await this.decorate(rows, userWallet);
+    const now = new Date();
+    const graceCut = this.graceCutoff(now);
+
     return rows.map((s) => {
-      const expired = s.expiresAt <= new Date();
+      const expired = s.expiresAt <= now;
       const trading = s.status === 'active' && !s.tradingPaused && !expired && !!s.walletAddress;
-      return { ...s, trading, next_step: this.nextStep(s, trading, expired) };
+      const d = extra.get(s.id) ?? null;
+
+      // THE THREE PHASES OF A TERM, DERIVED IN ONE PLACE.
+      //
+      // A page that works these out from expires_at ends up with its own idea
+      // of when grace ends, and grace is precisely the window where a wrong
+      // answer costs a customer their access. `phase` is the same arithmetic
+      // hasAccess() applies, said out loud.
+      const graceEnds = new Date(s.expiresAt.getTime() + this.graceHours_ * 3600 * 1000);
+      const phase: 'active' | 'grace' | 'ended' = !expired
+        ? 'active'
+        : s.expiresAt >= graceCut
+          ? 'grace'
+          : 'ended';
+
+      return {
+        ...s,
+        trading,
+        phase,
+        grace_ends_at: graceEnds.toISOString(),
+        // Whole days and whole hours, both, because "0d left" and "expired" are
+        // different states and a day count alone cannot tell them apart.
+        days_remaining: phase === 'active' ? Math.floor((s.expiresAt.getTime() - now.getTime()) / 86400000) : null,
+        hours_remaining: phase === 'active' ? Math.floor((s.expiresAt.getTime() - now.getTime()) / 3600000) : null,
+        grace_hours_remaining:
+          phase === 'grace' ? Math.max(0, Math.floor((graceEnds.getTime() - now.getTime()) / 3600000)) : null,
+        term_days: this.durationDays,
+        grace_hours: this.graceHours_,
+        agent: d?.agent ?? null,
+        listing: d?.listing ?? null,
+        // The RECEIPT the buyer paid with. Absent for a subscription granted by
+        // something other than a verified payment — which is a real state, not
+        // a missing field, and the note says which.
+        receipt: d?.receipt ?? null,
+        receipt_note: d?.receipt
+          ? null
+          : 'No verified payment claim is recorded against this subscription. It was granted by ' +
+            'something other than an on-chain payment — a migration or an operator action — rather ' +
+            'than by a transfer this platform checked.',
+        wallet_pnl: d?.pnl ?? {
+          computable: false,
+          reason:
+            'No snapshot of this subscription wallet has been recorded, so there is no pair of values ' +
+            'to subtract. This is not a profit and loss of zero.',
+          first_nav: null,
+          last_nav: null,
+          pnl: null,
+          pnl_pct: null,
+          points: 0,
+        },
+        next_step: this.nextStep(s, trading, expired),
+      };
     });
+  }
+
+  /**
+   * The facts a subscription list needs that are not on the subscription row.
+   *
+   * ONE QUERY PER FACT FOR THE WHOLE PAGE, not one per row: this list is
+   * rendered as cards and an N+1 here would be four round trips per card.
+   *
+   * THE RENEWAL PRICE IS TODAY'S, NOT THE ONE THAT WAS PAID. They differ — the
+   * mockup's own example has a creator who raised the price mid-term — and a
+   * renew button quoting the old figure would send the buyer to underpay,
+   * which is the one failure this platform cannot undo.
+   */
+  private async decorate(rows: Subscription[], userWallet: string) {
+    const out = new Map<string, {
+      agent: Record<string, unknown> | null;
+      listing: Record<string, unknown> | null;
+      receipt: Record<string, unknown> | null;
+      pnl: Record<string, unknown> | null;
+    }>();
+    if (rows.length === 0) return out;
+
+    const ids = rows.map((r) => r.id);
+    const listingIds = rows.map((r) => r.listingId).filter(Boolean) as string[];
+    const agentIds = rows.map((r) => r.agentId).filter(Boolean) as string[];
+
+    const [listings, agents, receipts, pnls] = await Promise.all([
+      listingIds.length
+        ? this.subs.manager.query(
+            `SELECT l.id::text AS id, l.price_usd::float8 AS price_usd, l.active,
+                    l.access_type, l.arca_gate_amount::float8 AS arca_gate_amount
+               FROM marketplace_listings l WHERE l.id = ANY($1::uuid[])`,
+            [listingIds],
+          )
+        : Promise.resolve([]),
+      agentIds.length
+        ? this.subs.manager.query(
+            `SELECT a.id::text AS id, a.name, a.version, a.status, a.strategy_type,
+                    a.asset_universe, c.handle AS creator_handle, c.id::text AS creator_id
+               FROM agents a LEFT JOIN creators c ON c.id = a.creator_id
+              WHERE a.id = ANY($1::uuid[])`,
+            [agentIds],
+          )
+        : Promise.resolve([]),
+      listingIds.length
+        ? this.subs.manager.query(
+            `SELECT DISTINCT ON (listing_id) listing_id::text AS listing_id, tx_hash,
+                    amount, block_number::text AS block_number, block_time, confirmations
+               FROM payment_claims
+              WHERE listing_id = ANY($1::uuid[]) AND lower(buyer_wallet) = lower($2)
+              ORDER BY listing_id, block_time DESC`,
+            [listingIds, userWallet],
+          )
+        : Promise.resolve([]),
+      // WALLET P&L OVER THE TERM, from the subscription's own snapshots — the
+      // buyer's wallet, not the agent's. Null with a reason when there are
+      // fewer than two snapshots, because one reading is not a change.
+      this.subs.manager.query(
+        `SELECT subscription_id::text AS id,
+                count(*)::int AS points,
+                (array_agg(nav ORDER BY ts ASC))[1]::float8  AS first_nav,
+                (array_agg(nav ORDER BY ts DESC))[1]::float8 AS last_nav
+           FROM subscription_snapshots
+          WHERE subscription_id = ANY($1::uuid[]) AND nav IS NOT NULL
+          GROUP BY subscription_id`,
+        [ids],
+      ),
+    ]);
+
+    const byListing = new Map<string, any>(listings.map((l: any) => [l.id, l]));
+    const byAgent = new Map<string, any>(agents.map((a: any) => [a.id, a]));
+    const byReceipt = new Map<string, any>(receipts.map((r: any) => [r.listing_id, r]));
+    const byPnl = new Map<string, any>(pnls.map((p: any) => [p.id, p]));
+
+    for (const s of rows) {
+      const l = s.listingId ? byListing.get(s.listingId) : null;
+      const a = s.agentId ? byAgent.get(s.agentId) : null;
+      const rc = s.listingId ? byReceipt.get(s.listingId) : null;
+      const pn = byPnl.get(s.id);
+
+      const first = pn?.first_nav === null || pn?.first_nav === undefined ? null : Number(pn.first_nav);
+      const last = pn?.last_nav === null || pn?.last_nav === undefined ? null : Number(pn.last_nav);
+      const points = Number(pn?.points ?? 0);
+      const computable = points >= 2 && first !== null && last !== null && first !== 0;
+
+      out.set(s.id, {
+        agent: a
+          ? {
+              id: a.id,
+              name: a.name,
+              version: a.version,
+              status: a.status,
+              strategy_type: a.strategy_type,
+              asset_universe: a.asset_universe,
+              creator: a.creator_id ? { id: a.creator_id, handle: a.creator_handle } : null,
+            }
+          : null,
+        listing: l
+          ? {
+              id: l.id,
+              // TODAY'S price, labelled as today's. See the note above.
+              price_usd_now: l.price_usd === null ? null : Number(l.price_usd),
+              active: l.active === true,
+              access_type: l.access_type,
+              arca_gate_amount: l.arca_gate_amount === null ? null : Number(l.arca_gate_amount),
+            }
+          : null,
+        receipt: rc
+          ? {
+              tx_hash: rc.tx_hash,
+              amount_base_units: String(rc.amount),
+              block_number: rc.block_number,
+              block_time: rc.block_time ? new Date(rc.block_time).toISOString() : null,
+              confirmations: rc.confirmations,
+            }
+          : null,
+        pnl: {
+          computable,
+          reason: computable
+            ? null
+            : points === 0
+              ? 'No snapshot of this subscription wallet has been recorded, so there is no pair of ' +
+                'values to subtract. This is not a profit and loss of zero.'
+              : points === 1
+                ? 'Only one snapshot of this wallet exists. One reading is a value, not a change.'
+                : 'The opening value of this wallet was zero or unreadable, so a percentage cannot be ' +
+                  'formed from it.',
+          first_nav: first,
+          last_nav: last,
+          pnl: computable ? Number((last! - first!).toFixed(2)) : null,
+          pnl_pct: computable ? Number((((last! - first!) / first!) * 100).toFixed(4)) : null,
+          points,
+        },
+      });
+    }
+    return out;
   }
 
   /** One sentence the buyer can act on. Never "everything is fine" when it is not. */

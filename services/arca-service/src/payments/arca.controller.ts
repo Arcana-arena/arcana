@@ -152,6 +152,24 @@ export class ArcaController {
     return this.claims.claim(dto.userWallet, dto.listingId, dto.txHash);
   }
 
+  /**
+   * 🌐 The terms every subscription on this platform is sold under.
+   *
+   * PUBLIC, and it has to be. A buyer needs the term length, the grace window,
+   * how long a payment stays claimable and how many confirmations are required
+   * BEFORE they decide — and until now those four numbers existed only as
+   * environment variables read inside this service. Documentation that quotes
+   * them from memory is documentation that will one day be wrong; this is where
+   * it reads them from.
+   *
+   * There is nothing private here: the payment token address and the chain id
+   * are on chain, and the rest are the rules of the shop.
+   */
+  @Get('v1/arca/terms')
+  terms() {
+    return this.claims.terms();
+  }
+
   /** 🔒 All subscriptions of a wallet — your own only. */
   @Get('v1/subscriptions/:userWallet')
   @UseGuards(JwtAuthGuard)

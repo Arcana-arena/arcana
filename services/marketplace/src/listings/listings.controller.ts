@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { assertSameWallet, CurrentWallet, JwtAuthGuard, RateLimit } from '@arcana/auth';
 import { ListingsService } from './listings.service';
+import { BrowseService } from './browse.service';
 import { ListingOwnershipService } from './listing-ownership.service';
 import {
   CreateListingDto,
@@ -25,6 +26,7 @@ import { ParseUuidAllPipe } from '../common/parse-uuid-all.pipe';
 export class ListingsController {
   constructor(
     private readonly listings: ListingsService,
+    private readonly browseSvc: BrowseService,
     private readonly ownership: ListingOwnershipService,
   ) {}
 
@@ -51,6 +53,60 @@ export class ListingsController {
   @Get('listings/:id')
   findOne(@Param('id', ParseUuidAllPipe) id: string) {
     return this.listings.findOne(id);
+  }
+
+  /**
+   * 🌐 The marketplace grid: every listing with the facts a buyer decides on.
+   *
+   * Distinct from `agents` above, which returns seven columns and was the only
+   * read a browsing page had. This one carries the score AS THE LEADERBOARD
+   * PUBLISHES IT (withheld, not lowered, for an agent that has not competed
+   * enough), the season return and drawdown, a min/max sparkline, the
+   * subscriber count, and — the field that decides whether the Subscribe button
+   * means anything — whether this listing can be bought at all, with the reason
+   * when it cannot.
+   *
+   * Filtering and ordering both happen in this service. A browser that sorts
+   * its own rows is a second ranking, and this codebase publishes one.
+   */
+  @Get('browse')
+  browse(
+    @Query('q') q?: string,
+    @Query('strategy') strategy?: string,
+    @Query('universe') universe?: string,
+    @Query('min_score') minScore?: string,
+    @Query('max_price') maxPrice?: string,
+    @Query('sort') sort?: string,
+    @Query('buyable_only') buyableOnly?: string,
+  ) {
+    const numOrUndef = (v?: string) => {
+      if (v === undefined || v === null || v === '') return undefined;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : undefined;
+    };
+    return this.browseSvc.browse({
+      q,
+      strategy,
+      universe,
+      minScore: numOrUndef(minScore),
+      maxPrice: numOrUndef(maxPrice),
+      sort,
+      buyableOnly: buyableOnly === 'true',
+    });
+  }
+
+  /**
+   * 🌐 One listing, with everything stated BEFORE a buyer pays.
+   *
+   * The track record, what the subscription actually does in the buyer's own
+   * wallet, the symbols the agent has really traded (not the universe it is
+   * permitted to), and the smallest protective level this pool will accept —
+   * which is the number that decides whether the buyer's own stop can be armed
+   * at all. Discovered after the first tick, that is discovered too late.
+   */
+  @Get('listings/:id/detail')
+  detail(@Param('id', ParseUuidAllPipe) id: string) {
+    return this.browseSvc.detail(id);
   }
 
   /** 🔒 Edit your own listing. */

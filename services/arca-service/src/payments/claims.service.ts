@@ -133,12 +133,7 @@ export class ClaimsService {
     //    same hash both pass here; the UNIQUE constraint settles it at insert.
     const seen = await this.claims.findOne({ where: { txHash: hash } });
     if (seen) {
-      throw new ConflictException({
-        code: 'tx_already_claimed',
-        message:
-          `Transaction ${hash} has already been used to claim listing ${seen.listingId}. ` +
-          'A payment buys one thing.',
-      });
+      throw new ConflictException(await this.alreadyClaimed(seen, hash));
     }
 
     // 3. The listing, the wallet the money had to reach, and the amount.
@@ -202,11 +197,23 @@ export class ClaimsService {
     // 7. Confirmations.
     const confirmations = Number(head - receipt.blockNumber) + 1;
     if (confirmations < this.minConfirmations) {
+      const remaining = this.minConfirmations - confirmations;
       throw new BadRequestException({
         code: 'insufficient_confirmations',
         message:
           `Transaction ${hash} has ${confirmations} confirmations; ${this.minConfirmations} ` +
           `are required (about ${(this.minConfirmations * 0.1).toFixed(0)} seconds on this chain).`,
+        // NOT A REFUSAL — A WAIT, and the difference has to be legible to
+        // whatever is drawing a progress bar. These fields let a caller show
+        // how far along the transaction is instead of an error, which is the
+        // truth: nothing is wrong with this payment yet.
+        pending: true,
+        confirmations,
+        required_confirmations: this.minConfirmations,
+        remaining_confirmations: remaining,
+        estimated_seconds_remaining: Math.ceil(remaining * 0.1),
+        block_number: receipt.blockNumber.toString(),
+        chain_head: head.toString(),
       });
     }
 
@@ -227,11 +234,46 @@ export class ClaimsService {
         t.to.toLowerCase() === creatorWallet.toLowerCase(),
     );
     if (transfers.length === 0) {
+      // WHERE THE MONEY ACTUALLY WENT, not just where it should have gone.
+      //
+      // "No matching transfer" is true and almost useless: the buyer cannot
+      // tell whether they paid the wrong address, sent the wrong token, or
+      // pasted the hash of something unrelated. Those are three different
+      // mistakes with three different next steps, and the receipt already in
+      // hand distinguishes them. So the actual recipients and tokens are
+      // listed — ARCANA cannot recover the money either way, and the least it
+      // can do is say where it went.
+      const all = this.token.transfersIn(receipt);
+      const expected = creatorWallet.toLowerCase();
+      const wanted = this.token.tokenAddress!.toLowerCase();
+      const decimals = await this.token.getDecimals().catch(() => null);
+      const sent = all.map((t) => ({
+        to: t.to.toLowerCase(),
+        from: t.from.toLowerCase(),
+        token: t.token.toLowerCase(),
+        amount_base_units: t.value.toString(),
+        amount: decimals === null ? null : this.human(t.value, decimals),
+        right_token: t.token.toLowerCase() === wanted,
+        right_recipient: t.to.toLowerCase() === expected,
+      }));
+      const rightTokenWrongPayee = sent.filter((t) => t.right_token && !t.right_recipient);
       throw new BadRequestException({
         code: 'no_matching_transfer',
         message:
-          `Transaction ${hash} contains no transfer of the $ARCA token to the creator's wallet ` +
-          `${creatorWallet}. Transfers of other tokens, and to other addresses, do not count.`,
+          rightTokenWrongPayee.length > 0
+            ? `Transaction ${hash} transferred the payment token to ` +
+              `${rightTokenWrongPayee.map((t) => t.to).join(', ')}, not to the creator's wallet ` +
+              `${expected}. ARCANA does not control the receiving address and cannot recover it.`
+            : `Transaction ${hash} contains no transfer of the payment token to the creator's wallet ` +
+              `${expected}. Transfers of other tokens, and to other addresses, do not count.`,
+        expected_recipient: expected,
+        expected_token: wanted,
+        // Empty means the transaction moved no ERC-20 at all — a different
+        // fact from "it moved some to the wrong place", and the caller can
+        // tell which from the array rather than from the prose.
+        transfers: sent,
+        wrong_recipient: rightTokenWrongPayee.length > 0,
+        decimals,
       });
     }
 
@@ -260,11 +302,47 @@ export class ClaimsService {
     const paid = fromClaimant.reduce((sum, t) => sum + t.value, 0n);
     const required = await this.requiredBaseUnits(listingId, hash);
     if (paid < required) {
+      // THE SHORTFALL, IN THE UNITS THE BUYER TYPED.
+      //
+      // "transferred 39950000 base units; costs 40000000" is arithmetic the
+      // person who just lost money should not have to do. Base units stay in
+      // the body because they are what the chain carries and what a support
+      // conversation needs, but the human figures are stated beside them, and
+      // so is the difference — which is the only number that tells the buyer
+      // what to send next.
+      const decimals = await this.token.getDecimals().catch(() => null);
       throw new BadRequestException({
         code: 'insufficient_amount',
         message:
-          `Transaction ${hash} transferred ${paid} base units; listing ${listingId} costs ` +
-          `${required}. Underpayment does not grant access.`,
+          decimals === null
+            ? `Transaction ${hash} transferred ${paid} base units; listing ${listingId} costs ` +
+              `${required}. Underpayment does not grant access.`
+            : `Transaction ${hash} transferred ${this.human(paid, decimals)}; this listing costs ` +
+              `${this.human(required, decimals)}. It is short by ${this.human(required - paid, decimals)}. ` +
+              'The creator has received what was sent — ARCANA never held it and cannot refund it.',
+        paid_base_units: paid.toString(),
+        required_base_units: required.toString(),
+        shortfall_base_units: (required - paid).toString(),
+        paid: decimals === null ? null : this.human(paid, decimals),
+        required: decimals === null ? null : this.human(required, decimals),
+        shortfall: decimals === null ? null : this.human(required - paid, decimals),
+        decimals,
+        tx_hash: hash,
+        // THE REMEDY, STATED AS IT ACTUALLY WORKS AND NOT AS IT OUGHT TO.
+        //
+        // Every claim is verified against ONE transaction: the amount check
+        // sums the transfers inside that receipt and nothing outside it. So a
+        // top-up sent afterwards is a second transaction that is also short,
+        // and claiming it fails the same way. Telling a buyer "send the
+        // difference and the two will be matched" would be describing a
+        // feature that does not exist, to somebody who has already lost money
+        // once by trusting this page.
+        remedy:
+          'Each claim is checked against one transaction, and the sum inside it. A top-up sent ' +
+          'afterwards is a separate transfer and will be short on its own, so it cannot complete this ' +
+          'one. To buy the listing, send the full amount in a single transfer and claim that hash ' +
+          `within ${this.maxAgeSeconds / 3600}h. The amount already sent is the creator's; recovering ` +
+          'it is between you and them.',
       });
     }
 
@@ -334,6 +412,96 @@ export class ClaimsService {
       confirmations,
       expires_at: sub.expiresAt,
     };
+  }
+
+  /**
+   * A hash that has already bought something — and WHAT it bought.
+   *
+   * The bare refusal named a listing id and nothing else, which leaves the
+   * buyer unable to tell an honest mistake (pasting the hash of last month's
+   * renewal) from a real problem (somebody else used their transaction). Both
+   * end in the same 409, so the body has to carry the difference: which
+   * listing, which agent, when, by which wallet, and whether that term is still
+   * running. Nothing here is private — it is all about the caller's own hash,
+   * and a hash is public the moment it is mined.
+   */
+  private async alreadyClaimed(seen: PaymentClaim, hash: string) {
+    let bought: {
+      listing_id: string;
+      agent_id: string | null;
+      agent_name: string | null;
+      creator_handle: string | null;
+    } | null = null;
+    try {
+      const rows = await this.db.query(
+        `SELECT l.id::text AS listing_id, a.id::text AS agent_id, a.name AS agent_name,
+                c.handle AS creator_handle
+           FROM marketplace_listings l
+           LEFT JOIN agents a   ON a.id = l.agent_id
+           LEFT JOIN creators c ON c.id = a.creator_id
+          WHERE l.id = $1`,
+        [seen.listingId],
+      );
+      bought = rows[0] ?? null;
+    } catch (e) {
+      // The refusal itself does not depend on this lookup. A failure to
+      // decorate must not turn a correct 409 into a 500.
+      this.logger.warn(`could not describe the earlier claim on ${hash}: ${e}`);
+    }
+
+    let term: { expires_at: string; status: string; in_grace: boolean } | null = null;
+    try {
+      const rows = await this.db.query(
+        `SELECT expires_at, status FROM subscriptions
+          WHERE listing_id = $1 AND lower(user_wallet) = lower($2)
+          ORDER BY expires_at DESC LIMIT 1`,
+        [seen.listingId, seen.buyerWallet],
+      );
+      if (rows[0]) {
+        const expires = new Date(rows[0].expires_at);
+        term = {
+          expires_at: expires.toISOString(),
+          status: rows[0].status,
+          in_grace: expires <= new Date() && expires >= this.subs.graceCutoff(),
+        };
+      }
+    } catch (e) {
+      this.logger.warn(`could not read the term bought by ${hash}: ${e}`);
+    }
+
+    return {
+      code: 'tx_already_claimed',
+      message:
+        `Transaction ${hash} has already been used to claim ` +
+        (bought?.agent_name ? `${bought.agent_name} ` : `listing ${seen.listingId} `) +
+        `on ${new Date(seen.blockTime ?? seen.claimedAt ?? new Date()).toISOString().slice(0, 10)}. ` +
+        'A payment buys one thing. Nothing was charged now.',
+      tx_hash: hash,
+      claimed_listing_id: seen.listingId,
+      claimed_agent_id: bought?.agent_id ?? null,
+      claimed_agent_name: bought?.agent_name ?? null,
+      claimed_creator_handle: bought?.creator_handle ?? null,
+      claimed_by_wallet: seen.buyerWallet,
+      // The buyer is nearly always the same person, and saying so out loud
+      // turns an alarming refusal into an ordinary one.
+      claimed_at: (seen.blockTime ?? seen.claimedAt ?? null)
+        ? new Date((seen.blockTime ?? seen.claimedAt) as Date).toISOString()
+        : null,
+      term,
+      remedy:
+        'To renew, make a new transfer for the current quote and claim that hash. Nothing was charged ' +
+        'by this attempt.',
+    };
+  }
+
+  /** Base units to the human figure, exactly, without floating point. */
+  private human(v: bigint, decimals: number): string {
+    const neg = v < 0n;
+    const abs = neg ? -v : v;
+    const s = abs.toString().padStart(decimals + 1, '0');
+    const whole = s.slice(0, s.length - decimals);
+    const frac = decimals === 0 ? '' : `.${s.slice(s.length - decimals)}`;
+    return `${neg ? '-' : ''}${whole}${frac}`;
   }
 
   /** The creator's wallet for a listing, via its agent. */
@@ -435,6 +603,47 @@ export class ClaimsService {
   }
 
   /**
+   * The rules every subscription is sold under, from the values in force.
+   *
+   * READ FROM THE SAME FIELDS THE VERIFICATION USES, not from a documentation
+   * page that was accurate when it was written. Every number a buyer is quoted
+   * about the term, the grace window, the claim deadline and the confirmation
+   * depth comes from here, so a change to any of them changes the docs in the
+   * same deploy.
+   *
+   * `payments_configured: false` is not "payments are free" and not "there is
+   * no token" — it is this service saying it cannot verify anything right now,
+   * and the terms it can still state are stated anyway.
+   */
+  terms() {
+    return {
+      term_days: this.subs.termDays,
+      grace_hours: this.subs.graceHours,
+      claim_within_hours: this.maxAgeSeconds / 3600,
+      min_confirmations: this.minConfirmations,
+      // Wall-clock, because block counts mean nothing without the block time —
+      // this chain produces one every 0.100s and the same 12 that is two and a
+      // half minutes on Ethereum is 1.2 seconds here.
+      approx_confirmation_seconds: Math.round(this.minConfirmations * 0.1),
+      payments_configured: this.token.enabled,
+      payment_token: this.token.enabled ? this.token.tokenAddress : null,
+      payment_token_source: this.token.configVar,
+      chain: this.token.chainName,
+      refundable: false,
+      refund_note:
+        'A buyer pays the creator directly. ARCANA never receives the money and therefore cannot ' +
+        'refund it, reverse it, or recover it from a wrong address or a wrong amount. This is a ' +
+        'consequence of taking no fee and holding no funds, and it is stated before payment rather ' +
+        'than after.',
+      unconfigured_note: this.token.enabled
+        ? null
+        : `Payments are not configured (${this.token.configVar} / ARCA_RPC_URL), so no payment can be ` +
+          'verified at all right now. Every claim refuses with 503 — which is correct: nothing is ' +
+          'being judged.',
+    };
+  }
+
+  /**
    * Everything a buyer needs BEFORE paying, from the rows the check reads.
    *
    * Deliberately assembled from resolvePayable() and requiredBaseUnits()
@@ -451,6 +660,8 @@ export class ClaimsService {
     decimals: number;
     claim_within_hours: number;
     min_confirmations: number;
+    term_days: number;
+    grace_hours: number;
     warning: string;
   }> {
     const { listing, creatorWallet } = await this.resolvePayable(listingId);
@@ -478,6 +689,12 @@ export class ClaimsService {
       decimals,
       claim_within_hours: this.maxAgeSeconds / 3600,
       min_confirmations: this.minConfirmations,
+      // WHAT THE MONEY BUYS, quoted beside what it costs. The term and the
+      // grace window are the other half of the price and they used to be
+      // readable only from the code — a buyer was shown an amount and an
+      // address and had to guess how long it lasted.
+      term_days: this.subs.termDays,
+      grace_hours: this.subs.graceHours,
       // SAID BEFORE THE MONEY MOVES, not after. ARCANA never receives this
       // payment and therefore cannot return it — that is a direct consequence
       // of a fee-free P2P marketplace and it is the right trade, but a buyer
