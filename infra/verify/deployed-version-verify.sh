@@ -97,6 +97,7 @@ paths_for() {
     agent-service)     echo "services/agent-service packages/auth" ;;
     marketplace-service) echo "services/marketplace packages/auth" ;;
     arca-service)      echo "services/arca-service packages/auth" ;;
+    web)               echo "services/web" ;;
     *)                 echo "" ;;
   esac
 }
@@ -197,7 +198,7 @@ check_guard
 echo
 echo "=== Node services report the commit they were built from ==="
 check_node() {
-  local name="$1" dir="$2" port="$3"
+  local name="$1" dir="$2" port="$3" out="${4:-dist}"
   local stamp
   if ! curl -s -o /dev/null --max-time 6 "http://127.0.0.1:${port}/healthz"; then
     no "$name is answering" "no response on :$port"
@@ -210,9 +211,9 @@ check_node() {
   # so `git checkout -- .` alone made a correct build look stale. A check that
   # cries wolf is worse than no check — the next real staleness reads as more
   # of the same.
-  stamp="$(cat "$dir/dist/.build-commit" 2>/dev/null)"
+  stamp="$(cat "$dir/$out/.build-commit" 2>/dev/null)"
   if [ -z "$stamp" ]; then
-    no "$name reports a build commit" "$dir/dist/.build-commit missing — built before stamping, or not built"
+    no "$name reports a build commit" "$dir/$out/.build-commit missing — built before stamping, or not built"
     return
   fi
   report "$name" "$stamp" "built from"
@@ -220,6 +221,12 @@ check_node() {
 check_node agent-service       services/agent-service       3001
 check_node marketplace-service services/marketplace         3002
 check_node arca-service        services/arca-service        3004
+# THE WEB SURFACE HAS THE SAME TRAP AND WAS NOT WATCHED FOR IT. `next start`
+# serves whatever .next holds, so a pull plus a restart serves the old code
+# while every configuration file says the new thing. That happened: the sign-in
+# page kept refusing a domain that had already been corrected, and nothing
+# anywhere said the build was behind.
+check_node web                 services/web                 3000 .next
 
 echo
 echo "=== The check can still refuse ==="

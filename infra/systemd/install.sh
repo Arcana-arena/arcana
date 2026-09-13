@@ -238,7 +238,12 @@ done
 # src/ leaves them running the previous build — the same trap as the Go
 # binaries, one language over.
 echo "==> building Node services"
-for svc in agent-service marketplace arca-service; do
+# The web surface IS IN THIS LIST BECAUSE IT WAS NOT, AND THAT COST A SESSION.
+# `next start` serves whatever .next happens to hold, so a pull plus a restart
+# kept serving the previous build, the sign-in page went on refusing a domain
+# that had already been fixed, and every piece of evidence said the
+# configuration was right — because it was. Only the code was old.
+for svc in agent-service marketplace arca-service web; do
   if [ "${PKG_FAILED:-0}" = "1" ]; then
     echo "    $svc SKIPPED — a shared package failed to build"
     continue
@@ -250,7 +255,12 @@ for svc in agent-service marketplace arca-service; do
     # any git operation that rewrites a file bumps its mtime whether or not
     # the content changed, so `git checkout -- .` alone made every build look
     # stale. A stamp compares what was built, not when.
-    echo "$COMMIT" > "$REPO/services/$svc/dist/.build-commit"
+    # Next writes .next, not dist. Stamped in whichever one this service has.
+    if [ -d "$REPO/services/$svc/.next" ]; then
+      echo "$COMMIT" > "$REPO/services/$svc/.next/.build-commit"
+    else
+      echo "$COMMIT" > "$REPO/services/$svc/dist/.build-commit"
+    fi
     echo "    $svc"
   else
     echo "    $svc BUILD FAILED — it will keep running its previous dist/"
