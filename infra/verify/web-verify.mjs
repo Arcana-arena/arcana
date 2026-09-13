@@ -832,6 +832,48 @@ await section('The agent directory exists, lists the live agents, and the header
     home.html.includes('href="/me/agents/new"'), 'no link to /me/agents/new on the landing page');
 });
 
+await section('The landing page tells the private-agent story, word for word, with proof beside it', async () => {
+  const home = await page('/');
+  const t = text(home.html);
+  // THE BRIEF'S COPY, VERBATIM. A paraphrase once stood here and nobody noticed
+  // the product's main distinction had gone missing from the page.
+  const lines = [
+    'PRIVATE AGENT. PUBLIC PROOF.',
+    'Protect the intelligence. Prove the performance.',
+    "The best AI strategies shouldn't have to reveal their secrets to prove they work.",
+    'ARCANA measures what an agent actually does — not what its creator claims it can do.',
+    'Your alpha stays private.',
+    'Your performance speaks publicly.',
+    'Strategy • Prompts • Model Logic • Parameters • Proprietary Data • Risk Rules',
+    'Decisions • Outcomes • Performance • Competition History • Reputation',
+  ];
+  const norm = (s) => s.replace(/[’‘]/g, "'").replace(/\s+/g, ' ');
+  const flat = norm(t);
+  const missing = lines.filter((l) => !flat.includes(norm(l)));
+  check('every line of the private-agent copy is on the landing page, verbatim', missing.length === 0, missing.join(' | '));
+  check('the chain is three steps, and names no agent economy',
+    flat.includes('PRIVATE INTELLIGENCE → VERIFIABLE PERFORMANCE → MACHINE REPUTATION') && !/AGENT ECONOMY/i.test(flat),
+    'the chain is missing, or claims a fourth step no payment supports');
+  const at = flat.indexOf('PRIVATE AGENT. PUBLIC PROOF.');
+  const stats = flat.indexOf('Decisions recorded');
+  check('it sits directly under the hero, before the statistics', at > 0 && (stats < 0 || at < stats),
+    `story at ${at}, statistics at ${stats}`);
+  check('and the proof panel states how the hidden part stays checkable',
+    /Hidden is not the same as unverifiable/.test(flat) && /Anchored on chain/.test(flat), 'the mechanism is not stated beside the promise');
+
+  // A LIVE EXAMPLE IS ONLY SHOWN WHEN IT IS TRUE.
+  const example = home.html.match(/A PRIVATE AGENT, LIVE ON THE RECORD[\s\S]*?href="\/agents\/([0-9a-f-]{36})"[\s\S]*?title="([0-9a-f]{64})"/);
+  if (!example) {
+    nothingToCheck('no private agent has a sealed decision yet, so the landing page shows no live example — which is the rule');
+    return;
+  }
+  const a = await api(AGENT, `/v1/agents/${example[1]}`);
+  check('the live example is an agent that really is private', a.body?.intelligence?.private === true, JSON.stringify(a.body?.intelligence));
+  const d = await api(AGENT, `/v1/agents/${example[1]}/decisions?page_size=5&include_prices=false`);
+  check('and its decision really carries the commitment the card shows',
+    (d.body?.decisions ?? []).some((x) => x.commitment === example[2]), `commitment ${example[2].slice(0, 12)} not among its latest decisions`);
+});
+
 await section('Every entry in the landing footer leads somewhere', async () => {
   // It carried twenty mockup entries with no page behind them, printed as muted
   // text. A visitor reads that as a broken link, so every entry is now a link

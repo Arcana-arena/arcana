@@ -43,71 +43,141 @@ const GUARANTEES = [
   ],
 ];
 
-const PRIVATE_KEEPS = ['Strategy', 'Prompts', 'Model logic', 'Parameters', 'Proprietary data', 'Risk rules', 'Decision framework'];
-const PUBLIC_PROVES = ['Decisions', 'Outcomes', 'Performance', 'Competition history', 'Reputation'];
+const PRIVATE_KEEPS = ['Strategy', 'Prompts', 'Model Logic', 'Parameters', 'Proprietary Data', 'Risk Rules'];
+const PUBLIC_PROVES = ['Decisions', 'Outcomes', 'Performance', 'Competition History', 'Reputation'];
+
+/** A private agent that can be pointed at, found by the page from the record. */
+export type PrivateExample = {
+  agentId: string;
+  name: string;
+  version: number | null;
+  decisions: number;
+  decision: { id: number; ts: string; action: string; symbol: string | null; commitment: string };
+  anchor: { status: string; txHash: string | null; anchorId: number | null } | null;
+};
 
 /**
  * PRIVATE AGENT. PUBLIC PROOF.
  *
- * The words are the brief's. The claim under them is the commitment (migration
- * 0047): every decision is sealed when it is recorded, so a private agent's
- * hidden reasoning is provably unchanged — which is the only thing that lets
- * "private" and "proof" sit in the same sentence.
+ * THE COPY IS THE BRIEF'S, WORD FOR WORD, and is not to be rewritten. Only the
+ * proof panel beside it is the platform's own voice, because it states a
+ * mechanism rather than a promise.
+ *
+ * WHY IT SITS DIRECTLY UNDER THE HERO. The hero's premise is openness: don't
+ * trust what an AI says, measure what it does. A section about privacy placed
+ * anywhere else reads as an exception to that premise. Placed next to it, it
+ * has to read as the answer to the obvious objection — "then the best strategies
+ * will never compete" — and the proof panel is what makes it an answer: what is
+ * hidden is sealed when recorded and anchored on chain, so it is provably
+ * unchanged. The thing on offer is not "partly hidden"; it is "hidden, and still
+ * checkable".
+ *
+ * THE EXAMPLE IS FOUND, NEVER WRITTEN. The page looks for a live private agent
+ * with at least one sealed decision and shows that one. When there is none, the
+ * card is not shown at all — a placeholder would be the promise without the proof.
  */
-export function PrivateProof() {
+export function PrivateProof({ example }: { example: PrivateExample | null }) {
   return (
-    <section className="sec">
-      <div className="sec-hd">
-        <h2>Private agent. Public proof.</h2>
-        <span className="mono m3" style={{ fontSize: 11 }}>
-          protect the intelligence · prove the performance
-        </span>
-      </div>
-      <div style={{ paddingBottom: 24 }}>
-        <p style={{ fontSize: 15, lineHeight: 1.5, color: 'var(--ink-2)', maxWidth: 760, margin: '0 0 18px' }}>
-          The best AI strategies should not have to reveal their secrets to prove they work. ARCANA separates an
-          agent&rsquo;s private intelligence from its public performance record.
-        </p>
-        <div className="grid-3">
-          <div className="node" style={{ padding: '14px 16px' }}>
-            <div className="k" style={{ marginBottom: 8 }}>
-              Private intelligence · stays private
-            </div>
-            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.7, color: 'var(--ink-2)' }}>
-              {PRIVATE_KEEPS.map((x) => (
-                <li key={x}>{x}</li>
-              ))}
-            </ul>
+    <section className="sec" id="private-agents" style={{ paddingTop: 40, paddingBottom: 36 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))', gap: 36, alignItems: 'start' }}>
+        <div>
+          <h2 style={{ fontSize: 'clamp(30px, 4vw, 48px)', lineHeight: 1, margin: '0 0 12px', letterSpacing: '-.01em' }}>
+            PRIVATE AGENT. PUBLIC PROOF.
+          </h2>
+          <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 'clamp(19px, 2.2vw, 24px)', lineHeight: 1.25, color: 'var(--color-accent)', margin: '0 0 22px' }}>
+            Protect the intelligence. Prove the performance.
           </div>
-          <div className="node" style={{ padding: '14px 16px' }}>
-            <div className="k" style={{ marginBottom: 8 }}>
-              Verifiable performance · stays provable
+
+          <p style={{ fontSize: 16, lineHeight: 1.55, margin: '0 0 14px', maxWidth: 640 }}>
+            The best AI strategies shouldn&rsquo;t have to reveal their secrets to prove they work.
+          </p>
+          <p style={{ fontSize: 14.5, lineHeight: 1.6, color: 'var(--ink-2)', margin: '0 0 20px', maxWidth: 640 }}>
+            ARCANA separates an agent&rsquo;s private intelligence from its public performance record. Strategy logic,
+            prompts, model parameters, proprietary data, risk rules, and decision frameworks can remain protected while
+            the agent builds a verifiable history through competition.
+          </p>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: 14, margin: '0 0 20px' }}>
+            <div className="node" style={{ padding: '14px 16px' }}>
+              <div className="k" style={{ marginBottom: 8 }}>What stays private:</div>
+              <div style={{ fontSize: 13.5, lineHeight: 1.6 }}>{PRIVATE_KEEPS.join(' • ')}</div>
             </div>
-            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.7, color: 'var(--ink-2)' }}>
-              {PUBLIC_PROVES.map((x) => (
-                <li key={x}>{x}</li>
-              ))}
-            </ul>
+            <div className="node" style={{ padding: '14px 16px', borderColor: 'var(--color-accent)' }}>
+              <div className="k" style={{ marginBottom: 8 }}>What becomes provable:</div>
+              <div style={{ fontSize: 13.5, lineHeight: 1.6 }}>{PUBLIC_PROVES.join(' • ')}</div>
+            </div>
           </div>
-          <div className="node" style={{ padding: '14px 16px' }}>
-            <div className="k" style={{ marginBottom: 8 }}>
-              Machine reputation · how it is proven
-            </div>
-            <p style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--ink-2)', margin: 0 }}>
-              Every decision is sealed with a fingerprint the moment it is recorded. Nobody can read the reasoning from
-              it, and if the reasoning were changed afterwards it would no longer match. The creator can open any
-              decision — to sell, or to answer a question — and every opening is on the public record.
-            </p>
+
+          <p style={{ fontSize: 14.5, lineHeight: 1.6, margin: '0 0 12px', maxWidth: 640 }}>
+            ARCANA measures what an agent actually does — not what its creator claims it can do.
+          </p>
+          <p style={{ fontSize: 14.5, lineHeight: 1.6, color: 'var(--ink-2)', margin: '0 0 24px', maxWidth: 640 }}>
+            This allows creators to compete, build reputation, and eventually monetize their agents without exposing the
+            intelligence that gives them an edge.
+          </p>
+
+          <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 'clamp(24px, 3vw, 34px)', lineHeight: 1.15, margin: '0 0 22px' }}>
+            Your alpha stays private.
+            <br />
+            Your performance speaks publicly.
+          </div>
+
+          <div className="mono" style={{ fontSize: 12, color: 'var(--color-accent)', letterSpacing: '.12em', lineHeight: 1.6 }}>
+            PRIVATE INTELLIGENCE → VERIFIABLE PERFORMANCE → MACHINE REPUTATION
           </div>
         </div>
-        <div className="mono" style={{ fontSize: 11, color: 'var(--color-accent)', letterSpacing: '.12em', marginTop: 18 }}>
-          PRIVATE INTELLIGENCE → VERIFIABLE PERFORMANCE → MACHINE REPUTATION
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginTop: 14 }}>
-          <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 20, lineHeight: 1.2 }}>
-            Your alpha stays private. Your performance speaks publicly.
+
+        {/* THE PROOF PANEL — the platform's own words, because it states how,
+            not what. It is what turns privacy from an exception to the page's
+            premise into the answer to its first objection. */}
+        <div style={{ border: '1px solid var(--color-divider)' }}>
+          <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--color-divider)' }}>
+            <div className="k">Hidden is not the same as unverifiable</div>
           </div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <ol style={{ margin: 0, padding: '14px 16px 4px 34px', fontSize: 13, lineHeight: 1.6, color: 'var(--ink-2)' }}>
+            <li style={{ marginBottom: 10 }}>
+              <strong style={{ color: 'var(--color-text)' }}>Sealed when it is recorded.</strong> Every decision is written
+              with a commitment — a fingerprint of the reasoning behind it — before its outcome is known. Nobody can read
+              the reasoning from it.
+            </li>
+            <li style={{ marginBottom: 10 }}>
+              <strong style={{ color: 'var(--color-text)' }}>Anchored on chain.</strong> Those fingerprints are written
+              into Robinhood Chain. Changing what was hidden, afterwards, would break a proof anyone can check without
+              asking ARCANA.
+            </li>
+            <li style={{ marginBottom: 10 }}>
+              <strong style={{ color: 'var(--color-text)' }}>Opened on the record.</strong> A creator can reveal any single
+              decision, and it is checked against the fingerprint made at the time. Every opening is public.
+            </li>
+          </ol>
+
+          {example ? (
+            <div style={{ margin: '4px 16px 14px', padding: '12px 14px', background: 'var(--color-surface)', fontSize: 12.5, lineHeight: 1.55 }}>
+              <div className="lbl" style={{ marginBottom: 6 }}>A PRIVATE AGENT, LIVE ON THE RECORD</div>
+              <div>
+                <Link href={`/agents/${example.agentId}`}>
+                  {example.name}
+                  {example.version ? ` v${example.version}` : ''}
+                </Link>{' '}
+                <span className="m2">· {example.decisions} decision{example.decisions === 1 ? '' : 's'} · reasoning private</span>
+              </div>
+              <div className="m2" style={{ marginTop: 4 }}>
+                Latest decision: <span className="mono">{example.decision.action}{example.decision.symbol ? ` ${example.decision.symbol}` : ''}</span>,
+                sealed as <span className="mono" title={example.decision.commitment}>{example.decision.commitment.slice(0, 12)}…</span>
+                {' — '}
+                {example.anchor?.status === 'anchored' ? (
+                  <span className="up">anchored on chain{example.anchor.anchorId ? ` (anchor ${example.anchor.anchorId})` : ''}</span>
+                ) : (
+                  <span className="am">waiting for the next anchor</span>
+                )}
+              </div>
+              <div style={{ marginTop: 6 }}>
+                <Link href={`/agents/${example.agentId}?tab=decisions&open=${example.decision.id}`}>Check its proof →</Link>
+              </div>
+            </div>
+          ) : null}
+
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', padding: '4px 16px 16px' }}>
             <Link href="/me/agents/new" className="btn btn-primary">
               Create a private agent
             </Link>

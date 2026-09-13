@@ -7,7 +7,7 @@ import { Header } from '@/components/layout/Header';
 import { ActionTag, Key, Lbl, Num, ScoreBar, StatusTag, Tag } from '@/components/ds/primitives';
 import { Empty, Failed } from '@/components/ds/states';
 import { LineChart } from '@/components/ds/chart';
-import { HowItWorks, ForCreators, LandingFooter, PrivateProof } from '@/components/landing/static-sections';
+import { HowItWorks, ForCreators, LandingFooter, PrivateProof, type PrivateExample } from '@/components/landing/static-sections';
 
 /**
  * The landing page, in the order the mockup lays it out.
@@ -44,6 +44,47 @@ type DiscoverRow = {
   arca_gate_amount: string | number | null; arcana_score: string | number | null;
 };
 
+/**
+ * A PRIVATE AGENT THAT CAN BE POINTED AT, FOUND FROM THE RECORD.
+ *
+ * The first live, active, private agent whose latest decision carries a
+ * commitment — with where that commitment is anchored. Nothing is chosen by
+ * hand and nothing is shown when nothing qualifies: an example card with no
+ * sealed decision behind it would be the promise without the proof.
+ */
+async function findPrivateExample(): Promise<PrivateExample | null> {
+  const list = await agent<{
+    items: Array<{ id: string; name: string; version: number | null; status: string; provenance: string; intelligence?: { private?: boolean } }>;
+  }>('/v1/agents?page_size=100');
+  if (!list.ok) return null;
+  const candidates = list.data.items
+    .filter((a) => a.intelligence?.private === true && a.status === 'active' && a.provenance === 'live')
+    .slice(0, 10);
+  for (const a of candidates) {
+    const d = await agent<{
+      total_decisions: number;
+      decisions: Array<{ decision_id: number | null; ts: string; action: string; symbol: string | null; commitment: string | null }>;
+    }>(`/v1/agents/${a.id}/decisions?page_size=1&include_prices=false`);
+    if (!d.ok) continue;
+    const row = d.data.decisions.find((x) => x.commitment && x.decision_id);
+    if (!row || !row.commitment || !row.decision_id) continue;
+    const an = await agent<{ status: string; anchor?: { id: number; tx_hash: string } }>(
+      `/v1/agents/${a.id}/decisions/${row.decision_id}/anchor`,
+    );
+    return {
+      agentId: a.id,
+      name: a.name,
+      version: a.version,
+      decisions: d.data.total_decisions,
+      decision: { id: row.decision_id, ts: row.ts, action: row.action, symbol: row.symbol, commitment: row.commitment },
+      anchor: an.ok
+        ? { status: an.data.status, txHash: an.data.anchor?.tx_hash ?? null, anchorId: an.data.anchor?.id ?? null }
+        : null,
+    };
+  }
+  return null;
+}
+
 const n = (v: string | number | null | undefined) => {
   if (v === null || v === undefined || v === '') return null;
   const x = typeof v === 'number' ? v : Number(v);
@@ -70,6 +111,9 @@ export default async function LandingPage() {
     top ? agent<AutopsyResp>(`/v1/agents/${top.agent_id}/autopsy`) : Promise.resolve(null),
     top ? agent<Agent>(`/v1/agents/${top.agent_id}`) : Promise.resolve(null),
   ]);
+
+  // Awaited on its own, not added to the positional arrays above.
+  const privateExample = await findPrivateExample();
 
   const running = seasonsR.ok ? seasonsR.data.items.filter((s) => s.progress?.status === 'running') : [];
   const others = seasonsR.ok ? seasonsR.data.items.filter((s) => s.progress?.status !== 'running') : [];
@@ -175,6 +219,11 @@ export default async function LandingPage() {
           ) : null}
         </div>
       </section>
+
+      {/* ------------------------------------ 2b · PRIVATE AGENT. PUBLIC PROOF.
+          Directly under the hero, so it reads as the answer to the hero's
+          premise rather than an exception to it. */}
+      <PrivateProof example={privateExample} />
 
       {/* -------------------------------------------------- 3 · STATS STRIP */}
       {!statsR.ok ? (
@@ -651,8 +700,6 @@ export default async function LandingPage() {
           </div>
         )}
       </section>
-
-      <PrivateProof />
 
       <ForCreators
         leadingMandate={

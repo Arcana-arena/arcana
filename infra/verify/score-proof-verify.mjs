@@ -36,9 +36,12 @@ const WEB = process.env.WEB_URL || 'http://127.0.0.1:3000';
 
 const { check, section, report, nothingToCheck } = suite('score-proof-verify');
 
+// THE QUERY GOES IN ON STDIN, NOT AS AN ARGUMENT. A score's manifest lists
+// ~1,400 peer rows, and checking them in one query made a single argument larger
+// than Linux accepts for one (spawnSync E2BIG). stdin has no such limit.
 const sql = (q) =>
-  execFileSync('docker', ['exec', 'arcana-postgres', 'psql', '-U', 'arcana', '-d', 'arcana', '-v', 'ON_ERROR_STOP=1', '-tAc', q],
-    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 256 * 1024 * 1024 }).trim();
+  execFileSync('docker', ['exec', '-i', 'arcana-postgres', 'psql', '-U', 'arcana', '-d', 'arcana', '-v', 'ON_ERROR_STOP=1', '-q', '-tA', '-f', '-'],
+    { input: q, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 256 * 1024 * 1024 }).trim();
 const json = (q) => { const t = sql(q); return t ? JSON.parse(t) : null; };
 const refused = (q) => { try { sql(`BEGIN; ${q} ROLLBACK;`); return null; } catch (e) { return String(e.stderr || e.message); } };
 const sha = (s) => createHash('sha256').update(s, 'utf8').digest('hex');
