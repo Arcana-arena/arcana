@@ -265,9 +265,16 @@ try {
     // THE CHECK THIS FILE EXISTS FOR.
     const tags = (t.match(/GATE UNKNOWN/gi) ?? []).length;
     const rigSeasons = (await json(`http://127.0.0.1:${AGENT_PORT}/v1/seasons?page_size=50`)).body?.items ?? [];
-    check('every season whose gate could not be read is labelled unknown',
-      tags === rigSeasons.length && tags > 0,
-      `${tags} "GATE UNKNOWN" tag(s) for ${rigSeasons.length} season(s)`);
+    // ONE TAG PER TABLE ROW, PLUS ONE on the "Current" card: the page draws the
+    // running season's gate twice, in its GATE stat and again in its row. The
+    // first run of this suite counted one per season and failed 5 against 4 on
+    // a page that was right. The page picks its current season with find(), so
+    // at most one extra.
+    const running = rigSeasons.some((s) => s.progress?.status === 'running') ? 1 : 0;
+    const expected = rigSeasons.length + running;
+    check('every season whose gate could not be read is labelled unknown, once per place it is drawn',
+      tags === expected && tags > 0,
+      `${tags} "GATE UNKNOWN" tag(s); expected ${expected} — ${rigSeasons.length} table row(s) + ${running} current-season card`);
     // COUNTING RATHER THAN LOOKING FOR THE ABSENCE OF A WORD: the enforced=false
     // branch renders "OPEN" for a standard season and StatusTag renders "OPEN"
     // for a running one, so that word proves nothing either way. "NOT GUARDED"
