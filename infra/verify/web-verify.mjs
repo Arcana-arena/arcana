@@ -224,17 +224,26 @@ await section('An agent page prints that agent, and its own numbers', async () =
 
   if (pass.status === 200) {
     const dec = pass.body?.participation?.decisions;
-    check('the decision count on the page is the passport\'s',
-      typeof dec === 'number' ? t.includes(String(dec)) : true,
-      `passport says ${dec} decisions, not found on the page`);
+    // A NUMBER IS FOUND WHERE IT IS PRINTED, NOT AS A SUBSTRING OF THE PAGE. This
+    // used to ask whether the passport's count appeared anywhere in the
+    // overview's text, and the overview never prints it for a ranked, active
+    // agent: it passed while some NAV figure happened to contain the digits, and
+    // failed on 2026-09-14 when the count moved from 278 to 279 and the
+    // coincidence ended. The Decisions tab prints the count in one labelled place.
+    const dt = text((await page(`/agents/${first.agent_id}?tab=decisions`)).html);
+    const shown = dt.match(/Decisions\s*·\s*([\d,]+)\s*recorded/);
+    check('the decision count on the Decisions tab is the passport\'s',
+      typeof dec === 'number' ? !!shown && Number(shown[1].replace(/,/g, '')) === dec : true,
+      `passport says ${dec} decisions; the tab says ${shown ? shown[1] : 'nothing labelled'}`);
     const own = pass.body?.decided_by?.own;
     const prot = pass.body?.decided_by?.protective;
     check('the agent\'s own trades and the protective exits are shown as separate numbers',
       /own trades/i.test(t) && /protective exits/i.test(t),
       'the two are not labelled separately');
+    const token = (n) => new RegExp(`(^|[^\\d.,])${Number(n).toLocaleString('en-US')}([^\\d.,]|$)`);
     check('and those two numbers are the passport\'s',
       typeof own === 'number' && typeof prot === 'number'
-        ? t.includes(String(own)) && t.includes(String(prot))
+        ? token(own).test(t) && token(prot).test(t)
         : true,
       `passport: own=${own} protective=${prot}`);
   }
