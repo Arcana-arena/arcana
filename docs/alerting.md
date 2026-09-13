@@ -25,7 +25,7 @@ So there are two layers.
 
 ## Layer 1 — `OnFailure=` on every job
 
-Sixteen units declare `OnFailure=arcana-alert@%n.service`:
+Seventeen units declare `OnFailure=arcana-alert@%n.service`:
 
 | Unit | What it does |
 |---|---|
@@ -36,6 +36,7 @@ Sixteen units declare `OnFailure=arcana-alert@%n.service`:
 | `arcana-arca-reminder` | subscription reminders |
 | `arcana-chain-guard` | Stock Token issuer-control drift (layer 3 below) |
 | `arcana-cadence` | opens a pool-priced tick every four hours. Alerts on a failed run — and a tick where NO agent executed exits non-zero on purpose, because a tick that opened and closed with everyone failing is the silent fault this phase exists to make visible |
+| `arcana-cadence-b75adb8d` | the same cadence for the second Season 2 competition; alerts on the same conditions, and opens nothing while nobody has entered |
 | `arcana-decision-watchdog` | asks whether a DECISION has been recorded in the last twelve hours. Replaces the tick watchdog's question, which was about a market calendar that no longer exists |
 | `arcana-execution-watchdog` | asks whether the money is MOVING or just burning: repeated trade failures, a wallet that can no longer pay for gas, transactions the record has no row for. The decision watchdog cannot see any of these — the agent decides on time, the transaction reverts, and decisions keep being recorded |
 | `arcana-guard` | the take-profit / stop-loss watcher itself. It refuses to start without a signer rather than run as a process that can see a level cross and do nothing, so a failure to start is an alert and not a restart loop nobody reads |

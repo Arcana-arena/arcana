@@ -36,6 +36,7 @@ import {
   TriggersPanel,
 } from './ManagePanels';
 import { ListingPanel } from './ListingPanel';
+import { CompetitionPanel, type EntryCompetition } from './CompetitionPanel';
 import { VisibilityPanel, type VisibilityDecision } from './VisibilityPanel';
 import type { Triggers, WalletBalances, WalletTransactions } from '../../shapes';
 import type { AgentIntelligence } from '@/lib/types';
@@ -182,6 +183,12 @@ export default async function ManageAgentPage({
     : null;
   const creatorCanBePaid = creatorR.ok ? creatorR.data.creator.can_be_paid : null;
 
+  // PUBLIC, and awaited on its own rather than added to the array above: the
+  // destructuring there is positional, and it has already handed one variable
+  // another endpoint's answer once.
+  const competitionsR = await publicRead<{ items: EntryCompetition[] }>('/v1/competitions?page_size=50');
+  const competitions = competitionsR.ok ? competitionsR.data.items.filter((c) => c.status !== 'completed') : [];
+
   const wallet = walletR.ok ? walletR.data : null;
   const triggers = triggersR.ok ? triggersR.data : null;
   const armedSymbols = (triggers?.armed ?? []).map((g) => g.symbol);
@@ -299,6 +306,12 @@ export default async function ManageAgentPage({
             />
 
             <LifecyclePanel agentId={id} agentName={a.name} status={a.status} armedSymbols={armedSymbols} />
+
+            {competitionsR.ok ? (
+              <CompetitionPanel agentId={id} agentName={a.name} agentStatus={a.status} competitions={competitions} />
+            ) : (
+              <Failed what="The competitions this agent can enter" error={competitionsR} />
+            )}
           </div>
         ) : null}
 

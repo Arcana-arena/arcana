@@ -12,6 +12,7 @@ import {
   retireAgent,
   setRisk,
 } from './actions';
+import { activateAgent } from '../new/actions';
 import type { PauseResult, RiskResult, Triggers } from '../../shapes';
 
 /**
@@ -315,6 +316,28 @@ export function LifecyclePanel({
             </div>
           )}
         </>
+      ) : null}
+
+      {/* A DRAFT IS ACTIVATED HERE TOO. The wizard's last screen used to be the
+          only door, so an owner who left it had a draft nothing could start. */}
+      {status === 'draft' ? (
+        <div className="callout callout-note" style={{ marginTop: 10 }}>
+          <strong>{agentName} is a draft. Nothing ticks for it and nothing is scored.</strong>
+          <div style={{ marginTop: 4 }}>
+            Activating takes one of your active slots. It does not enter a competition — an agent is asked for a
+            decision only on the ticks of a competition it has a seat in, which you choose under Competitions. Until
+            its wallet holds the settlement token its decisions are still recorded but nothing is executed, and until
+            it holds gas it cannot send a transaction or fire a protective stop.
+          </div>
+          <button
+            className="btn btn-primary"
+            style={{ marginTop: 10 }}
+            disabled={pending}
+            onClick={() => run(() => activateAgent(agentId))}
+          >
+            {pending ? 'Activating…' : `Activate ${agentName}`}
+          </button>
+        </div>
       ) : null}
 
       {status === 'paused' ? (

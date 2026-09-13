@@ -1,0 +1,39 @@
+# arcana-cadence-b75adb8d.service — the continuous cadence for competition
+# b75adb8d-3215-4e53-9e41-9afa118151e6 (Season 2).
+#
+# A COPY OF arcana-cadence.service, as that unit says to make one: one unit per
+# competition, with its own id, unit name and lock. Every reason written there
+# applies here unchanged — the timer looks, the binary decides, the four-hour
+# floor is arithmetic — and is not repeated so that it cannot drift.
+#
+# ITS OWN LOCK, deliberately. Sharing /tmp/arcana-cadence.lock would let a slow
+# tick in one competition make the other skip its look. Two cadences due in the
+# same minute share a pool snapshot, which is correct: the snapshot is keyed to
+# the minute and inserted ON CONFLICT DO NOTHING, and it describes one market.
+#
+# IT OPENS NOTHING UNTIL SOMEBODY HAS ENTERED. The binary refuses to open a
+# tick on a competition with no participants, because entry closes at the
+# first tick.
+[Unit]
+Description=ARCANA continuous cadence (competition b75adb8d)
+After=network-online.target arcana-agent.service arcana-decision.service arcana-marketdata.service
+Wants=network-online.target
+
+OnFailure=arcana-alert@%n.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+SyslogIdentifier=arcana-cadence-b75adb8d
+WorkingDirectory=/home/ubuntu/arcana/services/decision-engine
+Environment=AGENT_SERVICE_URL=http://localhost:3001
+Environment=DECISION_ENGINE_URL=http://localhost:8081
+Environment=MARKET_DATA_URL=http://localhost:8083
+Environment=COMPETITION_ID=b75adb8d-3215-4e53-9e41-9afa118151e6
+Environment=CADENCE_INTERVAL=4h
+EnvironmentFile=-/home/ubuntu/arcana/.env.auth
+ExecStart=/usr/bin/flock -n /tmp/arcana-cadence-b75adb8d.lock /home/ubuntu/arcana/scheduler-bin/cadence -competition ${COMPETITION_ID} -interval ${CADENCE_INTERVAL}
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target

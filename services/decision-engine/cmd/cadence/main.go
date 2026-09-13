@@ -212,6 +212,17 @@ func main() {
 		return
 	}
 
+	// A COMPETITION WITH NOBODY IN IT DOES NOT START.
+	//
+	// Entry closes at the first tick (joinParticipant refuses once one exists),
+	// so opening a tick on an empty competition records a tick in which nobody
+	// decided and locks every owner out of a competition nobody has entered yet.
+	// Waiting costs nothing: the timer looks again in a minute.
+	if len(comp.ParticipantIDs) == 0 {
+		log.Printf("competition %s has no participants yet; not opening a tick, so entry stays open", *compID)
+		return
+	}
+
 	// --- an open tick is closed, not re-opened -------------------------------
 	//
 	// There is no human window on a continuous cadence. Human vs AI was a

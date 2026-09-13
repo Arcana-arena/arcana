@@ -62,9 +62,11 @@ BIN_DIR="$REPO/scheduler-bin"
 #
 # The timer is restarted by the enable loop at the end of this script, so a
 # deploy that dies halfway still leaves it to the next run rather than off.
-echo "==> pausing the cadence timer for the length of this deploy"
-sudo systemctl stop arcana-cadence.timer 2>/dev/null || true
-sudo systemctl reset-failed arcana-cadence.service 2>/dev/null || true
+echo "==> pausing the cadence timers for the length of this deploy"
+# EVERY cadence, not just the first: one unit per competition, and each of them
+# would raise the same false alarm.
+sudo systemctl stop 'arcana-cadence*.timer' 2>/dev/null || true
+sudo systemctl reset-failed 'arcana-cadence*.service' 2>/dev/null || true
 
 echo "==> making job wrapper executable"
 chmod +x "$REPO/infra/systemd/arca-job.sh"

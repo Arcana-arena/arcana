@@ -222,6 +222,29 @@ export async function discloseAgent(
   return { ok: false, status: r.status, reason: r.reason, code: codeOf(r.body) };
 }
 
+/**
+ * Enter an agent into a competition.
+ *
+ * THE SAME DOOR AS THE API, with the same gates: ownership first, then the
+ * $ARCA entry gates in admit(), and a refusal once the competition has ticked.
+ * That refusal is returned unchanged — it names the reason entry closes.
+ */
+export async function enterCompetition(
+  agentId: string,
+  competitionId: string,
+): Promise<{ ok: true; data: unknown } | Fail> {
+  const r = await authed<unknown>(`/v1/competitions/${competitionId}/participants`, {
+    method: 'POST',
+    body: { agentId },
+  });
+  if (r.ok) {
+    revalidatePath(`/me/agents/${agentId}`);
+    revalidatePath('/seasons');
+    return { ok: true, data: r.data };
+  }
+  return { ok: false, status: r.status, reason: r.reason, code: codeOf(r.body) };
+}
+
 /** Open the intelligence behind one decision of a private agent — permanently, and on its public record. */
 export async function revealDecision(
   agentId: string,
