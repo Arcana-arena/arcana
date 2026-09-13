@@ -55,7 +55,7 @@ export async function DnaTab({ id }: { id: string }) {
         {fp.summary?.length ? (
           <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {fp.summary.map((s, i) => (
-              <span key={i} className="tag tag-neutral" style={{ fontSize: 11, padding: '3px 8px' }}>
+              <span key={i} className="tag tag-neutral" style={{ fontSize: 11, padding: '3px 8px', whiteSpace: 'normal', maxWidth: '100%' }}>
                 {s}
               </span>
             ))}

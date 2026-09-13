@@ -433,7 +433,9 @@ export default async function LandingPage() {
                 {dnaR.data.fingerprint.summary?.length ? (
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
                     {dnaR.data.fingerprint.summary.map((s, i) => (
-                      <span key={i} className="tag tag-neutral" style={{ fontSize: 10.5, padding: '2px 7px' }}>{s}</span>
+                      // A summary is a sentence, not a label: it has to wrap, or
+                      // the longest one widens the landing page to 425px on a phone.
+                      <span key={i} className="tag tag-neutral" style={{ fontSize: 10.5, padding: '2px 7px', whiteSpace: 'normal', maxWidth: '100%' }}>{s}</span>
                     ))}
                   </div>
                 ) : null}
