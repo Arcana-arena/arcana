@@ -29,7 +29,19 @@ export class ReputationController {
     return this.reputation.scoreVerification(id, seasonId, ts);
   }
 
-  /** 🌐 The formula of one version: its steps and constants. */
+  /**
+   * 🌐 The formula of one version: its steps and constants.
+   *
+   * A VERSION NAME CONTAINS A SLASH (arcana-score-formula/v1), and every manifest
+   * and verification links to it as written. A single `:version` parameter
+   * captures only the part before the slash, so the linked path answered 404.
+   * Both spellings are accepted: the written one, and a URL-encoded one.
+   */
+  @Get('v1/score-formulas/:name/:v')
+  formulaByPath(@Param('name') name: string, @Param('v') v: string) {
+    return this.reputation.formula(`${name}/${v}`);
+  }
+
   @Get('v1/score-formulas/:version')
   formula(@Param('version') version: string) {
     return this.reputation.formula(version);

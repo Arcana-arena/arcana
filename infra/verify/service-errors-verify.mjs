@@ -53,6 +53,48 @@ await section('No request-serving service has answered with a server error since
   }
 });
 
+// A 502 NEVER REACHES A SERVICE JOURNAL. nginx routed /v1/arca/* and
+// /v1/subscriptions/* to 3003, where nothing listens, for as long as arca-service
+// has run on 3004: every public call failed at the proxy, every internal call
+// (configured separately) worked, and no journal above could see it. So the
+// routing table itself is checked against what is listening, and each public
+// prefix is requested through the public origin.
+await section('Every public route reaches a service that is listening', async () => {
+  const conf = (() => {
+    try {
+      return execFileSync('cat', ['/home/ubuntu/arcana/infra/nginx/arcana-locations.conf'], { encoding: 'utf8' });
+    } catch {
+      return '';
+    }
+  })();
+  const ports = [...new Set([...conf.matchAll(/proxy_pass http:\/\/127\.0\.0\.1:(\d+)/g)].map((m) => m[1]))];
+  check('the nginx routing table names upstream ports', ports.length > 0, 'no proxy_pass found in arcana-locations.conf');
+  const listening = (() => {
+    try {
+      return sh('ss', ['-ltnH']);
+    } catch {
+      return '';
+    }
+  })();
+  for (const p of ports) {
+    check(`something listens on 127.0.0.1:${p}, which nginx routes to`, new RegExp(`127\\.0\\.0\\.1:${p}\\s`).test(listening),
+      `nginx proxies to ${p} and nothing is listening there — every request on that route answers 502`);
+  }
+
+  const origin = process.env.PUBLIC_ORIGIN || 'https://arcana-arena.com';
+  for (const path of ['/healthz', '/v1/anchors', '/v1/marketplace/listings', '/v1/arca/terms', '/v1/subscriptions/mine']) {
+    let status = 0;
+    try {
+      status = (await fetch(`${origin}${path}`, { signal: AbortSignal.timeout(15000) })).status;
+    } catch (e) {
+      check(`${origin}${path} answers`, false, e instanceof Error ? e.message : String(e));
+      continue;
+    }
+    // 401/404 are the service answering. 502/503/504 are the proxy answering for a service that is not there.
+    check(`${origin}${path} is answered by a service, not by the proxy`, status > 0 && status < 502, `status ${status}`);
+  }
+});
+
 await section('Something watches for them between sweeps', async () => {
   const enabled = (() => { try { return sh('systemctl', ['is-enabled', 'arcana-error-watch.timer']).trim(); } catch (e) { return String(e.stdout || '').trim(); } })();
   check('arcana-error-watch.timer is enabled', enabled === 'enabled', `is-enabled: ${enabled || 'not installed'}`);

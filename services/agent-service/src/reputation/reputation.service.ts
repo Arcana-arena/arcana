@@ -177,7 +177,7 @@ export class ReputationService {
     const decs: Array<{ id: string; ts: string; action: string; commitment: string | null }> = ids.length
       ? await this.db.query(
           `SELECT id::text, to_char(ts AT TIME ZONE 'UTC', ${US}) AS ts, action, trim(commitment) AS commitment
-             FROM decisions -- raw-by-design: a listed decision later marked an artefact still exists and is still checked
+             FROM decisions -- raw-by-design: listed decisions later marked as artefacts still exist and are still checked
             WHERE agent_id = $1 AND season_id = $2 AND id = ANY($3::bigint[])`,
           [agentId, m.season_id, ids],
         )

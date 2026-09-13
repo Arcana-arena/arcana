@@ -127,10 +127,14 @@ function cleanup() {
     // A manifest and the system prompt are bodies too (0047), cited by
     // commitment and system_prompt_hash. Collecting only prompt and response
     // references would delete every live decision's manifest.
+    // Bodies are also named by portfolio snapshot and score seals (0049); see
+    // private-agent-verify for the live manifests a decisions-only sweep deleted.
     sql(`DELETE FROM decision_evidence e WHERE NOT EXISTS (
            SELECT 1 FROM decisions d
             WHERE d.prompt_hash = e.hash OR d.response_hash = e.hash
-               OR d.system_prompt_hash = e.hash OR d.commitment = e.hash)`);
+               OR d.system_prompt_hash = e.hash OR d.commitment = e.hash)
+         AND NOT EXISTS (SELECT 1 FROM portfolio_snapshots ps WHERE ps.seal = e.hash)
+         AND NOT EXISTS (SELECT 1 FROM score_snapshots s WHERE s.seal = e.hash)`);
   } catch (e) { console.log('  cleanup warning: ' + e.message); }
 }
 

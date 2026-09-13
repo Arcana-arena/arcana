@@ -32,7 +32,7 @@ export class DocsService {
     @InjectDataSource() private readonly db: DataSource,
     config: ConfigService,
   ) {
-    this.arcaUrl = config.get<string>('ARCA_SERVICE_URL') ?? 'http://127.0.0.1:3003';
+    this.arcaUrl = config.get<string>('ARCA_SERVICE_URL') ?? 'http://127.0.0.1:3004';
   }
 
   async parameters() {

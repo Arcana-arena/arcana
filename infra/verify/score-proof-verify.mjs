@@ -34,7 +34,7 @@ const REPO = process.env.REPO || '/home/ubuntu/arcana';
 const AGENT = process.env.AGENT_URL || 'http://127.0.0.1:3001';
 const WEB = process.env.WEB_URL || 'http://127.0.0.1:3000';
 
-const { check, section, report } = suite('score-proof-verify');
+const { check, section, report, nothingToCheck } = suite('score-proof-verify');
 
 const sql = (q) =>
   execFileSync('docker', ['exec', 'arcana-postgres', 'psql', '-U', 'arcana', '-d', 'arcana', '-v', 'ON_ERROR_STOP=1', '-tAc', q],
@@ -48,7 +48,9 @@ const get = async (path) => {
   try { body = await r.json(); } catch {}
   return { status: r.status, body };
 };
-const nothing = (why) => console.log(`  NOTHING TO CHECK  ${why}`);
+// The suite's own declaration, so an empty section is listed as unproven rather
+// than failing as a section that silently checked nothing.
+const nothing = (why) => nothingToCheck(why);
 
 const US = `'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'`;
 
@@ -135,7 +137,7 @@ await section('Seals cannot be moved', async () => {
   const insSnap = (s) => `INSERT INTO portfolio_snapshots (portfolio_id, ts, holdings, nav, cash, seal, seal_scheme)
       VALUES ('${live.portfolio}', ${far}, '{}', 1, 1, ${s ? `'${s}'` : 'NULL'}, ${s ? `'arcana-portfolio-snapshot/v1'` : 'NULL'});`;
   const e1 = refused(`${insSnap(seal)} UPDATE portfolio_snapshots SET nav = 2 WHERE portfolio_id = '${live.portfolio}' AND ts = ${far};`);
-  check('a sealed snapshot cannot be edited', !!e1 && /cannot be changed/.test(e1), e1 ?? 'the UPDATE succeeded');
+  check('a sealed snapshot cannot be edited', !!e1 && /nothing it sealed can be changed/.test(e1), e1 ?? 'the UPDATE succeeded');
   const e2 = refused(`${insSnap(seal)} DELETE FROM portfolio_snapshots WHERE portfolio_id = '${live.portfolio}' AND ts = ${far};`);
   check('a sealed snapshot cannot be deleted', !!e2 && /cannot be deleted/.test(e2), e2 ?? 'the DELETE succeeded');
   const e3 = refused(`${insSnap(null)} UPDATE portfolio_snapshots SET seal = '${seal}', seal_scheme = 'x' WHERE portfolio_id = '${live.portfolio}' AND ts = ${far};`);
@@ -144,7 +146,7 @@ await section('Seals cannot be moved', async () => {
   const insScore = (s) => `INSERT INTO score_snapshots (agent_id, season_id, ts, arcana_score, seal, seal_scheme)
       VALUES ('${live.agent}', '${live.season}', ${far}, 50, ${s ? `'${s}'` : 'NULL'}, ${s ? `'arcana-score/v1'` : 'NULL'});`;
   const e4 = refused(`${insScore(seal)} UPDATE score_snapshots SET arcana_score = 99 WHERE agent_id = '${live.agent}' AND ts = ${far};`);
-  check('a sealed score cannot be edited', !!e4 && /cannot be changed/.test(e4), e4 ?? 'the UPDATE succeeded');
+  check('a sealed score cannot be edited', !!e4 && /nothing it sealed can be changed/.test(e4), e4 ?? 'the UPDATE succeeded');
   const e5 = refused(`${insScore(seal)} DELETE FROM score_snapshots WHERE agent_id = '${live.agent}' AND ts = ${far};`);
   check('a sealed score cannot be deleted', !!e5 && /cannot be deleted/.test(e5), e5 ?? 'the DELETE succeeded');
   const e6 = refused(`${insScore(null)} UPDATE score_snapshots SET seal = '${seal}' WHERE agent_id = '${live.agent}' AND ts = ${far};`);
@@ -339,8 +341,12 @@ await section('Creator reputation is derived from sealed scores, and the stored 
       const p = join(dir, f);
       if (statSync(p).isDirectory()) walk(p);
       else if (/\.ts$/.test(f) && !/creator\.entity\.ts$/.test(f)) {
-        const src = readFileSync(p, 'utf8');
-        if (/(c|creators)\.reputation_score|reputation_score::|reputation_score AS/.test(src)) offenders.push(p.replace(`${REPO}/`, ''));
+        // Comments that NAME the old column (to say it is no longer read) are not
+        // reads; only code is scanned.
+        const code = readFileSync(p, 'utf8')
+          .replace(/\/\*[\s\S]*?\*\//g, '')
+          .split('\n').map((l) => l.replace(/\/\/.*$/, '')).join('\n');
+        if (/(c|creators)\.reputation_score|reputation_score::|reputation_score AS/.test(code)) offenders.push(p.replace(`${REPO}/`, ''));
       }
     }
   };

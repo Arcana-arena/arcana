@@ -114,10 +114,16 @@ function stopRig() {
   // removes. Collect every body nothing cites any more — manifests and system
   // prompts included (0047).
   try {
+    // A BODY IS CITED BY MORE THAN DECISIONS. Since 0049 a portfolio snapshot's
+    // seal and a score's seal name manifests in this table too. This cleanup
+    // once counted only decisions and deleted the manifests of five LIVE
+    // snapshots sealed minutes earlier — every body any sealed row names stays.
     sql(`DELETE FROM decision_evidence e WHERE NOT EXISTS (
            SELECT 1 FROM decisions d
             WHERE d.prompt_hash = e.hash OR d.response_hash = e.hash
-               OR d.system_prompt_hash = e.hash OR d.commitment = e.hash)`);
+               OR d.system_prompt_hash = e.hash OR d.commitment = e.hash)
+         AND NOT EXISTS (SELECT 1 FROM portfolio_snapshots ps WHERE ps.seal = e.hash)
+         AND NOT EXISTS (SELECT 1 FROM score_snapshots s WHERE s.seal = e.hash)`);
   } catch {}
 }
 process.on('exit', stopRig);

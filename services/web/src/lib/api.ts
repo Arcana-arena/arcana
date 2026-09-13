@@ -21,7 +21,9 @@ export type Result<T> = Ok<T> | Err;
 
 export const AGENT_API = process.env.AGENT_API || 'http://127.0.0.1:3001';
 export const MARKETPLACE_API = process.env.MARKETPLACE_API || 'http://127.0.0.1:3002';
-export const ARCA_API = process.env.ARCA_API || 'http://127.0.0.1:3003';
+// 3004, where arca-service listens (3003 is taken on the host). The unit sets
+// ARCA_API; the default must not name a port nothing listens on.
+export const ARCA_API = process.env.ARCA_API || 'http://127.0.0.1:3004';
 export const MARKET_API = process.env.MARKET_API || 'http://127.0.0.1:8083';
 
 /**
