@@ -43,7 +43,7 @@ export async function DnaTab({ id }: { id: string }) {
   const features = Object.entries(fp.features ?? {});
 
   return (
-    <div style={{ display: 'grid', gap: 26 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 26 }}>
       <section>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
           <Key>Fingerprint</Key>

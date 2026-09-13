@@ -77,7 +77,7 @@ export async function OverviewTab({
   const s = overR.ok ? overR.data.stats : null;
 
   return (
-    <div style={{ display: 'grid', gap: 28 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 28 }}>
       {/* ov-grid stacks the two columns below 1000px (globals.css); on a phone
           they sat side by side and pushed the page to 674px. */}
       <section className="ov-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 400px) minmax(0, 1fr)', gap: 28 }}>

@@ -25,7 +25,7 @@ export function PassportTab({ p, passportError }: { p: Passport | null; passport
   const hist = p.score_history;
 
   return (
-    <div style={{ display: 'grid', gap: 26 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 26 }}>
       <section>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
           <Key>Score history</Key>

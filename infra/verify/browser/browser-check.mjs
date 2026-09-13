@@ -174,7 +174,7 @@ for (const [name, path] of PAGES) {
 for (const [name, path] of [
   ['landing', '/'],
   ['agents', '/agents'],
-  ...(AGENT_ID ? [['agent', `/agents/${AGENT_ID}`]] : []),
+  ...(AGENT_ID ? [['agent', `/agents/${AGENT_ID}`], ['agent-positions', `/agents/${AGENT_ID}?tab=positions`]] : []),
   ['leaderboard', '/leaderboard'],
   ['docs', '/docs/scoring'],
   ['marketplace', '/marketplace'],

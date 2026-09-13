@@ -85,7 +85,9 @@ export async function PositionsTab({ id }: { id: string }) {
   );
 
   return (
-    <div style={{ display: 'grid', gap: 26 }}>
+    // minmax(0, 1fr): an implicit grid track is as wide as the table inside
+    // it, so on a phone this tab was 796px and .scroll-x never got to scroll.
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 26 }}>
       {heldBack.length > 0 ? (
         <Callout tone="bad">
           <strong>

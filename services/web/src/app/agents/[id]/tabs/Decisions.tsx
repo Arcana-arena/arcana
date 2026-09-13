@@ -63,7 +63,7 @@ export async function DecisionsTab({
   const d = r.data;
 
   return (
-    <div style={{ display: 'grid', gap: 18 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 18 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
         <Key>
           Decisions · <span className="mono">{int(d.total_decisions)}</span> recorded

@@ -32,7 +32,7 @@ export async function EvolutionTab({ id }: { id: string }) {
   }
 
   return (
-    <div style={{ display: 'grid', gap: 26 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 26 }}>
       {e.caveat ? (
         <Callout tone="warn">
           <strong>Read the comparison with this in mind.</strong> {e.caveat}

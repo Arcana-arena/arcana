@@ -595,7 +595,7 @@ export function DeriveWalletButton({ agentId }: { agentId: string }) {
 export function TriggersPanel({ t }: { t: Triggers }) {
   const [showUnavailable, setShowUnavailable] = useState(false);
   return (
-    <div style={{ display: 'grid', gap: 20 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 20 }}>
       <section className="box">
         <span className="k">Armed conditions · {t.armed.length + (t.cost_meter.armed ? 1 : 0)}</span>
         {t.armed.length === 0 && !t.cost_meter.armed ? (

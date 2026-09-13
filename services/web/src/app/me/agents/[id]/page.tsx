@@ -203,7 +203,7 @@ export default async function ManageAgentPage({
 
       <div style={{ marginTop: 20 }}>
         {tab === 'manage' ? (
-          <div style={{ display: 'grid', gap: 20 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 20 }}>
             <section className="box">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <span className="k">Mandate</span>
@@ -311,7 +311,7 @@ async function WalletTab({
   const b = balR.ok ? balR.data : null;
 
   return (
-    <div style={{ display: 'grid', gap: 20 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 20 }}>
       <section className="box">
         <span className="k">Address</span>
         <div className="mono brk" style={{ fontSize: 12.5, marginTop: 6 }}>

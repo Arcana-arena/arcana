@@ -38,7 +38,7 @@ export async function AutopsyTab({ id }: { id: string }) {
   const s = a.summary;
 
   return (
-    <div style={{ display: 'grid', gap: 26 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 26 }}>
       <section>
         <Key>Window analysed</Key>
         <div className="stat-grid" style={{ marginTop: 10, border: '1px solid var(--color-divider)' }}>
