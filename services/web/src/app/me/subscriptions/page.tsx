@@ -198,6 +198,15 @@ function SubCard({ x, book }: { x: MySubscription; book: SubscriptionBook | { er
         <dd className="mono">{utc(x.expiresAt)}</dd>
         <dt>Grace ends</dt>
         <dd className={x.phase === 'grace' ? 'mono am' : 'mono'}>{utc(x.grace_ends_at)}</dd>
+        {/* THE ADDRESS TO FUND. A wallet the buyer is told to fund and cannot
+            see is one nobody funds — the card said "trading" while showing no
+            address anywhere on the page. */}
+        {x.walletAddress ? (
+          <>
+            <dt>Trading wallet</dt>
+            <dd className="mono brk">{x.walletAddress}</dd>
+          </>
+        ) : null}
         <dt>Receipt</dt>
         <dd className="mono">
           {x.receipt ? (

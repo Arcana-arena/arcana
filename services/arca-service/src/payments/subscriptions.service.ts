@@ -357,9 +357,9 @@ export class SubscriptionsService {
         'went through — the listing is the thing to look at.';
     }
     if (!s.walletAddress) {
-      return 'Derive your trading wallet with POST /v1/subscriptions/' + s.id + '/wallet, then ' +
-        'fund it with USDG to trade and ETH for gas. The agent never spends anybody else’s money, ' +
-        'so until you fund it nothing happens.';
+      return 'Create your trading wallet with the button on this card (POST /v1/subscriptions/' + s.id +
+        '/wallet), then fund it with USDG to trade and ETH for gas. The agent never spends anybody ' +
+        'else’s money, so until you fund it nothing happens.';
     }
     if (s.tradingPaused) {
       return 'You have paused trading. The agent decides as usual and executes nothing for you. ' +
