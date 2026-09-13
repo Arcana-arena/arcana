@@ -22,6 +22,7 @@ export type Result<T> = Ok<T> | Err;
 export const AGENT_API = process.env.AGENT_API || 'http://127.0.0.1:3001';
 export const MARKETPLACE_API = process.env.MARKETPLACE_API || 'http://127.0.0.1:3002';
 export const ARCA_API = process.env.ARCA_API || 'http://127.0.0.1:3003';
+export const MARKET_API = process.env.MARKET_API || 'http://127.0.0.1:8083';
 
 /**
  * WHY `cache: 'no-store'` IS NOT NEGOTIABLE HERE. Next will happily serve a
@@ -76,6 +77,8 @@ async function read<T>(base: string, path: string): Promise<Result<T>> {
 export const agent = <T>(path: string) => read<T>(AGENT_API, path);
 export const marketplace = <T>(path: string) => read<T>(MARKETPLACE_API, path);
 export const arca = <T>(path: string) => read<T>(ARCA_API, path);
+/** market-data. The universe an agent may trade comes from here, never from a copy. */
+export const market = <T>(path: string) => read<T>(MARKET_API, path);
 
 /** Build a query string, dropping only genuinely absent values — not falsy ones. */
 export function qs(params: Record<string, string | number | boolean | null | undefined>): string {

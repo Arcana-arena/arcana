@@ -18,6 +18,10 @@ Environment=MARKETPLACE_API=http://127.0.0.1:3002
 # arca-service runs on 3004 on this host (3003 is taken), same override the
 # marketplace unit carries. The code default is 3003.
 Environment=ARCA_API=http://127.0.0.1:3004
+# The universe a new agent picks from is market-data's, read at request time.
+# A list copied into the web app would be a second answer to what this platform
+# can trade, and the copy is the one somebody would act on.
+Environment=MARKET_API=http://127.0.0.1:8083
 Environment=NEXT_PUBLIC_ARCANA_CHAIN_ID=4663
 
 # WHICH ORIGIN SIGN-IN IS FOR — the same file the agent service reads, under
