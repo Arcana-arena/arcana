@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { agent } from '@/lib/api';
+import { agent, ARCA_API } from '@/lib/api';
 import { authed, getSession } from '@/lib/session';
 import { addr, int, score as fmtScore, utcDate } from '@/lib/format';
 import { Header } from '@/components/layout/Header';
@@ -316,7 +316,12 @@ export default async function MePage() {
  * distinction is stated rather than left for someone to assume from a heading.
  */
 async function Subscriptions({ wallet }: { wallet: string }) {
-  const r = await authed<unknown>(`/v1/subscriptions/${wallet}`);
+  const r = await authed<Array<{ phase?: string; trading?: boolean }>>(`/v1/subscriptions/${wallet}`, {
+    base: ARCA_API,
+  });
+  const rows = r.ok && Array.isArray(r.data) ? r.data : [];
+  const trading = rows.filter((x) => x.trading).length;
+  const inGrace = rows.filter((x) => x.phase === 'grace').length;
   return (
     <div className="sec" style={{ paddingTop: 24, paddingBottom: 12, borderBottom: 'none' }}>
       <div className="sec-hd" style={{ padding: 0 }}>
@@ -336,20 +341,42 @@ async function Subscriptions({ wallet }: { wallet: string }) {
           </Empty>
         </div>
       ) : (
-        <pre
-          className="mono m2"
-          style={{ marginTop: 12, fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
-        >
-          {JSON.stringify(r.data, null, 1)}
-        </pre>
+        /*
+         * A SUMMARY AND A LINK, not a JSON dump. This block used to print the
+         * raw array because the subscription shape had no designed surface;
+         * /me/subscriptions is that surface now, so the dump would be a second
+         * place for the same facts to be shown differently.
+         *
+         * The one number worth putting here is the disagreement: how many
+         * subscriptions are ACTIVE versus how many are actually being traded
+         * for. A buyer reading "3 subscriptions" and assuming three agents are
+         * working is the misreading this line exists to prevent.
+         */
+        <div style={{ marginTop: 12 }}>
+          <div className="m2" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+            <span className="mono">{rows.length}</span> subscription{rows.length === 1 ? '' : 's'} ·{' '}
+            <span className="mono">{trading}</span> actually trading for this wallet
+            {inGrace > 0 ? (
+              <>
+                {' '}
+                · <span className="am mono">{inGrace}</span> in grace
+              </>
+            ) : null}
+            .
+            {trading < rows.length ? (
+              <>
+                {' '}
+                <span className="am">
+                  Fewer are trading than exist — usually an underived or unfunded trading wallet, or a pause you set.
+                </span>
+              </>
+            ) : null}
+          </div>
+          <Link href="/me/subscriptions" className="btn" style={{ marginTop: 12 }}>
+            Open my subscriptions
+          </Link>
+        </div>
       )}
-      <div style={{ marginTop: 10 }}>
-        <Tag tone="dashed">RAW</Tag>{' '}
-        <span className="m3" style={{ fontSize: 11.5 }}>
-          this block is printed unformatted on purpose — the subscription shape has not been designed on this surface
-          yet, and inventing a layout for fields nobody has looked at is how a field quietly stops being shown
-        </span>
-      </div>
     </div>
   );
 }

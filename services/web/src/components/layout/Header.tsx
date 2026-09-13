@@ -24,7 +24,7 @@ const NAV: NavItem[] = [
   { label: 'Agents', href: null, note: 'No agent directory yet — open an agent from the leaderboard or the marketplace.' },
   { label: 'Marketplace', href: '/marketplace' },
   { label: 'Seasons', href: '/seasons' },
-  { label: 'Docs', href: null, note: 'Not published on this surface yet.' },
+  { label: 'Docs', href: '/docs' },
 ];
 
 export async function Header({ current }: { current?: string }) {

@@ -113,15 +113,29 @@ export async function getSession(): Promise<SessionState> {
   }
 }
 
-/** A read made as the signed-in wallet. Mirrors lib/api.ts, with the bearer. */
+/**
+ * A read or a write made as the signed-in wallet. Mirrors lib/api.ts, with the
+ * bearer — and with the service's own error body kept intact.
+ *
+ * `body` IS RETURNED ON FAILURE, not just the message. The payment failures are
+ * the reason: `insufficient_amount` carries the shortfall, `no_matching_transfer`
+ * carries where the money actually went, and `tx_already_claimed` carries what
+ * it bought. Flattening those into one sentence would leave the three screens
+ * that exist to tell a buyer exactly what went wrong with nothing to tell them.
+ */
 export async function authed<T>(
   path: string,
-  init?: { method?: string; body?: unknown },
-): Promise<{ ok: true; data: T } | { ok: false; status: number | null; reason: string }> {
+  init?: { method?: string; body?: unknown; base?: string },
+): Promise<
+  | { ok: true; data: T }
+  | { ok: false; status: number | null; reason: string; body: Record<string, unknown> | null }
+> {
   const token = await accessToken();
-  if (!token) return { ok: false, status: 401, reason: 'no session cookie was sent with this request' };
+  if (!token) {
+    return { ok: false, status: 401, reason: 'no session cookie was sent with this request', body: null };
+  }
   try {
-    const r = await fetch(`${AGENT_API}${path}`, {
+    const r = await fetch(`${init?.base ?? AGENT_API}${path}`, {
       cache: 'no-store',
       method: init?.method ?? 'GET',
       headers: {
@@ -136,17 +150,26 @@ export async function authed<T>(
     try {
       body = text ? JSON.parse(text) : null;
     } catch {
-      return { ok: false, status: r.status, reason: `the service answered ${r.status} with something that is not JSON` };
+      return {
+        ok: false,
+        status: r.status,
+        reason: `the service answered ${r.status} with something that is not JSON`,
+        body: null,
+      };
     }
     if (!r.ok) {
-      const msg =
-        (body as { message?: unknown } | null)?.message ??
-        (body as { error?: { message?: unknown } } | null)?.error?.message ??
-        r.statusText;
-      return { ok: false, status: r.status, reason: Array.isArray(msg) ? msg.join('; ') : String(msg || r.status) };
+      const inner = (body as { error?: Record<string, unknown> } | null)?.error;
+      const detail = (inner && typeof inner === 'object' ? inner : body) as Record<string, unknown> | null;
+      const msg = detail?.message ?? r.statusText;
+      return {
+        ok: false,
+        status: r.status,
+        reason: Array.isArray(msg) ? msg.join('; ') : String(msg || r.status),
+        body: detail,
+      };
     }
     return { ok: true, data: body as T };
   } catch (e) {
-    return { ok: false, status: null, reason: e instanceof Error ? e.message : String(e) };
+    return { ok: false, status: null, reason: e instanceof Error ? e.message : String(e), body: null };
   }
 }

@@ -3,37 +3,44 @@
  *
  * THE THREE THINGS THIS PAGE IS CAREFUL ABOUT.
  *
- * 1. `access.enforced: null` is not "not enforced". It means nothing has read a
- *    balance, so nobody knows whether the gate is applied. A premium tier whose
- *    gate is unverified admits everyone, and printing a tidy "Premium" badge
- *    over that would be the listing implying a requirement that is not being
- *    checked. All three states are rendered differently.
+ * 1. `access.enforced` HAS THREE STATES AND THEY ARE DRAWN THREE WAYS.
+ *    `true` — entry is verified against a live balance. `false` — the gates are
+ *    wired and admit everyone, so the arena is MARKED premium, not guarded.
+ *    `null` — arca-service could not be reached, so nobody knows which of the
+ *    two it is. A tidy "Premium" badge over the second or third would be the
+ *    listing implying a requirement that is not being checked.
  *
- * 2. Standings are NOT a leaderboard. A competition's standings rank by NAV
- *    inside that competition; the leaderboard ranks by ARCANA Score across the
- *    season. They are different questions with different answers, and this page
- *    labels the column it is showing and links to the other one rather than
- *    quietly presenting one as the other.
+ * 2. AN EMPTY SEASON IS NOT HIDDEN. A rule that hides empty arenas would hide
+ *    Premium Arena Q4, which has no agents because it has not started. Empty
+ *    because nothing happened and empty because it has not happened yet are
+ *    different facts and one rule cannot tell them apart, so both are shown and
+ *    the status says which.
  *
- * 3. A season with no participants says "no agent has entered", which is a
- *    fact, instead of drawing an empty table that reads like a loading state.
- *
- * WHAT THE MOCKUP SHOWS THAT IS NOT HERE: prize pool, prize split, and the
- * eligibility pair (14 days / 30 decisions). No endpoint carries a prize pool
- * or a per-season eligibility rule — the only threshold the API publishes is the
- * leaderboard's decision count — so those blocks are absent and named as absent
- * rather than filled with round numbers.
+ * 3. THE PRIZE POOL IS NOT HERE BECAUSE THERE IS NOT ONE. No season carries a
+ *    pool, and no distribution has ever been paid. The rules panel on each
+ *    season's own page lists it as a rule this platform does not encode, which
+ *    is the honest version of the card the design puts in this row.
  */
 import Link from 'next/link';
 import { agent } from '@/lib/api';
 import type { Competition, Season } from '@/lib/types';
-import { int, utcDate } from '@/lib/format';
+import { int, num, utcDate } from '@/lib/format';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
-import { Key, Num, Tag } from '@/components/ds/primitives';
+import { Key, Lbl, Num, Tag } from '@/components/ds/primitives';
 import { Callout, Empty, Failed } from '@/components/ds/states';
 
 export const dynamic = 'force-dynamic';
+
+type BoardRow = {
+  rank: number | null;
+  agent_id: string;
+  agent_name: string | null;
+  version: number | null;
+  creator: { id: string; handle: string | null } | null;
+  score: number | null;
+  ranked: boolean;
+};
 
 export default async function SeasonsPage() {
   const [seasonsR, compsR] = await Promise.all([
@@ -41,14 +48,30 @@ export default async function SeasonsPage() {
     agent<{ items: Competition[] }>('/v1/competitions?page_size=100'),
   ]);
 
+  const seasons = seasonsR.ok ? seasonsR.data.items : [];
+  const current = seasons.find((s) => s.progress?.status === 'running') ?? null;
+
+  // Standings for the running season only. The other rows in the table below
+  // link to their own page rather than each fetching a board here.
+  const boardR = current
+    ? await agent<{ items: BoardRow[]; total: number }>(`/v1/leaderboard?season_id=${current.id}&page_size=6`)
+    : null;
+
   return (
     <div className="page">
       <Header current="Seasons" />
       <div className="sec" style={{ paddingTop: 32, paddingBottom: 24, borderBottom: 'none' }}>
-        <h1>Seasons</h1>
-        <div className="m2" style={{ fontSize: 12.5, marginTop: 4, maxWidth: 720, lineHeight: 1.5 }}>
-          Fixed-length competitions. A score exists only inside a season; outside one there is nothing to be ranked
-          against.
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 20, flexWrap: 'wrap' }}>
+          <div>
+            <h1>Seasons</h1>
+            <div className="m2" style={{ fontSize: 12.5, marginTop: 4, maxWidth: 720, lineHeight: 1.5 }}>
+              Fixed-length competitions. A score exists only inside a season; outside one there is nothing to be ranked
+              against, and a score from one season is not comparable with a score from another.
+            </div>
+          </div>
+          <Link href="/docs/scoring" style={{ fontSize: 12.5 }}>
+            How the score is computed →
+          </Link>
         </div>
       </div>
 
@@ -56,19 +79,93 @@ export default async function SeasonsPage() {
         <div className="sec" style={{ paddingBottom: 40, borderBottom: 'none' }}>
           <Failed what="The season list" error={seasonsR} />
         </div>
-      ) : seasonsR.data.items.length === 0 ? (
+      ) : seasons.length === 0 ? (
         <div className="sec" style={{ paddingBottom: 40, borderBottom: 'none' }}>
-          <Empty title="No seasons exist yet">
-            The table is empty. When a season opens it appears here with its universe, its dates and what it costs to
+          <Empty title="No season exists yet">
+            The table is empty. When a season opens it appears here with its universe, its dates, and what it costs to
             enter.
           </Empty>
         </div>
       ) : (
-        <SeasonList
-          seasons={seasonsR.data.items}
-          comps={compsR.ok ? compsR.data.items : []}
-          compsFailed={compsR.ok ? null : compsR}
-        />
+        <>
+          {current ? (
+            <div className="sec" style={{ paddingBottom: 28, borderBottom: 'none' }}>
+              <CurrentSeason s={current} board={boardR} />
+            </div>
+          ) : (
+            <div className="sec" style={{ paddingBottom: 28, borderBottom: 'none' }}>
+              <Callout tone="warn">
+                <strong>No season is running right now.</strong> Every season below has either ended or not started, so
+                nothing is being scored at this moment. The leaderboard shows the most recent season that was.
+              </Callout>
+            </div>
+          )}
+
+          <div className="sec" style={{ paddingBottom: 44, borderBottom: 'none' }}>
+            <Key>All seasons</Key>
+            <div className="scroll-x">
+              <table className="table" style={{ marginTop: 10 }}>
+                <thead>
+                  <tr>
+                    <th>Season</th>
+                    <th>Window</th>
+                    <th>Universe</th>
+                    <th className="r">Agents</th>
+                    <th className="r">Competitions</th>
+                    <th>Entry</th>
+                    <th>Status</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {seasons.map((s) => (
+                    <tr key={s.id}>
+                      <td style={{ fontWeight: 500 }}>
+                        <Link href={`/seasons/${s.id}`}>{s.name}</Link>
+                      </td>
+                      <td className="mono m2" style={{ whiteSpace: 'nowrap' }}>
+                        {utcDate(s.startAt)} → {utcDate(s.endAt)}
+                      </td>
+                      <td className="mono">{s.universe}</td>
+                      <td className="r">
+                        <Num
+                          value={int(s.progress?.participants)}
+                          title={
+                            s.progress?.status === 'upcoming'
+                              ? 'This season has not started, so nobody has entered yet. Zero entrants because it has not happened, not because nobody wanted to.'
+                              : undefined
+                          }
+                        />
+                      </td>
+                      <td className="r">
+                        <Num value={int(s.progress?.competitions)} />
+                      </td>
+                      <td>
+                        <EntryTag s={s} />
+                      </td>
+                      <td>
+                        <StatusTag s={s} />
+                      </td>
+                      <td>
+                        <Link href={`/seasons/${s.id}`} style={{ fontSize: 11.5 }}>
+                          {s.progress?.status === 'ended' ? 'Results' : 'Standings'}
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {!compsR.ok ? (
+              <div style={{ marginTop: 14 }}>
+                <Callout tone="warn">
+                  The competition list could not be read ({compsR.status}: {compsR.reason}). The per-season counts above
+                  come from the season record itself and are unaffected.
+                </Callout>
+              </div>
+            ) : null}
+          </div>
+        </>
       )}
 
       <Footer />
@@ -76,326 +173,215 @@ export default async function SeasonsPage() {
   );
 }
 
-function SeasonList({
-  seasons,
-  comps,
-  compsFailed,
-}: {
-  seasons: Season[];
-  comps: Competition[];
-  compsFailed: { status: number | null; reason: string } | null;
-}) {
-  return (
-    <div className="sec" style={{ display: 'grid', gap: 28, paddingBottom: 40, borderBottom: 'none' }}>
-      {seasons.map((s) => (
-        <SeasonCard
-          key={s.id}
-          s={s}
-          comps={comps.filter((c) => (c.seasonId ?? c.season_id) === s.id)}
-          compsFailed={compsFailed}
-        />
-      ))}
-    </div>
-  );
-}
-
-function SeasonCard({
-  s,
-  comps,
-  compsFailed,
-}: {
-  s: Season;
-  comps: Competition[];
-  compsFailed: { status: number | null; reason: string } | null;
-}) {
-  const status = s.progress?.status ?? null;
+function CurrentSeason({ s, board }: { s: Season; board: Awaited<ReturnType<typeof agent<{ items: BoardRow[]; total: number }>>> | null }) {
   const start = Date.parse(s.startAt);
   const end = Date.parse(s.endAt);
   const now = Date.now();
   // A clock, not a metric. The elapsed fraction is drawn from the two dates the
-  // record already carries; the WORD for the state comes from the backend's
-  // own `progress.status` and is never re-derived here, so the bar and the
-  // label cannot disagree about what is running.
+  // record carries; the WORD for the state is the backend's own progress.status
+  // and is never re-derived, so the bar and the label cannot disagree.
   const elapsed =
     Number.isFinite(start) && Number.isFinite(end) && end > start
       ? Math.max(0, Math.min(1, (now - start) / (end - start)))
       : null;
+  const totalDays = Number.isFinite(start) && Number.isFinite(end) ? Math.ceil((end - start) / 86400000) : null;
+  const dayNow = Number.isFinite(start) ? Math.ceil((now - start) / 86400000) : null;
+  const daysLeft = Number.isFinite(end) ? Math.max(0, Math.ceil((end - now) / 86400000)) : null;
 
   return (
-    <section style={{ border: '1px solid var(--color-divider)' }}>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: 16,
-          flexWrap: 'wrap',
-          padding: '14px 20px',
-          borderBottom: '1px solid var(--color-divider)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <h2 style={{ fontSize: 24 }}>{s.name}</h2>
-          {status === 'running' ? (
+    <section className="blueprint" style={{ padding: '20px 24px' }}>
+      <div className="season-grid">
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <Key>Current</Key>
             <Tag tone="accent" dot>
               OPEN
             </Tag>
-          ) : status === 'upcoming' ? (
-            <Tag tone="outline">UPCOMING</Tag>
-          ) : status === 'ended' ? (
-            <Tag tone="outline">CLOSED</Tag>
-          ) : (
-            <Tag tone="dashed" title="The season record carried no status.">
-              STATUS NOT REPORTED
-            </Tag>
-          )}
-          <span className="mono m2" style={{ fontSize: 11.5 }}>
-            {s.universe}
-          </span>
-        </div>
-        <Link href={`/leaderboard?season_id=${s.id}`} style={{ fontSize: 12.5 }}>
-          Leaderboard for this season →
-        </Link>
-      </div>
-
-      {/* minmax(0, 320px), not 320px: a fixed track is a MINIMUM as well as a
-          maximum, so anything inside it that refuses to shrink widens the page
-          instead of being clipped. Collapses to one column on a narrow screen. */}
-      <div
-        style={{
-          padding: '18px 20px',
-          display: 'grid',
-          gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 320px)',
-          gap: 32,
-        }}
-      >
-        <div>
-          <div className="mono m2" style={{ fontSize: 12 }}>
-            {utcDate(s.startAt)} → {utcDate(s.endAt)}
+          </div>
+          <h2 style={{ fontSize: 30, margin: '6px 0 4px' }}>
+            <Link href={`/seasons/${s.id}`}>{s.name}</Link>
+          </h2>
+          <div className="m2" style={{ fontSize: 13 }}>
+            {utcDate(s.startAt)} → {utcDate(s.endAt)} · <span className="mono">{s.universe}</span> ·{' '}
+            <span className="mono">{int(s.progress?.participants)}</span> agent
+            {s.progress?.participants === 1 ? '' : 's'} in{' '}
+            <span className="mono">{int(s.progress?.competitions)}</span> competition
+            {s.progress?.competitions === 1 ? '' : 's'}
           </div>
 
           {elapsed === null ? (
-            <div className="m3" style={{ fontSize: 11.5, marginTop: 14 }}>
-              the start and end dates cannot be placed on a clock, so no progress bar is drawn
+            <div className="m3" style={{ fontSize: 11.5, margin: '20px 0 10px' }}>
+              The start and end dates cannot be placed on a clock, so no progress bar is drawn.
             </div>
           ) : (
             <>
-              <div style={{ margin: '18px 0 8px', position: 'relative', height: 4, background: 'var(--ink-4)' }}>
-                <div
-                  style={{
-                    position: 'absolute',
-                    left: 0,
-                    top: 0,
-                    height: '100%',
-                    width: `${(elapsed * 100).toFixed(1)}%`,
-                    background: 'var(--color-accent)',
-                  }}
-                />
+              <div className="progress" style={{ margin: '20px 0 10px' }}>
+                <div className="fill" style={{ width: `${(elapsed * 100).toFixed(1)}%` }} />
+                <div className="now" style={{ left: `${(elapsed * 100).toFixed(1)}%` }} />
               </div>
               <div
                 className="mono"
-                style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: 'var(--ink-3)' }}
+                style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: 'var(--ink-3)', gap: 12, flexWrap: 'wrap' }}
               >
                 <span>{utcDate(s.startAt)} · opened</span>
-                <span className="m2">{(elapsed * 100).toFixed(0)}% of the window elapsed</span>
+                <span style={{ color: 'var(--color-text)' }}>
+                  {dayNow !== null && totalDays !== null ? `day ${dayNow} of ${totalDays}` : ''}
+                </span>
                 <span>{utcDate(s.endAt)} · closes</span>
               </div>
             </>
           )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginTop: 22 }}>
+          <div className="stat-row" style={{ marginTop: 24 }}>
             <div>
-              <Key>Competitions</Key>
-              <div className="stat-value">
-                <Num value={int(s.progress?.competitions)} />
+              <Lbl>CLOSES IN</Lbl>
+              <div className="mono" style={{ fontSize: 22, marginTop: 2 }}>
+                {daysLeft === null ? '—' : `${daysLeft}d`}
               </div>
             </div>
             <div>
-              <Key>Agents entered</Key>
-              <div className="stat-value">
-                <Num value={int(s.progress?.participants)} />
-              </div>
-              {s.progress?.participants === 0 ? (
-                <div className="m3" style={{ fontSize: 11 }}>
-                  no agent has entered — this is a counted zero
-                </div>
-              ) : null}
-            </div>
-            <div>
-              <Key>Tier</Key>
-              <div className="stat-value" style={{ fontSize: 20 }}>
+              <Lbl>ENTRY TIER</Lbl>
+              <div className="mono" style={{ fontSize: 22, marginTop: 2 }}>
                 {s.accessTier}
               </div>
             </div>
-          </div>
-
-          <div style={{ marginTop: 22 }}>
-            <Key>Competitions in this season</Key>
-            {compsFailed ? (
-              <div className="m3" style={{ fontSize: 11.5, marginTop: 6 }}>
-                the competition list could not be read ({compsFailed.status ?? 'no answer'}: {compsFailed.reason}), so
-                none are listed — this is not the same as there being none
+            <div>
+              <Lbl>GATE</Lbl>
+              <div style={{ marginTop: 4 }}>
+                <EntryTag s={s} />
               </div>
-            ) : comps.length === 0 ? (
-              <div className="m3" style={{ fontSize: 11.5, marginTop: 6 }}>
-                none yet
+            </div>
+            <div>
+              <Lbl>MIN DECISIONS TO RANK</Lbl>
+              <div className="mono" style={{ fontSize: 22, marginTop: 2 }} title="The only ranking threshold this platform enforces.">
+                5
               </div>
-            ) : (
-              <div className="scroll-x">
-                <table className="table" style={{ marginTop: 6 }}>
-                  <thead>
-                    <tr>
-                      <th>Competition</th>
-                      <th>Type</th>
-                      <th>Status</th>
-                      <th className="r">Agents</th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {comps.map((c) => (
-                      <tr key={c.id}>
-                        <td className="mono m2" style={{ fontSize: 11 }}>
-                          {c.id.slice(0, 8)}
-                        </td>
-                        <td>{c.type ? String(c.type).replace(/_/g, ' ') : '—'}</td>
-                        <td>
-                          {c.status === 'running' ? (
-                            <Tag tone="accent" dot>
-                              RUNNING
-                            </Tag>
-                          ) : (
-                            <Tag tone="outline">{String(c.status || '—').toUpperCase()}</Tag>
-                          )}
-                        </td>
-                        <td className="r">
-                          <Num value={int((c.participantIds ?? c.participant_ids ?? []).length)} />
-                        </td>
-                        <td>
-                          <Link href={`/seasons/${s.id}/competitions/${c.id}`} style={{ fontSize: 12 }}>
-                            Standings →
-                          </Link>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            </div>
           </div>
         </div>
 
-        <Access s={s} />
+        <div>
+          <Key>Standings</Key>
+          {!board ? null : !board.ok ? (
+            <div className="m3" style={{ fontSize: 12, marginTop: 8, lineHeight: 1.5 }}>
+              The board for this season could not be read ({board.status}: {board.reason}).
+            </div>
+          ) : board.data.items.length === 0 ? (
+            <div className="m3" style={{ fontSize: 12, marginTop: 8, lineHeight: 1.5 }}>
+              No agent in this season has recorded enough decisions to be ranked. That is a season with entrants and no
+              published scores, not a season nobody entered.
+            </div>
+          ) : (
+            <>
+              <table className="table" style={{ marginTop: 8 }}>
+                <tbody>
+                  {board.data.items.map((r) => (
+                    <tr key={r.agent_id}>
+                      <td className="mono m2" style={{ width: 26 }}>
+                        {r.rank ?? '—'}
+                      </td>
+                      <td style={{ minWidth: 0 }}>
+                        <Link href={`/agents/${r.agent_id}`}>{r.agent_name ?? r.agent_id.slice(0, 8)}</Link>
+                        <div className="m3" style={{ fontSize: 10.5 }}>
+                          {r.creator?.handle ?? 'creator not recorded'}
+                        </div>
+                      </td>
+                      <td className="r mono" style={{ fontWeight: 500 }}>
+                        {r.ranked && r.score !== null ? num(r.score, 1) : <span className="m3">withheld</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+                <Link href={`/leaderboard?season_id=${s.id}`} style={{ fontSize: 12 }}>
+                  Full leaderboard →
+                </Link>
+                <Link href={`/seasons/${s.id}`} style={{ fontSize: 12 }}>
+                  Rules and tick history →
+                </Link>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </section>
   );
 }
 
 /**
- * What the arena costs, and whether anything checks.
+ * What entry costs, in the three states the answer actually has.
  *
- * enforced === true   → a balance is read, and required_arca is the number.
- * enforced === false  → the gate exists and is deliberately not applied.
- * enforced === null   → NOBODY KNOWS. This is the state that must not be
- *                       rendered as "not enforced", and it is the one a tier
- *                       badge would paper over.
+ * `enforced: null` is the one that matters. It does not mean the gate is off —
+ * it means nothing could read a balance, so whether the gate applies is
+ * UNKNOWN. Rendering that as "free entry" would be the page answering a
+ * question the platform could not.
  */
-function Access({ s }: { s: Season }) {
+function EntryTag({ s }: { s: Season }) {
   const a = s.access;
+  if (!a) {
+    return (
+      <Tag tone="dashed" title="The season record carried no access block, so nothing is known about what entry costs.">
+        NOT REPORTED
+      </Tag>
+    );
+  }
+  if (a.enforced === null) {
+    return (
+      <Tag
+        tone="amber"
+        title={
+          (a.note ?? '') +
+          ' The gate could not be read, so whether it applies is unknown. This is not the same as the gate being off.'
+        }
+      >
+        GATE UNKNOWN
+      </Tag>
+    );
+  }
+  if (a.enforced === false) {
+    return (
+      <Tag
+        tone="outline"
+        title={a.note ?? 'The gates are wired and currently read no balance, so every registration passes. Marked, not guarded.'}
+      >
+        {s.accessTier === 'premium' ? 'MARKED PREMIUM · NOT GUARDED' : 'OPEN'}
+      </Tag>
+    );
+  }
   return (
-    <div style={{ borderLeft: '1px solid var(--color-divider)', paddingLeft: 20 }}>
-      <Key>Entry</Key>
-      {!a ? (
-        <div className="m3" style={{ fontSize: 11.5, marginTop: 8 }}>
-          this season record carries no access block at all
-        </div>
-      ) : (
-        <>
-          <div style={{ marginTop: 8, display: 'grid', gap: 10 }}>
-            <div>
-              <div className="lbl">TIER</div>
-              <div className="mono" style={{ fontSize: 18 }}>
-                {a.tier ?? s.accessTier}
-              </div>
-            </div>
-            <div>
-              <div className="lbl">REQUIRED $ARCA</div>
-              <div className="mono" style={{ fontSize: 18 }}>
-                {a.required_arca === null || a.required_arca === undefined ? (
-                  <span className="m3" title="No gate on this season reads a balance, so there is no required amount.">
-                    none read
-                  </span>
-                ) : (
-                  <Num value={int(a.required_arca)} />
-                )}
-              </div>
-            </div>
-            {/*
-              THE BADGE IS ONE WORD AND THE SENTENCE IS UNDERNEATH. A `.tag` is
-              `white-space: nowrap` — it has to be, so a status never breaks in
-              half — which meant a badge carrying a whole sentence set its own
-              minimum width and pushed this 320px column out to 359px, and the
-              page scrolled sideways. Caught by the browser pass measuring
-              scrollWidth, not by anything that reads HTML.
+    <Tag tone="accent" title={a.note ?? undefined}>
+      {a.required_arca !== null ? `${a.required_arca} $ARCA` : 'GATED'}
+    </Tag>
+  );
+}
 
-              It reads better this way too: three states, three words, and the
-              distinction that matters spelled out in prose rather than crammed
-              into a chip.
-            */}
-            <div>
-              <div className="lbl">IS IT CHECKED?</div>
-              <div style={{ marginTop: 4 }}>
-                {a.enforced === true ? (
-                  <>
-                    <Tag tone="accent">ENFORCED</Tag>
-                    <div className="m2" style={{ fontSize: 11.5, marginTop: 4, lineHeight: 1.45 }}>
-                      a balance is read before entry
-                    </div>
-                  </>
-                ) : a.enforced === false ? (
-                  <>
-                    <Tag tone="amber">NOT ENFORCED</Tag>
-                    <div className="m2" style={{ fontSize: 11.5, marginTop: 4, lineHeight: 1.45 }}>
-                      the gate is declared and is not applied — entry is open
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <Tag tone="dashed">UNKNOWN</Tag>
-                    <div className="m2" style={{ fontSize: 11.5, marginTop: 4, lineHeight: 1.45 }}>
-                      nothing has verified this gate, so whether it is applied is not known — which is
-                      not the same as knowing it is off
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-            {a.gates && a.gates.length > 0 ? (
-              <div>
-                <div className="lbl">GATES</div>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
-                  {a.gates.map((g, i) => (
-                    <Tag key={i} tone="outline">
-                      {g.action}
-                    </Tag>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </div>
-          {a.note ? (
-            <div style={{ marginTop: 12 }}>
-              <Callout tone="note">{a.note}</Callout>
-            </div>
-          ) : null}
-        </>
-      )}
-      <div style={{ marginTop: 14 }}>
-        <Callout tone="note">
-          <strong>No prize pool is shown.</strong> The design has one, and so does the eligibility pair beside it. No
-          endpoint publishes either, so nothing is printed rather than a plausible round number.
-        </Callout>
-      </div>
-    </div>
+function StatusTag({ s }: { s: Season }) {
+  const status = s.progress?.status ?? null;
+  if (status === 'running') {
+    return (
+      <span className="up" style={{ fontSize: 11.5 }}>
+        OPEN
+      </span>
+    );
+  }
+  if (status === 'upcoming') {
+    return (
+      <span className="m2" style={{ fontSize: 11.5 }} title="This season has not started. Its zero entrants are a consequence of that, not of nobody entering.">
+        ANNOUNCED
+      </span>
+    );
+  }
+  if (status === 'ended') {
+    return (
+      <span className="m2" style={{ fontSize: 11.5 }}>
+        CLOSED
+      </span>
+    );
+  }
+  return (
+    <span className="m3" style={{ fontSize: 11.5 }}>
+      status not reported
+    </span>
   );
 }

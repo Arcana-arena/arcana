@@ -175,7 +175,16 @@ export function LineChart({
  * there are no points it says so instead of drawing a flat line, because a flat
  * line is a claim that the value did not move.
  */
-export function Sparkline({ points, width = 110, height = 22 }: { points: Point[]; width?: number; height?: number }) {
+export function Sparkline({
+  points,
+  width = 110,
+  height = 22,
+}: {
+  points: Point[];
+  /** A string is allowed so a card can hand it "100%" without a second component. */
+  width?: number | string;
+  height?: number;
+}) {
   const drawn = points.filter((p) => typeof p.value === 'number' && Number.isFinite(p.value)) as Array<
     Point & { value: number }
   >;
@@ -194,7 +203,7 @@ export function Sparkline({ points, width = 110, height = 22 }: { points: Point[
   const pts = drawn.map((p, i) => `${(i * step).toFixed(1)},${(20 - ((p.value - lo) / span) * 18).toFixed(1)}`).join(' ');
   const rising = drawn[drawn.length - 1].value >= drawn[0].value;
   return (
-    <svg width={width} height={height} viewBox="0 0 100 22" preserveAspectRatio="none">
+    <svg width={width} height={height} viewBox="0 0 100 22" preserveAspectRatio="none" style={{ display: "block" }}>
       <polyline fill="none" stroke={rising ? '#2FE88C' : '#d2605b'} strokeWidth="1.2" points={pts} />
     </svg>
   );

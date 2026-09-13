@@ -479,7 +479,7 @@ export class BrowseService {
   private async series(): Promise<Lookup<SeriesRow>> {
     const byAgent = new Map<string, SeriesRow>();
     try {
-      const res = await fetch(`${this.agentUrl}/v1/leaderboard/series?buckets=24`, {
+      const res = await fetch(`${this.agentUrl}/v1/leaderboard/series?buckets=20`, {
         headers: { accept: 'application/json' },
       });
       if (!res.ok) {

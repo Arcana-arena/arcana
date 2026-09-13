@@ -9,6 +9,8 @@
  * the moment the data was read, which the caller passes in from the response
  * itself rather than from the clock on this machine.
  */
+import Link from 'next/link';
+
 export function Footer({ asOf, note }: { asOf?: string | null; note?: string }) {
   return (
     <footer className="ftr">
@@ -18,12 +20,8 @@ export function Footer({ asOf, note }: { asOf?: string | null; note?: string }) 
           ARCANA · ROBINHOOD CHAIN {process.env.NEXT_PUBLIC_ARCANA_CHAIN_ID || '4663'}
         </span>
       </span>
-      <span className="m3" title="Not published on this surface yet.">
-        Docs
-      </span>
-      <span className="m3" title="Not published on this surface yet.">
-        Status
-      </span>
+      <Link href="/docs">Docs</Link>
+      <Link href="/status">Status</Link>
       <span className="mono m3" style={{ marginLeft: 'auto', fontSize: 10.5, textAlign: 'right' }}>
         {/* No house style note by default. "this page reads; it computes
             nothing" is a thing the authors say to each other, and a footer is
