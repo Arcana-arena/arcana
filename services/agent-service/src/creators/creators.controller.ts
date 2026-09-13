@@ -12,6 +12,8 @@ import {
 import { parsePage } from '../common/pagination';
 import { CurrentWallet, JwtAuthGuard } from '@arcana/auth';
 import { CreatorsService } from './creators.service';
+import { CreatorDashboardService } from './dashboard.service';
+import { CreatorEarningsService } from './earnings.client';
 import { ParseUuidAllPipe } from '../common/parse-uuid-all.pipe';
 import { CreateCreatorDto } from './dto/create-creator.dto';
 import { UpdateCreatorDto } from './dto/update-creator.dto';
@@ -24,6 +26,8 @@ export class CreatorsController {
   constructor(
     private readonly creators: CreatorsService,
     private readonly ownership: OwnershipService,
+    private readonly dashboardSvc: CreatorDashboardService,
+    private readonly earningsSvc: CreatorEarningsService,
   ) {}
 
   /** 🔑 Register the calling wallet's creator profile. */
@@ -65,6 +69,45 @@ export class CreatorsController {
     @Query() q: AgentListQueryDto,
   ) {
     return this.creators.listAgents(id, q);
+  }
+
+  /**
+   * 🔒 A creator's own dashboard: their agents, their slots, and what is wrong.
+   *
+   * PRIVATE, unlike the agent list above it. That one is a public record; this
+   * one carries wallet addresses, the state of protective levels, and the
+   * reason each agent is or is not working — which together are a map of
+   * somebody's money.
+   *
+   * It answers the two questions an owner opens a dashboard with, and neither
+   * is in a list of agents: is anything wrong, and how many slots are left.
+   */
+  @Get(':id/dashboard')
+  @UseGuards(JwtAuthGuard)
+  async dashboard(
+    @Param('id', ParseUuidAllPipe) id: string,
+    @CurrentWallet() wallet: string,
+  ) {
+    await this.ownership.assertOwnsCreator(wallet, id);
+    return this.dashboardSvc.forCreator(id);
+  }
+
+  /**
+   * 🔒 What this creator has been paid, and by whom.
+   *
+   * Proxied from arca-service, which owns `payment_claims` and wrote every row
+   * in it from a verified transfer. A second sum here would be a second
+   * definition of "what this creator has earned"; the ownership check is here
+   * because arca-service does not hold the session.
+   */
+  @Get(':id/earnings')
+  @UseGuards(JwtAuthGuard)
+  async earnings(
+    @Param('id', ParseUuidAllPipe) id: string,
+    @CurrentWallet() wallet: string,
+  ) {
+    await this.ownership.assertOwnsCreator(wallet, id);
+    return this.earningsSvc.forCreator(id);
   }
 
   /** 🔒 Yourself only. */

@@ -12,6 +12,7 @@ import {
   gatingTokenProvider,
 } from './arca-token.service';
 import { SubscriptionsService } from './subscriptions.service';
+import { EarningsService } from './earnings.service';
 import { PushService, ReminderService } from './reminder.service';
 import { ClaimsService } from './claims.service';
 import { ArcaController } from './arca.controller';
@@ -47,6 +48,7 @@ import { ArcaController } from './arca.controller';
     paymentTokenProvider,
     gatingTokenProvider,
     SubscriptionsService,
+    EarningsService,
     PushService,
     ReminderService,
     ClaimsService,

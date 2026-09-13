@@ -29,6 +29,10 @@ import { VERIFICATION_HEADER, provenanceFrom } from '../common/verification';
 import { OwnershipService } from '../auth/ownership.service';
 import { DecisionClient } from '../decisions/decision.client';
 import { MANDATE_TEMPLATES, MANDATE_MAX_CHARS } from './mandate-templates';
+import { AgentLifecycleService } from './lifecycle.service';
+import { AgentTriggersService } from './triggers.service';
+import { AgentWalletViewService } from './wallet-view.service';
+import { PauseAgentDto, SetRiskDto } from './dto/lifecycle.dto';
 import { parsePage } from '../common/pagination';
 import { ambiguousRiskKeys, unrecognisedRiskKeys } from './risk-profile';
 
@@ -106,6 +110,9 @@ export class AgentsController {
     private readonly decisions: DecisionClient,
     private readonly overviewService: AgentOverviewService,
     private readonly positionsService: AgentPositionsService,
+    private readonly lifecycle: AgentLifecycleService,
+    private readonly triggersSvc: AgentTriggersService,
+    private readonly walletView: AgentWalletViewService,
   ) {}
 
   // --- 🔑 login required ----------------------------------------------------
@@ -261,6 +268,120 @@ export class AgentsController {
   ) {
     await this.ownership.assertOwnsAgent(wallet, id);
     return withRiskWarnings(await this.agents.update(id, dto));
+  }
+
+  /**
+   * 🔒 Replace the risk limits on a live agent.
+   *
+   * NOT A FIELD ON PATCH, and not an oversight that it was missing. PATCH
+   * refuses `status` because assigning it straight onto the row once activated
+   * an agent past two invariants, and `riskProfile` was left out of that DTO
+   * along with it — which left an owner unable to move a stop on a running
+   * agent at all. "Retire it and start again" is not an answer for the one
+   * number this platform has already watched somebody get wrong by a hundredfold.
+   *
+   * THE MANDATE IS STILL IMMUTABLE. A record is produced under a mandate;
+   * risk limits are the owner's standing instruction about their own money and
+   * apply from the next tick.
+   *
+   * The response names every key the engine will not read and every key whose
+   * NAME lies about its scale — the moment somebody edits a stop is exactly
+   * when a typo costs them the protection they think they just set.
+   */
+  @Patch(':id/risk')
+  @UseGuards(JwtAuthGuard)
+  async setRisk(
+    @Param('id', ParseUuidAllPipe) id: string,
+    @Body() dto: SetRiskDto,
+    @CurrentWallet() wallet: string,
+  ) {
+    await this.ownership.assertOwnsAgent(wallet, id);
+    return this.lifecycle.setRisk(id, dto.riskProfile);
+  }
+
+  /**
+   * 🔒 Stop deciding — and stop being watched.
+   *
+   * The response leads with `protection_stops: true` and names the levels left
+   * unwatched, because the guard watcher only reads guards belonging to an
+   * ACTIVE agent. Pausing an agent that holds an open position leaves that
+   * position with no stop, and the rows go on saying "armed".
+   */
+  @Post(':id/pause')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
+  async pause(
+    @Param('id', ParseUuidAllPipe) id: string,
+    @Body() dto: PauseAgentDto,
+    @CurrentWallet() wallet: string,
+  ) {
+    await this.ownership.assertOwnsAgent(wallet, id);
+    return this.lifecycle.pause(id, dto?.because ?? null);
+  }
+
+  /** 🔒 Start deciding again, and be watched again. */
+  @Post(':id/resume')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
+  async resume(
+    @Param('id', ParseUuidAllPipe) id: string,
+    @CurrentWallet() wallet: string,
+  ) {
+    await this.ownership.assertOwnsAgent(wallet, id);
+    return this.lifecycle.resume(id);
+  }
+
+  /**
+   * 🔒 What is armed on this agent, and what has fired.
+   *
+   * It also names the standing conditions the design asks for that NOTHING on
+   * this platform evaluates. A condition stored and never checked looks exactly
+   * like one that works, and the moment that matters is the moment it was
+   * supposed to have acted.
+   */
+  @Get(':id/triggers')
+  @UseGuards(JwtAuthGuard)
+  async triggers(
+    @Param('id', ParseUuidAllPipe) id: string,
+    @CurrentWallet() wallet: string,
+  ) {
+    await this.ownership.assertOwnsAgent(wallet, id);
+    return this.triggersSvc.forAgent(id);
+  }
+
+  /**
+   * 🔒 What this agent's wallet holds — the money and the gas.
+   *
+   * The gas runway is measured from this agent's OWN recent fills rather than
+   * from a platform-wide constant, and where there are too few priced
+   * executions to take a median from it says so instead of offering a default.
+   */
+  @Get(':id/wallet/balances')
+  @UseGuards(JwtAuthGuard)
+  async walletBalances(
+    @Param('id', ParseUuidAllPipe) id: string,
+    @CurrentWallet() wallet: string,
+  ) {
+    await this.ownership.assertOwnsAgent(wallet, id);
+    return this.walletView.balances(id);
+  }
+
+  /**
+   * 🔒 What ARCANA did from this wallet.
+   *
+   * NOT the address's history: a deposit or a withdrawal the owner signed
+   * themselves never passed through this platform and is not in `executions`.
+   * The response says that rather than letting a short list read as complete.
+   */
+  @Get(':id/wallet/transactions')
+  @UseGuards(JwtAuthGuard)
+  async walletTransactions(
+    @Param('id', ParseUuidAllPipe) id: string,
+    @CurrentWallet() wallet: string,
+    @Query('limit') limit?: string,
+  ) {
+    await this.ownership.assertOwnsAgent(wallet, id);
+    return this.walletView.transactions(id, Number(limit ?? 40));
   }
 
   @Post(':id/activate')

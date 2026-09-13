@@ -287,6 +287,20 @@ export class Erc20Reader {
   }
 
   /**
+   * The address's NATIVE balance — the gas, not the money.
+   *
+   * Kept beside balanceOf() because a wallet screen needs both and they fail
+   * differently: the token balance needs a configured token address, this needs
+   * only an RPC. An agent with a full book and no ETH cannot sell, and cannot
+   * fire a stop either, so "how much gas is left" is not a footnote on that
+   * screen — it is the thing that decides whether the protection works.
+   */
+  async nativeBalanceOf(address: string): Promise<bigint> {
+    if (!this.client) throw new Error('ARCA_RPC_URL not configured');
+    return this.client.getBalance({ address: address as `0x${string}` });
+  }
+
+  /**
    * Estimate ETH needed for a token transfer (gas estimation), so callers can
    * warn users about gas before they move funds. Uses a static call against the
    * token's transfer().

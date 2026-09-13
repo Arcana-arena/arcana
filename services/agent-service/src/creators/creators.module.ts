@@ -4,10 +4,12 @@ import { Creator } from './creator.entity';
 import { AuthModule } from '../auth/auth.module';
 import { CreatorsController } from './creators.controller';
 import { CreatorsService } from './creators.service';
+import { CreatorDashboardService } from './dashboard.service';
+import { CreatorEarningsService } from './earnings.client';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Creator]), AuthModule],
   controllers: [CreatorsController],
-  providers: [CreatorsService],
+  providers: [CreatorsService, CreatorDashboardService, CreatorEarningsService],
 })
 export class CreatorsModule {}

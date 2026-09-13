@@ -602,6 +602,93 @@ export class ClaimsService {
     return this.baseUnits(listing.arcaGateAmount!, decimals);
   }
 
+  /** Whether a payment can be verified at all right now. */
+  get paymentTokenEnabled(): boolean {
+    return this.token.enabled;
+  }
+
+  /** The settlement token's address, lowercased, or null when unconfigured. */
+  get paymentTokenAddress(): string | null {
+    return this.token.enabled ? (this.token.tokenAddress as string).toLowerCase() : null;
+  }
+
+  /** The settlement token's decimals, from the chain. Throws if unreadable. */
+  paymentDecimals(): Promise<number> {
+    return this.token.getDecimals();
+  }
+
+  /**
+   * What one address holds, in both things it needs to hold.
+   *
+   * TWO READS, TWO ANSWERS. A wallet with a full book and no gas cannot sell,
+   * and cannot fire a protective stop either — so the native balance is not a
+   * detail on a wallet screen, it is the number that decides whether the
+   * protection works at all. Each balance carries its own availability: a token
+   * read that failed must never be rendered as a balance of zero next to a
+   * native read that succeeded.
+   *
+   * NO THRESHOLD IS APPLIED HERE. "Low" depends on the cadence and the gas
+   * price, and this service knows neither. It returns what is there and lets
+   * the caller that knows the cadence say whether it is enough.
+   */
+  async balances(address: string) {
+    const out: Record<string, unknown> = {
+      address: address.toLowerCase(),
+      chain: this.token.chainName,
+      as_of: new Date().toISOString(),
+    };
+
+    if (!this.token.enabled) {
+      out.token = {
+        available: false,
+        reason:
+          `Payments are not configured (${this.token.configVar} / ARCA_RPC_URL), so no token balance ` +
+          'could be read. This is not a balance of zero.',
+        address: null, decimals: null, raw: null, amount: null,
+      };
+    } else {
+      try {
+        const [raw, decimals] = await Promise.all([
+          this.token.balanceOf(address),
+          this.token.getDecimals(),
+        ]);
+        out.token = {
+          available: true,
+          reason: null,
+          address: this.token.tokenAddress,
+          decimals,
+          raw: raw.toString(),
+          amount: this.human(raw, decimals),
+        };
+      } catch (e) {
+        out.token = {
+          available: false,
+          reason: `the token balance could not be read: ${e instanceof Error ? e.message : String(e)}`,
+          address: this.token.tokenAddress, decimals: null, raw: null, amount: null,
+        };
+      }
+    }
+
+    try {
+      const wei = await this.token.nativeBalanceOf(address);
+      out.native = {
+        available: true,
+        reason: null,
+        symbol: 'ETH',
+        raw: wei.toString(),
+        amount: this.human(wei, 18),
+      };
+    } catch (e) {
+      out.native = {
+        available: false,
+        reason: `the native balance could not be read: ${e instanceof Error ? e.message : String(e)}`,
+        symbol: 'ETH', raw: null, amount: null,
+      };
+    }
+
+    return out;
+  }
+
   /**
    * The rules every subscription is sold under, from the values in force.
    *

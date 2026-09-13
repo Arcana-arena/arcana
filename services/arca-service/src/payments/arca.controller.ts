@@ -17,6 +17,7 @@ import {
 import { ReminderService } from './reminder.service';
 import { SubscriptionsService } from './subscriptions.service';
 import { ClaimsService } from './claims.service';
+import { EarningsService } from './earnings.service';
 
 @Controller()
 export class ArcaController {
@@ -24,6 +25,7 @@ export class ArcaController {
     private readonly reminder: ReminderService,
     private readonly subs: SubscriptionsService,
     private readonly claims: ClaimsService,
+    private readonly earnings: EarningsService,
   ) {}
 
   // --- ⚙️ machine tier: batch jobs and timers -------------------------------
@@ -153,6 +155,28 @@ export class ArcaController {
   }
 
   /**
+   * ⚙️ What one address holds: the settlement token, and the gas.
+   *
+   * MACHINE TIER, because the map from an agent to its wallet is not public —
+   * publishing it would let anybody watch a specific person's positions in real
+   * time. agent-service fronts this for the owner, having already checked that
+   * the agent is theirs.
+   *
+   * BOTH BALANCES, AND THEY FAIL SEPARATELY. The token read needs a configured
+   * token; the native read needs only an RPC. Returning one as zero because the
+   * other could not be read would be the exact false this platform keeps
+   * removing, so each carries its own `available` and its own reason.
+   */
+  @Get('internal/v1/chain/balances')
+  @UseGuards(InternalKeyGuard)
+  async balances(@Query('address') address?: string) {
+    if (!address || !/^0x[0-9a-fA-F]{40}$/.test(address)) {
+      throw new BadRequestException('address is required and must be a 0x-prefixed 20-byte address');
+    }
+    return this.claims.balances(address);
+  }
+
+  /**
    * 🌐 The terms every subscription on this platform is sold under.
    *
    * PUBLIC, and it has to be. A buyer needs the term length, the grace window,
@@ -168,6 +192,33 @@ export class ArcaController {
   @Get('v1/arca/terms')
   terms() {
     return this.claims.terms();
+  }
+
+  /**
+   * ⚙️ What a creator has been paid, and by whom.
+   *
+   * MACHINE TIER. agent-service fronts it for the owner, having checked that
+   * the creator profile is theirs — the same arrangement the claim path uses,
+   * and for the same reason: this service does not hold the session, so it must
+   * not be the thing deciding who may see a creator's revenue.
+   *
+   * Every figure is a sum over `payment_claims`, the table the chain
+   * verification writes. Not over `subscriptions`: access and money diverge in
+   * both directions, and counting access as revenue reports money that never
+   * moved.
+   */
+  @Get('internal/v1/creators/:id/earnings')
+  @UseGuards(InternalKeyGuard)
+  async creatorEarnings(@Param('id') id: string) {
+    // The decimals are read from the token rather than assumed, and a failure
+    // to read them leaves the human figures null rather than guessing a scale.
+    let decimals: number | null = null;
+    try {
+      decimals = this.claims.paymentTokenEnabled ? await this.claims.paymentDecimals() : null;
+    } catch {
+      decimals = null;
+    }
+    return this.earnings.forCreator(id, decimals, this.claims.paymentTokenAddress);
   }
 
   /** 🔒 All subscriptions of a wallet — your own only. */

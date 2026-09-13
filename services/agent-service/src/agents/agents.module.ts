@@ -11,11 +11,14 @@ import { AgentOverviewService } from './overview.service';
 import { AgentPositionsService } from './positions.service';
 import { AgentWalletsService } from './agent-wallets.service';
 import { DecisionClient } from '../decisions/decision.client';
+import { AgentLifecycleService } from './lifecycle.service';
+import { AgentTriggersService } from './triggers.service';
+import { AgentWalletViewService } from './wallet-view.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Agent, AgentWallet]), EntitlementsModule, AuthModule],
   controllers: [AgentsController],
-  providers: [AgentsService, AgentWalletsService, DecisionClient, AgentOverviewService, AgentPositionsService, MarketPriceClient],
+  providers: [AgentsService, AgentWalletsService, DecisionClient, AgentOverviewService, AgentPositionsService, MarketPriceClient, AgentLifecycleService, AgentTriggersService, AgentWalletViewService],
   exports: [AgentWalletsService],
 })
 export class AgentsModule {}
