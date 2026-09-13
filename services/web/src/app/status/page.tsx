@@ -20,7 +20,7 @@ import { agent } from '@/lib/api';
 import { utc } from '@/lib/format';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
-import { Key, Tag } from '@/components/ds/primitives';
+import { Tag } from '@/components/ds/primitives';
 import { Callout, Failed } from '@/components/ds/states';
 
 export const dynamic = 'force-dynamic';

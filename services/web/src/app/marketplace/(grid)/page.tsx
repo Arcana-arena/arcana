@@ -26,7 +26,7 @@ import { marketplace, qs } from '@/lib/api';
 import { int, money, num, pct, score as fmtScore, tone } from '@/lib/format';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
-import { Key, Lbl, Num, Tag } from '@/components/ds/primitives';
+import { Lbl, Num, Tag } from '@/components/ds/primitives';
 import { Callout, Empty, Failed } from '@/components/ds/states';
 import { Seg } from '@/components/ds/nav';
 import { Sparkline } from '@/components/ds/chart';

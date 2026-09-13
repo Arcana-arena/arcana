@@ -24,7 +24,7 @@ import type { Season } from '@/lib/types';
 import { int, num, pct, tone, utc, utcDate } from '@/lib/format';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
-import { Key, Lbl, Num, Tag } from '@/components/ds/primitives';
+import { Key, Num, Tag } from '@/components/ds/primitives';
 import { Callout, Empty, Failed } from '@/components/ds/states';
 
 export const dynamic = 'force-dynamic';

@@ -29,7 +29,7 @@ import { authed, getSession } from '@/lib/session';
 import { addr, int, money, num, pct, tone, txShort, utc, utcDate } from '@/lib/format';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
-import { Key, Lbl, Num, Tag } from '@/components/ds/primitives';
+import { Lbl, Num } from '@/components/ds/primitives';
 import { Callout, Empty, Failed, StatusBox } from '@/components/ds/states';
 import type { MySubscription, SubscriptionBook } from '../../marketplace/shapes';
 
