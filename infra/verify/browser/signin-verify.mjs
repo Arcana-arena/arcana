@@ -237,20 +237,26 @@ try {
     `document.cookie contained: ${after.cookie.slice(0, 120)}`);
 
   // The dashboard has to show THIS wallet, not a placeholder.
-  const short = `${account.address.slice(0, 6)}…${account.address.slice(-4)}`;
-  check('the dashboard shows the wallet that signed', after.text.includes(short),
+  // CASE-INSENSITIVE, AND THAT IS NOT A LOOSENED CHECK — it is the right one.
+  // viem hands back an EIP-55 checksummed address; the SIWE verifier recovers
+  // it and stores it lowercased, and the page prints what the record holds
+  // rather than re-encoding it. Comparing the two literally asserted a display
+  // choice nobody made, and failed three checks on a page that was correct.
+  const short = `${account.address.slice(0, 6)}…${account.address.slice(-4)}`.toLowerCase();
+  const shows = (t) => t.toLowerCase().includes(short);
+  check('the dashboard shows the wallet that signed', shows(after.text),
     `looked for ${short} in: ${after.text.slice(0, 200)}`);
   check('a wallet with no creator profile is told so, not shown an empty dashboard',
     /no creator profile yet/i.test(after.text),
     after.text.slice(0, 240));
 
   // The header pill must agree with the page.
-  check('the header shows the signed-in wallet', after.text.includes(short), 'header does not show the wallet');
+  check('the header shows the signed-in wallet', shows(after.text), 'header does not show the wallet');
 
   // ---- the session survives a fresh load -----------------------------------
   await page.goto(`${ORIGIN}/me`, { waitUntil: 'networkidle0' });
   const reload = await page.evaluate(() => ({ path: location.pathname, text: document.body.innerText }));
-  check('the session survives a page load', reload.path === '/me' && reload.text.includes(short),
+  check('the session survives a page load', reload.path === '/me' && shows(reload.text),
     `on ${reload.path}`);
 
   // ---- sign out ------------------------------------------------------------
