@@ -71,11 +71,22 @@ function withRiskWarnings<T extends { riskProfile?: unknown }>(agent: T) {
   return out;
 }
 
-/** 0.0015 -> "0.15%". Trailing zeros trimmed so the number reads like a number. */
+/**
+ * 0.0015 -> "0.15%". Trailing zeros trimmed so the number reads like a number.
+ *
+ * THE MULTIPLICATION IS THE WHOLE FUNCTION, and it was missing. This printed
+ * `n.toFixed(4) + '%'`, so a stop of 0.0015 was described to its owner as
+ * "0.0015%" — a hundredfold understatement, inside the one sentence written to
+ * stop a hundredfold mistake. The warning that exists because 0.15 became 15%
+ * was itself off by the same factor, in the other direction.
+ *
+ * Six decimals, not four: 0.000015 is a level somebody can ask for, and
+ * rounding it to 0.0015% in a message about precision would repeat the fault.
+ */
 function asPercent(v: unknown): string {
   const n = Number(v);
   if (!Number.isFinite(n)) return String(v);
-  return n.toFixed(4).replace(/0+$/, '').replace(/\.$/, '') + '%';
+  return (n * 100).toFixed(6).replace(/0+$/, '').replace(/\.$/, '') + '%';
 }
 
 /**

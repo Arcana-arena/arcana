@@ -89,6 +89,29 @@ if (!prod.routers.map((r) => r.toLowerCase()).includes(ROUTER.toLowerCase())) {
 
 // --- a chain that answers whatever this test needs --------------------------
 let paused = false, blocked = false, rpcCalls = 0;
+
+/**
+ * What the mock actually answered, in order.
+ *
+ * WHY THIS EXISTS. `a wallet the issuer has BLOCKED -> wallet_blocked` came
+ * back `token_paused` in two consecutive full sweeps and passed every time the
+ * suite was run alone. The refusal says the signer read `paused()` as true one
+ * line after this file set it false — and there was no way to tell whether the
+ * mock said true, whether some other process answered, or whether the request
+ * never reached here at all, because nothing was written down.
+ *
+ * A verification that cannot say what its own fixture replied is in the same
+ * position as the summary line that lost its failure text. So every eth_call is
+ * recorded with the selector, the variables as they stood when it was served,
+ * and the moment it happened; a failing chain check prints the tail.
+ */
+const rpcLog = [];
+const SELECTORS = { '0x5c975abb': 'paused()', '0xfbac3951': 'isBlocked()' };
+const recentRpc = (n = 6) =>
+  rpcLog.slice(-n).map((e) =>
+    `${e.at}ms ${e.sel} to=${e.to.slice(0, 10)} -> ${e.answer} (paused=${e.paused} blocked=${e.blocked})`,
+  ).join('\n        ');
+const t0 = Date.now();
 // null = isBlocked() ANSWERS (with `blocked`). A string = it REVERTS with that
 // payload, which is what every token on this chain actually does. The suite
 // needs both, because the whole point of the exception is that answering and
@@ -120,9 +143,15 @@ const rpc = createServer((req, res) => {
       return;
     }
     let result = word(false);
-    if (data.startsWith('0x5c975abb')) result = word(paused);          // paused()
-    else if (data.startsWith('0xfbac3951')) result = word(blocked);    // isBlocked(address)
-    else if (data === '') result = '0x1237';
+    let answer = 'false';
+    if (data.startsWith('0x5c975abb')) { result = word(paused); answer = String(paused); }        // paused()
+    else if (data.startsWith('0xfbac3951')) { result = word(blocked); answer = String(blocked); } // isBlocked(address)
+    else if (data === '') { result = '0x1237'; answer = 'chainId'; }
+    rpcLog.push({
+      at: Date.now() - t0,
+      sel: SELECTORS[data.slice(0, 10)] ?? (data === '' ? 'eth_chainId' : data.slice(0, 10)),
+      to, answer, paused, blocked,
+    });
     res.end(JSON.stringify({ jsonrpc: '2.0', id, result }));
   });
 });
@@ -130,8 +159,29 @@ const rpc = createServer((req, res) => {
 let proc = null;
 const AGENT = randomUUID();
 
+/**
+ * THE SIGNER IS BUILT, NOT `go run` — the lesson cost-budget-verify and
+ * cost-meter-verify already wrote down, and this file had not taken.
+ *
+ * `go run` is a parent that compiles and then execs the server as a CHILD, so
+ * a SIGKILL to the parent leaves the child holding the port. This suite stops
+ * and starts the signer five times; each one is a chance to leave an orphan
+ * that the next `waitUp()` finds healthy and measures instead — a server
+ * configured by a run that has already ended.
+ *
+ * Building once and spawning the binary means the process being killed is the
+ * process that listens.
+ */
+const BIN = `/tmp/signer-verify-signer.${process.pid}`;
+
+function build() {
+  execFileSync(GO, ['build', '-o', BIN, './cmd/server'], {
+    cwd: `${REPO}/services/signer`, stdio: 'inherit',
+  });
+}
+
 function start(extra = {}) {
-  return spawn(GO, ['run', './cmd/server'], {
+  return spawn(BIN, [], {
     cwd: `${REPO}/services/signer`,
     env: { ...process.env, PORT: String(PORT), INTERNAL_API_KEY: KEY,
            SIGNER_MASTER_SEED_FILE: seedPath, SIGNER_ALLOWLIST_FILE: allowPath,
@@ -157,6 +207,31 @@ async function waitUp(ms = 30000) {
   }
   return false;
 }
+
+/**
+ * A STRANGER ON THE PORT IS A FAILED RUN, NOT A PASSING ONE.
+ *
+ * Without this, `waitUp()` cannot tell the signer this file configured from one
+ * left behind by an earlier run: both answer /healthz, and every check
+ * afterwards is measured against whichever one happens to hold the port. That
+ * is the same shape as proving a watcher alive with a pgrep that matched the
+ * checking command itself.
+ */
+async function assertPortFree() {
+  try { execFileSync('bash', ['-lc', `fuser -k ${PORT}/tcp 2>/dev/null || true`]); } catch {}
+  await new Promise((r) => setTimeout(r, 500));
+  try {
+    const r = await fetch(`http://127.0.0.1:${PORT}/healthz`);
+    if (r.ok) {
+      throw new Error(
+        `something is already listening on ${PORT} and answering /healthz. This suite would have ` +
+        'measured that process instead of the one it configures. Refusing to run.');
+    }
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith('something is already listening')) throw e;
+    // Connection refused is the outcome this wants.
+  }
+}
 const sign = async (body) => {
   const r = await fetch(`http://127.0.0.1:${PORT}/internal/v1/signer/sign`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Internal-Key': KEY },
@@ -172,6 +247,8 @@ const okApprove = (over = {}) => ({ intent: 'approve', agent_id: AGENT, token_in
 
 try {
   await new Promise((r) => rpc.listen(RPC_PORT, '127.0.0.1', r));
+  await assertPortFree();
+  build();
   proc = start();
   check('signer came up', await waitUp(), 'never became healthy');
 
@@ -240,7 +317,13 @@ try {
 
   blocked = true;
   r = await sign(okSwap());
-  check('a wallet the issuer has BLOCKED → wallet_blocked', code(r) === 'wallet_blocked', code(r));
+  // THE MOCK'S OWN ANSWERS GO IN THE FAILURE. When this came back
+  // `token_paused` in a sweep, the detail was the single word `token_paused`
+  // and there was nothing to work from — the refusal could equally have meant
+  // the mock said true, that a signer from somewhere else answered, or that
+  // the call never arrived. Now it says which.
+  check('a wallet the issuer has BLOCKED → wallet_blocked', code(r) === 'wallet_blocked',
+    `${code(r)}; the mock answered:\n        ${recentRpc()}`);
   blocked = false;
 
   // === ACCEPTS ============================================================
@@ -498,6 +581,9 @@ try {
   await stop();
   rpc.close();
   try { execFileSync('rm', ['-rf', dir]); } catch {}
+  // The built binary is this run's, named by its pid, and belongs to nothing
+  // else. Leaving them behind fills /tmp one sweep at a time.
+  try { execFileSync('rm', ['-f', BIN]); } catch {}
   console.log('signer-verify: fixtures removed');
 }
 

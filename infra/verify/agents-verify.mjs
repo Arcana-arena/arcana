@@ -365,6 +365,19 @@ try {
     check('the value is stored as given rather than dropped',
       typo.body?.riskProfile?.stoploss_pct === 0.05, JSON.stringify(typo.body?.riskProfile));
 
+    // THE NUMBER IN THE WARNING IS THE NUMBER. This sentence exists because
+    // 0.15 was armed as 15%, and it printed the fraction with a percent sign
+    // stuck on the end — describing a 5% stop as "0.05%", understating by the
+    // same hundredfold it was written to prevent. A warning that is wrong in
+    // the direction of reassurance is worse than no warning.
+    const amb = typo.body?.risk_profile_ambiguous ?? [];
+    check('a fraction-named-pct key is named as ambiguous', amb.includes('stop_loss_pct'),
+      JSON.stringify(amb));
+    const ambNote = typo.body?.risk_profile_ambiguous_note ?? '';
+    check('and the note converts the fraction correctly: 0.05 is 5%, not 0.05%',
+      /0.05 means 5%/.test(ambNote), ambNote);
+    check('the note never prints the fraction with a percent sign glued to it',
+      !/means 0.05%/.test(ambNote), ambNote);
     // THE CONTROL. A clean profile must carry no warning at all — otherwise the
     // field would appear on every response and stop meaning anything.
     const clean = await makeAgent(idLength.token, 'phase12-verify-riskclean', {

@@ -138,8 +138,44 @@ async function waitFor(url, ms = 25000) {
   return false;
 }
 
+/**
+ * THE ENGINE IS BUILT, NOT `go run` -- the lesson cost-budget-verify and
+ * cost-meter-verify already wrote down.
+ *
+ * `go run` is a parent that compiles and then execs the server as a CHILD, so
+ * a SIGKILL to the parent leaves the child holding the port. This suite starts
+ * the engine several times with different environments; an orphan from any of
+ * them would be found healthy by the next waitUp() and measured instead -- an
+ * engine configured by a case that had already finished.
+ */
+const ENGINE_BIN = `/tmp/decider-verify-engine.${process.pid}`;
+
+function buildEngine() {
+  execFileSync(GO, ['build', '-o', ENGINE_BIN, './cmd/server'], {
+    cwd: `${REPO}/services/decision-engine`, stdio: 'inherit',
+  });
+}
+
+/**
+ * A STRANGER ON THE PORT IS A FAILED RUN, NOT A PASSING ONE.
+ */
+async function assertEnginePortFree() {
+  try { execFileSync('bash', ['-lc', `fuser -k ${ENGINE_PORT}/tcp 2>/dev/null || true`]); } catch {}
+  await new Promise((r) => setTimeout(r, 500));
+  try {
+    const r = await fetch(`http://127.0.0.1:${ENGINE_PORT}/healthz`);
+    if (r.ok) {
+      throw new Error(
+        `something is already listening on ${ENGINE_PORT} and answering /healthz. This suite would ` +
+        'have measured that process instead of the one it configures. Refusing to run.');
+    }
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith('something is already listening')) throw e;
+  }
+}
+
 function startEngine(extraEnv) {
-  return spawn(GO, ['run', './cmd/server'], {
+  return spawn(ENGINE_BIN, [], {
     cwd: `${REPO}/services/decision-engine`,
     env: { ...process.env, DATABASE_URL: DB, PORT: String(ENGINE_PORT),
            MARKET_DATA_URL: 'http://127.0.0.1:8083', INTERNAL_API_KEY: KEY, ...extraEnv },
@@ -176,6 +212,8 @@ const lastDecision = () => {
 
 try {
   await new Promise((r) => mock.listen(MOCK_PORT, '127.0.0.1', r));
+  await assertEnginePortFree();
+  buildEngine();
   console.log(`decider-verify: second provider listening on :${MOCK_PORT}\n`);
 
   // Fixtures: a creator, an LLM agent, a season, and the newest live snapshot.
@@ -304,6 +342,7 @@ try {
   await stopEngine();
   mock.close();
   cleanup();
+  try { execFileSync('rm', ['-f', ENGINE_BIN]); } catch {}
   console.log('decider-verify: fixtures removed');
 }
 
