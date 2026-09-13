@@ -823,6 +823,24 @@ await section('The agent directory exists, lists the live agents, and the header
     home.html.includes('href="/me/agents/new"'), 'no link to /me/agents/new on the landing page');
 });
 
+await section('Every entry in the landing footer leads somewhere', async () => {
+  // It carried twenty mockup entries with no page behind them, printed as muted
+  // text. A visitor reads that as a broken link, so every entry is now a link
+  // and every link has to answer.
+  const home = await page('/');
+  const start = home.html.indexOf('footer-cols');
+  const block = start >= 0 ? home.html.slice(start, home.html.indexOf('© 2026', start)) : '';
+  check('the landing footer renders', block.length > 0, 'no footer-cols block on the landing page');
+  const hrefs = [...block.matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
+  check('the footer has links', hrefs.length >= 15, `${hrefs.length} link(s)`);
+  check('and no entry is plain text standing in for a link',
+    !/<span class="m3">[^<]+<\/span>/.test(block), 'a muted text entry is still in the footer');
+  for (const href of [...new Set(hrefs)]) {
+    const r = await page(href.split('#')[0]);
+    check(`footer link ${href} answers`, r.status === 200, `status ${r.status}`);
+  }
+});
+
 await section('A URL that names nothing says so', async () => {
   const p = await page('/no-such-page-here');
   check('an unknown path answers 404', p.status === 404, `status ${p.status}`);

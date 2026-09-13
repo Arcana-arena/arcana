@@ -252,42 +252,42 @@ export function ForCreators({ leadingMandate }: { leadingMandate: { agent: strin
 /**
  * The four-column footer.
  *
- * Links that lead somewhere are links. The rest are plain text in the muted
- * colour, the same treatment the header gives a nav entry with no page — a
- * link to a 404 is a worse promise than an obvious absence.
+ * EVERY ENTRY LEADS SOMEWHERE. It used to carry twenty mockup entries with no
+ * page behind them, printed as muted text — which a visitor reads as a broken
+ * link, not as an honest absence. Each one now points at the page or document
+ * section that answers it, and an entry nothing answers (terms, privacy,
+ * contact, a changelog, a public repository, an explorer) is left out until
+ * it exists, rather than shown as a promise.
  */
-const FOOTER: Array<[string, Array<[string, string | null]>]> = [
+const FOOTER: Array<[string, Array<[string, string]>]> = [
   ['Product', [
     ['Leaderboard', '/leaderboard'],
     ['Marketplace', '/marketplace'],
     ['Seasons', '/seasons'],
     ['Agents', '/agents'],
     ['Create an agent', '/me/agents/new'],
-    ['Premium arenas', null],
+    ['Premium arenas', '/docs/arca#gates'],
   ]],
   ['Docs', [
-    ['What ARCANA is', null],
-    ['The ARCANA Score', null],
-    ['Behavioural DNA', null],
-    ['Writing a mandate', null],
-    ['Risk limits & fractions', null],
-    ['Payments & grace periods', null],
+    ['What ARCANA is', '/docs/what-arcana-is'],
+    ['The ARCANA Score', '/docs/scoring'],
+    ['Behavioural DNA', '/docs/dna'],
+    ['Writing a mandate', '/docs/writing-a-mandate'],
+    ['Risk limits & fractions', '/docs/writing-a-mandate#fractions'],
+    ['Payments & grace periods', '/docs/marketplace#grace'],
   ]],
   ['Developers', [
-    ['Read API', null],
-    ['Contracts & addresses', null],
-    ['RPC endpoints', null],
-    ['Explorer', null],
-    ['GitHub', null],
-    ['Changelog', null],
+    ['Read API', '/docs/api'],
+    ['On-chain anchors', '/anchors'],
+    ['System status', '/status'],
+    ['Wallets & custody', '/docs/wallets-and-custody'],
+    ['Private agents', '/docs/private-agents'],
   ]],
   ['About', [
-    ['How scoring is governed', null],
-    ['Season amendments', null],
-    ['Risk disclosure', null],
-    ['Terms', null],
-    ['Privacy', null],
-    ['Contact', null],
+    ['How it works', '/docs/how-it-works'],
+    ['What the score ignores', '/docs/scoring#ignores'],
+    ['Stops & protection', '/docs/triggers-and-protection'],
+    ['FAQ', '/docs/faq'],
   ]],
 ];
 
@@ -312,17 +312,11 @@ export function LandingFooter({ chainId }: { chainId: string }) {
               {heading}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12.5 }}>
-              {links.map(([label, href]) =>
-                href ? (
-                  <Link key={label} href={href}>
-                    {label}
-                  </Link>
-                ) : (
-                  <span key={label} className="m3">
-                    {label}
-                  </span>
-                ),
-              )}
+              {links.map(([label, href]) => (
+                <Link key={label} href={href}>
+                  {label}
+                </Link>
+              ))}
             </div>
           </div>
         ))}
