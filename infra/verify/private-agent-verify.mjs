@@ -122,6 +122,9 @@ function stopRig() {
 }
 process.on('exit', stopRig);
 process.on('SIGINT', () => { stopRig(); process.exit(130); });
+// run-all stops a suite that outlives its timeout with SIGTERM, and a signal
+// does not fire 'exit' — so without this the engine outlived every such run.
+process.on('SIGTERM', () => { stopRig(); process.exit(143); });
 
 // --- http ---------------------------------------------------------------------
 let token = null;
@@ -466,3 +469,7 @@ try {
 const code = report();
 if (code !== 0) process.exit(code);
 console.log('private-agent-verify: private intelligence stayed private, and the proof of it held.');
+// EXIT, DON'T DRAIN. The mock provider and the engine's pipes keep the event
+// loop alive, so a passing run used to sit until run-all's timeout killed it —
+// reported as a pass, five minutes late, with the engine left running.
+process.exit(0);
