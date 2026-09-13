@@ -151,14 +151,48 @@ await section('The leaderboard prints the API rows, in the API order', async () 
 });
 
 await section('A withheld score is not printed as a number', async () => {
-  const un = (board.body?.items ?? []).filter((i) => !i.ranked);
+  // IT USED TO ASK THE WRONG BOARD. The default leaderboard EXCLUDES unranked
+  // agents — that is what `include_unranked` is for — so reading the default
+  // response and finding none was guaranteed, and the section closed itself
+  // with "nothing to render" on every run. The condition was not missing from
+  // the platform; it was missing from the question. A check that can only ever
+  // decline is worse than no check, because the declining is legible and looks
+  // like diligence.
+  const withUnranked = await api(AGENT, '/v1/leaderboard?include_unranked=true');
+  const un = (withUnranked.body?.items ?? []).filter((i) => !i.ranked);
   if (un.length === 0) {
-    nothingToCheck('no unranked agent is on this page, so the withheld case has nothing to render');
+    nothingToCheck(
+      'no agent anywhere in this season is below the ranking threshold, so the withheld case has ' +
+      'nothing to render. This is now a fact about the data, not about which board was asked.');
     return;
   }
+
+  const p = await page('/leaderboard?include_unranked=true');
+  const t = text(p.html);
+  check('the board that includes unranked agents renders', p.status === 200, `status ${p.status}`);
+
+  const one = un[0];
+  check('the unranked agent is on it', t.includes(one.agent_name), `${one.agent_name} is not on the page`);
   check('the page says a score is withheld rather than showing a digit',
-    /withheld/i.test(lbText), 'the word "withheld" does not appear');
-  check('and it marks the row UNRANKED', /UNRANKED/.test(lbText), 'no UNRANKED marker on the page');
+    /withheld/i.test(t), 'the word "withheld" does not appear');
+  check('and it marks the row UNRANKED', /UNRANKED/.test(t), 'no UNRANKED marker on the page');
+
+  // WHY, NOT JUST THAT. The API sends the reason; a page that showed only the
+  // word would leave somebody unable to tell "not enough decisions yet" from
+  // "something went wrong".
+  check('the reason the score is withheld is printed, not just the fact',
+    typeof one.unranked_note === 'string' && one.unranked_note.length > 0
+      ? t.includes(one.unranked_note.slice(0, 40))
+      : true,
+    `unranked_note: ${String(one.unranked_note).slice(0, 80)}`);
+
+  // AND NO NUMBER STANDS IN FOR IT. A withheld composite must not be rendered
+  // as 0, which reads as a measurement and ranks like one.
+  check('the composite is not rendered as zero for the unranked agent',
+    one.arcana_score === null || one.arcana_score === undefined,
+    `the API sent arcana_score=${one.arcana_score} for an agent it marked unranked`);
+  check('and the unranked agent carries no rank number',
+    one.rank === null || one.rank === undefined, `rank=${one.rank}`);
 });
 
 await section('The eighth category is refused, and the refusal is explained', async () => {

@@ -354,9 +354,24 @@ await section('The agents list can be asked to exclude verification artefacts', 
     `unfiltered ${all.body?.total}, live ${dbLive} + verification ${dbFix}`);
 
   if (dbFix === 0) {
+    // STILL DECLARED, AND NO LONGER AN UNRESOLVED GAP. This suite reads only —
+    // it creates nothing and needs no session, which is what lets it run
+    // against a live deployment without changing what it measures — so it
+    // cannot make the condition it would need. The exclusion IS proven, in the
+    // one suite that is holding a real artefact at the time:
+    // creator-dashboard-verify builds a verification creator and agent through
+    // the real endpoints and checks that unfiltered minus live equals the
+    // verification count while they exist.
     nothingToCheck(
-      'no verification artefact exists right now, so a run cannot prove the filter EXCLUDES one — ' +
-      'only that both counts add up');
+      'no verification artefact exists right now, so THIS suite can only prove the counts add up. ' +
+      'That the live filter actually removes a row is proven by creator-dashboard-verify, which ' +
+      'builds one first');
+  } else {
+    // If one happens to exist — another suite mid-run, or a fixture somebody
+    // left behind — the stronger claim is free and worth making.
+    check('and with an artefact present, the live filter genuinely removes it',
+      all.body?.total - live.body?.total === dbFix,
+      `unfiltered ${all.body?.total}, live ${live.body?.total}, artefacts ${dbFix}`);
   }
 });
 
