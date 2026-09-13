@@ -44,6 +44,11 @@ import { IntelligenceModule } from './intelligence/intelligence.module';
     SubscriptionsModule,
     EvolutionModule,
     AutopsyModule,
+    // @Global does not mean "loaded without being imported": a global module
+    // still has to be imported ONCE, here. Its import statement alone left the
+    // service crash-looping on deploy with "can't resolve IntelligenceService"
+    // — a failure no typecheck sees, because Nest resolves providers at boot.
+    IntelligenceModule,
   ],
   controllers: [HealthController],
 })
