@@ -217,16 +217,52 @@ check_node() {
     return
   fi
   report "$name" "$stamp" "built from"
+
+  # AND IS THE RUNNING PROCESS THAT BUILD?
+  #
+  # THE GAP THIS CLOSES, found the hard way. A stamp says what was BUILT. A
+  # Node service reads its build once, at boot — `next start` serves whatever
+  # .next held when it started. So a deploy that built, stamped, and did not
+  # restart passed every check here while the public surface served a build
+  # from hours earlier, and the installer's hand-maintained restart list had
+  # quietly omitted arcana-web for exactly that long.
+  #
+  # Comparing the SERVICE START against the STAMP FILE's mtime catches it: a
+  # process that started before its own build cannot be running it. This is not
+  # the mtime comparison the block above rejects — that one compared source
+  # files, which git rewrites for its own reasons. A stamp file is written by
+  # the installer and by nothing else.
+  local unit="${5:-}"
+  [ -z "$unit" ] && return
+  local started built
+  started="$(systemctl show "$unit" -p ActiveEnterTimestamp --value 2>/dev/null)"
+  built="$(stat -c %y "$dir/$out/.build-commit" 2>/dev/null)"
+  if [ -z "$started" ] || [ -z "$built" ]; then
+    no "$name is running the build it was stamped with" \
+       "could not compare: started='${started:-unknown}' built='${built:-unknown}'"
+    return
+  fi
+  local started_s built_s
+  started_s="$(date -d "$started" +%s 2>/dev/null)"
+  built_s="$(date -d "$built" +%s 2>/dev/null)"
+  if [ -z "$started_s" ] || [ -z "$built_s" ]; then
+    no "$name is running the build it was stamped with" "could not parse the timestamps"
+  elif [ "$started_s" -lt "$built_s" ]; then
+    no "$name is running the build it was stamped with" \
+       "the build is newer than the process: built $built, started $started. It is serving the PREVIOUS build — restart $unit"
+  else
+    ok "$name started after its build — it is running what it was stamped with"
+  fi
 }
-check_node agent-service       services/agent-service       3001
-check_node marketplace-service services/marketplace         3002
-check_node arca-service        services/arca-service        3004
+check_node agent-service       services/agent-service       3001 dist  arcana-agent
+check_node marketplace-service services/marketplace         3002 dist  arcana-marketplace
+check_node arca-service        services/arca-service        3004 dist  arcana-arca
 # THE WEB SURFACE HAS THE SAME TRAP AND WAS NOT WATCHED FOR IT. `next start`
 # serves whatever .next holds, so a pull plus a restart serves the old code
 # while every configuration file says the new thing. That happened: the sign-in
 # page kept refusing a domain that had already been corrected, and nothing
 # anywhere said the build was behind.
-check_node web                 services/web                 3000 .next
+check_node web                 services/web                 3000 .next arcana-web
 
 echo
 echo "=== The check can still refuse ==="

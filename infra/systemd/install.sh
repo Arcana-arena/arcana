@@ -285,7 +285,28 @@ echo "==> enabling long-running services"
 # check at the end never ran. The result was a HALF-DEPLOYED host whose only
 # symptom was that the installer stopped printing. Every problem is now
 # reported at the end and the exit code still says something went wrong.
-for u in arcana-agent arcana-marketdata arcana-decision arcana-scoring arcana-marketplace arcana-arca arcana-signer; do
+# DERIVED FROM THE UNIT FILES, not hand-maintained — the fourth time this
+# script was quietly incomplete, one line below the comment that says so.
+#
+# The list named seven services. arcana-web and arcana-guard were not among
+# them, so every deploy built the web app, stamped it with the commit, and
+# left the old process running: next start reads .next once, at boot.
+# Everything reported success, deployed-version-verify compared the STAMP and
+# passed, and the public surface went on serving a build from hours earlier.
+#
+# A long-running service is one with no Type=oneshot and no matching .timer,
+# which is exactly what "restart this on deploy" means. Adding a service can
+# no longer leave it unrestarted without somebody deleting this loop.
+LONG_RUNNING=""
+for f in "$REPO"/infra/systemd/*.service; do
+  n="$(basename "$f" .service)"
+  case "$n" in *@) continue ;; esac
+  grep -q "^Type=oneshot" "$f" && continue
+  [ -e "$REPO/infra/systemd/$n.timer" ] && continue
+  LONG_RUNNING="$LONG_RUNNING $n"
+done
+echo "    restarting:$LONG_RUNNING"
+for u in $LONG_RUNNING; do
   sudo systemctl enable "$u.service" >/dev/null 2>&1 || FAILED_UNITS="$FAILED_UNITS $u(enable)"
   sudo systemctl restart "$u.service" || FAILED_UNITS="$FAILED_UNITS $u(restart)"
 done
