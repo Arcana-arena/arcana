@@ -14,6 +14,8 @@
  * text rather than as links to a 404, and they say why on hover.
  */
 import Link from 'next/link';
+import { getSession } from '@/lib/session';
+import { addr } from '@/lib/format';
 
 const CHAIN_ID = process.env.NEXT_PUBLIC_ARCANA_CHAIN_ID || '4663';
 
@@ -27,7 +29,7 @@ const NAV: NavItem[] = [
   { label: 'Docs', href: null, note: 'Not published on this surface yet.' },
 ];
 
-export function Header({ current }: { current?: string }) {
+export async function Header({ current }: { current?: string }) {
   return (
     <header className="hdr">
       <Link href="/" className="hdr-brand" style={{ color: 'var(--color-text)' }}>
@@ -67,14 +69,54 @@ export function Header({ current }: { current?: string }) {
           <span className="m3">·</span>
           <span className="m3">height not read</span>
         </div>
-        <span
-          className="btn"
-          aria-disabled="true"
-          title="Signing in arrives with Stage 4. Everything on this surface is readable without a wallet, on purpose."
-        >
-          Connect wallet
-        </span>
+        <SessionPill />
       </div>
     </header>
+  );
+}
+
+/**
+ * Signed in, signed out, or not known — three states, three pills.
+ *
+ * "Not known" is the one that matters. When a session cookie exists but the
+ * auth service cannot be reached to confirm it, showing "Connect wallet" would
+ * tell somebody they are logged out when the truth is that nobody can currently
+ * say. They would sign in again, against a service that is down, and the page
+ * would be the reason they thought that was the problem.
+ */
+async function SessionPill() {
+  const s = await getSession();
+
+  if (s.state === 'signed_in') {
+    return (
+      <Link
+        href="/me"
+        className="btn"
+        style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, gap: 8 }}
+        title={s.session.wallet_address}
+      >
+        <span style={{ width: 8, height: 8, background: 'var(--color-accent)' }} />
+        {addr(s.session.wallet_address)}
+      </Link>
+    );
+  }
+
+  if (s.state === 'unknown') {
+    return (
+      <span
+        className="btn"
+        style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, gap: 8, borderStyle: 'dashed' }}
+        title={`A session cookie is present and could not be confirmed: ${s.reason}. This is not the same as being signed out.`}
+      >
+        <span style={{ width: 8, height: 8, background: 'var(--amber)' }} />
+        session unconfirmed
+      </span>
+    );
+  }
+
+  return (
+    <Link href="/signin" className="btn">
+      Sign in
+    </Link>
   );
 }
