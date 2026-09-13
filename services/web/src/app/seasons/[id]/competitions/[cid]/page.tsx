@@ -137,7 +137,7 @@ export default async function StandingsPage({ params }: { params: Promise<{ id: 
         )}
       </div>
 
-      <Footer note="NAV and cash are the values in the latest snapshot, as the competition recorded them" />
+      <Footer />
     </div>
   );
 }

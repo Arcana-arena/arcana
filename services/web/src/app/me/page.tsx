@@ -304,7 +304,7 @@ export default async function MePage() {
         </Callout>
       </div>
 
-      <Footer note="everything on this page belongs to the signed-in wallet" />
+      <Footer />
     </div>
   );
 }

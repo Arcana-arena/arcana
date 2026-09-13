@@ -71,7 +71,7 @@ export default async function SeasonsPage() {
         />
       )}
 
-      <Footer note="dates, tiers and counts are read from the season record; nothing here is derived from a guess" />
+      <Footer />
     </div>
   );
 }

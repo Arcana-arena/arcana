@@ -65,7 +65,7 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
           </Link>
         </div>
       </div>
-      <Footer note="signing in stores a session cookie; it authorises no transaction" />
+      <Footer />
     </div>
   );
 }

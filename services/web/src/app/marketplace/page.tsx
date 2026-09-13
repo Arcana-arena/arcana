@@ -173,7 +173,7 @@ export default async function MarketplacePage({ searchParams }: { searchParams: 
         </div>
       </div>
 
-      <Footer note="price, gate and score are the values the listing carries; the order is the database's" />
+      <Footer />
     </div>
   );
 }

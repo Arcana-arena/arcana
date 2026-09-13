@@ -25,7 +25,10 @@ export function Footer({ asOf, note }: { asOf?: string | null; note?: string }) 
         Status
       </span>
       <span className="mono m3" style={{ marginLeft: 'auto', fontSize: 10.5, textAlign: 'right' }}>
-        {note ?? 'this page reads; it computes nothing'}
+        {/* No house style note by default. "this page reads; it computes
+            nothing" is a thing the authors say to each other, and a footer is
+            not where a visitor goes to read it. */}
+        {note ?? ''}
         {asOf ? ` · read at ${asOf}` : ''}
       </span>
     </footer>

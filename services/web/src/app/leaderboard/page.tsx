@@ -278,7 +278,12 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
                               {s?.max_drawdown_pct === null || s === undefined ? (
                                 <span className="mono m3" title="No NAV snapshots in this season, so no drawdown can be measured.">—</span>
                               ) : (
-                                <Num value={`−${num(s.max_drawdown_pct, 2)}%`} tone="dn" />
+                                // A drawdown of zero is zero, not minus zero.
+                                // The sign belongs to a fall that happened.
+                                <Num
+                                  value={s.max_drawdown_pct === 0 ? '0.00%' : `−${num(s.max_drawdown_pct, 2)}%`}
+                                  tone={s.max_drawdown_pct === 0 ? 'flat' : 'dn'}
+                                />
                               )}
                             </td>
                             <td><span className="tag tag-neutral">{r.strategy_type ?? '—'}</span></td>
