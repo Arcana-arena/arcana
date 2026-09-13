@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { LeaderboardController } from './leaderboard.controller';
 import { LeaderboardService } from './leaderboard.service';
+import { LeaderboardSeriesService } from './series';
 
 /**
  * No TypeOrmModule.forFeature: the read is raw SQL, and deliberately so. The
@@ -11,7 +12,7 @@ import { LeaderboardService } from './leaderboard.service';
  */
 @Module({
   controllers: [LeaderboardController],
-  providers: [LeaderboardService],
+  providers: [LeaderboardService, LeaderboardSeriesService],
   exports: [LeaderboardService],
 })
 export class LeaderboardModule {}

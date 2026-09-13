@@ -114,6 +114,11 @@ export class LeaderboardService {
     pageSize: number;
     offset: number;
     includeUnranked: boolean;
+    q?: string;
+    universe?: string;
+    status?: string;
+    minScore?: number;
+    maxScore?: number;
   }) {
     const category = this.parseCategory(opts.category);
     const column = CATEGORIES[category].column;
@@ -157,7 +162,15 @@ export class LeaderboardService {
           LEFT JOIN (
             SELECT agent_id, count(*)::int AS n FROM decisions_counted GROUP BY agent_id
           ) d ON d.agent_id = l.agent_id
-         WHERE $2::boolean OR l.arcana_score IS NOT NULL
+         WHERE ($2::boolean OR l.arcana_score IS NOT NULL)
+           -- EVERY FILTER IS APPLIED HERE, INSIDE THE CTE, so the rank window
+           -- below ranks the filtered set. Filtering after ranking would leave
+           -- gaps — rows 1, 4, 9 — and a reader would reasonably conclude the
+           -- missing ones had been hidden rather than never matched.
+           AND ($3::text IS NULL OR a.name ILIKE '%' || $3 || '%'
+                                 OR c.handle ILIKE '%' || $3 || '%')
+           AND ($4::text IS NULL OR a.asset_universe = $4)
+           AND ($5::text IS NULL OR a.status = $5)
       )
       SELECT *,
              -- THE RANK IS OVER THE WHOLE FILTERED SET, not the page, so page 2
@@ -203,11 +216,20 @@ export class LeaderboardService {
        -- This changes ORDER only. The RANK window above still orders by the
        -- score alone, so a tie is still ranked as a tie: the id decides who is
        -- PRINTED first, never who is placed higher.
+       -- The score bounds are applied against the COLUMN BEING RANKED, after
+       -- the window so the rank still counts every agent that matched the other
+       -- filters. A board filtered to "score >= 60" is showing a slice of a real
+       -- ranking, not a ranking of a slice.
+       WHERE ($6::float8 IS NULL OR ${column} >= $6)
+         AND ($7::float8 IS NULL OR ${column} <= $7)
        ORDER BY ranked DESC, ${column} DESC NULLS LAST, agent_name ASC, agent_id ASC
-       LIMIT $3 OFFSET $4`;
+       LIMIT $8 OFFSET $9`;
 
     const rows = await this.db.query(sql, [
-      season.id, opts.includeUnranked, opts.pageSize, opts.offset,
+      season.id, opts.includeUnranked,
+      opts.q ?? null, opts.universe ?? null, opts.status ?? null,
+      opts.minScore ?? null, opts.maxScore ?? null,
+      opts.pageSize, opts.offset,
     ]);
 
     const total = rows.length > 0 ? Number(rows[0].total) : 0;
@@ -273,6 +295,17 @@ export class LeaderboardService {
    * unqualified request with an empty board — which reads as "nobody is
    * competing" rather than "this season has not been scored yet".
    */
+  /**
+   * The season id a caller means, resolved the same way the board resolves it.
+   *
+   * Public so the series route lands on the SAME season the leaderboard does.
+   * Two resolutions of "which season" is how a page ends up joining one
+   * season’s ranks to another season’s returns and showing both as one row.
+   */
+  async resolveSeasonId(seasonId?: string): Promise<string> {
+    return (await this.resolveSeason(seasonId)).id;
+  }
+
   private async resolveSeason(seasonId?: string) {
     // STATUS IS DERIVED FROM THE DATES. `seasons` has no status column and
     // deliberately should not grow one — seasons.service.ts sets that out: a

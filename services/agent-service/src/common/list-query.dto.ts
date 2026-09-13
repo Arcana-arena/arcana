@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { IsIn, IsNumberString, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
 /**
  * The query parameters a list endpoint accepts — and, just as importantly, the
@@ -118,4 +118,38 @@ export class LeaderboardQueryDto extends PageQueryDto {
   @IsOptional()
   @IsIn(['true', 'false', '1', '0'])
   include_unranked?: string;
+
+  /** Free-text over the agent name and the creator handle. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  q?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  universe?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  status?: string;
+
+  /**
+   * Bounds on the CATEGORY COLUMN being ranked, not on the composite. Filtering
+   * a risk-adjusted board by a composite score would hide agents for a reason
+   * the board is not showing.
+   */
+  @IsOptional()
+  @IsNumberString()
+  min_score?: string;
+
+  @IsOptional()
+  @IsNumberString()
+  max_score?: string;
+
+  /** How many sparkline buckets /v1/leaderboard/series should return. */
+  @IsOptional()
+  @IsIn(['6', '8', '10', '12', '16', '20'])
+  buckets?: string;
 }
