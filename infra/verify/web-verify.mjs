@@ -360,12 +360,80 @@ await section('The landing page shows what it cannot source, rather than a plaus
   const p = await page('/');
   const t = text(p.html);
   check('the landing page renders', p.status === 200, `status ${p.status}`);
-  check('it names the statistics it has no source for',
-    (t.match(/no source/g) ?? []).length >= 4,
-    `found ${(t.match(/no source/g) ?? []).length} "no source" tiles, expected at least 4`);
-  check('and it says there is no live decision feed',
-    /no live decision feed/i.test(t),
-    'the missing feed is not declared');
+  // THESE TWO USED TO ASSERT THE OPPOSITE, AND THEY WERE RIGHT TO FAIL.
+  // They required the page to print "no source" on four tiles and to declare
+  // that it had no decision feed. That was a note to myself rendered at a
+  // visitor, and the objection behind it — that a feed assembled in the browser
+  // would be a different list on every load — was an argument for building the
+  // endpoint, not for deleting the feature. The endpoints exist now, so the
+  // checks assert the numbers instead of the apology.
+  check('no statistic is published as an apology',
+    !/no source/i.test(t), 'a "no source" tile is still being shown to visitors');
+
+  const stats = await api(AGENT, '/v1/stats');
+  if (stats.status !== 200) {
+    check('the platform statistics are readable', false, `status ${stats.status}`);
+  } else {
+    const st = stats.body;
+    const tiles = [
+      ['agents', st.agents?.total],
+      ['active agents', st.agents?.active],
+      ['decisions', st.decisions?.total],
+      ['settled executions', st.executions?.settled],
+      ['creators', st.creators?.total],
+      ['seasons running', st.seasons?.running],
+      ['latest block', st.chain?.last_block_seen],
+    ];
+    const missing = tiles
+      .filter(([, v]) => typeof v === 'number')
+      .filter(([, v]) => !t.includes(Number(v).toLocaleString('en-US')) && !t.includes(String(v)))
+      .map(([name, v]) => `${name}=${v}`);
+    check('every headline statistic on the page is the one the API counted',
+      missing.length === 0, `not found on the page: ${missing.join(', ')}`);
+
+    // A CONSTANT WOULD PASS THE CHECK ABOVE if every total happened to be the
+    // same. Requiring them to differ is what separates reading from printing.
+    const distinct = new Set(tiles.map(([, v]) => String(v)));
+    if (distinct.size < 3) {
+      nothingToCheck(`the platform totals are nearly all the same value right now ` +
+        `(${[...distinct].join(',')}), so this run cannot tell a read from a constant`);
+    } else {
+      check('and the totals differ from one another, so they carry information',
+        distinct.size >= 3, `only ${distinct.size} distinct values`);
+    }
+  }
+
+  const feed = await api(AGENT, '/v1/decisions/recent?limit=8');
+  if (feed.status !== 200 || !Array.isArray(feed.body?.items)) {
+    check('the cross-agent decision feed is readable', false, `status ${feed.status}`);
+  } else if (feed.body.items.length === 0) {
+    nothingToCheck('no decision has been recorded, so the hero feed has nothing to render');
+  } else {
+    const names = feed.body.items.map((i) => i.agent_name);
+    const absent = names.filter((nm) => !t.includes(nm));
+    check('the live decision feed shows the agents the API returned',
+      absent.length === 0, `missing from the page: ${[...new Set(absent)].join(', ')}`);
+    // ORDER, not just presence — the feed is ordered by the database and a page
+    // that re-sorted it would still contain every name.
+    //
+    // DISTINCT NAMES ONLY. One agent decides many times, so the same name
+    // appears on several rows and indexOf returns its FIRST position every
+    // time — which reads as a list going backwards. Comparing the first
+    // appearance of each distinct name, in the order the API first mentions it,
+    // is the same assertion without the false failure.
+    const firstSeen = [...new Set(names)];
+    const pos = positions(t, firstSeen);
+    check('and in the order the API returned them', isAscending(pos.filter((p) => p >= 0)),
+      `${firstSeen.join(', ')} at ${pos.join(', ')}`);
+  }
+
+  // NO DEVELOPMENT-ERA LABELS ON THE PUBLIC SURFACE. The page sells a record
+  // nobody can edit; showing it under `dummy_creator` and `Dummy Season 1`
+  // undermines the only claim it makes.
+  const devNames = ['dummy_creator', 'Dummy Season 1', 'dummy_agent', 'Phase 8'];
+  const found = devNames.filter((d) => t.includes(d));
+  check('no development-era name is shown to visitors', found.length === 0,
+    `still on the page: ${found.join(', ')}`);
   // The counts it DOES have must be the endpoints' own.
   const agents = await api(AGENT, '/v1/agents?page_size=1');
   const creators = await api(AGENT, '/v1/creators?page_size=1');
