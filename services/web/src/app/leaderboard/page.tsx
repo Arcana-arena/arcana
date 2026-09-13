@@ -141,7 +141,7 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
           <div className="sec" style={{ paddingTop: 16, paddingBottom: 14, borderBottom: 'none', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <Seg
               current={board.data.category}
-              tabs={(board.data.categories ?? []).map((c) => ({
+              tabs={(board.data.categories ?? []).filter((c) => c.rankable !== false).map((c) => ({
                 key: c.key,
                 label: c.label,
                 href: href({ category: c.key, page: '1' }),

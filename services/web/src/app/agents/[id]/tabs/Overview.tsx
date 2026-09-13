@@ -23,7 +23,7 @@ import { LineChart } from '@/components/ds/chart';
 import type { Err } from '@/lib/api';
 import type { NavSeries, Passport } from '../shapes';
 
-type Category = { key: string; label: string; about: string; weight: number | null; weight_note: string | null };
+type Category = { key: string; label: string; about: string; rankable?: boolean; weight: number | null; weight_note: string | null };
 type Board = {
   categories: Category[];
   items: Array<{ agent_id: string; rank: number | null; score: number | null; scores: Record<string, number | null> }>;
@@ -104,6 +104,9 @@ export async function OverviewTab({
                     fontSize: 12.5,
                   }}
                 >
+                  {/* EVERY FACTOR WITH A WEIGHT, rankable or not. Leaving regime
+                      out made the column sum to 0.90, and the missing tenth was
+                      the one factor that measures nothing. */}
                   {cats.filter((c) => c.key !== 'overall').map((c) => {
                     const v = row?.scores?.[c.key] ?? null;
                     return (

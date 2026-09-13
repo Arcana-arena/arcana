@@ -21,6 +21,10 @@ export type LeaderboardCategory = {
   key: string;
   label: string;
   about: string;
+  /** False for a factor that carries a weight but cannot order a board. */
+  rankable?: boolean;
+  weight?: number | null;
+  weight_note?: string | null;
 };
 
 export type LeaderboardRow = {

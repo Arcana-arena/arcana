@@ -316,7 +316,7 @@ export default async function LandingPage() {
         <div className="sec-hd">
           <h2>Leaderboard{board?.season ? ` · ${board.season.name}` : ''}</h2>
           <div className="seg">
-            {(board?.categories ?? []).map((c) => (
+            {(board?.categories ?? []).filter((c) => c.rankable !== false).map((c) => (
               <Link key={c.key} href={`/leaderboard?category=${c.key}`} className="seg-opt" aria-current={c.key === 'overall' ? 'true' : undefined} title={c.about}>
                 {c.label}
               </Link>

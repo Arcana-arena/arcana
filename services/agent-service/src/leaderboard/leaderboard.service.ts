@@ -293,14 +293,30 @@ export class LeaderboardService {
       // have to keep its own copy of the formula. `overall` is the composite
       // itself and has no weight; `strategy` has none because it is a
       // multiplier rather than a term.
-      categories: Object.entries(CATEGORIES).map(([key, v]) => ({
-        key, label: v.label, about: v.about,
-        weight: SCORE_WEIGHTS[key] ?? null,
-        weight_note:
-          key === 'strategy' ? STRATEGY_NOTE
-          : key === 'regime' ? REGIME_WEIGHT_NOTE
-          : null,
-      })),
+      categories: [
+        ...Object.entries(CATEGORIES).map(([key, v]) => ({
+          key, label: v.label, about: v.about,
+          rankable: true,
+          weight: SCORE_WEIGHTS[key] ?? null,
+          weight_note: key === 'strategy' ? STRATEGY_NOTE : null,
+        })),
+        // REGIME IS IN THE LIST AND IS NOT RANKABLE.
+        //
+        // It was left out entirely, and that made a breakdown whose weights sum
+        // to 0.90 — with the missing tenth being the one factor that measures
+        // nothing. A reader adding up the column would find it short and have no
+        // way to learn why. It is published with its weight, marked unrankable
+        // so no board offers it as an ordering, and carrying the sentence that
+        // says it is arithmetic over a constant.
+        {
+          key: 'regime',
+          label: 'Regime',
+          about: REGIME_WEIGHT_NOTE,
+          rankable: false,
+          weight: SCORE_WEIGHTS.regime ?? null,
+          weight_note: REGIME_WEIGHT_NOTE,
+        },
+      ],
       weights_sum: Object.values(SCORE_WEIGHTS).reduce((a, b) => a + b, 0),
       strategy_note: STRATEGY_NOTE,
       include_unranked: opts.includeUnranked,
