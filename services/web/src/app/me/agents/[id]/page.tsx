@@ -305,7 +305,13 @@ export default async function ManageAgentPage({
               creatorCanBePaid={creatorCanBePaid}
             />
 
-            <LifecyclePanel agentId={id} agentName={a.name} status={a.status} armedSymbols={armedSymbols} />
+            <LifecyclePanel
+              agentId={id}
+              agentName={a.name}
+              status={a.status}
+              armedSymbols={armedSymbols}
+              visibility={intelR.ok ? intelR.data.intelligence.visibility : a.visibility ?? 'public'}
+            />
 
             {competitionsR.ok ? (
               <CompetitionPanel agentId={id} agentName={a.name} agentStatus={a.status} competitions={competitions} />

@@ -160,6 +160,7 @@ try {
   // this suite created it afterwards and could not sign in — the rate limiter
   // refusing the suite that proves the rate limiter refuses.
   const idBurner  = await newIdentity("limit");     // section 10's create-limit check
+  const idEvolve  = await newIdentity("evolve");    // section 5b
   aliceToken = idMandate.token;
   bobToken = idOther.token;
   creatorId = idMandate.creatorId;
@@ -451,6 +452,40 @@ try {
     const total = Number(psql(`SELECT count(*) FROM agents WHERE creator_id = '${idCap.creatorId}'`));
     check('the creator has MORE than three agents in total — the cap is on active only',
       total > 3, `${total} rows`);
+  }
+
+  // -------------------------------------------------------------------------
+  console.log('\n=== 5b. Evolving: visibility, typed words, and who decides ===');
+  // -------------------------------------------------------------------------
+  {
+    const parent = await makeAgent(idEvolve.token, 'phase12-verify-evolve', { mandateTemplate: 'momentum' });
+    const pid = parent.body?.id;
+    check('a public template parent exists', ok2xx(parent.status) && parent.body?.visibility === 'public',
+      `${parent.status} ${errCode(parent.body)}`);
+
+    // A PUBLIC AGENT'S VERSION MAY START PRIVATE. The manage page could not
+    // ask for it, so an owner who had made an agent public had no private way on.
+    const priv = await req(`${AGENT}/v1/agents/${pid}/evolve`, {
+      method: 'POST', headers: bearer(idEvolve.token), body: JSON.stringify({ visibility: 'private' }),
+    });
+    if (priv.body?.id) created.push(priv.body.id);
+    check('a version of a public agent can start private',
+      ok2xx(priv.status) && priv.body?.visibility === 'private', `${priv.status} ${errCode(priv.body)}`);
+    check('and keeps the parent\'s template, decided by the model',
+      priv.body?.mandateTemplate === 'momentum' && priv.body?.strategyType === 'llm',
+      JSON.stringify({ t: priv.body?.mandateTemplate, s: priv.body?.strategyType }));
+
+    // TYPED WORDS ARE ACCEPTED. The manage page's mandate box sent `mandate`,
+    // which evolve never accepted, so every typed mandate was a 400.
+    const words = 'Hold the two strongest names; otherwise do nothing.';
+    const typed = await req(`${AGENT}/v1/agents/${pid}/evolve`, {
+      method: 'POST', headers: bearer(idEvolve.token), body: JSON.stringify({ mandate: words }),
+    });
+    if (typed.body?.id) created.push(typed.body.id);
+    check('a version can be given a mandate in the owner\'s words',
+      ok2xx(typed.status) && typed.body?.mandate === words && typed.body?.mandateSource === 'free',
+      `${typed.status} ${errCode(typed.body)} ${typed.body?.mandateSource}`);
+    check('and is decided by the model', typed.body?.strategyType === 'llm', String(typed.body?.strategyType));
   }
 
   // -------------------------------------------------------------------------

@@ -524,7 +524,23 @@ export class AgentsService {
     // template with new values, which is the common case — the same idea,
     // tuned — and means a caller does not have to restate a template id just
     // to change one number.
-    const template = overrides.mandateTemplate ?? agent.mandateTemplate ?? undefined;
+    //
+    // WHICH FORM THE CHILD'S MANDATE TAKES, in order: new words typed for it;
+    // a template named for it; otherwise the parent's own form. The parent's
+    // FORM is read from mandate_source, not from which column is filled — a
+    // free-text agent can carry a template id from an earlier draft, and
+    // inheriting that template would silently replace its words.
+    let template: string | undefined;
+    let freeMandate: string | undefined;
+    if (overrides.mandate !== undefined) {
+      freeMandate = overrides.mandate;
+    } else if (overrides.mandateTemplate !== undefined) {
+      template = overrides.mandateTemplate;
+    } else if (agent.mandateSource === 'free') {
+      freeMandate = agent.mandate ?? undefined;
+    } else {
+      template = agent.mandateTemplate ?? undefined;
+    }
     const params = overrides.mandateParams ?? agent.mandateParams ?? undefined;
 
     // A VERSION OF A PRIVATE AGENT IS PRIVATE. Said here with a reason rather
@@ -548,11 +564,12 @@ export class AgentsService {
         // built-in strategy_type alongside an inherited template would carry the
         // contradiction create() refuses into every version — and evolving is
         // the way out of it for an agent created before that refusal existed.
-        strategyType: overrides.strategyType ?? (template ? 'llm' : agent.strategyType ?? undefined),
+        strategyType: overrides.strategyType ?? (template || freeMandate ? 'llm' : agent.strategyType ?? undefined),
         riskProfile: overrides.riskProfile ?? JSON.stringify(agent.riskProfile),
         assetUniverse: overrides.assetUniverse ?? agent.assetUniverse,
         parentAgentId: agent.id,
         visibility,
+        mandate: freeMandate,
         mandateTemplate: template,
         // When the template is inherited but the params are not stated, the
         // parent's params come through as-is; renderMandate validates them

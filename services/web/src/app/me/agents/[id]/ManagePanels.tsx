@@ -227,12 +227,15 @@ export function LifecyclePanel({
   agentName,
   status,
   armedSymbols,
+  visibility,
 }: {
   agentId: string;
   agentName: string;
   status: string;
   armedSymbols: string[];
+  visibility: 'public' | 'private';
 }) {
+  const [childPrivate, setChildPrivate] = useState(false);
   const router = useRouter();
   const [pending, start] = useTransition();
   const [fail, setFail] = useState<Fail | null>(null);
@@ -381,13 +384,38 @@ export function LifecyclePanel({
                 rows={4}
                 style={{ width: '100%', marginTop: 10, fontSize: 12 }}
               />
+              {/* VISIBILITY OF THE NEW VERSION, stated before the button. A
+                  version of a private agent is private; a version of a public
+                  one may start private, and what that does NOT hide is said. */}
+              {visibility === 'private' ? (
+                <div className="m2" style={{ fontSize: 12, marginTop: 10 }}>
+                  The new version is private, like {agentName}: its template, parameters and risk rules come from it.
+                </div>
+              ) : (
+                <div style={{ marginTop: 10 }}>
+                  <label className="m2" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                    <input type="checkbox" checked={childPrivate} onChange={(e) => setChildPrivate(e.target.checked)} />
+                    Start the new version private
+                  </label>
+                  {childPrivate ? (
+                    <div className="m2" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5 }}>
+                      Its prompts, responses and theses are withheld from its first decision, each sealed with a
+                      commitment. Its decisions, trades, performance and score stay public. It cannot be made private
+                      again once public. <strong>What it does not hide:</strong>{' '}
+                      {newMandate.trim()
+                        ? `the mandate you typed is new, but the risk rules are copied from ${agentName}, which are already public.`
+                        : `with the mandate box empty, its template, parameters and risk rules are copied from ${agentName}, which has already published them.`}
+                    </div>
+                  ) : null}
+                </div>
+              )}
               <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                 <button
                   className="btn btn-primary"
                   disabled={pending}
                   onClick={() =>
                     run(
-                      () => evolveAgent(agentId, newMandate),
+                      () => evolveAgent(agentId, newMandate, visibility === 'public' && childPrivate ? 'private' : undefined),
                       (d) => {
                         const id = (d as { id?: string })?.id;
                         if (id) router.push(`/me/agents/${id}`);

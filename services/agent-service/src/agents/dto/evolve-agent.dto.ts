@@ -1,4 +1,5 @@
 import { IsIn, IsJSON, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
+import { MANDATE_MAX_CHARS } from '../mandate-templates';
 
 /** Partial overrides applied when evolving an agent to a new version. */
 export class EvolveAgentDto {
@@ -31,6 +32,16 @@ export class EvolveAgentDto {
   @IsOptional()
   @IsObject()
   mandateParams?: Record<string, unknown>;
+
+  /**
+   * A new mandate in your own words. The manage page has always offered this
+   * box and the DTO never accepted it, so every typed mandate was refused as an
+   * unknown field. Exclusive with mandateTemplate, as at creation.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(MANDATE_MAX_CHARS)
+  mandate?: string;
 
   /**
    * Omitted means inherit the parent's visibility. A version of a PRIVATE agent

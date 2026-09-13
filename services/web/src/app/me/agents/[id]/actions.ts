@@ -100,10 +100,11 @@ export async function retireAgent(agentId: string): Promise<{ ok: true; data: un
 export async function evolveAgent(
   agentId: string,
   mandate: string,
+  visibility?: 'public' | 'private',
 ): Promise<{ ok: true; data: { id: string } } | Fail> {
   const r = await authed<{ id: string }>(`/v1/agents/${agentId}/evolve`, {
     method: 'POST',
-    body: mandate ? { mandate } : {},
+    body: { ...(mandate ? { mandate } : {}), ...(visibility ? { visibility } : {}) },
   });
   if (r.ok) {
     revalidatePath('/me');
