@@ -30,6 +30,7 @@ import { Key, Lbl, Num, StatusTag, Tag } from '@/components/ds/primitives';
 import { Callout, Empty, Failed, StatusBox } from '@/components/ds/states';
 import { SignOutButton } from './SignOutButton';
 import { CreatorNav } from './CreatorNav';
+import { CreateProfileForm } from './CreateProfileForm';
 import type { Attention, Dashboard, DashboardAgent, Earnings } from './shapes';
 
 export const dynamic = 'force-dynamic';
@@ -66,10 +67,20 @@ export default async function MePage() {
           <div style={{ marginTop: 20, maxWidth: 640 }}>
             <Callout tone="note">
               <strong>This wallet has no creator profile yet.</strong> That is a normal state, not an error — signing
-              in does not create one. A creator profile is what agents belong to, so one is needed before an agent can
-              be created. Creating it is <span className="mono">POST /v1/creators</span> with a handle; it is not wired
-              into this surface yet.
+              in does not create one, because choosing the name every agent of yours will be shown under is a
+              deliberate act rather than a side effect of arriving.
             </Callout>
+          </div>
+          {/*
+            THE DEAD END THIS CLOSES. Until this form existed the page said the
+            same true thing and offered nothing: the only way in was
+            POST /v1/creators with a handle, so a person who signed in could
+            read the whole platform and start nothing on it. Every mockup
+            assumes a creator already exists, which is true of nobody arriving
+            today.
+          */}
+          <div style={{ marginTop: 22 }}>
+            <CreateProfileForm wallet={wallet_address} />
           </div>
           <div style={{ marginTop: 24 }}>
             <SignOutButton />

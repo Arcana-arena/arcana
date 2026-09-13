@@ -11,7 +11,25 @@
  */
 import Link from 'next/link';
 
-export function Footer({ asOf, note }: { asOf?: string | null; note?: string }) {
+/**
+ * THE STAMP IS LABELLED BY WHOEVER PASSES IT, and that is a correction.
+ *
+ * This took an `asOf` and printed it as "read at". The leaderboard passed the
+ * score snapshot's timestamp — the moment the SCORING ENGINE last ran — so the
+ * footer told a reader the page had been read at a time that was really when
+ * the numbers were computed. Those are different facts and the gap between them
+ * is hours: the value sat unchanged across refreshes, which reads as a frozen
+ * page rather than as fresh page showing settled data.
+ *
+ * A caller now says what its timestamp means, because only the caller knows.
+ */
+export function Footer({
+  stamp,
+  note,
+}: {
+  stamp?: { label: string; value: string | null } | null;
+  note?: string;
+}) {
   return (
     <footer className="ftr">
       <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -27,7 +45,7 @@ export function Footer({ asOf, note }: { asOf?: string | null; note?: string }) 
             nothing" is a thing the authors say to each other, and a footer is
             not where a visitor goes to read it. */}
         {note ?? ''}
-        {asOf ? ` · read at ${asOf}` : ''}
+        {stamp?.value ? ` · ${stamp.label} ${stamp.value}` : ''}
       </span>
     </footer>
   );

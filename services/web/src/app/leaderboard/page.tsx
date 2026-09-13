@@ -329,7 +329,19 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
           </div>
         </>
       )}
-      <Footer asOf={board.ok ? utc(board.data.items[0]?.as_of ?? null) : null} />
+      {/*
+        NOT "read at". This is score_snapshots.ts — when the scoring engine last
+        wrote these numbers — and it is stable between refreshes because the
+        scores are, not because the page is cached. Printed under "read at" it
+        told a reader the opposite.
+      */}
+      <Footer
+        stamp={
+          board.ok && board.data.items[0]?.as_of
+            ? { label: 'scores computed', value: utc(board.data.items[0].as_of) }
+            : null
+        }
+      />
     </div>
   );
 }

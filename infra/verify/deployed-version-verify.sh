@@ -265,6 +265,91 @@ check_node arca-service        services/arca-service        3004 dist  arcana-ar
 check_node web                 services/web                 3000 .next arcana-web
 
 echo
+echo "=== The page a visitor gets is the build that was deployed ==="
+#
+# THE CHECK THAT WOULD HAVE CAUGHT IT, and the reason every other check here is
+# not enough.
+#
+# Everything above compares artefacts on DISK. A stamp says what was built; a
+# start time says a process began after its build. Neither asks the question a
+# visitor's browser asks, and there are at least four ways to pass all of them
+# and still serve something else:
+#
+#   * a process that rebuilt its manifests under itself and kept serving the
+#     pages it had already loaded
+#   * a reverse proxy answering from its own cache
+#   * a second process on another port that the public listener actually points
+#     at
+#   * a build whose stamp was written while the bundle failed to update
+#
+# All of those are invisible from the filesystem. So this asks the ORIGIN — the
+# address a person types — and compares what comes back against the commit that
+# is supposed to be running. The identity is compiled into the bundle by
+# next.config.mjs, so a stale process can only report the stale commit; a value
+# read from disk at request time would have let it report the new one.
+#
+# It is checked at BOTH the public origin and the loopback, because the two
+# failures are different and need different fixes: loopback stale means the
+# process was never restarted, loopback fresh + origin stale means something in
+# front of it is serving its own copy.
+served_build() {
+  # Header first — it survives a page that fails to render, which is exactly
+  # when knowing which build answered matters most. Falls back to the JSON.
+  local url="$1" hdr
+  hdr="$(curl -s -I --max-time 12 "$url/" 2>/dev/null | tr -d '\r' \
+        | awk -F': ' 'tolower($1)=="x-arcana-build"{print $2}' | head -1)"
+  if [ -n "$hdr" ]; then printf '%s' "$hdr"; return 0; fi
+  curl -s --max-time 12 "$url/api/build" 2>/dev/null \
+    | sed -n 's/.*"build_commit":"\([^"]*\)".*/\1/p' | head -1
+}
+
+check_served() {
+  local label="$1" url="$2" served
+  served="$(served_build "$url")"
+  if [ -z "$served" ]; then
+    no "$label says which build it is" \
+       "no x-arcana-build header and no /api/build at $url — a surface that cannot identify itself cannot be checked"
+    return
+  fi
+  if [ "$served" = "unknown" ]; then
+    no "$label says which build it is" \
+       "it reports 'unknown': built outside a git checkout, so nothing can tell whether it is current"
+    return
+  fi
+  # The same judgement the disk checks use, against the same rules: current if
+  # nothing in services/web has changed since the served commit.
+  judge "$served" "web"
+  case $? in
+    0) ok "$label serves ${served:0:12} — current" ;;
+    1) no "$label serves the wrong build" \
+          "it is serving ${served:0:12}, and services/web has changed since. A VISITOR IS LOOKING AT OLD CODE — restart arcana-web" ;;
+    2) no "$label serves an unrelated build" "${served:0:12} is not an ancestor of HEAD" ;;
+    *) no "$label could be judged" "no commit touches services/web, so there is nothing to compare against" ;;
+  esac
+}
+
+check_served "the loopback surface" "http://127.0.0.1:3000"
+
+# WHERE A PERSON ACTUALLY GOES, derived from the unit that configures the
+# service rather than from whatever happens to be exported into this shell. A
+# check that silently skips because a variable was not set is the shape of
+# failure this file exists against, and requiring an operator to remember an
+# export is how that happens.
+ORIGIN="${PUBLIC_ORIGIN:-}"
+if [ -z "$ORIGIN" ] && [ -f infra/systemd/arcana-web.service ]; then
+  ORIGIN="$(sed -n 's/^Environment=PUBLIC_ORIGIN=//p' infra/systemd/arcana-web.service | head -1)"
+fi
+# PUBLIC_ORIGIN is where a person actually goes. Absent, this is skipped LOUDLY
+# rather than silently — a check that quietly does not run is the shape of
+# failure this whole file exists against.
+if [ -n "$ORIGIN" ]; then
+  check_served "the public origin" "$ORIGIN"
+else
+  no "the public origin was checked" \
+     "no PUBLIC_ORIGIN in the environment or in infra/systemd/arcana-web.service, so the address a visitor uses was never asked. Every check above reads this machine's disk; none of them can see a proxy serving its own copy."
+fi
+
+echo
 echo "=== The check can still refuse ==="
 # A relaxed check that never refuses anyone is the thing this repo has been
 # bitten by three times. Loosening HEAD to "no code change since" is exactly
