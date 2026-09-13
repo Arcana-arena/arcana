@@ -32,9 +32,10 @@ Environment=NEXT_PUBLIC_ARCANA_CHAIN_ID=4663
 # literal string. It reads AUTH_SIWE_DOMAIN/AUTH_SIWE_URI directly instead.
 EnvironmentFile=-/home/ubuntu/arcana/.env.siwe
 
-# Set to the https origin once TLS is on, so session cookies are marked Secure.
-# Left unset on loopback http, where a Secure cookie would simply never be sent.
-# Environment=PUBLIC_ORIGIN=https://arcana.example
+# TLS is on, so session cookies are marked Secure and a browser will refuse to
+# send them over plain http. That is the point: the port-80 listener only
+# redirects, so there is no cleartext path a cookie could take even by mistake.
+Environment=PUBLIC_ORIGIN=https://arcana-arena.com
 # No secrets. This process has no session, no key and no write path: the only
 # thing it stores is the visitor’s own session cookie, which it never reads back
 # into a page.
