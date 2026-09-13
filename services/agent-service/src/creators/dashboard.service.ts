@@ -4,6 +4,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { MAX_ACTIVE_AGENTS_PER_CREATOR } from '../agents/agents.service';
 import { MIN_DECISIONS } from '../common/ranking';
+import { creatorReputation } from '../reputation/creator-reputation';
 
 /**
  * One creator's own dashboard, assembled once.
@@ -52,13 +53,14 @@ export class CreatorDashboardService {
 
   async forCreator(creatorId: string) {
     const creator = await this.db.query(
-      `SELECT id::text, handle, wallet_address, reputation_score::float8 AS reputation_score,
-              status, created_at
+      `SELECT id::text, handle, wallet_address, status, created_at
          FROM creators WHERE id = $1`,
       [creatorId],
     );
     if (creator.length === 0) throw new NotFoundException(`Creator ${creatorId} not found`);
     const c = creator[0];
+    // Derived from sealed scores; creators.reputation_score is never read.
+    const rep = await creatorReputation(this.db, creatorId);
 
     const agents: Array<Record<string, any>> = await this.db.query(
       `
@@ -264,7 +266,15 @@ export class CreatorDashboardService {
         handle: c.handle,
         wallet_address: c.wallet_address ?? null,
         can_be_paid: !!c.wallet_address,
-        reputation_score: round(c.reputation_score, 2),
+        reputation_score: rep.value === null ? null : round(rep.value, 2),
+        reputation: {
+          version: rep.version,
+          status: rep.status,
+          value: rep.value,
+          agents: rep.agents.length,
+          note: rep.note,
+          url: `/v1/creators/${creatorId}/reputation`,
+        },
         status: c.status,
         created_at: c.created_at ? new Date(c.created_at).toISOString() : null,
       },

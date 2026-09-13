@@ -7,12 +7,27 @@ import (
 	"time"
 )
 
-// AnchorLeaf is one sealed decision as it enters an anchor.
+// Leaf kinds. Each is the sha256 of a manifest that names its own scheme.
+const (
+	LeafDecision          = "decision"
+	LeafPortfolioSnapshot = "portfolio_snapshot"
+	LeafScore             = "score"
+)
+
+// AnchorLeaf is one sealed record as it enters an anchor.
 type AnchorLeaf struct {
-	DecisionID int64
-	DecisionTS time.Time
+	Kind       string
 	AgentID    string
 	Commitment string
+
+	// kind=decision
+	DecisionID int64
+	DecisionTS time.Time
+
+	// kind=portfolio_snapshot: PortfolioID + RecordTS. kind=score: SeasonID + RecordTS.
+	PortfolioID string
+	SeasonID    string
+	RecordTS    time.Time
 }
 
 // AnchorInsert is an anchor transaction that has been signed and not yet sent.
@@ -35,12 +50,20 @@ type PendingAnchor struct {
 	CreatedAt time.Time
 }
 
-// UnanchoredCommitments returns sealed decisions of LIVE agents that are not in
-// any anchor that has landed or may still land, oldest first.
+// UnanchoredLeaves returns the sealed records of LIVE agents that are not in any
+// anchor that has landed or may still land: decisions first, then portfolio
+// snapshots, then scores, each oldest first, at most limit in total.
 //
-// Verification fixtures are left out: they are deleted by the sweep that
-// created them, and anchoring a row that will not exist tomorrow buys nothing.
-func (s *Store) UnanchoredCommitments(ctx context.Context, limit int) ([]AnchorLeaf, error) {
+// A SCORE WAITS FOR ITS INPUTS. A score's seal joins an anchor only when every
+// sealed input its manifest names — snapshots, decisions, the peer scores its
+// creator factor averaged — is already in a MINED anchor. The root then seals a
+// number whose inputs are themselves on chain, which is the only order in which
+// anchoring a score means anything.
+//
+// Verification fixtures are left out: the sweep that created them deletes them.
+func (s *Store) UnanchoredLeaves(ctx context.Context, limit int) ([]AnchorLeaf, error) {
+	var out []AnchorLeaf
+
 	rows, err := s.pool.Query(ctx, `
 		SELECT d.id, d.ts, d.agent_id::text, trim(d.commitment)
 		  FROM decisions d -- raw-by-design: every sealed row is anchored, including rows later marked as artefacts
@@ -49,23 +72,94 @@ func (s *Store) UnanchoredCommitments(ctx context.Context, limit int) ([]AnchorL
 		   AND NOT EXISTS (
 		     SELECT 1 FROM decision_anchor_leaves l
 		       JOIN decision_anchors x ON x.id = l.anchor_id
-		      WHERE l.decision_id = d.id AND l.decision_ts = d.ts
+		      WHERE l.kind = 'decision' AND l.decision_id = d.id AND l.decision_ts = d.ts
 		        AND x.status NOT IN ('reverted', 'dropped'))
 		 ORDER BY d.id
 		 LIMIT $1`, limit)
 	if err != nil {
-		return nil, fmt.Errorf("unanchored commitments: %w", err)
+		return nil, fmt.Errorf("unanchored decisions: %w", err)
 	}
-	defer rows.Close()
-	var out []AnchorLeaf
 	for rows.Next() {
-		var l AnchorLeaf
+		l := AnchorLeaf{Kind: LeafDecision}
 		if err := rows.Scan(&l.DecisionID, &l.DecisionTS, &l.AgentID, &l.Commitment); err != nil {
-			return nil, fmt.Errorf("unanchored commitments: %w", err)
+			rows.Close()
+			return nil, fmt.Errorf("unanchored decisions: %w", err)
 		}
 		out = append(out, l)
 	}
-	return out, rows.Err()
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if remaining := limit - len(out); remaining > 0 {
+		rows, err = s.pool.Query(ctx, `
+			SELECT ps.portfolio_id::text, ps.ts, p.agent_id::text, p.season_id::text, trim(ps.seal)
+			  FROM portfolio_snapshots ps
+			  JOIN portfolios p ON p.id = ps.portfolio_id
+			  JOIN agents a ON a.id = p.agent_id AND a.provenance = 'live'
+			 WHERE ps.seal IS NOT NULL
+			   AND NOT EXISTS (
+			     SELECT 1 FROM decision_anchor_leaves l
+			       JOIN decision_anchors x ON x.id = l.anchor_id
+			      WHERE l.kind = 'portfolio_snapshot' AND l.portfolio_id = ps.portfolio_id AND l.record_ts = ps.ts
+			        AND x.status NOT IN ('reverted', 'dropped'))
+			 ORDER BY ps.ts, ps.portfolio_id
+			 LIMIT $1`, remaining)
+		if err != nil {
+			return nil, fmt.Errorf("unanchored snapshots: %w", err)
+		}
+		for rows.Next() {
+			l := AnchorLeaf{Kind: LeafPortfolioSnapshot}
+			if err := rows.Scan(&l.PortfolioID, &l.RecordTS, &l.AgentID, &l.SeasonID, &l.Commitment); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("unanchored snapshots: %w", err)
+			}
+			out = append(out, l)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+
+	if remaining := limit - len(out); remaining > 0 {
+		rows, err = s.pool.Query(ctx, `
+			SELECT s.agent_id::text, s.season_id::text, s.ts, trim(s.seal)
+			  FROM score_snapshots s
+			  JOIN agents a ON a.id = s.agent_id AND a.provenance = 'live'
+			 WHERE s.seal IS NOT NULL
+			   AND NOT EXISTS (
+			     SELECT 1 FROM decision_anchor_leaves l
+			       JOIN decision_anchors x ON x.id = l.anchor_id
+			      WHERE l.kind = 'score' AND l.agent_id = s.agent_id AND l.season_id = s.season_id
+			        AND l.record_ts = s.ts AND x.status NOT IN ('reverted', 'dropped'))
+			   AND NOT EXISTS (
+			     SELECT 1 FROM score_input_seals i
+			      WHERE i.agent_id = s.agent_id AND i.season_id = s.season_id AND i.score_ts = s.ts
+			        AND NOT EXISTS (
+			          SELECT 1 FROM decision_anchor_leaves l
+			            JOIN decision_anchors x ON x.id = l.anchor_id
+			           WHERE l.commitment = i.seal AND x.status = 'mined'))
+			 ORDER BY s.ts, s.agent_id
+			 LIMIT $1`, remaining)
+		if err != nil {
+			return nil, fmt.Errorf("unanchored scores: %w", err)
+		}
+		for rows.Next() {
+			l := AnchorLeaf{Kind: LeafScore}
+			if err := rows.Scan(&l.AgentID, &l.SeasonID, &l.RecordTS, &l.Commitment); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("unanchored scores: %w", err)
+			}
+			out = append(out, l)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 // RecordAnchor writes a signed anchor and its leaves in one transaction,
@@ -75,13 +169,27 @@ func (s *Store) RecordAnchor(ctx context.Context, a AnchorInsert, leaves []Ancho
 	if len(leaves) == 0 {
 		return 0, fmt.Errorf("record anchor: no leaves")
 	}
-	first, last := leaves[0].DecisionTS, leaves[0].DecisionTS
-	for _, l := range leaves {
-		if l.DecisionTS.Before(first) {
-			first = l.DecisionTS
+
+	// The decision range, when the anchor carries decisions at all.
+	var firstID, lastID *int64
+	var firstTS, lastTS *time.Time
+	for i := range leaves {
+		l := leaves[i]
+		if l.Kind != LeafDecision {
+			continue
 		}
-		if l.DecisionTS.After(last) {
-			last = l.DecisionTS
+		id, ts := l.DecisionID, l.DecisionTS
+		if firstID == nil || id < *firstID {
+			firstID = &id
+		}
+		if lastID == nil || id > *lastID {
+			lastID = &id
+		}
+		if firstTS == nil || ts.Before(*firstTS) {
+			firstTS = &ts
+		}
+		if lastTS == nil || ts.After(*lastTS) {
+			lastTS = &ts
 		}
 	}
 
@@ -98,16 +206,30 @@ func (s *Store) RecordAnchor(ctx context.Context, a AnchorInsert, leaves []Ancho
 		   chain_id, sender, nonce, tx_hash, raw_tx, status)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'signed')
 		RETURNING id`,
-		AnchorScheme, a.Root, len(leaves), leaves[0].DecisionID, leaves[len(leaves)-1].DecisionID, first, last,
+		AnchorScheme, a.Root, len(leaves), firstID, lastID, firstTS, lastTS,
 		a.ChainID, a.Sender, a.Nonce, a.TxHash, a.RawTx).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("record anchor: %w", err)
 	}
 	for i, l := range leaves {
+		var decisionID *int64
+		var decisionTS, recordTS *time.Time
+		var portfolioID, seasonID *string
+		switch l.Kind {
+		case LeafDecision:
+			decisionID, decisionTS = &l.DecisionID, &l.DecisionTS
+		case LeafPortfolioSnapshot:
+			portfolioID, seasonID, recordTS = &l.PortfolioID, &l.SeasonID, &l.RecordTS
+		case LeafScore:
+			seasonID, recordTS = &l.SeasonID, &l.RecordTS
+		default:
+			return 0, fmt.Errorf("record anchor leaf %d: unknown kind %q", i, l.Kind)
+		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO decision_anchor_leaves (anchor_id, leaf_index, decision_id, decision_ts, agent_id, commitment)
-			VALUES ($1, $2, $3, $4, $5, $6)`,
-			id, i, l.DecisionID, l.DecisionTS, l.AgentID, l.Commitment); err != nil {
+			INSERT INTO decision_anchor_leaves
+			  (anchor_id, leaf_index, kind, agent_id, commitment, decision_id, decision_ts, portfolio_id, season_id, record_ts)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+			id, i, l.Kind, l.AgentID, l.Commitment, decisionID, decisionTS, portfolioID, seasonID, recordTS); err != nil {
 			return 0, fmt.Errorf("record anchor leaf %d: %w", i, err)
 		}
 	}
@@ -173,7 +295,7 @@ func (s *Store) MarkAnchorSettled(ctx context.Context, id int64, reverted bool, 
 	return err
 }
 
-// MarkAnchorDropped records a transaction that will never land. Its decisions
+// MarkAnchorDropped records a transaction that will never land. Its records
 // return to the queue for the next anchor.
 func (s *Store) MarkAnchorDropped(ctx context.Context, id int64, note string) error {
 	_, err := s.pool.Exec(ctx,

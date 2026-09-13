@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import { EvolutionService } from '../evolution/evolution.service';
 import { MIN_DECISIONS } from '../common/ranking';
 import { intelligenceBlock, isPrivate, withoutConfiguredLimits } from '../intelligence/intelligence';
+import { creatorReputation } from '../reputation/creator-reputation';
 
 /**
  * Agent Passport — the career record: what an agent has been through.
@@ -104,6 +105,10 @@ export class PassportService {
 
     const totalTicks = seasons.reduce((a, s) => a + s.ticks, 0);
 
+    // DERIVED FROM SEALED SCORES, never creators.reputation_score — a column that
+    // defaulted to 0 and that nothing ever wrote. See reputation/creator-reputation.ts.
+    const rep = agent.creator_id ? await creatorReputation(this.db, agent.creator_id) : null;
+
     return {
       agent: {
         id: agent.id,
@@ -121,7 +126,17 @@ export class PassportService {
         ? {
             id: agent.creator_id,
             handle: agent.creator_handle,
-            reputation_score: numeric(agent.creator_reputation),
+            reputation_score: rep?.value ?? null,
+            reputation: rep
+              ? {
+                  version: rep.version,
+                  status: rep.status,
+                  value: rep.value,
+                  agents: rep.agents.length,
+                  note: rep.note,
+                  url: `/v1/creators/${agent.creator_id}/reputation`,
+                }
+              : null,
           }
         : null,
       participation: {
@@ -211,8 +226,7 @@ export class PassportService {
     const rows = await this.db.query(
       `SELECT a.id, a.name, a.version, a.status, a.strategy_type, a.asset_universe,
               a.created_at, a.parent_agent_id, a.visibility,
-              c.id AS creator_id, c.handle AS creator_handle,
-              c.reputation_score AS creator_reputation
+              c.id AS creator_id, c.handle AS creator_handle
        FROM agents a LEFT JOIN creators c ON c.id = a.creator_id
        WHERE a.id = $1`,
       [agentId],

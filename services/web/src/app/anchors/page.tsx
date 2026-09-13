@@ -18,9 +18,11 @@ export const dynamic = 'force-dynamic';
 
 type Anchor = {
   id: number;
+  scheme: string;
   root: string;
   leaf_count: number;
-  decisions: { first_id: number; last_id: number; first_ts: string; last_ts: string };
+  kinds?: Record<string, number>;
+  decisions: { first_id: number; last_id: number; first_ts: string; last_ts: string } | null;
   chain_id: number;
   sender: string;
   tx_hash: string;
@@ -37,9 +39,11 @@ type AnchorList = {
   items: Anchor[];
   page: number;
   has_more: boolean;
-  totals: { mined: number; decisions_anchored: number; gas_cost_usd: number | null; last_mined_at: string | null; paid_by: string };
-  waiting: { sealed_decisions: number; oldest: string | null; note: string };
+  totals: { mined: number; records_anchored?: number; decisions_anchored: number; gas_cost_usd: number | null; last_mined_at: string | null; paid_by: string };
+  waiting: { sealed_decisions: number; sealed_portfolio_snapshots?: number; sealed_scores?: number; oldest?: string | null; note: string };
 };
+
+const KIND_SHORT: Record<string, string> = { decision: 'decisions', portfolio_snapshot: 'snapshots', score: 'scores' };
 
 type SP = { [k: string]: string | string[] | undefined };
 
@@ -56,10 +60,12 @@ export default async function AnchorsPage({ searchParams }: { searchParams: Prom
       <div className="sec" style={{ paddingTop: 32, paddingBottom: 18, borderBottom: 'none' }}>
         <h1>Anchors</h1>
         <div className="m2" style={{ fontSize: 12.5, marginTop: 4, maxWidth: 760, lineHeight: 1.5 }}>
-          Every decision is sealed with a commitment when it is recorded. Every fifteen minutes, the new commitments
-          become the leaves of a Merkle tree and its root is written into a transaction on Robinhood Chain. After that,
-          changing any anchored decision breaks a proof anyone can check against the chain.{' '}
-          <Link href="/docs/private-agents">How the proof works</Link>
+          Every decision, portfolio snapshot and score is sealed when it is recorded. Every fifteen minutes, the new
+          seals become the leaves of a Merkle tree and its root is written into a transaction on Robinhood Chain. A
+          score joins a root only after every sealed input it was computed from is already on chain. After that,
+          changing any anchored record breaks a proof anyone can check against the chain.{' '}
+          <Link href="/docs/private-agents#anchoring">How the proof works</Link> ·{' '}
+          <Link href="/docs/scoring#recompute">How a score is recomputed</Link>
         </div>
       </div>
 
@@ -74,12 +80,18 @@ export default async function AnchorsPage({ searchParams }: { searchParams: Prom
                 <div className="mono" style={{ fontSize: 20 }}>{int(d!.totals.mined)}</div>
               </div>
               <div>
-                <div className="lbl">DECISIONS ANCHORED</div>
-                <div className="mono" style={{ fontSize: 20 }}>{int(d!.totals.decisions_anchored)}</div>
+                <div className="lbl">RECORDS ANCHORED</div>
+                <div className="mono" style={{ fontSize: 20 }}>{int(d!.totals.records_anchored ?? d!.totals.decisions_anchored)}</div>
               </div>
-              <div>
-                <div className="lbl">WAITING FOR THE NEXT ANCHOR</div>
-                <div className="mono" style={{ fontSize: 20 }}>{int(d!.waiting.sealed_decisions)}</div>
+              <div title={d!.waiting.note}>
+                <div className="lbl">WAITING FOR AN ANCHOR</div>
+                <div className="mono" style={{ fontSize: 20 }}>
+                  {int(d!.waiting.sealed_decisions + (d!.waiting.sealed_portfolio_snapshots ?? 0) + (d!.waiting.sealed_scores ?? 0))}
+                </div>
+                <div className="mono m3" style={{ fontSize: 10.5 }}>
+                  {int(d!.waiting.sealed_decisions)} decisions · {int(d!.waiting.sealed_portfolio_snapshots ?? 0)} snapshots ·{' '}
+                  {int(d!.waiting.sealed_scores ?? 0)} scores
+                </div>
               </div>
               <div title={d!.totals.paid_by}>
                 <div className="lbl">GAS · PAID BY ARCANA</div>
@@ -108,7 +120,7 @@ export default async function AnchorsPage({ searchParams }: { searchParams: Prom
                     <tr>
                       <th>#</th>
                       <th>Mined (UTC)</th>
-                      <th className="r">Decisions</th>
+                      <th>Records</th>
                       <th>Root</th>
                       <th>Transaction</th>
                       <th className="r">Block</th>
@@ -121,8 +133,14 @@ export default async function AnchorsPage({ searchParams }: { searchParams: Prom
                       <tr key={a.id}>
                         <td className="mono m2">{a.id}</td>
                         <td className="mono m2" style={{ whiteSpace: 'nowrap' }}>{a.mined_at ? utc(a.mined_at) : '—'}</td>
-                        <td className="r mono" title={`decisions ${a.decisions.first_id}–${a.decisions.last_id}`}>
+                        <td className="mono" style={{ fontSize: 11.5 }} title={a.scheme}>
                           {int(a.leaf_count)}
+                          {a.kinds && Object.keys(a.kinds).length > 0 ? (
+                            <span className="m3">
+                              {' '}
+                              ({Object.entries(a.kinds).map(([k, n]) => `${n} ${KIND_SHORT[k] ?? k}`).join(', ')})
+                            </span>
+                          ) : null}
                         </td>
                         <td className="mono m3" style={{ fontSize: 11 }} title={a.root}>
                           {a.root.slice(0, 16)}…

@@ -151,9 +151,15 @@ await section('Every mined anchor is what it says, checked against the chain', a
   for (const a of mined) {
     const leaves = json(`SELECT json_agg(trim(commitment) ORDER BY leaf_index) FROM decision_anchor_leaves WHERE anchor_id = ${a.id}`) ?? [];
     check(`anchor ${a.id}: its leaves recompute to its root`, leaves.length > 0 && root(leaves.map(leaf)).toString('hex') === a.root);
-    const drift = sql(`SELECT count(*) FROM decision_anchor_leaves l JOIN decisions d ON d.id = l.decision_id AND d.ts = l.decision_ts
-                        WHERE l.anchor_id = ${a.id} AND trim(d.commitment) <> trim(l.commitment)`);
-    check(`anchor ${a.id}: no anchored decision's commitment has changed since`, drift === '0', `${drift} changed`);
+    // EVERY KIND OF LEAF against the row it names: a decision's commitment, a
+    // snapshot's seal, a score's seal. A leaf whose row is gone counts too.
+    const drift = sql(`SELECT count(*) FROM decision_anchor_leaves l
+                         LEFT JOIN decisions d ON l.kind = 'decision' AND d.id = l.decision_id AND d.ts = l.decision_ts
+                         LEFT JOIN portfolio_snapshots ps ON l.kind = 'portfolio_snapshot' AND ps.portfolio_id = l.portfolio_id AND ps.ts = l.record_ts
+                         LEFT JOIN score_snapshots s ON l.kind = 'score' AND s.agent_id = l.agent_id AND s.season_id = l.season_id AND s.ts = l.record_ts
+                        WHERE l.anchor_id = ${a.id}
+                          AND trim(coalesce(d.commitment, ps.seal, s.seal, '')) <> trim(l.commitment)`);
+    check(`anchor ${a.id}: no anchored record's seal has changed or disappeared since`, drift === '0', `${drift} changed or missing`);
     let tx = null, receipt = null;
     try { [tx, receipt] = await Promise.all([rpc('eth_getTransactionByHash', [a.tx_hash]), rpc('eth_getTransactionReceipt', [a.tx_hash])]); } catch (e) {
       check(`anchor ${a.id}: the chain can be read`, false, e.message);

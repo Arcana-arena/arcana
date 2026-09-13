@@ -225,7 +225,62 @@ game. Saturates at 20 ticks.
   `strategy`, `longevity`); `season_id` restricts to
   agents with a portfolio in that season.
 
+## Verifiable scores (2026-09-14)
+
+A score is sealed with a **manifest** (`arcana-score/v1`) written in the same
+transaction as the score row: the formula version (`arcana-score-formula/v1`),
+every constant and weight above as they were in force, every input the score
+read — each portfolio snapshot (with its seal), each counted decision (with its
+commitment), each peer score the creator factor averaged (with its seal) — and
+every output at full precision. The manifest is stored in `decision_evidence`
+(kind `score_manifest`) and its sha256 is `score_snapshots.seal`. Portfolio
+snapshots are sealed the same way when they are written
+(`arcana-portfolio-snapshot/v1`).
+
+A score's seal joins an on-chain anchor only after every sealed input it names is
+in a mined anchor — see [anchoring.md](./anchoring.md). Anyone can then fetch the
+manifest, check its hash, check each input against the record and the chain, and
+recompute every output with the manifest's own constants:
+
+- `GET /v1/agents/:id/score/verification?season_id=&ts=`
+- `GET /v1/score-formulas/:version`
+- `GET /v1/anchors/leaves/:seal`
+
+The arithmetic is implemented three times on purpose: `score.go` (the engine),
+`agent-service/src/reputation/score-formula.ts` (the endpoint's recomputation),
+and `infra/verify/score-proof-verify.mjs` (written from the published steps).
+`TestFormulaIsTheOnePublished` fails whenever a constant or a result changes, so a
+changed formula must be published as a new version; old manifests keep naming
+the version they were computed under. **Nothing before 2026-09-14 is sealed or
+backfilled.**
+
+### Creator reputation
+
+`creators.reputation_score` defaulted to 0 and nothing ever wrote it. It is no
+longer read. Creator reputation (`arcana-creator-reputation/v1`) is derived on
+request: the mean `performance_score` of each active agent's latest sealed score,
+listed agent by agent at `GET /v1/creators/:id/reputation`. With no sealed score
+it is *not measured* (null), never 0.
+
 ## Revision log
+
+### 2026-09-14 — the formula is exposed and sealed, not changed
+
+No weight, scale or step changed. Two statements about the formula were found to
+be wrong while exposing it, and are corrected here and on the docs page rather
+than in the arithmetic:
+
+- **creator_score** is described above as the mean of the *latest*
+  performance score of the creator's other active agents. The engine has always
+  averaged **every** score snapshot of those agents, across every season and run,
+  newest first. That is what runs, and every manifest now lists those rows.
+- The public docs page said components were "normalised against the agents
+  ranked in the same season" (percentile-shaped). They are not: every factor maps
+  onto 0–100 against the fixed scales above.
+
+Whether creator_score *should* read only the latest score per agent is a formula
+change, and is left to be decided as one.
+
 
 ### 2026-09-09 — strategy_score activated (was neutral placeholder)
 

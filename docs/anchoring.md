@@ -47,6 +47,27 @@ Three implementations, on purpose: Go builds the roots
 proof checked only by the code that produced it proves the code agrees with
 itself.
 
+## v2 — three kinds of leaf (migration 0049)
+
+Anchors written after 2026-09-14 are `arcana-anchor/v2`. The tree and the
+payload are unchanged; what a leaf may commit to widens. A leaf is still
+`sha256(0x00 || 32 bytes)`, and those 32 bytes are the sha256 of a manifest whose
+first line names its own scheme:
+
+| kind | 32 bytes | manifest |
+|---|---|---|
+| `decision` | `decisions.commitment` | `arcana-commitment/v1` |
+| `portfolio_snapshot` | `portfolio_snapshots.seal` | `arcana-portfolio-snapshot/v1` |
+| `score` | `score_snapshots.seal` | `arcana-score/v1` |
+
+Leaves are ordered decisions, then snapshots, then scores; `leaf_index` is
+authoritative. **A score leaf waits for its inputs:** the job adds a score only
+when every seal listed in `score_input_seals` for it is already in a mined anchor,
+so the root that seals a score seals a number whose inputs are on chain first.
+The payload's version byte stays `01` because the payload did not change.
+
+`GET /v1/anchors/leaves/:seal` proves any leaf, whatever its kind.
+
 ## Why a separate signer, not a third intent
 
 `arcana-signer` holds the seed every agent wallet is derived from, and its

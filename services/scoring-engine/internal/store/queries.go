@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -75,12 +77,14 @@ type SnapshotPoint struct {
 	TS   time.Time
 	NAV  string
 	Cash string
+	// Seal is "" for a snapshot written before snapshots were sealed (0049).
+	Seal string
 }
 
 // PortfolioNAVSeries returns all NAV snapshots for a portfolio ordered by time.
 func (s *Store) PortfolioNAVSeries(ctx context.Context, portfolioID string) ([]SnapshotPoint, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT ts, nav, cash FROM portfolio_snapshots
+		SELECT ts, nav, cash, coalesce(trim(seal), '') FROM portfolio_snapshots
 		WHERE portfolio_id = $1
 		ORDER BY ts ASC`, portfolioID)
 	if err != nil {
@@ -91,12 +95,121 @@ func (s *Store) PortfolioNAVSeries(ctx context.Context, portfolioID string) ([]S
 	var out []SnapshotPoint
 	for rows.Next() {
 		var p SnapshotPoint
-		if err := rows.Scan(&p.TS, &p.NAV, &p.Cash); err != nil {
+		if err := rows.Scan(&p.TS, &p.NAV, &p.Cash, &p.Seal); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
 	}
 	return out, rows.Err()
+}
+
+// DecisionRow is one counted decision, as a score's manifest lists it.
+type DecisionRow struct {
+	ID         int64
+	TS         time.Time
+	Action     string
+	Commitment string // "" before commitments existed (0047)
+}
+
+// DecisionsFor lists the decisions a score counts: exactly the rows
+// DecisionCount and DecisionMixFor count, in id order, so a manifest can name
+// each one and a checker can count them again.
+func (s *Store) DecisionsFor(ctx context.Context, agentID, seasonID string) ([]DecisionRow, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, ts, action, coalesce(trim(commitment), '')
+		FROM decisions_counted
+		WHERE agent_id = $1 AND season_id = $2
+		ORDER BY id`, agentID, seasonID)
+	if err != nil {
+		return nil, fmt.Errorf("decisions for score: %w", err)
+	}
+	defer rows.Close()
+	var out []DecisionRow
+	for rows.Next() {
+		var d DecisionRow
+		if err := rows.Scan(&d.ID, &d.TS, &d.Action, &d.Commitment); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// InputSeal is one sealed input a score names.
+type InputSeal struct {
+	Kind string // decision | portfolio_snapshot | score
+	Seal string
+}
+
+// WriteScoreSnapshotSealed writes a score row, its manifest and its input seals
+// in ONE transaction, and returns the seal.
+//
+// The manifest is built INSIDE the transaction by build, because it names the
+// previous seal for this agent and season, which is only known under the chain
+// lock. A row that already exists at this (agent, season, ts) is not
+// overwritten — the same rule WriteScoreSnapshot follows — and nothing of this
+// attempt is kept.
+func (s *Store) WriteScoreSnapshotSealed(ctx context.Context, agentID, seasonID string, ts time.Time,
+	factors map[string]*float64, build func(previousSeal string) string, inputs []InputSeal) (string, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("seal score: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+		"score-chain:"+agentID+":"+seasonID); err != nil {
+		return "", fmt.Errorf("seal score: chain lock: %w", err)
+	}
+	var prev string
+	err = tx.QueryRow(ctx, `
+		SELECT trim(seal) FROM score_snapshots
+		 WHERE agent_id = $1 AND season_id = $2 AND seal IS NOT NULL
+		 ORDER BY ts DESC LIMIT 1`, agentID, seasonID).Scan(&prev)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("seal score: previous seal: %w", err)
+	}
+
+	manifest := build(prev)
+	sum := sha256.Sum256([]byte(manifest))
+	seal := hex.EncodeToString(sum[:])
+	// The same content-addressed store every decision body and manifest uses.
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO decision_evidence (hash, kind, body, bytes, first_seen_at)
+		 VALUES ($1, 'score_manifest', $2, $3, now())
+		 ON CONFLICT (hash) DO NOTHING`, seal, manifest, len(manifest)); err != nil {
+		return "", fmt.Errorf("seal score: store manifest: %w", err)
+	}
+
+	tag, err := tx.Exec(ctx, `
+		INSERT INTO score_snapshots (
+			agent_id, season_id, ts, arcana_score,
+			performance_score, risk_score, strategy_score, regime_score,
+			consistency_score, creator_score, longevity_score, seal, seal_scheme
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'arcana-score/v1')
+		ON CONFLICT (agent_id, season_id, ts) DO NOTHING`,
+		agentID, seasonID, ts,
+		factors["arcana"], factors["performance"], factors["risk"],
+		factors["strategy"], factors["regime"], factors["consistency"],
+		factors["creator"], factors["longevity"], seal)
+	if err != nil {
+		return "", fmt.Errorf("seal score: insert: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return "", fmt.Errorf("seal score: a score for agent %s at %s already exists", agentID, ts.Format(time.RFC3339))
+	}
+	for _, in := range inputs {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO score_input_seals (agent_id, season_id, score_ts, input_kind, seal)
+			VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
+			agentID, seasonID, ts, in.Kind, in.Seal); err != nil {
+			return "", fmt.Errorf("seal score: input %s %s: %w", in.Kind, in.Seal, err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", fmt.Errorf("seal score: commit: %w", err)
+	}
+	return seal, nil
 }
 
 // AgentMeta describes an agent for scoring.
@@ -422,31 +535,49 @@ func (s *Store) ScoreHistory(ctx context.Context, agentID, seasonID string, from
 	return out, rows.Err()
 }
 
-// CreatorPeerScores returns the latest performance_score of every OTHER active
-// agent that belongs to the same creator (used for creator_score).
-func (s *Store) CreatorPeerScores(ctx context.Context, creatorID, excludeAgentID string) ([]float64, error) {
+// PeerRow is one score row the creator factor averages.
+type PeerRow struct {
+	AgentID     string
+	SeasonID    string
+	TS          time.Time
+	Performance float64
+	Seal        string
+}
+
+// CreatorPeerScores returns the performance_score rows of every OTHER active
+// agent that belongs to the same creator (used for creator_score), in the order
+// the factor averages them.
+//
+// WHAT THIS ACTUALLY READS, stated because the formula document said "latest":
+// every score snapshot those agents have, across every season and every run —
+// not the latest one per agent. That is the arithmetic the score has always
+// used, and it is left as it is; the manifest now lists each row, so what the
+// factor averaged is visible rather than described.
+func (s *Store) CreatorPeerScores(ctx context.Context, creatorID, excludeAgentID string) ([]PeerRow, error) {
 	if creatorID == "" {
 		return nil, nil
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT s.performance_score
+		SELECT s.agent_id::text, s.season_id::text, s.ts, s.performance_score, coalesce(trim(s.seal), '')
 		FROM score_snapshots s
 		JOIN agents a ON a.id = s.agent_id
 		WHERE a.creator_id = $1 AND a.id <> $2 AND a.status = 'active'
-		ORDER BY s.ts DESC`, creatorID, excludeAgentID)
+		ORDER BY s.ts DESC, s.agent_id, s.season_id`, creatorID, excludeAgentID)
 	if err != nil {
 		return nil, fmt.Errorf("creator peer scores for %s: %w", creatorID, err)
 	}
 	defer rows.Close()
 
-	var out []float64
+	var out []PeerRow
 	for rows.Next() {
+		var r PeerRow
 		var v *float64
-		if err := rows.Scan(&v); err != nil {
+		if err := rows.Scan(&r.AgentID, &r.SeasonID, &r.TS, &v, &r.Seal); err != nil {
 			return nil, err
 		}
 		if v != nil {
-			out = append(out, *v)
+			r.Performance = *v
+			out = append(out, r)
 		}
 	}
 	return out, rows.Err()

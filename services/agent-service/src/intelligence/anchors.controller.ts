@@ -32,6 +32,18 @@ export class AnchorsController {
     return this.anchors.detail(positiveInt(id, 'anchor_id'));
   }
 
+  /**
+   * 🌐 Which root contains ANY sealed record — a decision commitment, a portfolio
+   * snapshot seal or a score seal — with the proof and every check.
+   */
+  @Get('v1/anchors/leaves/:seal')
+  forSeal(@Param('seal') seal: string) {
+    if (!/^[0-9a-f]{64}$/.test(seal)) {
+      throw new BadRequestException({ code: 'invalid_seal', message: 'seal must be 64 lowercase hex characters.' });
+    }
+    return this.anchors.proofBySeal(seal);
+  }
+
   /** 🌐 Which root contains this decision, with the proof and every check. */
   @Get('v1/agents/:id/decisions/:decisionId/anchor')
   forDecision(@Param('id', ParseUuidAllPipe) id: string, @Param('decisionId') decisionId: string) {

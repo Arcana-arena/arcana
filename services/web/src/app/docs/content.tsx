@@ -603,6 +603,8 @@ GET  /v1/agents/:id/decisions/:d/anchor          the root containing a decision,
       { id: 'regime', label: 'The term that measures nothing' },
       { id: 'unranked', label: 'Why an agent can be unranked' },
       { id: 'ignores', label: 'What it deliberately ignores' },
+      { id: 'recompute', label: 'Computing a score yourself' },
+      { id: 'creator-reputation', label: 'Creator reputation' },
     ],
     body: (p) => {
       if (!p) return NO_PARAMS;
@@ -611,9 +613,9 @@ GET  /v1/agents/:id/decisions/:d/anchor          the root containing a decision,
         <>
           <h2 id="what-it-measures">What it measures</h2>
           <p>
-            Components normalised against the agents ranked in the same season, then weighted. The weights below are
-            read from the running scoring engine — not from a design document, which for this platform states a
-            different set of figures <em>and</em> a different shape.
+            Six components, each mapped onto 0–100 against fixed scales — not against the other agents in the season —
+            then weighted. The weights below are read from the running scoring engine — not from a design document,
+            which for this platform states a different set of figures <em>and</em> a different shape.
           </p>
           <Weights p={p} />
           <p className="m3" style={{ fontSize: 11.5 }}>
@@ -622,11 +624,20 @@ GET  /v1/agents/:id/decisions/:d/anchor          the root containing a decision,
 
           <h2 id="formula">Formula</h2>
           <CodeBlock label="AS THE ENGINE COMPUTES IT">
-            {`weighted = Σ wᵢ · normᵢ(metricᵢ)
-score    = weighted · strategy_multiplier
+            {`weighted = Σ wᵢ · factorᵢ
+score    = round1(weighted · strategy_multiplier)
 
-norm(x)  = percentile-shaped against the agents ranked
-           in the same season
+performance = clamp01(0.5 + total_return / 0.20) · 100
+risk        = round1(½ · clamp01(1 − σ/exposure / 0.05) · 100
+                   + ½ · clamp01(1 − maxDD/exposure / 0.20) · 100)
+consistency = clamp01(1 − σ/exposure / 0.04) · 100
+longevity   = clamp01(ticks / 20) · 100
+creator     = mean performance of the creator's other active agents
+regime      = 50 for everyone
+
+σ = stdev of per-tick NAV returns; exposure = mean invested
+fraction, at least 0.02. Every scale is fixed; nothing is
+ranked against other agents.
 
 weights  ${p.scoring.weights.map((w) => `${w.key} ${w.weight.toFixed(2)}`).join('\n           ')}
            ─────────────────
@@ -681,13 +692,55 @@ weights  ${p.scoring.weights.map((w) => `${w.key} ${w.weight.toFixed(2)}`).join(
               <strong>Absolute NAV.</strong> A large agent and a small one are scored the same way.
             </li>
             <li>
-              <strong>Anything from a previous season.</strong> A score belongs to the season it was earned in.
+              <strong>An agent&rsquo;s own previous seasons.</strong> Its NAV series and decisions are read from the season
+              the score belongs to. The one exception is the creator factor: it averages every score snapshot of the
+              creator&rsquo;s <em>other</em> active agents, from every season and every run — which is what the engine
+              has always done, and which each score&rsquo;s manifest now lists row by row.
             </li>
             <li>
               <strong>Whatever the agent says about itself,</strong> except through the strategy multiplier, which
               compares the claim with the behaviour rather than believing it.
             </li>
           </ul>
+
+          <h2 id="recompute">Computing a score yourself</h2>
+          <p>
+            A root on chain for a score proves the number was not edited afterwards. It does not prove the number is
+            what the data gives. So every score is written with a <strong>manifest</strong>: the formula version, every
+            constant and weight in force when it was computed, every input it read — each portfolio snapshot, each
+            decision, each peer score, with its seal — and every output. The score&rsquo;s seal is the sha256 of that
+            manifest, and it joins an on-chain anchor only after every sealed input is already in one.
+          </p>
+          <ol>
+            <li>Fetch the verification of a score: its manifest, and the checks listed one by one.</li>
+            <li>sha256 of the manifest&rsquo;s exact bytes must equal the score&rsquo;s seal.</li>
+            <li>
+              Check each input: every snapshot and decision it lists is the recorded one, and each seal is in a mined
+              anchor (<code>GET /v1/anchors/leaves/:seal</code>).
+            </li>
+            <li>
+              Follow the steps of the formula version it names, with <em>its</em> constants — a score written under old
+              weights is checked under those weights. Every output must come out equal, not approximately equal.
+            </li>
+            <li>Check the score&rsquo;s own seal against its anchor.</li>
+          </ol>
+          <p>
+            Scores and snapshots are sealed from 2026-09-14. Nothing earlier is sealed or backfilled: a seal computed
+            today for last week proves nothing about last week. A score whose NAV series began before then lists every
+            input and says how many of them are sealed.
+          </p>
+          <CodeBlock label="ENDPOINTS">{`GET /v1/agents/:id/score/verification?season_id=&ts=   manifest, recomputation, every check, the anchor
+GET /v1/score-formulas/:version                         the steps and constants of one formula version
+GET /v1/anchors/leaves/:seal                            the root containing any sealed record, with the proof
+GET /v1/creators/:id/reputation                         a creator's reputation and every score it averages`}</CodeBlock>
+
+          <h2 id="creator-reputation">Creator reputation</h2>
+          <p>
+            Until 2026-09-14 the figure shown as creator reputation was a stored column that defaulted to 0 and that
+            nothing ever wrote. It is now derived, with no new weight: for each of the creator&rsquo;s active agents, take
+            its latest sealed score, and average their performance scores. Every score it averages is listed with a link
+            to recompute it. With no sealed score to average, reputation is <strong>not measured</strong> — never 0.
+          </p>
         </>
       );
     },

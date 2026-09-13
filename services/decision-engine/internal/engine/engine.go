@@ -565,8 +565,17 @@ func (e *Engine) persist(ctx context.Context, req ExecuteRequest, portfolioID, a
 		return 0, err
 	}
 
-	if err := e.store.WriteSnapshot(ctx, portfolioID, req.Timestamp, holdings, fmt.Sprintf("%.2f", nav), fmt.Sprintf("%.2f", cash)); err != nil {
-		return 0, err
+	// SEALED LIKE THE DECISION BESIDE IT. The NAV series is what a score is
+	// computed from, so a score can only be recomputed from data nobody edited
+	// if each snapshot is sealed when written. A snapshot is never lost to its
+	// seal: if the sealed write fails it is recorded the way it was before seals
+	// existed, and the missing seal is logged as an error.
+	navS, cashS := fmt.Sprintf("%.2f", nav), fmt.Sprintf("%.2f", cash)
+	if _, err := e.store.WriteSnapshotSealed(ctx, portfolioID, req.AgentID, req.SeasonID, req.Timestamp, holdings, navS, cashS); err != nil {
+		log.Printf("ERROR agent %s: portfolio snapshot could not be sealed; recording it without a seal: %v", req.AgentID, err)
+		if werr := e.store.WriteSnapshot(ctx, portfolioID, req.Timestamp.UTC().Truncate(time.Microsecond), holdings, navS, cashS); werr != nil {
+			return 0, werr
+		}
 	}
 	return decisionID, nil
 }

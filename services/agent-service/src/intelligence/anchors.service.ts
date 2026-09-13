@@ -10,10 +10,10 @@ type AnchorRow = {
   scheme: string;
   root: string;
   leaf_count: number;
-  first_decision_id: string;
-  last_decision_id: string;
-  first_decision_ts: string;
-  last_decision_ts: string;
+  first_decision_id: string | null;
+  last_decision_id: string | null;
+  first_decision_ts: string | null;
+  last_decision_ts: string | null;
   chain_id: number;
   sender: string;
   nonce: string;
@@ -30,18 +30,44 @@ type AnchorRow = {
 
 type OnChain = { reachable: boolean; checks: Check[]; block_number: number | null; reason?: string };
 
+export type SealProof = {
+  seal: string;
+  kind: string | null;
+  status: 'anchored' | 'anchoring' | 'mismatch' | 'pending';
+  note?: string;
+  anchor?: ReturnType<AnchorsService['shape']>;
+  leaf_index?: number;
+  leaf_count?: number;
+  proof?: Array<{ sibling: string; position: 'left' | 'right' }>;
+  expected_input?: string;
+  checks?: Check[];
+  on_chain?: { reachable: boolean; block_number: number | null; reason: string | null };
+  how_to_check: string;
+};
+
 const HOW_TO_CHECK =
   'You do not need ARCANA to check this. Ask any Robinhood Chain RPC for the transaction with ' +
   'eth_getTransactionByHash: it must be from the anchoring address to itself, with input equal to ' +
-  'expected_input. Then hash this decision\'s commitment as sha256(0x00 || commitment) and fold in each ' +
+  'expected_input. Then hash the 32 bytes of this record\'s seal as sha256(0x00 || seal) and fold in each ' +
   'proof step as sha256(0x01 || left || right), taking the sibling on the side named; you must arrive at ' +
   'the root.';
 
+const KIND_LABEL: Record<string, string> = {
+  decision: 'decision commitment',
+  portfolio_snapshot: 'portfolio snapshot seal',
+  score: 'score seal',
+};
+
 /**
- * Anchors: which on-chain root contains a decision, and the evidence for it.
+ * Anchors: which on-chain root contains a sealed record, and the evidence for it.
+ *
+ * A record is a decision (its commitment), a portfolio snapshot (its seal) or a
+ * score (its seal). Each is the sha256 of a manifest that names its own scheme,
+ * so the proof is the same whatever the record is — one path, below, used by
+ * every endpoint that proves anything.
  *
  * Everything here is public, including for private agents: an anchor contains
- * only commitments, and commitments are public for every agent.
+ * only hashes, and those are public for every agent.
  *
  * THE CHAIN IS ASKED, NOT THE TABLE. A proof is only a proof if it ends at data
  * ARCANA does not control, so every mined anchor shown is checked against the
@@ -59,47 +85,78 @@ export class AnchorsService {
 
   constructor(@InjectDataSource() private readonly db: DataSource) {}
 
-  /** Every anchor, newest first, and what anchoring has cost the platform. */
+  /** Every anchor, newest first, what each carries, and what anchoring has cost the platform. */
   async list(page: number, pageSize: number, offset: number) {
-    const [rows, totals, waiting] = await Promise.all([
+    const [rows, totals, waiting, kinds] = await Promise.all([
       this.db.query(`${ANCHOR_SELECT} ORDER BY id DESC LIMIT $1 OFFSET $2`, [pageSize, offset]),
       this.db.query(
         `SELECT count(*)::int AS total,
                 count(*) FILTER (WHERE status = 'mined')::int AS mined,
-                coalesce(sum(leaf_count) FILTER (WHERE status = 'mined'), 0)::int AS decisions_anchored,
+                coalesce(sum(leaf_count) FILTER (WHERE status = 'mined'), 0)::int AS records_anchored,
                 sum(gas_cost_usd) FILTER (WHERE status = 'mined')::float8 AS gas_cost_usd,
                 max(mined_at) AS last_mined_at
            FROM decision_anchors`,
       ),
       this.db.query(
-        `SELECT count(*)::int AS n, min(d.ts) AS oldest
-           FROM decisions d -- raw-by-design: anchoring covers every sealed row, artefacts included
-           JOIN agents a ON a.id = d.agent_id AND a.provenance = 'live'
-          WHERE d.commitment IS NOT NULL
-            AND NOT EXISTS (
-              SELECT 1 FROM decision_anchor_leaves l JOIN decision_anchors x ON x.id = l.anchor_id
-               WHERE l.decision_id = d.id AND l.decision_ts = d.ts AND x.status NOT IN ('reverted', 'dropped'))`,
+        `SELECT
+           (SELECT count(*)::int FROM decisions d -- raw-by-design: anchoring covers every sealed row, artefacts included
+              JOIN agents a ON a.id = d.agent_id AND a.provenance = 'live'
+             WHERE d.commitment IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM decision_anchor_leaves l JOIN decision_anchors x ON x.id = l.anchor_id
+                                WHERE l.kind = 'decision' AND l.decision_id = d.id AND l.decision_ts = d.ts
+                                  AND x.status NOT IN ('reverted', 'dropped'))) AS decisions,
+           (SELECT count(*)::int FROM portfolio_snapshots ps
+              JOIN portfolios p ON p.id = ps.portfolio_id
+              JOIN agents a ON a.id = p.agent_id AND a.provenance = 'live'
+             WHERE ps.seal IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM decision_anchor_leaves l JOIN decision_anchors x ON x.id = l.anchor_id
+                                WHERE l.kind = 'portfolio_snapshot' AND l.portfolio_id = ps.portfolio_id
+                                  AND l.record_ts = ps.ts AND x.status NOT IN ('reverted', 'dropped'))) AS portfolio_snapshots,
+           (SELECT count(*)::int FROM score_snapshots s
+              JOIN agents a ON a.id = s.agent_id AND a.provenance = 'live'
+             WHERE s.seal IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM decision_anchor_leaves l JOIN decision_anchors x ON x.id = l.anchor_id
+                                WHERE l.kind = 'score' AND l.agent_id = s.agent_id AND l.season_id = s.season_id
+                                  AND l.record_ts = s.ts AND x.status NOT IN ('reverted', 'dropped'))) AS scores`,
+      ),
+      this.db.query(
+        `SELECT anchor_id::text, kind, count(*)::int AS n FROM decision_anchor_leaves
+          WHERE anchor_id IN (SELECT id FROM decision_anchors ORDER BY id DESC LIMIT $1 OFFSET $2)
+          GROUP BY anchor_id, kind`,
+        [pageSize, offset],
       ),
     ]);
     const t = totals[0];
+    const w = waiting[0];
+    const byAnchor = new Map<string, Record<string, number>>();
+    for (const k of kinds as Array<{ anchor_id: string; kind: string; n: number }>) {
+      const m = byAnchor.get(k.anchor_id) ?? {};
+      m[k.kind] = k.n;
+      byAnchor.set(k.anchor_id, m);
+    }
     return {
       scheme: ANCHOR_SCHEME,
-      items: rows.map((r: AnchorRow) => this.shape(r)),
+      items: rows.map((r: AnchorRow) => ({ ...this.shape(r), kinds: byAnchor.get(String(r.id)) ?? {} })),
       page,
       page_size: pageSize,
       total: t.total,
       has_more: page * pageSize < t.total,
       totals: {
         mined: t.mined,
-        decisions_anchored: t.decisions_anchored,
+        records_anchored: t.records_anchored,
+        // Kept for readers of the first version of this endpoint.
+        decisions_anchored: t.records_anchored,
         gas_cost_usd: t.gas_cost_usd === null ? null : Number(t.gas_cost_usd),
         last_mined_at: t.last_mined_at ? new Date(t.last_mined_at).toISOString() : null,
         paid_by: 'ARCANA — anchoring is infrastructure, never charged to an agent or its owner',
       },
       waiting: {
-        sealed_decisions: waiting[0].n,
-        oldest: waiting[0].oldest ? new Date(waiting[0].oldest).toISOString() : null,
-        note: 'Sealed decisions not yet in a mined anchor. Anchors are written every fifteen minutes when there is something new.',
+        sealed_decisions: w.decisions,
+        sealed_portfolio_snapshots: w.portfolio_snapshots,
+        sealed_scores: w.scores,
+        note:
+          'Sealed records not yet in an anchor. Anchors are written every fifteen minutes when there is something ' +
+          'new; a score waits until every sealed input it names is in a mined anchor.',
       },
     };
   }
@@ -109,13 +166,15 @@ export class AnchorsService {
     const rows: AnchorRow[] = await this.db.query(`${ANCHOR_SELECT} WHERE id = $1`, [id]);
     if (rows.length === 0) throw new NotFoundException(`Anchor ${id} not found`);
     const a = rows[0];
-    const leaves: Array<{ leaf_index: number; decision_id: string; decision_ts: string; agent_id: string; commitment: string }> =
-      await this.db.query(
-        `SELECT leaf_index, decision_id::text, to_char(decision_ts AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS decision_ts,
-                agent_id::text, trim(commitment) AS commitment
-           FROM decision_anchor_leaves WHERE anchor_id = $1 ORDER BY leaf_index`,
-        [id],
-      );
+    const leaves: Array<Record<string, any>> = await this.db.query(
+      `SELECT leaf_index, kind, agent_id::text, trim(commitment) AS commitment,
+              decision_id::text,
+              to_char(decision_ts AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS decision_ts,
+              portfolio_id::text, season_id::text,
+              to_char(record_ts AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS record_ts
+         FROM decision_anchor_leaves WHERE anchor_id = $1 ORDER BY leaf_index`,
+      [id],
+    );
     const root = merkleRoot(leaves.map((l) => leafHash(l.commitment)));
     const checks: Check[] = [
       { name: 'the stored leaves hash to the anchored root', ok: !!root && root.toString('hex') === a.root.trim() },
@@ -124,7 +183,17 @@ export class AnchorsService {
     const onChain = await this.onChain(a);
     return {
       anchor: this.shape(a),
-      leaves: leaves.map((l) => ({ ...l, decision_id: Number(l.decision_id) })),
+      leaves: leaves.map((l) => ({
+        leaf_index: l.leaf_index,
+        kind: l.kind,
+        agent_id: l.agent_id,
+        commitment: l.commitment,
+        ...(l.kind === 'decision'
+          ? { decision_id: Number(l.decision_id), decision_ts: l.decision_ts }
+          : l.kind === 'portfolio_snapshot'
+            ? { portfolio_id: l.portfolio_id, season_id: l.season_id, ts: l.record_ts }
+            : { season_id: l.season_id, ts: l.record_ts }),
+      })),
       checks: [...checks, ...onChain.checks],
       on_chain: { reachable: onChain.reachable, block_number: onChain.block_number, reason: onChain.reason ?? null },
       verified: [...checks, ...onChain.checks].every((c) => c.ok) && a.status === 'mined',
@@ -149,27 +218,37 @@ export class AnchorsService {
         note: 'This decision was recorded before commitments existed, so there is nothing to anchor. None is added afterwards.',
       };
     }
+    const proof = await this.proofBySeal(commitment, `this decision's commitment`);
+    return { decision_id: decisionId, commitment, ...proof };
+  }
 
+  /**
+   * THE ONE PROOF PATH. Whatever a seal belongs to, where is it anchored, what
+   * leads from it to the root, and does the chain agree.
+   */
+  async proofBySeal(seal: string, what = 'this seal'): Promise<SealProof> {
     const leafRow = await this.db.query(
-      `SELECT l.anchor_id, l.leaf_index
+      `SELECT l.anchor_id, l.leaf_index, l.kind
          FROM decision_anchor_leaves l JOIN decision_anchors a ON a.id = l.anchor_id
-        WHERE l.decision_id = $1 AND l.decision_ts = $2::timestamptz AND a.status NOT IN ('reverted', 'dropped')
+        WHERE l.commitment = $1 AND a.status NOT IN ('reverted', 'dropped')
         ORDER BY a.id DESC LIMIT 1`,
-      [decisionId, d[0].ts_text],
+      [seal],
     );
     if (leafRow.length === 0) {
       return {
-        decision_id: decisionId,
-        status: 'pending' as const,
-        commitment,
+        seal,
+        kind: null,
+        status: 'pending',
         note:
-          'Sealed, and waiting for the next anchor. Until its root is mined this decision is protected by the ' +
-          'database alone; anchors are written every fifteen minutes when there is something new.',
+          'Sealed, and waiting for an anchor. Until its root is mined this record is protected by the database alone; ' +
+          'anchors are written every fifteen minutes, and a score waits until every input it names is anchored first.',
+        how_to_check: HOW_TO_CHECK,
       };
     }
 
     const anchorId = Number(leafRow[0].anchor_id);
     const index = Number(leafRow[0].leaf_index);
+    const kind: string = leafRow[0].kind;
     const [a]: AnchorRow[] = await this.db.query(`${ANCHOR_SELECT} WHERE id = $1`, [anchorId]);
     const leaves: Array<{ commitment: string }> = await this.db.query(
       `SELECT trim(commitment) AS commitment FROM decision_anchor_leaves WHERE anchor_id = $1 ORDER BY leaf_index`,
@@ -181,23 +260,20 @@ export class AnchorsService {
     const anchoredRoot = Buffer.from(a.root.trim(), 'hex');
 
     const checks: Check[] = [
-      {
-        name: `this decision's commitment is leaf ${index} of anchor ${anchorId}`,
-        ok: leaves[index]?.commitment === commitment,
-      },
+      { name: `${what} is leaf ${index} of anchor ${anchorId} (${KIND_LABEL[kind] ?? kind})`, ok: leaves[index]?.commitment === seal },
       { name: "the anchor's leaves hash to its root", ok: !!root && root.equals(anchoredRoot) },
-      { name: 'the proof leads from this decision to the root', ok: verifyProof(leafHash(commitment), proof, anchoredRoot) },
+      { name: 'the proof leads from this seal to the root', ok: verifyProof(leafHash(seal), proof, anchoredRoot) },
     ];
     const onChain = await this.onChain(a);
     const all = [...checks, ...onChain.checks];
 
     return {
-      decision_id: decisionId,
-      commitment,
+      seal,
+      kind,
       status:
         a.status === 'mined'
-          ? all.every((c) => c.ok) ? ('anchored' as const) : ('mismatch' as const)
-          : ('anchoring' as const),
+          ? all.every((c) => c.ok) ? 'anchored' : 'mismatch'
+          : 'anchoring',
       anchor: this.shape(a),
       leaf_index: index,
       leaf_count: a.leaf_count,
@@ -207,6 +283,18 @@ export class AnchorsService {
       on_chain: { reachable: onChain.reachable, block_number: onChain.block_number, reason: onChain.reason ?? null },
       how_to_check: HOW_TO_CHECK,
     };
+  }
+
+  /** Which of these seals are in a MINED anchor. */
+  async minedSeals(seals: string[]): Promise<Set<string>> {
+    if (seals.length === 0) return new Set();
+    const rows: Array<{ commitment: string }> = await this.db.query(
+      `SELECT DISTINCT trim(l.commitment) AS commitment
+         FROM decision_anchor_leaves l JOIN decision_anchors a ON a.id = l.anchor_id
+        WHERE a.status = 'mined' AND l.commitment = ANY($1::char(64)[])`,
+      [seals],
+    );
+    return new Set(rows.map((r) => r.commitment));
   }
 
   // ---------------------------------------------------------------- the chain
@@ -274,14 +362,22 @@ export class AnchorsService {
     throw new Error(last || 'no RPC endpoint configured');
   }
 
-  private shape(r: AnchorRow) {
+  shape(r: AnchorRow) {
     const hash = r.tx_hash.trim();
     return {
       id: Number(r.id),
       scheme: r.scheme,
       root: r.root.trim(),
       leaf_count: r.leaf_count,
-      decisions: { first_id: Number(r.first_decision_id), last_id: Number(r.last_decision_id), first_ts: r.first_decision_ts, last_ts: r.last_decision_ts },
+      decisions:
+        r.first_decision_id === null
+          ? null
+          : {
+              first_id: Number(r.first_decision_id),
+              last_id: Number(r.last_decision_id),
+              first_ts: r.first_decision_ts,
+              last_ts: r.last_decision_ts,
+            },
       chain_id: Number(r.chain_id),
       sender: r.sender.trim(),
       tx_hash: hash,

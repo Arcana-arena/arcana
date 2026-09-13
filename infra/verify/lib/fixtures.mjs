@@ -130,6 +130,8 @@ export function sweepFixtures({ quiet = false } = {}) {
     CREATE TEMP TABLE doomed ON COMMIT DROP AS ${DELETABLE_AGENTS};
     DELETE FROM agent_dna            WHERE agent_id IN (SELECT id FROM doomed);
     DELETE FROM score_snapshots      WHERE agent_id IN (SELECT id FROM doomed);
+    -- Allowed only because these agents are marked as verification (0049).
+    DELETE FROM score_input_seals    WHERE agent_id IN (SELECT id FROM doomed);
     DELETE FROM decision_artefacts   WHERE agent_id IN (SELECT id FROM doomed);
     -- Before agents (FK), and allowed only because these agents are marked as
     -- verification: the trigger in 0047 refuses deleting a real disclosure.

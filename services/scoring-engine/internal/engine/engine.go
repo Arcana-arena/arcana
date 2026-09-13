@@ -79,7 +79,14 @@ func (e *Engine) Season(ctx context.Context, seasonID string) (*store.SeasonRow,
 	return e.store.Season(ctx, seasonID)
 }
 
-// scoreAgent loads one agent's full context, computes factors, appends a row.
+// scoreAgent loads one agent's inputs, computes factors, and appends a SEALED
+// row whose manifest names the formula, the constants, every input and every
+// output — so the number can be computed again by anyone, not only trusted.
+//
+// The inputs are gathered into ScoreInputs first and the context is derived
+// from them by ContextFromInputs, the same function a recomputation from the
+// manifest uses. What the batch computed and what a checker computes therefore
+// come from one derivation, not two that happen to agree.
 func (e *Engine) scoreAgent(ctx context.Context, ap store.AgentPortfolio) error {
 	points, err := e.store.PortfolioNAVSeries(ctx, ap.PortfolioID)
 	if err != nil {
@@ -89,65 +96,53 @@ func (e *Engine) scoreAgent(ctx context.Context, ap store.AgentPortfolio) error 
 	if err != nil {
 		return err
 	}
-	decisions, err := e.store.DecisionCount(ctx, ap.AgentID, ap.SeasonID)
+	// The decisions counted: the same rows DecisionCount and DecisionMixFor
+	// count (decisions_counted, this season), listed so each can be checked.
+	decisions, err := e.store.DecisionsFor(ctx, ap.AgentID, ap.SeasonID)
 	if err != nil {
 		return err
 	}
-
-	navs := make([]float64, 0, len(points))
-	// Mean fraction of the book actually held in positions. Ticks with a
-	// non-positive NAV are skipped rather than counted as zero exposure, which
-	// would quietly drag the average down on bad data.
-	exposureSum, exposureTicks := 0.0, 0
-	for _, p := range points {
-		nav := mustParse(p.NAV)
-		navs = append(navs, nav)
-		if nav > 0 {
-			invested := (nav - mustParse(p.Cash)) / nav
-			if invested < 0 {
-				invested = 0
-			}
-			exposureSum += invested
-			exposureTicks++
-		}
-	}
-	exposure := 0.0
-	if exposureTicks > 0 {
-		exposure = exposureSum / float64(exposureTicks)
-	}
-
-	// creator_score: mean of the creator's other scored agents' performance.
-	var peerMean *float64
+	// creator_score: the performance scores the creator factor averages, in the
+	// order it averages them.
 	peers, err := e.store.CreatorPeerScores(ctx, meta.CreatorID, ap.AgentID)
 	if err != nil {
 		return err
 	}
-	if len(peers) > 0 {
-		sum := 0.0
-		for _, v := range peers {
-			sum += v
-		}
-		m := sum / float64(len(peers))
-		peerMean = &m
+
+	in := ScoreInputs{StrategyType: meta.StrategyType}
+	for _, p := range points {
+		in.NAVSeries = append(in.NAVSeries, NAVPoint{TS: p.TS, NAV: p.NAV, Cash: p.Cash, Seal: p.Seal})
+	}
+	for _, d := range decisions {
+		in.Decisions = append(in.Decisions, DecisionRef{ID: d.ID, TS: d.TS, Action: d.Action, Commitment: d.Commitment})
+	}
+	for _, p := range peers {
+		in.CreatorPeers = append(in.CreatorPeers, PeerScore{
+			AgentID: p.AgentID, SeasonID: p.SeasonID, TS: p.TS, Performance: p.Performance, Seal: p.Seal,
+		})
 	}
 
-	// strategy_score needs the action mix, not just the decision count.
-	mix, err := e.store.DecisionMixFor(ctx, ap.AgentID, ap.SeasonID)
-	if err != nil {
-		return err
-	}
-
-	f := ComputeFactors(AgentContext{
-		NAVs:                   navs,
-		DecisionCount:          decisions,
-		Exposure:               exposure,
-		StrategyType:           meta.StrategyType,
-		Buys:                   mix.Buys,
-		Sells:                  mix.Sells,
-		CreatorPeerPerformance: peerMean,
-	})
+	f := ComputeFactors(ContextFromInputs(in))
 	ts := time.Now().UTC().Truncate(time.Second)
 
+	seals := InputSeals(in)
+	inputs := make([]store.InputSeal, 0, len(seals))
+	for _, s := range seals {
+		inputs = append(inputs, store.InputSeal{Kind: s[0], Seal: s[1]})
+	}
+	_, err = e.store.WriteScoreSnapshotSealed(ctx, ap.AgentID, ap.SeasonID, ts, f.toMap(),
+		func(previousSeal string) string {
+			return BuildScoreManifest(ap.AgentID, ap.SeasonID, ts, in, f, previousSeal)
+		}, inputs)
+	if err == nil {
+		return nil
+	}
+	// A SCORE IS NEVER LOST TO ITS SEAL — the rule decisions and snapshots
+	// follow. The row is written the way it was before seals existed and the
+	// missing seal is logged as an error; the public record then shows an
+	// unsealed score, which is true.
+	log.Printf("ERROR score for agent %s in season %s could not be sealed; recording it without a seal: %v",
+		ap.AgentID, ap.SeasonID, err)
 	return e.store.WriteScoreSnapshot(ctx, ap.AgentID, ap.SeasonID, ts, f.toMap())
 }
 

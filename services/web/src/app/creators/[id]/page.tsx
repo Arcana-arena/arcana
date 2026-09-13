@@ -5,12 +5,12 @@
  * creator and link to them. Linking somewhere that answers 404 is worse than
  * not linking: it tells a reader the record is there and then denies it.
  *
- * CREATOR REPUTATION IS SHOWN AS ITS OWN STORED FIGURE, and where that figure
- * is 0.00 the page says whether it has ever been computed rather than printing
- * a zero that reads as a judgement. The design's four reputation components —
- * median score, agents survived, mandate honesty, subscriber P&L — are not
- * published by any endpoint and are not invented here; the one number that does
- * exist is shown, with what feeds it named.
+ * CREATOR REPUTATION IS DERIVED, AND EVERY INPUT IS LISTED. It used to be a
+ * stored column that defaulted to 0 and that nothing ever wrote, printed here as
+ * "creator reputation". It is now GET /v1/creators/:id/reputation: the mean
+ * performance score of the creator's active agents, each from its latest SEALED
+ * score, with each of those scores linked to the page that recomputes it. Where
+ * no sealed score exists, the page says "not measured" rather than printing 0.
  *
  * A RETIRED AGENT KEEPS ITS ROW. A creator's record is the whole of what they
  * have run, and hiding the ones that stopped would make every creator look like
@@ -18,8 +18,8 @@
  */
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { agent } from '@/lib/api';
-import { addr, int, num, score as fmtScore, utcDate } from '@/lib/format';
+import { agent, qs } from '@/lib/api';
+import { addr, int, num, score as fmtScore, utc, utcDate } from '@/lib/format';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { Key, Lbl, Num, StatusTag } from '@/components/ds/primitives';
@@ -34,7 +34,6 @@ type Creator = {
   walletVerifiedAt: string | null;
   origin: string | null;
   legacyWalletNote?: string | null;
-  reputationScore: string | number | null;
   status: string;
   provenance: string | null;
   createdAt: string;
@@ -60,17 +59,32 @@ type AgentsPage = {
   agents: CreatorAgent[];
 };
 
-const asNum = (v: string | number | null | undefined) => {
-  if (v === null || v === undefined || v === '') return null;
-  const n = typeof v === 'number' ? v : Number(v);
-  return Number.isFinite(n) ? n : null;
+type Reputation = {
+  version: string;
+  value: number | null;
+  status: 'measured' | 'not_measured';
+  note: string;
+  agents: Array<{
+    agent_id: string;
+    name: string;
+    score_ts: string;
+    season_id: string;
+    performance_score: number;
+    seal: string;
+    anchored: boolean;
+  }>;
+  excluded: Array<{ agent_id: string; name: string; status: string; reason: string }>;
+  formula: string[];
+  how_to_check: string;
 };
 
 export default async function CreatorPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [profileR, agentsR] = await Promise.all([
+  // In the order destructured below.
+  const [profileR, agentsR, repR] = await Promise.all([
     agent<Creator>(`/v1/creators/${id}`),
     agent<AgentsPage>(`/v1/creators/${id}/agents?page_size=100`),
+    agent<Reputation>(`/v1/creators/${id}/reputation`),
   ]);
 
   if (!profileR.ok && profileR.status === 404) notFound();
@@ -90,7 +104,7 @@ export default async function CreatorPage({ params }: { params: Promise<{ id: st
   const agents = agentsR.ok ? agentsR.data.agents : [];
   const live = agents.filter((a) => a.status === 'active');
   const retired = agents.filter((a) => a.status === 'retired');
-  const rep = asNum(c.reputationScore);
+  const rep = repR.ok ? repR.data : null;
   const scored = agents.filter((a) => typeof a.latest_arcana_score === 'number');
   const best = scored.reduce<CreatorAgent | null>(
     (b, a) => (b === null || (a.latest_arcana_score as number) > (b.latest_arcana_score as number) ? a : b),
@@ -132,20 +146,15 @@ export default async function CreatorPage({ params }: { params: Promise<{ id: st
           </div>
           <div style={{ textAlign: 'right' }}>
             <Lbl>CREATOR REPUTATION</Lbl>
-            {/*
-              A STORED ZERO IS STILL A ZERO, and this page must not turn it into
-              a dash — but it must also not let it read as a verdict when no
-              reputation run has ever written to it. Both facts are printed.
-            */}
             <div className="mono" style={{ fontSize: 34, lineHeight: 1, marginTop: 2 }}>
-              {rep === null ? <span className="m3">—</span> : num(rep, 2)}
+              {rep && rep.value !== null ? num(rep.value, 2) : <span className="m3">—</span>}
             </div>
-            <div className="m3" style={{ fontSize: 11, maxWidth: 220 }}>
-              {rep === null
-                ? 'no reputation figure is stored for this creator'
-                : rep === 0
-                  ? 'a stored zero — the reputation run has not yet produced a figure for this creator'
-                  : 'feeds one weighted term of each of their agents’ scores'}
+            <div className="m3" style={{ fontSize: 11, maxWidth: 240 }}>
+              {!repR.ok
+                ? 'the reputation could not be read'
+                : rep!.status === 'measured'
+                  ? `mean performance of ${rep!.agents.length} active agent(s), from sealed scores`
+                  : 'not measured — no active agent has a sealed score yet'}
             </div>
           </div>
         </div>
@@ -201,17 +210,75 @@ export default async function CreatorPage({ params }: { params: Promise<{ id: st
           </div>
         </div>
 
-        {/* THE FOUR COMPONENTS THE DESIGN ASKS FOR DO NOT EXIST. Named as
-            absent rather than approximated from whatever is to hand — median
-            score, survival rate, mandate honesty and subscriber P&L are four
-            different measurements and none of them is published. */}
-        <div style={{ marginTop: 16 }}>
-          <Callout tone="note">
-            <strong>Reputation is one stored number here, not a breakdown.</strong> No endpoint publishes its
-            components — median score across their agents, how many survived, how closely their mandates match observed
-            behaviour, or what subscribers actually made. Those are four separate measurements and none of them is
-            computed, so none of them is shown.
-          </Callout>
+        {/* THE REPUTATION, ITEMISED. Every score it averages is listed and links
+            to the page that recomputes that score from its sealed manifest. */}
+        <div className="box" style={{ marginTop: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+            <Key>How the reputation is computed</Key>
+            {rep ? <span className="mono m3" style={{ fontSize: 11 }}>{rep.version}</span> : null}
+          </div>
+          {!repR.ok ? (
+            <div style={{ marginTop: 8 }}>
+              <Failed what="This creator's reputation" error={repR} />
+            </div>
+          ) : (
+            <>
+              <ol className="m2" style={{ fontSize: 12, lineHeight: 1.6, margin: '8px 0 0 18px', padding: 0 }}>
+                {rep!.formula.map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </ol>
+              <div className="m2" style={{ fontSize: 12, marginTop: 8 }}>{rep!.note}</div>
+              {rep!.agents.length > 0 ? (
+                <div className="scroll-x">
+                  <table className="table" style={{ marginTop: 10 }}>
+                    <thead>
+                      <tr>
+                        <th>Agent</th>
+                        <th>Sealed score (UTC)</th>
+                        <th className="r">Performance</th>
+                        <th>Seal</th>
+                        <th>On chain</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rep!.agents.map((a) => (
+                        <tr key={a.agent_id}>
+                          <td>
+                            <Link href={`/agents/${a.agent_id}`}>{a.name}</Link>
+                          </td>
+                          <td className="mono m2" style={{ fontSize: 11.5 }}>{utc(a.score_ts)}</td>
+                          <td className="r mono">{num(a.performance_score, 2)}</td>
+                          <td className="mono m3" style={{ fontSize: 11 }} title={a.seal}>{a.seal.slice(0, 12)}…</td>
+                          <td className={a.anchored ? 'up mono' : 'am mono'} style={{ fontSize: 11.5 }}>
+                            {a.anchored ? 'anchored' : 'waiting'}
+                          </td>
+                          <td style={{ fontSize: 11.5 }}>
+                            <Link href={`/agents/${a.agent_id}/score${qs({ season_id: a.season_id, ts: a.score_ts })}`}>
+                              recompute
+                            </Link>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+              {rep!.excluded.length > 0 ? (
+                <div className="m3" style={{ fontSize: 11.5, marginTop: 8, lineHeight: 1.55 }}>
+                  Left out:{' '}
+                  {rep!.excluded.map((e, i) => (
+                    <span key={e.agent_id}>
+                      {i > 0 ? '; ' : ''}
+                      <Link href={`/agents/${e.agent_id}`}>{e.name}</Link> ({e.reason})
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              <div className="m3" style={{ fontSize: 11.5, marginTop: 8 }}>{rep!.how_to_check}</div>
+            </>
+          )}
         </div>
       </div>
 

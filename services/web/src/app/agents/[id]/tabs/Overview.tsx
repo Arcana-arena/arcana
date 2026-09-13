@@ -15,6 +15,7 @@
  * THE EIGHT STATISTICS COME FROM ONE READ, in one window. Assembled from three
  * endpoints they would each quietly measure a different period.
  */
+import Link from 'next/link';
 import { agent } from '@/lib/api';
 import { int, money, num, score as fmtScore } from '@/lib/format';
 import { Key, Lbl, Num, ScoreBar } from '@/components/ds/primitives';
@@ -140,6 +141,11 @@ export async function OverviewTab({
                 >
                   <span className="m2">ARCANA Score</span>
                   <span className="mono">{fmtScore(row?.score ?? latest.arcana_score)}</span>
+                </div>
+                {/* A SCORE ANYONE CAN COMPUTE AGAIN. The link opens its sealed
+                    manifest, a recomputation, every input checked and its anchor. */}
+                <div style={{ fontSize: 11.5, marginTop: 6, textAlign: 'right' }}>
+                  <Link href={`/agents/${id}/score`}>Compute this score yourself →</Link>
                 </div>
                 {cats.find((c) => c.key === 'strategy')?.weight_note ? (
                   <div className="m3" style={{ fontSize: 11, marginTop: 8, lineHeight: 1.45 }}>

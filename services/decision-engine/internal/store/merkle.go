@@ -21,7 +21,12 @@ import (
 // commitment. CARRYING the odd node rather than pairing it with itself is the
 // other deliberate choice: duplicating the last leaf makes two different leaf
 // lists share a root, which is a known way to forge a Merkle membership.
-const AnchorScheme = "arcana-anchor/v1"
+//
+// v2 (migration 0049) changes what a leaf may commit to, not how the tree or
+// the payload is built: a leaf is a decision commitment, a portfolio snapshot
+// seal or a score seal, each the sha256 of a manifest whose first line names
+// its own scheme. The payload's version byte therefore stays 01.
+const AnchorScheme = "arcana-anchor/v2"
 
 // LeafHash hashes one decision commitment (64 hex characters) into a leaf.
 func LeafHash(commitment string) ([]byte, error) {

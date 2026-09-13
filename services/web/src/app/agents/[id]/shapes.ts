@@ -18,7 +18,12 @@ export type Passport = {
     asset_universe?: string | null;
     created_at: string | null;
   };
-  creator: { id: string | null; handle: string | null; reputation_score: number | null } | null;
+  creator: {
+    id: string | null;
+    handle: string | null;
+    reputation_score: number | null;
+    reputation?: { version: string; status: 'measured' | 'not_measured'; value: number | null; agents: number; note: string } | null;
+  } | null;
   participation: {
     ranked: boolean;
     threshold_decisions: number | null;

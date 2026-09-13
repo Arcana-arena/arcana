@@ -107,18 +107,20 @@ func run(ctx context.Context) error {
 	}
 
 	// ---- 2. the batch --------------------------------------------------------
-	leaves, err := st.UnanchoredCommitments(ctx, maxLeaves)
+	leaves, err := st.UnanchoredLeaves(ctx, maxLeaves)
 	if err != nil {
 		return err
 	}
 	if len(leaves) == 0 {
-		log.Printf("anchor: every sealed decision is already anchored; nothing to write")
+		log.Printf("anchor: every sealed record is already anchored, or a score is waiting for its inputs to be mined; nothing to write")
 		return nil
 	}
+	kinds := map[string]int{}
 	hashes := make([][]byte, len(leaves))
 	for i, l := range leaves {
+		kinds[l.Kind]++
 		if hashes[i], err = store.LeafHash(l.Commitment); err != nil {
-			return fmt.Errorf("decision %d: %w", l.DecisionID, err)
+			return fmt.Errorf("%s leaf %d (agent %s): %w", l.Kind, i, l.AgentID, err)
 		}
 	}
 	root := hex.EncodeToString(store.MerkleRoot(hashes))
@@ -145,7 +147,7 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("anchoring wallet balance: %w", err)
 	}
 	if balance.Cmp(need) < 0 {
-		msg := fmt.Sprintf("the anchoring wallet %s holds %s wei and one anchor needs up to %s; %d sealed decision(s) are waiting",
+		msg := fmt.Sprintf("the anchoring wallet %s holds %s wei and one anchor needs up to %s; %d sealed record(s) are waiting",
 			sender, balance, need, len(leaves))
 		ever, _ := st.AnyAnchorMined(ctx)
 		if !ever {
@@ -200,10 +202,11 @@ func run(ctx context.Context) error {
 		return nil
 	}
 	record(ctx, st, rpc, feed, id, rec)
-	log.Printf("anchor: anchor %d — %d decision(s) %d..%d, root %s, tx %s, block %s, status %s",
-		id, len(leaves), leaves[0].DecisionID, leaves[len(leaves)-1].DecisionID, root, signed.TxHash, rec.BlockNumber, rec.Status)
+	log.Printf("anchor: anchor %d — %d leaf/leaves (%d decision, %d portfolio snapshot, %d score), root %s, tx %s, block %s, status %s",
+		id, len(leaves), kinds[store.LeafDecision], kinds[store.LeafPortfolioSnapshot], kinds[store.LeafScore],
+		root, signed.TxHash, rec.BlockNumber, rec.Status)
 	if !rec.Succeeded() {
-		return fmt.Errorf("anchor %d reverted on chain (tx %s); its decisions return to the queue", id, signed.TxHash)
+		return fmt.Errorf("anchor %d reverted on chain (tx %s); its records return to the queue", id, signed.TxHash)
 	}
 	return nil
 }

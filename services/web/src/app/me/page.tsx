@@ -207,9 +207,10 @@ export default async function MePage() {
               )}
             </div>
             <div className="m3" style={{ fontSize: 10.5, marginTop: 2 }}>
-              {d.creator.reputation_score === 0
-                ? 'a stored zero — no reputation run has written to it'
-                : 'feeds one weighted term of each agent’s score'}
+              {d.creator.reputation?.status === 'measured'
+                ? `mean performance of ${d.creator.reputation.agents} active agent(s), from sealed scores`
+                : 'not measured — no active agent has a sealed score yet'}{' '}
+              · <Link href={`/creators/${d.creator.id}`}>breakdown</Link>
             </div>
           </div>
         </div>

@@ -86,10 +86,22 @@ export function PassportTab({ p, passportError }: { p: Passport | null; passport
             <div style={{ fontSize: 18 }}>{p.creator?.handle ?? <span className="m3">not reported</span>}</div>
           </div>
           <div>
-            <Lbl>REPUTATION</Lbl>
+            <Lbl>CREATOR REPUTATION</Lbl>
+            {/* DERIVED FROM SEALED SCORES. The number this used to print was a
+                column nothing ever wrote; "not measured" is the honest answer
+                until a sealed score exists. */}
             <div className="mono" style={{ fontSize: 18 }}>
-              <Num value={fmtScore(p.creator?.reputation_score)} />
+              {p.creator?.reputation?.status === 'measured' ? (
+                <Num value={fmtScore(p.creator.reputation.value)} />
+              ) : (
+                <span className="m3">not measured</span>
+              )}
             </div>
+            {p.creator?.id ? (
+              <div className="m3" style={{ fontSize: 10.5 }}>
+                <Link href={`/creators/${p.creator.id}`}>from sealed scores · breakdown</Link>
+              </div>
+            ) : null}
           </div>
         </div>
       </section>

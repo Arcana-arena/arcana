@@ -7,6 +7,16 @@
  * has earned nothing from one who was never payable.
  */
 
+/** A creator's reputation, derived from sealed scores (GET /v1/creators/:id/reputation). */
+export type CreatorReputationRef = {
+  version: string;
+  status: 'measured' | 'not_measured';
+  value: number | null;
+  agents: number;
+  note: string;
+  url: string;
+};
+
 export type AttentionKind =
   | 'paused_by_meter'
   | 'unguarded_position'
@@ -63,6 +73,7 @@ export type Dashboard = {
     wallet_address: string | null;
     can_be_paid: boolean;
     reputation_score: number | null;
+    reputation?: CreatorReputationRef | null;
     status: string;
     created_at: string | null;
   };
