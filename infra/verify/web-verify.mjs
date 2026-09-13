@@ -353,7 +353,7 @@ await section('Seasons render what the season record says, including the unknown
   // enforced: null must not read as "not enforced".
   const unknown = items.filter((s) => s.access && s.access.enforced === null);
   if (unknown.length === 0) {
-    nothingToCheck('no season currently has enforced=null, so the unknown-gate rendering is not exercised');
+    nothingToCheck('no season currently has enforced=null, so the unknown-gate rendering is not exercised HERE — gate-unknown-verify builds that condition and proves it');
   } else {
     check('a gate nothing has verified is shown as unknown, not as unenforced',
       /nothing has verified this gate|UNKNOWN/i.test(t),

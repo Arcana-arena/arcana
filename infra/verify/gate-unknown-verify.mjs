@@ -33,7 +33,8 @@
  *   node infra/verify/gate-unknown-verify.mjs
  */
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { suite } from './lib/sections.mjs';
@@ -132,6 +133,38 @@ const text = (h) =>
 const AGENT_DIST = join(ROOT, 'services/agent-service/dist/main.js');
 const WEB_DIR = join(ROOT, 'services/web');
 
+/**
+ * THE LIVE SERVICE'S OWN ENVIRONMENT, with the one variable the rig changes.
+ *
+ * The first version inherited the verifier's shell, which is not what the
+ * service runs with: DATABASE_URL is set in the systemd unit, not in any file a
+ * shell sources, so the rig agent failed its database login and the suite
+ * never reached the thing it exists to prove. Reading the running process's
+ * environment is what makes "the same service, arca unreachable" literally
+ * true rather than approximately true.
+ */
+function liveEnv(unit) {
+  const pid = execFileSync('systemctl', ['show', unit, '-p', 'MainPID', '--value'], { encoding: 'utf8' }).trim();
+  if (!pid || pid === '0') throw new Error(`${unit} is not running, so there is no live environment to copy`);
+  const env = {};
+  for (const kv of readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0')) {
+    const i = kv.indexOf('=');
+    if (i > 0) env[kv.slice(0, i)] = kv.slice(i + 1);
+  }
+  // Process bookkeeping that belongs to that one systemd invocation.
+  for (const k of ['INVOCATION_ID', 'JOURNAL_STREAM', 'SYSTEMD_EXEC_PID']) delete env[k];
+  return env;
+}
+
+/**
+ * `next` resolved the way the live unit's `npx next start` resolves it. The
+ * workspace hoists it to the root node_modules, so services/web has no .bin of
+ * its own — which is what the first version looked for.
+ */
+function nextBin() {
+  return createRequire(join(WEB_DIR, 'package.json')).resolve('next/dist/bin/next');
+}
+
 try {
   await section('The rig can be built at all', async () => {
     check('the agent service is built', existsSync(AGENT_DIST), `${AGENT_DIST} does not exist`);
@@ -159,6 +192,7 @@ try {
       cwd: join(ROOT, 'services/agent-service'),
       env: {
         ...process.env,
+        ...liveEnv('arcana-agent'),
         PORT: String(AGENT_PORT),
         // THE WHOLE RIG, IN ONE VARIABLE.
         ARCA_SERVICE_URL: `http://127.0.0.1:${DEAD_ARCA_PORT}`,
@@ -203,12 +237,15 @@ try {
   });
 
   await section('And the page draws that third state as its own thing', async () => {
-    const next = join(WEB_DIR, 'node_modules/.bin/next');
-    check('the web app has its own next binary', existsSync(next), `${next} does not exist`);
-    const web = start(next, ['start', '-p', String(WEB_PORT)], {
+    let next = '';
+    try { next = nextBin(); } catch (e) { /* reported just below */ }
+    check('next resolves from the web app the way its unit resolves it', Boolean(next) && existsSync(next),
+      `next/dist/bin/next could not be resolved from ${WEB_DIR}`);
+    const web = start('node', [next, 'start', '-H', '127.0.0.1', '-p', String(WEB_PORT)], {
       cwd: WEB_DIR,
       env: {
         ...process.env,
+        ...liveEnv('arcana-web'),
         PORT: String(WEB_PORT),
         AGENT_API: `http://127.0.0.1:${AGENT_PORT}`,
       },
