@@ -32,6 +32,7 @@ import { Footer } from '@/components/layout/Footer';
 import { Lbl, Num } from '@/components/ds/primitives';
 import { Callout, Empty, Failed, StatusBox } from '@/components/ds/states';
 import type { MySubscription, SubscriptionBook } from '../../marketplace/shapes';
+import { DeriveWallet } from './DeriveWallet';
 
 export const dynamic = 'force-dynamic';
 
@@ -247,9 +248,12 @@ function SubCard({ x, book }: { x: MySubscription; book: SubscriptionBook | { er
       <div>
         <Lbl>POSITIONS IN MY WALLET{holdings.length > 0 ? ` · ${holdings.length}` : ''}</Lbl>
         {!x.walletAddress ? (
-          <div className="m3" style={{ fontSize: 12, marginTop: 4, lineHeight: 1.5 }}>
-            This subscription has no trading wallet yet, so there is nothing to hold. Not an empty book — no book.
-          </div>
+          <>
+            <div className="m3" style={{ fontSize: 12, marginTop: 4, lineHeight: 1.5 }}>
+              This subscription has no trading wallet yet, so there is nothing to hold. Not an empty book — no book.
+            </div>
+            <DeriveWallet subscriptionId={x.id} />
+          </>
         ) : book && 'error' in book ? (
           <div className="m3" style={{ fontSize: 12, marginTop: 4, lineHeight: 1.5 }}>
             The book could not be read ({book.error}). Nothing is listed rather than an empty list, which would say you
