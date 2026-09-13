@@ -78,7 +78,9 @@ export async function OverviewTab({
 
   return (
     <div style={{ display: 'grid', gap: 28 }}>
-      <section style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 400px) minmax(0, 1fr)', gap: 28 }}>
+      {/* ov-grid stacks the two columns below 1000px (globals.css); on a phone
+          they sat side by side and pushed the page to 674px. */}
+      <section className="ov-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 400px) minmax(0, 1fr)', gap: 28 }}>
         {/* ------------------------------------------- score + mandate */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
           <div className="node" style={{ padding: '16px 18px' }}>
@@ -170,7 +172,7 @@ export async function OverviewTab({
 
         {/* ----------------------------------------------- charts + stats */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 24 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(300px, 100%), 1fr))', gap: 24 }}>
             <div className="node" style={{ padding: '14px 16px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, gap: 8 }}>
                 <span className="k">ARCANA Score</span>

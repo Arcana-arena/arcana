@@ -83,7 +83,7 @@ export default async function AgentPage({
     return (
       <div className="page">
         <Header current="Agents" />
-        <div className="sec" style={{ padding: '48px 32px', borderBottom: 'none' }}>
+        <div className="sec" style={{ paddingTop: 48, paddingBottom: 48, borderBottom: 'none' }}>
           <Failed what="This agent" error={agentR} />
         </div>
         <Footer />

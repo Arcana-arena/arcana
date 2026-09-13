@@ -384,8 +384,12 @@ h2 { font-size: 22px; }
   .footer-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 1000px) {
-  .grid-hero, .grid-featured, .grid-seasons { grid-template-columns: 1fr; }
-  .grid-3-box, .grid-3 { grid-template-columns: 1fr; }
+  /* minmax(0, 1fr), not 1fr. A bare 1fr track cannot shrink below its
+     content's min-content width, so the landing hero stayed 484px wide on a
+     390px phone and the whole page scrolled sideways. */
+  .grid-hero, .grid-featured, .grid-seasons { grid-template-columns: minmax(0, 1fr); }
+  .grid-3-box, .grid-3 { grid-template-columns: minmax(0, 1fr); }
+  .ov-grid { grid-template-columns: minmax(0, 1fr) !important; }
   .grid-3-cell { border-right: none; }
 }
 @media (max-width: 640px) {

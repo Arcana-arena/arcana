@@ -169,7 +169,12 @@ for (const [name, path] of PAGES) {
 // leaderboard are the three shapes most likely to widen a 390px viewport, and a
 // page that scrolls sideways on a phone is unusable in a way no desktop check
 // notices. A 320px fixed track once widened the seasons page to 359 here.
+// The landing hero and an agent's Overview tab both scrolled sideways on a
+// phone (516px and 674px) for as long as nothing here opened them at 390px.
 for (const [name, path] of [
+  ['landing', '/'],
+  ['agents', '/agents'],
+  ...(AGENT_ID ? [['agent', `/agents/${AGENT_ID}`]] : []),
   ['leaderboard', '/leaderboard'],
   ['docs', '/docs/scoring'],
   ['marketplace', '/marketplace'],

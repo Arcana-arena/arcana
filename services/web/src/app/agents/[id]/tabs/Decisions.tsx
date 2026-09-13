@@ -128,7 +128,7 @@ export async function DecisionsTab({
                   return (
                   <>
                   <tr key={`${row.ts}-${i}`} style={isOpen ? { background: 'rgba(47,232,140,.05)' } : undefined}>
-                    <td className="mono m2" style={{ fontSize: 11.5 }}>
+                    <td className="mono m2" style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>
                       {utc(row.ts)}
                     </td>
                     <td>

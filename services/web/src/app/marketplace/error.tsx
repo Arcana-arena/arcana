@@ -12,7 +12,7 @@ import Link from 'next/link';
  */
 export default function MarketplaceError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   return (
-    <div className="sec" style={{ padding: '48px 32px', borderBottom: 'none' }}>
+    <div className="sec" style={{ paddingTop: 48, paddingBottom: 48, borderBottom: 'none' }}>
       <div className="status status-bad">
         <div className="status-title">The marketplace page failed to render</div>
         <div className="status-body">

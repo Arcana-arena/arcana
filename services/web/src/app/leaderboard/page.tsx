@@ -90,7 +90,7 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
     <div className="page">
       <Header current="Leaderboard" />
       {!board.ok ? (
-        <div className="sec" style={{ padding: '48px 32px', borderBottom: 'none' }}>
+        <div className="sec" style={{ paddingTop: 48, paddingBottom: 48, borderBottom: 'none' }}>
           <Failed what="The leaderboard" error={board} />
         </div>
       ) : (

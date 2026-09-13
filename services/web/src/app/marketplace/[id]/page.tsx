@@ -47,7 +47,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
     return (
       <div className="page">
         <Header current="Marketplace" />
-        <div className="sec" style={{ padding: '48px 32px', borderBottom: 'none' }}>
+        <div className="sec" style={{ paddingTop: 48, paddingBottom: 48, borderBottom: 'none' }}>
           <Failed what="This listing" error={detailR} />
         </div>
         <Footer />

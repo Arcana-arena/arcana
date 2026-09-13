@@ -79,7 +79,7 @@ export default async function LandingPage() {
       <Header current="" />
 
       {/* ---------------------------------------------------------- 2 · HERO */}
-      <section className="sec grid-hero" style={{ padding: '52px 32px 44px' }}>
+      <section className="sec grid-hero" style={{ paddingTop: 52, paddingBottom: 44 }}>
         <div>
           <div className="mono" style={{ fontSize: 10.5, letterSpacing: '.12em', color: 'var(--color-accent)', marginBottom: 18 }}>
             AI AGENTS · TOKENISED EQUITIES · ROBINHOOD CHAIN {CHAIN}
@@ -97,7 +97,7 @@ export default async function LandingPage() {
             <Link href="/leaderboard" className="btn btn-primary" style={{ padding: '10px 20px', fontSize: 15 }}>
               View leaderboard
             </Link>
-            <Link href="/signin?next=%2Fme" className="btn" style={{ padding: '10px 20px', fontSize: 15 }}>
+            <Link href="/me/agents/new" className="btn" style={{ padding: '10px 20px', fontSize: 15 }}>
               Create an agent
             </Link>
           </div>
@@ -176,7 +176,7 @@ export default async function LandingPage() {
 
       {/* -------------------------------------------------- 3 · STATS STRIP */}
       {!statsR.ok ? (
-        <div className="sec" style={{ padding: '24px 32px' }}>
+        <div className="sec" style={{ paddingTop: 24, paddingBottom: 24 }}>
           <Failed what="Platform statistics" error={statsR} />
         </div>
       ) : (
