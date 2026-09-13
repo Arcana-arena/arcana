@@ -748,6 +748,25 @@ await section('The landing page shows what it cannot source, rather than a plaus
     `API total ${creators.body?.total}`);
 });
 
+await section('The creator surface is private, and says so rather than rendering empty', async () => {
+  // NO SESSION IS SENT BY THIS SUITE, deliberately. Every page under /me
+  // holds somebody's wallet addresses and the state of their protective
+  // levels, and a signed-out visitor must be sent to sign in rather than
+  // shown a dashboard with nothing in it — an empty dashboard reads as
+  // "you have no agents", which is a claim about somebody else.
+  for (const [name, path] of [
+    ['the dashboard', '/me'],
+    ['the create form', '/me/agents/new'],
+    ['my subscriptions', '/me/subscriptions'],
+  ]) {
+    const p = await page(path);
+    const t = text(p.html);
+    check(name + ' sends a signed-out visitor to sign in',
+      /Sign in|signin/i.test(p.html), 'status ' + p.status);
+    check(name + " does not render somebody's agents to a stranger",
+      !/Needs attention|My agents/i.test(t), 'private content rendered without a session');
+  }
+});
 await section('A URL that names nothing says so', async () => {
   const p = await page('/no-such-page-here');
   check('an unknown path answers 404', p.status === 404, `status ${p.status}`);
