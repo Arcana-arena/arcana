@@ -38,7 +38,13 @@ EnvironmentFile=-/home/ubuntu/arcana/.env.siwe
 # No secrets. This process has no session, no key and no write path: the only
 # thing it stores is the visitor’s own session cookie, which it never reads back
 # into a page.
-ExecStart=/usr/bin/npx next start -p 3000
+# -H 127.0.0.1 IS NOT OPTIONAL. `next start` binds 0.0.0.0 by default, and this
+# unit shipped without it: the web server was listening on every interface while
+# every other service on this host binds loopback and nothing else, deliberately,
+# so that nginx is the only door. ufw happened to be denying 3000, which means
+# the mistake was invisible and one firewall edit away from being a second,
+# unrate-limited, unproxied entrance to the whole surface.
+ExecStart=/usr/bin/npx next start -H 127.0.0.1 -p 3000
 Restart=on-failure
 RestartSec=5
 
