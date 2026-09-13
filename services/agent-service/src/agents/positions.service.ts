@@ -225,7 +225,12 @@ export class AgentPositionsService {
               d.prompt_hash, d.response_hash, d.market_snapshot_ref,
               pe.body AS prompt_body, pe.bytes AS prompt_bytes,
               re.body AS response_body, re.bytes AS response_bytes
-         FROM decisions d
+         -- decisions_counted, NOT the raw table. The view excludes rows
+         -- marked as measurement artefacts, and artefact-verify fails any
+         -- service that reads around it — correctly: an endpoint that serves
+         -- evidence for a row every other surface refuses to count would be
+         -- publishing a decision the platform does not consider real.
+         FROM decisions_counted d
          LEFT JOIN decision_evidence pe ON pe.hash = d.prompt_hash
          LEFT JOIN decision_evidence re ON re.hash = d.response_hash
         WHERE d.id = $1 AND d.agent_id = $2`,
