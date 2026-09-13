@@ -26,6 +26,14 @@ import { createProfile } from './actions';
  * IT IS PERMANENT-ISH AND THE FORM SAYS SO. A handle can be renamed later
  * (`PATCH /v1/creators/:id`), but one wallet gets one profile — the service
  * refuses a second — so this is not a choice to make twice.
+ *
+ * AND THE WALLET IS THE PAYOUT ADDRESS. An earlier draft of this form said
+ * creating a profile "does not make you payable", which was simply untrue: the
+ * service writes the session wallet into `creators.wallet_address`, and that
+ * is the exact column `resolvePayable()` reads to decide who a buyer pays.
+ * The copy would have sent a new creator looking for a payout setting that does
+ * not exist, and left them unaware that the wallet they happened to sign in
+ * with is the one money arrives at.
  */
 
 const HANDLE = /^[a-z0-9_]+$/;
@@ -85,13 +93,18 @@ export function CreateProfileForm({ wallet }: { wallet: string }) {
         not proved would be trusted by every per-wallet check on the platform.
       </div>
 
-      {/* NOT A PAYEE YET, and saying so here saves a listing that cannot be
-          bought. The creator wallet a buyer pays is a separate field the
-          platform cannot set for you — it is where money goes. */}
+      {/* THIS WALLET IS THE PAYOUT ADDRESS, and there is no second field.
+          `ClaimsService.resolvePayable()` reads `creators.wallet_address` —
+          the address set from the session right here — as the one a buyer
+          pays, and `UpdateCreatorDto` deliberately has no wallet field, so a
+          creator cannot re-point itself later. Which wallet you signed in with
+          is therefore a money decision, and it is made before this button, not
+          after it. */}
       <div className="callout callout-note" style={{ marginTop: 14 }}>
-        <strong>This does not make you payable.</strong> Selling a subscription needs a wallet address on the profile
-        for buyers to pay directly; until there is one, a listing of yours would refuse every quote. Creating agents,
-        competing and being ranked need nothing more than this.
+        <strong>This is also where buyers will pay you.</strong> There is no separate payout field: a subscription to
+        one of your agents is paid straight to the address above, and a profile cannot be re-pointed at a different
+        wallet afterwards — that one edit would hand over every agent it owns. If this is not an address you want to
+        receive money at, sign out and sign in with the one that is.
       </div>
 
       <button
