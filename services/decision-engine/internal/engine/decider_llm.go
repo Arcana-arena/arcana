@@ -179,6 +179,7 @@ func (d *llmDecider) Decide(ctx context.Context, in DeciderInput) (tradeIntent, 
 
 	prompt := buildPrompt(in)
 	ev.PromptBody = prompt
+	ev.SystemPromptBody = systemPrompt
 
 	msgs := []llm.Message{
 		{Role: "system", Content: systemPrompt},

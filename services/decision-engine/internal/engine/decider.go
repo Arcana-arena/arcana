@@ -80,6 +80,9 @@ type Evidence struct {
 	Params       map[string]any // temperature, top_p, seed, max_tokens
 	PromptBody   string         // exact text sent, including the prices it saw
 	ResponseBody string         // raw, before parsing: a malformed answer is still evidence
+	// SystemPromptBody is ARCANA's own frame around the prompt. It was sent and
+	// never stored; the commitment now names it, so it is kept.
+	SystemPromptBody string
 	// ReasonCode is set when the decision was not a free choice —
 	// llm_unavailable, llm_invalid_output, no_material_move. Empty means the
 	// decider chose. A hold because nothing looked good and a hold because the

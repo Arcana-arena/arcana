@@ -364,18 +364,15 @@ func (e *Engine) recordProtective(ctx context.Context, g store.Guard, action str
 		return 0, fmt.Errorf("snapshot ref: %w", err)
 	}
 	ts := time.Now().UTC()
-	id, err := e.store.AppendDecision(ctx, store.DecisionInsert{
+	// Sealed like every other decision: evidence and commitment go in with the
+	// row, so a platform exit is as checkable as an agent's own trade.
+	id, err := e.appendDecision(ctx, store.DecisionInsert{
 		AgentID: g.AgentID, SeasonID: seasonID, TS: ts, MarketSnapshotRef: ref,
 		Action: action, Symbol: g.Symbol, Quantity: moneyPtr(qty),
 		Rationale: rationale,
-	})
+	}, Evidence{Decider: DeciderProtective, ReasonCode: reason})
 	if err != nil {
 		return 0, err
-	}
-	if err := e.store.AttachEvidence(ctx, id, g.AgentID, ts, store.DecisionEvidence{
-		Decider: DeciderProtective, ReasonCode: reason,
-	}); err != nil {
-		log.Printf("ERROR protective decision %d recorded without its evidence: %v", id, err)
 	}
 	if execID != nil {
 		if err := e.store.LinkExecutionToDecision(ctx, *execID, id); err != nil {
@@ -394,7 +391,7 @@ func (e *Engine) recordProtectiveSettlement(ctx context.Context, req ExecuteRequ
 	portfolioID string, prices map[string]float64, set settlement) (int64, error) {
 
 	id, err := e.persist(ctx, req, portfolioID, set.Action, set.Symbol, set.Qty,
-		set.Holdings, set.Cash, prices, set.Rationale)
+		set.Holdings, set.Cash, prices, set.Rationale, set.Ev)
 	if err != nil {
 		return 0, err
 	}
@@ -402,9 +399,6 @@ func (e *Engine) recordProtectiveSettlement(ctx context.Context, req ExecuteRequ
 		if err := e.store.LinkExecutionToDecision(ctx, *set.ExecID, id); err != nil {
 			log.Printf("ERROR execution %d recorded but not linked to decision %d: %v", *set.ExecID, id, err)
 		}
-	}
-	if err := e.store.AttachEvidence(ctx, id, req.AgentID, req.Timestamp, toStoreEvidence(set.Ev)); err != nil {
-		log.Printf("ERROR protective decision %d recorded without its evidence: %v", id, err)
 	}
 	return id, nil
 }

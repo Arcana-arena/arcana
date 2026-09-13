@@ -24,6 +24,10 @@ type DecisionEvidence struct {
 	ReasonCode   string
 	Thesis       map[string]any
 
+	// ARCANA's system prompt as sent. Identical across decisions, so it dedupes
+	// to one body; recorded because the commitment names it (see seal.go).
+	SystemPromptBody string
+
 	// What the decision COST, as the provider reported it.
 	//
 	// Zero means the decision bought no inference -- a deterministic strategy,
@@ -53,11 +57,7 @@ func (s *Store) StoreBody(ctx context.Context, kind, body string) (string, error
 	}
 	sum := sha256.Sum256([]byte(body))
 	h := hex.EncodeToString(sum[:])
-	_, err := s.pool.Exec(ctx,
-		`INSERT INTO decision_evidence (hash, kind, body, bytes, first_seen_at)
-		 VALUES ($1, $2, $3, $4, $5)
-		 ON CONFLICT (hash) DO NOTHING`,
-		h, kind, body, len(body), time.Now().UTC())
+	_, err := s.pool.Exec(ctx, insertEvidenceBodySQL, h, kind, body, len(body), time.Now().UTC())
 	if err != nil {
 		return "", fmt.Errorf("store %s evidence: %w", kind, err)
 	}

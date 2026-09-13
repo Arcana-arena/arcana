@@ -327,7 +327,12 @@ func (e *Engine) Execute(ctx context.Context, req ExecuteRequest) (int64, error)
 		action, symbol, qty, holdings, cash, rationale = applyIntent(intent, prices, holdings, cash)
 	}
 
-	decisionID, err := e.persist(ctx, req, portfolio.ID, action, symbol, qty, holdings, cash, prices, rationale)
+	// THE EVIDENCE GOES IN WITH THE DECISION. It used to be attached at the very
+	// end of this function, after execution linking and every subscriber trade,
+	// by an UPDATE that was allowed to fail. The commitment (0047) has to be
+	// written when the decision is recorded, not afterwards, so the evidence and
+	// its seal are part of the insert now.
+	decisionID, err := e.persist(ctx, req, portfolio.ID, action, symbol, qty, holdings, cash, prices, rationale, ev)
 	if err != nil {
 		return 0, err
 	}
@@ -357,28 +362,22 @@ func (e *Engine) Execute(ctx context.Context, req ExecuteRequest) (int64, error)
 		e.tradeForSubscribers(ctx, req, decisionID, intent, prices)
 	}
 
-	// Evidence is attached after the decision exists. A failure here loses the
-	// EXPLANATION, which is bad and is logged; failing the tick over it would
-	// lose the DECISION, which would put a hole in an append-only record whose
-	// whole value is that it has none.
-	if err := e.store.AttachEvidence(ctx, decisionID, req.AgentID, req.Timestamp, toStoreEvidence(ev)); err != nil {
-		log.Printf("ERROR decision %d recorded but its evidence was not: %v", decisionID, err)
-	}
 	return decisionID, nil
 }
 
 // toStoreEvidence converts the engine's evidence into its storage shape.
 func toStoreEvidence(ev Evidence) store.DecisionEvidence {
 	return store.DecisionEvidence{
-		Decider:      ev.Decider,
-		Provider:     ev.Provider,
-		Model:        ev.Model,
-		ModelVersion: ev.ModelVersion,
-		Params:       ev.Params,
-		PromptBody:   ev.PromptBody,
-		ResponseBody: ev.ResponseBody,
-		ReasonCode:   ev.ReasonCode,
-		Thesis:       ev.Thesis,
+		Decider:          ev.Decider,
+		Provider:         ev.Provider,
+		Model:            ev.Model,
+		ModelVersion:     ev.ModelVersion,
+		Params:           ev.Params,
+		PromptBody:       ev.PromptBody,
+		ResponseBody:     ev.ResponseBody,
+		SystemPromptBody: ev.SystemPromptBody,
+		ReasonCode:       ev.ReasonCode,
+		Thesis:           ev.Thesis,
 
 		PromptTokens:     ev.PromptTokens,
 		CompletionTokens: ev.CompletionTokens,
@@ -471,15 +470,39 @@ func (e *Engine) ExecuteManual(ctx context.Context, req ExecuteManualRequest) (i
 		SeasonID:          req.SeasonID,
 		Timestamp:         req.Timestamp,
 		MarketSnapshotRef: req.MarketSnapshotRef,
-	}, portfolio.ID, action, symbol, &qty, holdings, cash, prices, rationale)
+	}, portfolio.ID, action, symbol, &qty, holdings, cash, prices, rationale, Evidence{Decider: "human"})
 	if err != nil {
 		return 0, err
 	}
-	if err := e.store.AttachEvidence(ctx, decisionID, req.AgentID, req.Timestamp,
-		store.DecisionEvidence{Decider: "human"}); err != nil {
-		log.Printf("ERROR decision %d recorded but its evidence was not: %v", decisionID, err)
-	}
 	return decisionID, nil
+}
+
+// appendDecision records a decision with its evidence and commitment in one
+// transaction (store.AppendDecisionSealed).
+//
+// A DECISION IS NEVER LOST TO ITS SEAL. If the sealed write fails, the decision
+// is recorded the way it was before commitments existed — row first, evidence
+// attached after — and the missing commitment is logged as an error. The public
+// record then shows a decision with no commitment, which is true, rather than a
+// hole where a decision was, which would not be. Every writer of a decision row
+// comes through here, so no path can quietly skip the seal.
+func (e *Engine) appendDecision(ctx context.Context, d store.DecisionInsert, ev Evidence) (int64, error) {
+	sev := toStoreEvidence(ev)
+	id, _, err := e.store.AppendDecisionSealed(ctx, d, sev)
+	if err == nil {
+		return id, nil
+	}
+	log.Printf("ERROR agent %s: decision could not be sealed with a commitment; recording it without one: %v",
+		d.AgentID, err)
+
+	id, aerr := e.store.AppendDecision(ctx, d)
+	if aerr != nil {
+		return 0, aerr
+	}
+	if xerr := e.store.AttachEvidence(ctx, id, d.AgentID, d.TS, sev); xerr != nil {
+		log.Printf("ERROR decision %d recorded but its evidence was not: %v", id, xerr)
+	}
+	return id, nil
 }
 
 // --- shared pipeline pieces ---
@@ -517,8 +540,9 @@ func (e *Engine) loadState(ctx context.Context, agentID, seasonID, ref string) (
 	return portfolio, snap, prices, nil
 }
 
-// persist appends the decision + portfolio snapshot, computing NAV by mark-to-market.
-func (e *Engine) persist(ctx context.Context, req ExecuteRequest, portfolioID, action, symbol string, qty *float64, holdings map[string]any, cash float64, prices map[string]float64, rationale string) (int64, error) {
+// persist appends the decision — sealed with its evidence and commitment — and
+// the portfolio snapshot, computing NAV by mark-to-market.
+func (e *Engine) persist(ctx context.Context, req ExecuteRequest, portfolioID, action, symbol string, qty *float64, holdings map[string]any, cash float64, prices map[string]float64, rationale string, ev Evidence) (int64, error) {
 	nav := cash
 	for sym, q := range holdings {
 		if price, ok := prices[sym]; ok {
@@ -526,7 +550,7 @@ func (e *Engine) persist(ctx context.Context, req ExecuteRequest, portfolioID, a
 		}
 	}
 
-	decisionID, err := e.store.AppendDecision(ctx, store.DecisionInsert{
+	decisionID, err := e.appendDecision(ctx, store.DecisionInsert{
 		AgentID:             req.AgentID,
 		SeasonID:            req.SeasonID,
 		TS:                  req.Timestamp,
@@ -536,7 +560,7 @@ func (e *Engine) persist(ctx context.Context, req ExecuteRequest, portfolioID, a
 		Quantity:            moneyPtr(qty),
 		ResultingAllocation: holdings,
 		Rationale:           rationale,
-	})
+	}, ev)
 	if err != nil {
 		return 0, err
 	}
