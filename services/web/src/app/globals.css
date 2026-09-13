@@ -325,3 +325,64 @@ h2 { font-size: 22px; }
 /* A table wider than the screen scrolls in its own box; the page itself never
    scrolls sideways. */
 .scroll-x { overflow-x: auto; }
+
+/* ------------------------------------------------------- landing page grids */
+
+/* A bordered 3-across block whose cells share one outer rule rather than each
+   carrying their own — the dense, table-like look the mockups use throughout. */
+.grid-3-box {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border: 1px solid var(--color-divider);
+}
+.grid-3-cell {
+  padding: 16px 18px;
+  border-right: 1px solid var(--color-divider);
+  border-bottom: 1px solid var(--color-divider);
+}
+.grid-3-cell:nth-child(3n) { border-right: none; }
+.grid-3-cell:nth-last-child(-n + 3) { border-bottom: none; }
+
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+.grid-creators { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 330px) minmax(0, 300px); gap: 20px; }
+
+/* minmax(0, …) on every fixed track: a fixed width is a MINIMUM as well as a
+   maximum, so anything inside that refuses to shrink widens the page instead of
+   being clipped. That is how the seasons page started scrolling sideways. */
+.grid-hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 560px); gap: 40px; align-items: start; }
+.grid-featured { display: grid; grid-template-columns: minmax(0, 440px) minmax(0, 1fr); }
+.grid-seasons { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 380px); gap: 20px; }
+
+.footer-cols {
+  padding: 26px 32px 0;
+  display: grid;
+  grid-template-columns: minmax(0, 300px) repeat(4, minmax(0, 1fr));
+  gap: 32px;
+}
+
+/* The dense feed rows in the hero panel. */
+.feed-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) 52px 62px 46px 96px;
+  gap: 10px;
+  padding: 9px 14px;
+  border-bottom: 1px solid rgba(228, 237, 231, .07);
+  align-items: center;
+  font-size: 12px;
+}
+.feed-row:last-child { border-bottom: none; }
+
+@media (max-width: 1200px) {
+  .grid-creators { grid-template-columns: 1fr; }
+  .footer-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 1000px) {
+  .grid-hero, .grid-featured, .grid-seasons { grid-template-columns: 1fr; }
+  .grid-3-box, .grid-3 { grid-template-columns: 1fr; }
+  .grid-3-cell { border-right: none; }
+}
+@media (max-width: 640px) {
+  .footer-cols { grid-template-columns: 1fr; padding-left: 16px; padding-right: 16px; }
+  .feed-row { grid-template-columns: 58px minmax(0, 1fr) 46px 56px; }
+  .feed-row > :nth-child(n + 5) { display: none; }
+}

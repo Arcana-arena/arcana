@@ -12,8 +12,11 @@
 export function Footer({ asOf, note }: { asOf?: string | null; note?: string }) {
   return (
     <footer className="ftr">
-      <span className="mono m3" style={{ fontSize: 10, letterSpacing: '.12em' }}>
-        ARCANA · ROBINHOOD CHAIN {process.env.NEXT_PUBLIC_ARCANA_CHAIN_ID || '4663'}
+      <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <img src="/arcana-mark.png" alt="" width={16} height={16} style={{ display: 'block', opacity: 0.7 }} />
+        <span className="mono m3" style={{ fontSize: 10, letterSpacing: '.12em' }}>
+          ARCANA · ROBINHOOD CHAIN {process.env.NEXT_PUBLIC_ARCANA_CHAIN_ID || '4663'}
+        </span>
       </span>
       <span className="m3" title="Not published on this surface yet.">
         Docs

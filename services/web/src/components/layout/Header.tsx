@@ -33,15 +33,20 @@ export async function Header({ current }: { current?: string }) {
   return (
     <header className="hdr">
       <Link href="/" className="hdr-brand" style={{ color: 'var(--color-text)' }}>
-        <span
-          aria-hidden
-          style={{
-            width: 18,
-            height: 18,
-            border: '2px solid var(--color-accent)',
-            display: 'inline-block',
-            transform: 'rotate(45deg)',
-          }}
+        {/*
+          THE ACTUAL MARK, not a CSS lozenge standing in for one. A plain <img>
+          rather than next/image: it is one small fixed-size asset on every page,
+          so there is nothing for an optimiser to decide, and next/image would
+          add a runtime dependency on sharp to resize a file that is already the
+          right size. width/height are set so it reserves its space and the
+          header does not jump as it loads.
+        */}
+        <img
+          src="/arcana-mark.png"
+          alt=""
+          width={24}
+          height={24}
+          style={{ display: 'block' }}
         />
         <span className="hdr-word">ARCANA</span>
       </Link>
