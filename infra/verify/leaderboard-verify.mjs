@@ -57,17 +57,35 @@ await section('It answers, publicly, and says what it is a leaderboard of', asyn
 });
 
 await section('Seven categories, and the eighth is refused rather than ignored', async () => {
-  const keys = (board.body?.categories ?? []).map((c) => c.key);
-  check('exactly seven categories are offered', keys.length === 7, `offered: ${keys.join(', ')}`);
+  const cats = board.body?.categories ?? [];
+  const keys = cats.map((c) => c.key);
+  // RANKABLE is the property that matters, not presence in the list.
+  //
+  // These two checks used to be "exactly seven categories" and "regime is NOT
+  // offered", and they were right about the intent and wrong about the shape.
+  // Leaving regime out of the list entirely made the score breakdown's weight
+  // column sum to 0.90, with the missing tenth being the one factor that
+  // measures nothing. It is in the list now, carrying its weight and marked
+  // unrankable — so the assertion moved from "is it absent" to "can it order a
+  // board", which is what was actually being protected.
+  const rankable = cats.filter((c) => c.rankable !== false).map((c) => c.key);
+  check('exactly seven rankable categories are offered', rankable.length === 7,
+    `rankable: ${rankable.join(', ')}`);
   for (const want of ['overall', 'performance', 'risk', 'consistency', 'strategy', 'longevity', 'creator']) {
-    check(`${want} is one of them`, keys.includes(want), `offered: ${keys.join(', ')}`);
+    check(`${want} is one of them`, rankable.includes(want), `rankable: ${rankable.join(', ')}`);
   }
 
   // THE ONE THAT MATTERS. regime_score is a flat placeholder the scoring engine
-  // writes identically for every agent. Offering it as a sort column would
-  // present a constant as a measurement.
-  check('regime is NOT offered', !keys.includes('regime') && !keys.includes('regime_score'),
-    `offered: ${keys.join(', ')}`);
+  // writes identically for every agent. Ordering by it would present a constant
+  // as a measurement.
+  check('regime is NOT rankable', !rankable.includes('regime') && !rankable.includes('regime_score'),
+    `rankable: ${rankable.join(', ')}`);
+  check('and it is published with its weight rather than hidden',
+    cats.some((c) => c.key === 'regime' && typeof c.weight === 'number'),
+    `regime = ${JSON.stringify(cats.find((c) => c.key === 'regime'))}`);
+  check('and it says it measures nothing',
+    /placeholder|not implemented|constant/i.test(cats.find((c) => c.key === 'regime')?.weight_note ?? ''),
+    JSON.stringify(cats.find((c) => c.key === 'regime')?.weight_note));
 
   const regime = await get(`season_id=${SEASON}&category=regime`);
   check('and asking for it is REFUSED, not quietly defaulted', regime.status === 400,
@@ -249,7 +267,11 @@ await section("The weights are the scoring engine's, not a copy of them", async 
     ['wPerformance', 'performance'], ['wRisk', 'risk'], ['wConsistency', 'consistency'],
     ['wRegime', 'regime'], ['wCreator', 'creator'], ['wLongevity', 'longevity'],
   ]) {
-    const m = go.match(new RegExp(name + '\s*=\s*([0-9.]+)'));
+    // `\\s`, not `\s`. In a JavaScript string literal '\s' is an unknown escape
+    // and collapses to a bare 's', so the pattern became `wPerformances*=s*…`
+    // and matched nothing — and the check reported "found none" as though
+    // score.go had no weights at all.
+    const m = go.match(new RegExp(name + '\\s*=\\s*([0-9.]+)'));
     if (m) want[key] = Number(m[1]);
   }
   check('score.go declares six weights', Object.keys(want).length === 6,
