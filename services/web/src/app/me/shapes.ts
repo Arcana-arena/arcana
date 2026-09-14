@@ -22,6 +22,7 @@ export type AttentionKind =
   | 'unguarded_position'
   | 'guard_held_back'
   | 'no_wallet'
+  | 'gas_low'
   | 'unranked'
   | 'quiet';
 
@@ -62,8 +63,34 @@ export type DashboardAgent = {
     subscribers_grace: number;
   } | null;
   wallet: { address: string; key_custody: string | null } | null;
+  /** The latest decision itself — what it was, not only when. */
+  last_decision: { action: string; symbol: string | null; decider: string | null; reason_code: string | null } | null;
+  /** null = no snapshot yet; [] = the latest snapshot holds only cash. */
+  positions: Array<{ symbol: string; qty: number }> | null;
+  /** The wallet tab's own gas measurement; null for agents it is not read for (retired, draft, no wallet). */
+  gas: {
+    read: boolean;
+    known: boolean;
+    low: boolean | null;
+    transactions_affordable: number | null;
+    native_amount: string | null;
+    note: string | null;
+  } | null;
   last_reason_code: string | null;
   guards: { armed: number; held_back: number; refused: number };
+};
+
+/** Measured running costs on this platform, for the create form. Every figure is measured or null. */
+export type CostReference = {
+  window: string;
+  decisions: number;
+  median_tokens_per_decision: number | null;
+  decisions_with_inference: number;
+  share_of_decisions_that_traded: number | null;
+  transactions_per_trade: number | null;
+  median_gas_usd_per_transaction: number | null;
+  priced_transactions: number;
+  model_price_note: string;
 };
 
 export type Dashboard = {
@@ -81,6 +108,7 @@ export type Dashboard = {
   agents: DashboardAgent[];
   attention: Attention[];
   attention_note: string;
+  cost_reference?: CostReference;
   as_of: string;
 };
 

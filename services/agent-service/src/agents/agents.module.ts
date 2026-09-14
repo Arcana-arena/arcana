@@ -19,6 +19,8 @@ import { AgentWalletViewService } from './wallet-view.service';
   imports: [TypeOrmModule.forFeature([Agent, AgentWallet]), EntitlementsModule, AuthModule],
   controllers: [AgentsController],
   providers: [AgentsService, AgentWalletsService, DecisionClient, AgentOverviewService, AgentPositionsService, MarketPriceClient, AgentLifecycleService, AgentTriggersService, AgentWalletViewService],
-  exports: [AgentWalletsService],
+  // AgentWalletViewService is exported so the creator dashboard reads gas with
+  // the wallet tab's own measurement instead of a second definition of "low".
+  exports: [AgentWalletsService, AgentWalletViewService],
 })
 export class AgentsModule {}

@@ -799,6 +799,7 @@ await section('The creator surface is private, and says so rather than rendering
   // "you have no agents", which is a claim about somebody else.
   for (const [name, path] of [
     ['the dashboard', '/me'],
+    ['earnings', '/me/earnings'],
     ['the create form', '/me/agents/new'],
     ['my subscriptions', '/me/subscriptions'],
   ]) {
@@ -807,7 +808,8 @@ await section('The creator surface is private, and says so rather than rendering
     check(name + ' sends a signed-out visitor to sign in',
       /Sign in|signin/i.test(p.html), 'status ' + p.status);
     check(name + " does not render somebody's agents to a stranger",
-      !/Needs attention|My agents/i.test(t), 'private content rendered without a session');
+      !/Needs attention|My agents|What your agents are doing|Needs you|Paid, all time|Payments received/i.test(t),
+      'private content rendered without a session');
   }
 });
 await section('The agent directory exists, lists the live agents, and the header opens it', async () => {

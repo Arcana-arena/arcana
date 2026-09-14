@@ -1,17 +1,21 @@
 /**
  * Manage one agent: its mandate, its limits, its wallet, and what is armed.
  *
+ * WHAT IT IS DOING COMES FIRST, WHAT CAN BE CHANGED COMES SECOND. The top of the
+ * page is the same row the dashboard shows — status, score, what it holds, what
+ * it last decided, gas — plus anything that needs its owner, in full. Below it,
+ * every control is a section that opens on its own, and each closed section's
+ * summary line says what is currently set. Somebody who came to move a stop does
+ * not scroll past a listing form and a retirement warning to reach it.
+ *
+ * NOTHING IS HIDDEN THAT WAS SAID BEFORE. Every warning and consequence lives
+ * inside the section it belongs to, and is shown before its button exactly as
+ * it was: pausing keeps protective exits running, retiring sells nothing,
+ * evolving starts a new record and hands the seat over.
+ *
  * THE MANDATE IS SHOWN AS IMMUTABLE RATHER THAN OFFERED AND REFUSED. The
  * service rejects a mandate edit on anything past draft, with a sentence
- * explaining that evolve is how intent changes. Letting somebody write a new
- * mandate and then showing them that refusal teaches the same fact at the
- * worst possible moment, so the field is not there and the reason is.
- *
- * THE THREE PLACES THIS PLATFORM DIFFERS FROM ITS OWN DESIGN are all on this
- * page, and the platform's behaviour is what is printed: pausing stops
- * protective exits, retiring sells nothing, and evolving hands the seat over
- * rather than losing it. Every one of those was read out of the code rather
- * than assumed.
+ * explaining that evolve is how intent changes.
  *
  * KEY CUSTODY IS A HEADLINE. `shared` means the owner holds the key too and can
  * move funds without the platform — including mid-position — which changes what
@@ -21,10 +25,10 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { agent as publicRead, marketplace } from '@/lib/api';
 import { authed, getSession } from '@/lib/session';
-import { addr, int, num, txShort, utc, utcDate } from '@/lib/format';
+import { addr, int, num, score as fmtScore, txShort, utc, utcDate } from '@/lib/format';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
-import { Key, Lbl, Num, StatusTag, Tag } from '@/components/ds/primitives';
+import { Key, Lbl, StatusTag, Tag } from '@/components/ds/primitives';
 import { Callout, Empty, Failed, StatusBox } from '@/components/ds/states';
 import { Tabs } from '@/components/ds/nav';
 import { CreatorNav } from '../../CreatorNav';
@@ -38,7 +42,7 @@ import {
 import { ListingPanel } from './ListingPanel';
 import { CompetitionPanel, type EntryCompetition } from './CompetitionPanel';
 import { VisibilityPanel, type VisibilityDecision } from './VisibilityPanel';
-import type { Triggers, WalletBalances, WalletTransactions } from '../../shapes';
+import type { Attention, Dashboard, Triggers, WalletBalances, WalletTransactions } from '../../shapes';
 import type { AgentIntelligence } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -89,6 +93,45 @@ const TABS = [
 type SP = { [k: string]: string | string[] | undefined };
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
+const ATTENTION_LABEL: Record<Attention['kind'], string> = {
+  guard_held_back: 'CROSSED AND NOT TAKEN',
+  unguarded_position: 'NOTHING IS WATCHING',
+  gas_low: 'GAS RUNNING OUT',
+  paused_by_meter: 'PAUSED BY ITS COST METER',
+  no_wallet: 'NO TRADING WALLET',
+  quiet: 'NOTHING RECORDED RECENTLY',
+  unranked: 'NOT ENOUGH RECORD TO RANK',
+};
+const ATTENTION_TONE: Record<Attention['kind'], 'bad' | 'warn' | 'note'> = {
+  guard_held_back: 'bad',
+  unguarded_position: 'warn',
+  gas_low: 'warn',
+  paused_by_meter: 'warn',
+  no_wallet: 'warn',
+  quiet: 'warn',
+  unranked: 'note',
+};
+
+/** "0.015 = 1.5%" — the fraction and what it means, together. */
+const asPct = (v: unknown) => {
+  const n = Number(v);
+  if (v === null || v === undefined || v === '' || !Number.isFinite(n)) return null;
+  return `${(n * 100).toFixed(6).replace(/0+$/, '').replace(/\.$/, '')}%`;
+};
+
+function riskSummary(p: Record<string, unknown> | null): string {
+  if (!p || Object.keys(p).length === 0) return 'nothing set';
+  const stop = p.stop_loss_fraction ?? p.stopLossFraction ?? p.stop_loss_pct ?? p.stopLossPct;
+  const take = p.take_profit_fraction ?? p.takeProfitFraction ?? p.take_profit_pct ?? p.takeProfitPct;
+  const maxPos = p.max_position_pct ?? p.maxPositionPct;
+  const parts = [
+    stop !== undefined ? `stop ${stop} = ${asPct(stop)}` : 'no stop',
+    take !== undefined ? `target ${take} = ${asPct(take)}` : null,
+    maxPos !== undefined ? `max position ${asPct(maxPos)}` : null,
+  ].filter(Boolean);
+  return parts.join(' · ');
+}
+
 export default async function ManageAgentPage({
   params,
   searchParams,
@@ -126,9 +169,8 @@ export default async function ManageAgentPage({
 
   // Owner-only reads. A refusal is printed as a refusal: an agent that is not
   // yours must not render as an agent with nothing in it.
-  // IN THE ORDER OF THE ARRAY BELOW. The three intelligence reads sit after
-  // wallet and triggers; destructuring them anywhere else hands each variable
-  // another endpoint's answer, which the type checker caught.
+  // IN THE ORDER OF THE ARRAY BELOW. Destructuring them anywhere else hands
+  // each variable another endpoint's answer, which the type checker caught.
   const [walletR, triggersR, intelR, decisionsR, disclosuresR, listingsR, creatorR] = await Promise.all([
     authed<Wallet>(`/v1/agents/${id}/wallet`),
     authed<Triggers>(`/v1/agents/${id}/triggers`),
@@ -142,17 +184,14 @@ export default async function ManageAgentPage({
     publicRead<{ items: Array<{ scope: string; decision_id: number | null; disclosed_at: string }> }>(
       `/v1/agents/${id}/disclosures`,
     ),
-    // PUBLIC, and a lookup by key rather than a search. The listing table is
-    // small and the page needs the one row whose agentId is this agent; asking
-    // the browse endpoint would apply a provenance filter that has nothing to
-    // do with whether the owner may see their own listing.
+    // PUBLIC, and a lookup by key rather than a search.
     marketplace<Array<{ id: string; agentId: string; priceUsd: string | null; active: boolean }>>(
       '/v1/marketplace/listings',
     ),
+    // THE DASHBOARD ROW FOR THIS AGENT — the same numbers, the same attention
+    // items, one definition.
     s.state === 'signed_in' && s.session.creator_id
-      ? authed<{ creator: { can_be_paid: boolean }; agents: Array<{ id: string; listing: { subscribers_active: number } | null }> }>(
-          `/v1/creators/${s.session.creator_id}/dashboard`,
-        )
+      ? authed<Dashboard>(`/v1/creators/${s.session.creator_id}/dashboard`)
       : Promise.resolve({ ok: false as const, status: null, reason: 'no creator profile', body: null }),
   ]);
 
@@ -171,6 +210,7 @@ export default async function ManageAgentPage({
 
   const rawListing = listingsR.ok ? listingsR.data.find((l) => l.agentId === id) ?? null : null;
   const dashAgent = creatorR.ok ? creatorR.data.agents.find((x) => x.id === id) ?? null : null;
+  const attention = creatorR.ok ? creatorR.data.attention.filter((x) => x.agent_id === id) : [];
   const listing = rawListing
     ? {
         id: rawListing.id,
@@ -183,21 +223,22 @@ export default async function ManageAgentPage({
     : null;
   const creatorCanBePaid = creatorR.ok ? creatorR.data.creator.can_be_paid : null;
 
-  // PUBLIC, and awaited on its own rather than added to the array above: the
-  // destructuring there is positional, and it has already handed one variable
-  // another endpoint's answer once.
+  // PUBLIC, and awaited on its own rather than added to the array above.
   const competitionsR = await publicRead<{ items: EntryCompetition[] }>('/v1/competitions?page_size=50');
   const competitions = competitionsR.ok ? competitionsR.data.items.filter((c) => c.status !== 'completed') : [];
+  const seats = competitions.filter((c) => (c.participantIds ?? []).includes(id)).length;
 
   const wallet = walletR.ok ? walletR.data : null;
   const triggers = triggersR.ok ? triggersR.data : null;
   const armedSymbols = (triggers?.armed ?? []).map((g) => g.symbol);
+  const visibility = intelR.ok ? intelR.data.intelligence.visibility : a.visibility ?? 'public';
+  const riskProfile = intelR.ok ? (intelR.data.risk_profile as Record<string, unknown> | null) : a.riskProfile ?? null;
 
   return (
-    <Shell current="Overview" handle={undefined} creatorId={s.session.creator_id ?? undefined}>
+    <Shell current="Dashboard" creatorId={s.session.creator_id ?? undefined}>
       <div className="mono m3" style={{ fontSize: 11, marginBottom: 8 }}>
         <Link href="/me" className="m2">
-          Overview
+          Dashboard
         </Link>{' '}
         / {a.name}
       </div>
@@ -207,6 +248,7 @@ export default async function ManageAgentPage({
           v{a.version}
         </span>
         <StatusTag status={a.status} />
+        {wallet?.key_custody === 'shared' ? <Tag tone="amber">KEY SHARED</Tag> : null}
         <Link href={`/agents/${a.id}`} style={{ fontSize: 12, marginLeft: 'auto' }}>
           Public profile →
         </Link>
@@ -216,12 +258,89 @@ export default async function ManageAgentPage({
         created {utcDate(a.createdAt)}
       </div>
 
+      {/* WHAT IT IS DOING NOW — the dashboard row, with room. */}
+      {dashAgent ? (
+        <div className="stat-row" style={{ marginTop: 16 }}>
+          <div className="box">
+            <Lbl>{dashAgent.ranked ? 'SCORE' : 'SCORE · NOT PUBLISHED'}</Lbl>
+            <div className="mono" style={{ fontSize: 20, marginTop: 4 }}>
+              {dashAgent.latest_score === null ? <span className="m3">—</span> : fmtScore(dashAgent.latest_score)}
+            </div>
+            <div className="m3" style={{ fontSize: 10.5 }}>
+              {int(dashAgent.decisions)} decisions{dashAgent.ranked ? '' : ` of ${dashAgent.decisions_needed_to_rank} needed`}
+            </div>
+          </div>
+          <div className="box">
+            <Lbl>HOLDING</Lbl>
+            <div className="mono" style={{ fontSize: 13, marginTop: 6, lineHeight: 1.5 }}>
+              {dashAgent.positions === null ? (
+                <span className="m3">no snapshot yet</span>
+              ) : dashAgent.positions.length === 0 ? (
+                <span className="m2">cash only</span>
+              ) : (
+                dashAgent.positions.map((p) => (
+                  <div key={p.symbol}>
+                    {p.symbol} <span className="m3">{p.qty}</span>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="m3" style={{ fontSize: 10.5 }}>
+              {dashAgent.nav === null ? 'no NAV yet' : `NAV ${num(dashAgent.nav, 2)}`}
+              {dashAgent.nav_at ? ` · ${utc(dashAgent.nav_at)}` : ''}
+            </div>
+          </div>
+          <div className="box">
+            <Lbl>LAST DECISION</Lbl>
+            <div className="mono" style={{ fontSize: 13, marginTop: 6 }}>
+              {dashAgent.last_decision ? (
+                `${dashAgent.last_decision.action}${dashAgent.last_decision.symbol ? ` ${dashAgent.last_decision.symbol}` : ''}`
+              ) : (
+                <span className="m3">has never decided</span>
+              )}
+            </div>
+            <div className="m3" style={{ fontSize: 10.5 }}>
+              {dashAgent.last_decision_at ? utc(dashAgent.last_decision_at) : ''}
+              {dashAgent.last_decision?.decider === 'protective' ? ' · protective exit' : ''}
+            </div>
+          </div>
+          <div className="box" style={dashAgent.gas?.low ? { borderColor: 'rgba(212,162,74,.5)' } : undefined}>
+            <Lbl>GAS</Lbl>
+            <div className={dashAgent.gas?.low ? 'mono am' : 'mono'} style={{ fontSize: 13, marginTop: 6 }}>
+              {!dashAgent.gas ? (
+                <span className="m3">{dashAgent.wallet ? 'not read for this status' : 'no wallet'}</span>
+              ) : dashAgent.gas.known ? (
+                `~${int(dashAgent.gas.transactions_affordable)} transactions left`
+              ) : (
+                <span className="m3">runway unknown</span>
+              )}
+            </div>
+            <div className="m3" style={{ fontSize: 10.5, lineHeight: 1.4 }}>
+              {dashAgent.gas?.native_amount ? `${dashAgent.gas.native_amount} ETH · ` : ''}
+              <Link href={`/me/agents/${id}?tab=wallet`}>wallet</Link>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {attention.length > 0 ? (
+        <div style={{ marginTop: 14, display: 'grid', gap: 8 }}>
+          {attention.map((x, i) => (
+            <Callout key={`${x.kind}-${i}`} tone={ATTENTION_TONE[x.kind]}>
+              <strong>{ATTENTION_LABEL[x.kind]}</strong>
+              {x.since ? <span className="mono m3" style={{ fontSize: 10.5 }}> · since {utc(x.since)}</span> : null}
+              <div style={{ marginTop: 4 }}>{x.detail}</div>
+            </Callout>
+          ))}
+        </div>
+      ) : null}
+
       {a.status === 'paused' ? (
         <div style={{ marginTop: 14 }}>
           <Callout tone="bad">
-            <strong>This agent is paused, and its protective levels are not being watched.</strong> The guard watcher
-            only reads levels belonging to an active agent. Any armed stop on an open position is not being checked
-            against the price while this lasts — the rows still say ARMED and nothing disarmed them.
+            <strong>This agent is paused.</strong> It decides nothing until you resume it. Protective levels you
+            already have stay armed and are still checked against the price — see Lifecycle below for what a pause
+            does and does not stop.
           </Callout>
         </div>
       ) : null}
@@ -240,84 +359,110 @@ export default async function ManageAgentPage({
 
       <div style={{ marginTop: 20 }}>
         {tab === 'manage' ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 20 }}>
-            <section className="box">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span className="k">Mandate</span>
-                <span className="m3" style={{ fontSize: 11 }}>
-                  {a.status === 'draft' ? 'editable while this is a draft' : `immutable for v${a.version}`}
-                </span>
-              </div>
-              {intelR.ok && intelR.data.intelligence.private ? (
-                <div className="m3" style={{ fontSize: 11.5, marginTop: 6 }}>
-                  Private — only you can read this. It appears on no public surface.
-                </div>
-              ) : null}
-              {/* READ FROM THE OWNER'S COPY. The public read masks a private
-                  agent's mandate, so falling back to it would print "no mandate"
-                  about an agent that has one. */}
-              {(intelR.ok ? intelR.data.mandate : a.mandate) ? (
-                <pre className="mandate">{intelR.ok ? intelR.data.mandate : a.mandate}</pre>
-              ) : !intelR.ok && a.intelligence?.private ? (
-                <Failed what="Your copy of this private mandate" error={intelR} />
-              ) : (
-                <div className="m3" style={{ fontSize: 12, marginTop: 8 }}>
-                  No mandate is recorded on this agent.
-                </div>
-              )}
-              {a.status !== 'draft' ? (
-                <div className="m3" style={{ fontSize: 11, marginTop: 10, lineHeight: 1.45 }}>
-                  A mandate cannot be edited once an agent has started. Its recorded performance was produced under
-                  this text, so changing it in place would leave the leaderboard describing an agent that no longer
-                  exists. Changing intent is what a new version is for — the boundary is visible to anyone reading
-                  the history.
-                </div>
-              ) : null}
-            </section>
-
-            <RiskEditor
-              agentId={id}
-              // The owner's copy: a private agent's public read carries no risk
-              // profile, and editing from that would overwrite the real one.
-              initial={intelR.ok ? (intelR.data.risk_profile as Record<string, unknown> | null) : a.riskProfile ?? null}
-              editable={a.status !== 'retired'}
-            />
-
-            <VisibilityPanel
-              agentId={id}
-              agentName={a.name}
-              visibility={intelR.ok ? intelR.data.intelligence.visibility : a.visibility ?? 'public'}
-              disclosedAt={intelR.ok ? intelR.data.intelligence.disclosed_at : null}
-              decisions={decisionsR.ok ? decisionsR.data.decisions : []}
-              opened={
-                disclosuresR.ok
-                  ? disclosuresR.data.items
-                      .filter((x) => x.scope === 'decision' && x.decision_id !== null)
-                      .map((x) => x.decision_id as number)
-                  : []
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 10 }}>
+            {/* A DRAFT'S ONE JOB IS TO BE ACTIVATED, so its lifecycle opens first. */}
+            <Fold
+              title="Lifecycle"
+              state={
+                a.status === 'draft'
+                  ? 'draft — activate it'
+                  : a.status === 'retired'
+                    ? 'retired'
+                    : a.status === 'paused'
+                      ? 'paused — resume · evolve · retire'
+                      : 'pause · evolve · retire'
               }
-            />
+              open={a.status === 'draft'}
+            >
+              <LifecyclePanel
+                agentId={id}
+                agentName={a.name}
+                status={a.status}
+                armedSymbols={armedSymbols}
+                visibility={visibility}
+              />
+            </Fold>
 
-            <ListingPanel
-              agentId={id}
-              listing={listing}
-              agentStatus={a.status}
-              creatorCanBePaid={creatorCanBePaid}
-            />
+            <Fold title="Risk limits" state={riskSummary(riskProfile)}>
+              <RiskEditor
+                agentId={id}
+                // The owner's copy: a private agent's public read carries no risk
+                // profile, and editing from that would overwrite the real one.
+                initial={riskProfile}
+                editable={a.status !== 'retired'}
+              />
+            </Fold>
 
-            <LifecyclePanel
-              agentId={id}
-              agentName={a.name}
-              status={a.status}
-              armedSymbols={armedSymbols}
-              visibility={intelR.ok ? intelR.data.intelligence.visibility : a.visibility ?? 'public'}
-            />
+            <Fold
+              title="Competitions"
+              state={seats === 0 ? 'no seat — nothing asks it to decide' : `seat in ${seats}`}
+              open={a.status === 'active' && seats === 0}
+            >
+              {competitionsR.ok ? (
+                <CompetitionPanel agentId={id} agentName={a.name} agentStatus={a.status} competitions={competitions} />
+              ) : (
+                <Failed what="The competitions this agent can enter" error={competitionsR} />
+              )}
+            </Fold>
 
-            {competitionsR.ok ? (
-              <CompetitionPanel agentId={id} agentName={a.name} agentStatus={a.status} competitions={competitions} />
-            ) : (
-              <Failed what="The competitions this agent can enter" error={competitionsR} />
-            )}
+            <Fold title="Mandate" state={a.status === 'draft' ? 'editable while this is a draft' : `immutable for v${a.version}`}>
+              <section className="box">
+                <span className="k">Mandate</span>
+                {intelR.ok && intelR.data.intelligence.private ? (
+                  <div className="m3" style={{ fontSize: 11.5, marginTop: 6 }}>
+                    Private — only you can read this. It appears on no public surface.
+                  </div>
+                ) : null}
+                {/* READ FROM THE OWNER'S COPY. The public read masks a private
+                    agent's mandate, so falling back to it would print "no mandate"
+                    about an agent that has one. */}
+                {(intelR.ok ? intelR.data.mandate : a.mandate) ? (
+                  <pre className="mandate">{intelR.ok ? intelR.data.mandate : a.mandate}</pre>
+                ) : !intelR.ok && a.intelligence?.private ? (
+                  <Failed what="Your copy of this private mandate" error={intelR} />
+                ) : (
+                  <div className="m3" style={{ fontSize: 12, marginTop: 8 }}>
+                    No mandate is recorded on this agent.
+                  </div>
+                )}
+                {a.status !== 'draft' ? (
+                  <div className="m3" style={{ fontSize: 11, marginTop: 10, lineHeight: 1.45 }}>
+                    A mandate cannot be edited once an agent has started. Its recorded performance was produced under
+                    this text, so changing it in place would leave the leaderboard describing an agent that no longer
+                    exists. Changing intent is what a new version is for (Lifecycle → Evolve) — the boundary is
+                    visible to anyone reading the history.
+                  </div>
+                ) : null}
+              </section>
+            </Fold>
+
+            <Fold title="Visibility" state={visibility === 'private' ? 'private' : 'public'}>
+              <VisibilityPanel
+                agentId={id}
+                agentName={a.name}
+                visibility={visibility}
+                disclosedAt={intelR.ok ? intelR.data.intelligence.disclosed_at : null}
+                decisions={decisionsR.ok ? decisionsR.data.decisions : []}
+                opened={
+                  disclosuresR.ok
+                    ? disclosuresR.data.items
+                        .filter((x) => x.scope === 'decision' && x.decision_id !== null)
+                        .map((x) => x.decision_id as number)
+                    : []
+                }
+              />
+            </Fold>
+
+            <Fold
+              title="Marketplace listing"
+              state={
+                listing
+                  ? `${listing.active ? 'listed' : 'listing off'} · ${int(listing.subscribersActive)} subscriber${listing.subscribersActive === 1 ? '' : 's'}`
+                  : 'not listed'
+              }
+            >
+              <ListingPanel agentId={id} listing={listing} agentStatus={a.status} creatorCanBePaid={creatorCanBePaid} />
+            </Fold>
           </div>
         ) : null}
 
@@ -332,6 +477,19 @@ export default async function ManageAgentPage({
         ) : null}
       </div>
     </Shell>
+  );
+}
+
+/** One control, closed until wanted; its summary says what is set now. */
+function Fold({ title, state, open, children }: { title: string; state: string; open?: boolean; children: React.ReactNode }) {
+  return (
+    <details className="fold" open={open}>
+      <summary>
+        <span>{title}</span>
+        <span className="fold-state">{state}</span>
+      </summary>
+      <div className="fold-body">{children}</div>
+    </details>
   );
 }
 
@@ -463,8 +621,7 @@ async function WalletTab({
 
           {/* DEPOSIT AND WITHDRAW ARE NOT BUTTONS, because nothing here can
               move money. The platform signs from this wallet; it does not have
-              the owner's wallet, and a button that opened a wallet extension
-              would be a payment flow this page does not have. */}
+              the owner's wallet. */}
           <Callout tone="note">
             <strong>To deposit, send to the address above from your own wallet.</strong> ARCANA has no control over
             your wallet and cannot initiate a transfer from it, so there is no deposit button here — only the address
@@ -515,8 +672,7 @@ async function WalletTab({
                       <td>
                         <span className="mono">{(t.action ?? '—').toUpperCase()}</span>{' '}
                         <span className="mono m2">{t.symbol}</span>
-                        {/* A GUARD FIRED IT, NOT THE AGENT. The distinction is
-                            the whole point of the protective path. */}
+                        {/* A GUARD FIRED IT, NOT THE AGENT. */}
                         {t.fired_by_guard ? (
                           <span className="am" style={{ fontSize: 10 }}>
                             {' '}
@@ -556,7 +712,8 @@ async function WalletTab({
         <span className="k">Take possession of the key</span>
         <div className="m2" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5 }}>
           This wallet is yours. ARCANA holding the only key to it is a custody arrangement you must be able to end,
-          which is why this works whatever the agent&rsquo;s status — including after it is retired.
+          which is why this works whatever the agent&rsquo;s status — including after it is retired.{' '}
+          <span className="mono m3">{addr(wallet.address)}</span>
         </div>
         <div style={{ marginTop: 12 }}>
           <ExportKeyPanel agentId={id} agentName={agentName} />

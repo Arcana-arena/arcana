@@ -317,6 +317,33 @@ h2 { font-size: 22px; }
 @media (max-width: 420px) {
   .hdr-word { display: none; }
 }
+/* SIGNED IN ON A PHONE: Dashboard stays in the bar, Create an agent moves into
+   the menu, and the address pill gives way below 560px so the bar stays one row. */
+@media (max-width: 720px) {
+  .hdr-cta-secondary { display: none !important; }
+}
+@media (max-width: 560px) {
+  .hdr-dash ~ .hdr-pill { display: none !important; }
+}
+
+/* A SECTION THAT OPENS. Used where a page offers several things and a reader
+   needs one: the summary line carries the current state, so a closed section
+   still says what is set. */
+.fold { border: 1px solid var(--color-divider); }
+.fold > summary {
+  cursor: pointer; list-style: none; padding: 12px 16px;
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  font-family: var(--font-heading), sans-serif; font-size: 14px; color: var(--color-text);
+}
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::before { content: '+'; font-family: var(--font-mono), monospace; color: var(--ink-3); margin-right: 8px; }
+.fold[open] > summary::before { content: '−'; }
+.fold > summary .fold-state { font-family: var(--font-mono), monospace; font-size: 11px; color: var(--ink-2); margin-left: auto; }
+.fold > summary:hover { background: rgba(47, 232, 140, .04); }
+.fold-body { padding: 0 16px 16px; }
+.fold-body > .box { border: none; padding: 0; }
+.fold-body > .box > .k:first-child { display: none; }
+.agent-rows td { vertical-align: top; }
 
 /* A TABLE THAT SCROLLS SAYS SO. A shadow sits on whichever edge has more
    table behind it, and disappears at the end — the covers scroll with the

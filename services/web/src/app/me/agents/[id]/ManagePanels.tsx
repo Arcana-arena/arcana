@@ -73,6 +73,25 @@ const asPct = (v: unknown) => {
   return `${(n * 100).toFixed(6).replace(/0+$/, '').replace(/\.$/, '')}%`;
 };
 
+/**
+ * The keys the engine reads that an owner most often sets, as fields.
+ * Canonical spellings only; a retired spelling (stop_loss_pct) still shows in
+ * the JSON below and the save response names it as ambiguous.
+ */
+const RISK_FIELDS: Array<{ key: string; label: string; help: string; percent?: boolean }> = [
+  { key: 'stop_loss_fraction', label: 'Stop loss', help: 'Armed on every fill; fires as a protective exit. 0.015 = 1.5% below entry.' },
+  { key: 'take_profit_fraction', label: 'Take profit', help: 'Empty lets the mandate decide exits. 0.04 = 4% above entry.' },
+  { key: 'max_position_pct', label: 'Max position', help: 'The largest one symbol may be. A fraction: 0.4 = 40%.' },
+  { key: 'cash_floor_pct', label: 'Cash floor', help: 'A buy that would take cash below this is refused. 0.2 = 20%.' },
+  { key: 'trade_size_pct', label: 'Trade size', help: 'How much of the book one trade may commit. 0.5 = 50%.' },
+  {
+    key: 'cost_budget_monthly_pct',
+    label: 'Cost budget',
+    help: 'A PERCENTAGE, unlike the rest: 2 means 2% of capital a month on gas and pool fees. Empty = unmetered.',
+    percent: true,
+  },
+];
+
 export function RiskEditor({
   agentId,
   initial,
@@ -83,24 +102,45 @@ export function RiskEditor({
   editable: boolean;
 }) {
   const [text, setText] = useState(JSON.stringify(initial ?? {}, null, 2));
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [result, setResult] = useState<RiskResult | null>(null);
   const [fail, setFail] = useState<Fail | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
+  // ONE SOURCE OF TRUTH: the JSON text. The fields below read from it and write
+  // back into it, so the fields and the raw profile can never disagree about
+  // what Save will send. A field being typed ("0.0") keeps its own draft until
+  // it is a number, so typing is not fought by the round trip.
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    const p = JSON.parse(text);
+    parsed = p && typeof p === 'object' && !Array.isArray(p) ? (p as Record<string, unknown>) : null;
+  } catch {
+    parsed = null;
+  }
+
+  const setField = (key: string, v: string) => {
+    setDrafts((d) => ({ ...d, [key]: v }));
+    if (!parsed) return;
+    const next = { ...parsed };
+    if (v.trim() === '') delete next[key];
+    else if (Number.isFinite(Number(v))) next[key] = Number(v);
+    else return;
+    setText(JSON.stringify(next, null, 2));
+  };
+
   // LIVE CONVERSION WHILE TYPING. This is the platform where 0.15 was armed as
   // 15%; a field that shows only the fraction is where it happens again. The
   // preview is drawn from the text in the box, so it reacts before anything is
   // saved rather than confirming afterwards.
-  let preview: Array<[string, string]> = [];
-  try {
-    const parsed = JSON.parse(text) as Record<string, unknown>;
-    preview = Object.entries(parsed)
-      .filter(([k, v]) => FRACTION_KEYS.has(k) && Number.isFinite(Number(v)))
-      .map(([k, v]) => [k, `${v} = ${asPct(v)}`]);
-  } catch {
-    preview = [];
-  }
+  const preview: Array<[string, string]> = parsed
+    ? Object.entries(parsed)
+        .filter(([k, v]) => FRACTION_KEYS.has(k) && Number.isFinite(Number(v)))
+        .map(([k, v]) => [k, `${v} = ${asPct(v)}`])
+    : [];
+  const fieldKeys = new Set(RISK_FIELDS.map((f) => f.key));
+  const otherKeys = parsed ? Object.keys(parsed).filter((k) => !fieldKeys.has(k)) : [];
 
   const save = () => {
     setFail(null);
@@ -129,34 +169,93 @@ export function RiskEditor({
         </span>
       </div>
 
-      <textarea
-        className="input mono"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        rows={9}
-        spellCheck={false}
-        disabled={!editable}
-        style={{ width: '100%', marginTop: 10, fontSize: 12, lineHeight: 1.5 }}
-        aria-label="Risk profile"
-      />
+      {/* ALWAYS SHOWN, not only once a number is typed. */}
+      <div className="callout callout-warn" style={{ marginTop: 10 }}>
+        <strong>These are FRACTIONS.</strong> <span className="mono">0.0015</span> means 0.15%, not 0.15. An owner
+        who wrote 0.15 meaning &ldquo;get me out if it drops 0.15%&rdquo; armed a stop a hundred times further away,
+        and the record was correct so nothing caught it.
+      </div>
 
-      {preview.length > 0 ? (
-        <div style={{ marginTop: 8 }}>
-          <div className="lbl">WHAT THESE NUMBERS MEAN</div>
-          <div className="mono" style={{ fontSize: 11.5, marginTop: 4, display: 'grid', gap: 2 }}>
-            {preview.map(([k, v]) => (
-              <div key={k}>
-                <span className="m3">{k}</span> {v}
+      {parsed ? (
+        <div className="two-col" style={{ marginTop: 12 }}>
+          {RISK_FIELDS.map((f) => {
+            const raw = drafts[f.key] ?? (parsed![f.key] === undefined ? '' : String(parsed![f.key]));
+            const meaning =
+              raw === ''
+                ? 'not set'
+                : !Number.isFinite(Number(raw))
+                  ? 'not a number'
+                  : f.percent
+                    ? `${raw}% of capital a month`
+                    : `= ${asPct(raw)}`;
+            return (
+              <div className="field" key={f.key}>
+                <label htmlFor={`risk-${f.key}`}>
+                  {f.label} <span className="mono m3" style={{ fontSize: 10 }}>{f.key}</span>
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input
+                    id={`risk-${f.key}`}
+                    className="input mono"
+                    value={raw}
+                    onChange={(e) => setField(f.key, e.target.value)}
+                    disabled={!editable}
+                    inputMode="decimal"
+                    style={{ flex: 1 }}
+                  />
+                  <span className="mono m3" style={{ fontSize: 11, minWidth: 110, textAlign: 'right' }}>
+                    {meaning}
+                  </span>
+                </div>
+                <div className="help">{f.help}</div>
               </div>
-            ))}
-          </div>
-          <div className="m3" style={{ fontSize: 10.5, marginTop: 6, lineHeight: 1.45 }}>
-            These are FRACTIONS. <span className="mono">0.0015</span> means 0.15%, not 0.15. An owner who wrote
-            0.15 meaning &ldquo;get me out if it drops 0.15%&rdquo; armed a stop a hundred times further away, and the
-            record was correct so nothing caught it.
-          </div>
+            );
+          })}
         </div>
-      ) : null}
+      ) : (
+        <div className="callout callout-bad" style={{ marginTop: 10 }}>
+          <strong>The profile below is not valid JSON, so the fields cannot read it.</strong> Fix it below; nothing is
+          sent while it is invalid.
+        </div>
+      )}
+
+      {/* THE RAW PROFILE, for every key the fields do not cover. It is the same
+          object the fields edit — and it is what Save sends. */}
+      <details className="fold" style={{ marginTop: 12 }} open={!parsed || otherKeys.length > 0}>
+        <summary>
+          <span>Every key, as JSON</span>
+          <span className="fold-state">
+            {otherKeys.length > 0 ? `${otherKeys.length} other key${otherKeys.length === 1 ? '' : 's'}: ${otherKeys.join(', ')}` : 'no other keys'}
+          </span>
+        </summary>
+        <div className="fold-body">
+          <textarea
+            className="input mono"
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              setDrafts({});
+            }}
+            rows={9}
+            spellCheck={false}
+            disabled={!editable}
+            style={{ width: '100%', fontSize: 12, lineHeight: 1.5 }}
+            aria-label="Risk profile"
+          />
+          {preview.length > 0 ? (
+            <div style={{ marginTop: 8 }}>
+              <div className="lbl">WHAT THESE NUMBERS MEAN</div>
+              <div className="mono" style={{ fontSize: 11.5, marginTop: 4, display: 'grid', gap: 2 }}>
+                {preview.map(([k, v]) => (
+                  <div key={k}>
+                    <span className="m3">{k}</span> {v}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </details>
 
       {parseError ? (
         <div className="callout callout-bad" style={{ marginTop: 10 }}>

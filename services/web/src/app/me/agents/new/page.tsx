@@ -139,7 +139,7 @@ export default async function NewAgentPage() {
     <Shell current="Create agent" handle={dash?.creator.handle} creatorId={s.session.creator_id ?? undefined}>
       <div className="mono m3" style={{ fontSize: 11, marginBottom: 8 }}>
         <Link href="/me" className="m2">
-          Overview
+          Dashboard
         </Link>{' '}
         / Create agent
       </div>
@@ -171,6 +171,7 @@ export default async function NewAgentPage() {
           templates={templates}
           universes={universes}
           cadence={cadence}
+          costReference={dash?.cost_reference ?? null}
           slotsFree={dash?.slots.free ?? 0}
           slotsNote={dash?.slots.note ?? 'The slot cap could not be read.'}
         />

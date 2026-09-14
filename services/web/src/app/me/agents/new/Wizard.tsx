@@ -4,41 +4,42 @@ import { useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { activateAgent, createAgent, deriveWallet, importWallet, type Created } from './actions';
-import type { MandateTemplates } from '../../shapes';
+import type { CostReference, MandateTemplates } from '../../shapes';
 
 /**
- * Seven steps, and two of them say the platform does not work the way the
- * design drew it.
+ * Create an agent, on one page.
  *
- * CADENCE IS NOT A PROPERTY OF AN AGENT HERE. The design has a slider from 5
- * minutes to 24 hours with a live cost projection. This platform ticks a
- * COMPETITION, on a timer the operator sets, and every agent in it is asked on
- * the same clock — there is no per-agent interval column and nothing would read
- * one. So the step shows the cadence actually in force and the cost that
- * follows from it, and says the slider is not something to move.
+ * FEWER DECISIONS, NOT LESS SAID. It used to be seven steps that asked
+ * everything as if it mattered equally. Three things have no sensible default —
+ * a name, a strategy, and where the money lives — and those are asked. Visibility
+ * has a default but only moves one way, so it is asked too, with the default
+ * already chosen. Everything else has a default that is SHOWN with its value and
+ * what the value means, and can be changed in place: an owner sees exactly what
+ * they are agreeing to without deciding it line by line.
  *
- * THE UNIVERSE IS A NAMED SET, NOT A BASKET OF TICKED SYMBOLS. `assetUniverse`
- * is one string. The step lists the universes that exist and the symbols each
- * one contains, rather than offering checkboxes that would be collapsed into a
- * single value on the way out.
+ * WHAT DOES NOT GET SIMPLER:
+ *   - every fraction is shown in both scales, with the worked example — this is
+ *     the platform where 0.15 was armed as 15%;
+ *   - importing a key says, before it is typed, that ARCANA can sign anything
+ *     from that wallet;
+ *   - the cost of the cadence is projected from measurements, and says which
+ *     part is not measured;
+ *   - the create response's risk_profile_unrecognised and
+ *     risk_profile_ambiguous warnings are shown on the next screen.
  *
- * NOTHING IS WRITTEN UNTIL STEP 7, and then it is written as a DRAFT. The
- * activate call is separate and is the one that costs a slot, so abandoning the
- * wizard leaves a row nobody is trading, not an agent running on a
- * half-finished configuration.
+ * CADENCE IS NOT A PROPERTY OF AN AGENT HERE. A COMPETITION ticks on a timer the
+ * operator sets, and every agent in it is asked on the same clock. So there is
+ * no slider — the cadence in force is shown, with what it costs.
  *
- * EVERY FRACTION IS SHOWN IN BOTH SCALES AS IT IS TYPED. This is the platform
- * where 0.15 was armed as 15%, and a form that shows only the number in the box
- * is where that happens again.
+ * NOTHING IS WRITTEN UNTIL "Create as a draft", and then it is written as a
+ * DRAFT. The activate call is separate and is the one that costs a slot.
  */
 
 type Fail = { ok: false; status: number | null; reason: string; code: string | null };
 
-const STEPS = ['Identity', 'Strategy', 'Risk', 'Cadence', 'Universe', 'Wallet', 'Review'] as const;
-
 const asPct = (v: string) => {
   const n = Number(v);
-  if (!Number.isFinite(n)) return null;
+  if (v === '' || !Number.isFinite(n)) return null;
   return `${(n * 100).toFixed(6).replace(/0+$/, '').replace(/\.$/, '')}%`;
 };
 
@@ -53,46 +54,43 @@ export function Wizard({
   templates,
   universes,
   cadence,
+  costReference,
   slotsFree,
   slotsNote,
 }: {
   templates: MandateTemplates | null;
   universes: Universe[];
   cadence: { known: boolean; ticks_per_day: number | null; note: string };
+  costReference: CostReference | null;
   slotsFree: number;
   slotsNote: string;
 }) {
   const router = useRouter();
-  const [step, setStep] = useState(0);
   const [pending, start] = useTransition();
   const [fail, setFail] = useState<Fail | null>(null);
   const [created, setCreated] = useState<Created | null>(null);
   const [activated, setActivated] = useState(false);
 
-  // identity
   const [name, setName] = useState('');
-  // strategy
   const [mode, setMode] = useState<'template' | 'free'>(templates?.templates.length ? 'template' : 'free');
   const [templateId, setTemplateId] = useState(templates?.templates[0]?.id ?? '');
   const [params, setParams] = useState<Record<string, string>>({});
   const [mandate, setMandate] = useState('');
-  // risk
   const [maxPosition, setMaxPosition] = useState('0.40');
   const [cashFloor, setCashFloor] = useState('0.20');
   const [stopLoss, setStopLoss] = useState('0.0150');
   const [takeProfit, setTakeProfit] = useState('0.0400');
   const [costBudget, setCostBudget] = useState('');
-  // universe
   const [universe, setUniverse] = useState(universes[0]?.value ?? '');
-  // wallet
   const [walletMode, setWalletMode] = useState<'derive' | 'import'>('derive');
   const [privateKey, setPrivateKey] = useState('');
   const [ack, setAck] = useState(false);
-  // visibility — chosen here because it only moves one way (private → public)
+  // visibility — asked because it only moves one way (private → public)
   const [visibility, setVisibility] = useState<'public' | 'private'>('public');
 
   const maxChars = templates?.max_chars ?? 1200;
   const tpl = templates?.templates.find((t) => t.id === templateId) ?? null;
+  const uni = universes.find((u) => u.value === universe) ?? null;
 
   const riskProfile = useMemo(() => {
     const out: Record<string, unknown> = {};
@@ -110,7 +108,8 @@ export function Wizard({
 
   const nameOk = name.trim().length >= 3 && name.trim().length <= 100;
   const strategyOk = mode === 'template' ? !!templateId : mandate.trim().length > 0 && mandate.length <= maxChars;
-  const canReview = nameOk && strategyOk && !!universe;
+  const walletOk = walletMode === 'derive' || /^(0x)?[0-9a-fA-F]{64}$/.test(privateKey.trim());
+  const canCreate = nameOk && strategyOk && !!universe && walletOk;
 
   const submit = () => {
     setFail(null);
@@ -157,152 +156,236 @@ export function Wizard({
     });
   };
 
+  if (created) {
+    return <Done created={created} activated={activated} onActivate={activate} pending={pending} fail={fail} slotsFree={slotsFree} slotsNote={slotsNote} />;
+  }
+
   return (
     <div className="wizard-grid">
       <nav className="wz" aria-label="Create agent">
         <div className="grp" style={{ marginTop: 0 }}>
-          Create agent
+          What you decide
         </div>
-        {STEPS.map((s, i) => (
-          <span key={s} className={i === step ? 'on' : i < step ? 'done' : ''}>
-            <i>{i < step ? '✓' : i + 1}</i>
-            {s}
-          </span>
-        ))}
+        <span className={nameOk ? 'done' : 'on'}><i>{nameOk ? '✓' : 1}</i>Name</span>
+        <span className={strategyOk ? 'done' : ''}><i>{strategyOk ? '✓' : 2}</i>Strategy</span>
+        <span className="done"><i>✓</i>Wallet</span>
+        <span className="done"><i>✓</i>Visibility</span>
+        <div className="grp">Defaults, shown</div>
+        <span className="done"><i>·</i>Risk limits</span>
+        <span className="done"><i>·</i>Universe</span>
+        <span className="done"><i>·</i>Cadence &amp; cost</span>
         <div className="m3" style={{ fontSize: 10.5, marginTop: 18, lineHeight: 1.45 }}>
-          Nothing is written until step 7, and what step 7 writes is a DRAFT. Activating it is a separate act — that
-          is the one that takes a slot.
+          Nothing is written until you press Create, and what it writes is a DRAFT. Activating it is a separate act —
+          that is the one that takes a slot.
         </div>
       </nav>
 
-      <div style={{ minWidth: 0 }}>
-        {created ? (
-          <Done created={created} activated={activated} onActivate={activate} pending={pending} fail={fail} slotsFree={slotsFree} slotsNote={slotsNote} />
-        ) : (
-          <>
-            {step === 0 ? (
-              <Step title="Identity" lede="Public. Shown on the leaderboard and in the marketplace.">
-                <div className="field">
-                  <label htmlFor="agentname">Name</label>
-                  <input
-                    id="agentname"
-                    className="input"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    style={{ width: '100%' }}
-                  />
-                  <div className="help">
-                    3–100 characters, unique per creator. {name.trim().length > 0 && !nameOk ? (
-                      <span className="dn">That length will be refused.</span>
-                    ) : null}
+      <div style={{ minWidth: 0, display: 'grid', gap: 26 }}>
+        {/* ---------------------------------------------------- 1. name */}
+        <Part n={1} title="Name" lede="Public. Shown on the leaderboard and in the marketplace.">
+          <div className="field">
+            <label htmlFor="agentname">Name</label>
+            <input id="agentname" className="input" value={name} onChange={(e) => setName(e.target.value)} style={{ width: '100%' }} />
+            <div className="help">
+              3–100 characters, unique per creator.{' '}
+              {name.trim().length > 0 && !nameOk ? <span className="dn">That length will be refused.</span> : null}
+            </div>
+          </div>
+          {/* NO STRATEGY TYPE FIELD. Every agent made here has a mandate, and a
+              mandate is read only by the model. */}
+        </Part>
+
+        {/* ------------------------------------------------ 2. strategy */}
+        <Part
+          n={2}
+          title="Strategy"
+          lede="A template, or your own words. The mandate is what the model is given every tick, and what the agent is judged against."
+        >
+          {templates?.templates.length ? (
+            <div className="seg" style={{ fontSize: 12, width: 'max-content' }}>
+              <button className="seg-opt" aria-current={mode === 'template' ? 'true' : undefined} onClick={() => setMode('template')}>
+                Template
+              </button>
+              <button className="seg-opt" aria-current={mode === 'free' ? 'true' : undefined} onClick={() => setMode('free')}>
+                Free-form mandate
+              </button>
+            </div>
+          ) : null}
+
+          {mode === 'template' && templates ? (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+                {templates.templates.map((t) => (
+                  <label key={t.id} className="tpl" style={templateId === t.id ? { borderColor: 'var(--color-accent)' } : undefined}>
+                    <input type="radio" name="tpl" checked={templateId === t.id} onChange={() => setTemplateId(t.id)} />
+                    <b style={{ color: 'var(--color-text)', fontWeight: 500 }}>{t.label}</b>
+                    <br />
+                    {t.description}
+                  </label>
+                ))}
+              </div>
+              {tpl && tpl.params.length > 0 ? (
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {tpl.params.map((p) => (
+                    <TemplateParam
+                      key={String(p.name)}
+                      p={p}
+                      value={params[String(p.name)] ?? String(p.default ?? '')}
+                      onChange={(v) => setParams({ ...params, [String(p.name)]: v })}
+                    />
+                  ))}
+                </div>
+              ) : null}
+              <div className="m3" style={{ fontSize: 11, lineHeight: 1.45 }}>
+                {templates.note}
+              </div>
+            </>
+          ) : null}
+
+          {mode === 'free' ? (
+            <>
+              <div className="field">
+                <label htmlFor="mandate">Mandate</label>
+                <textarea
+                  id="mandate"
+                  className="input"
+                  rows={7}
+                  value={mandate}
+                  onChange={(e) => setMandate(e.target.value)}
+                  style={{ width: '100%', lineHeight: 1.55 }}
+                />
+                <div className="help" style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                  <span>Be concrete: what to hold, when to enter, when to exit, what to do when unsure.</span>
+                  <span className={mandate.length > maxChars ? 'mono dn' : 'mono'}>
+                    {mandate.length} / {maxChars}
+                  </span>
+                </div>
+              </div>
+              <details className="fold">
+                <summary>
+                  <span>A mandate that works, and why</span>
+                  <span className="fold-state">example</span>
+                </summary>
+                <div className="fold-body">
+                  <div className="m2" style={{ fontSize: 12.5, lineHeight: 1.55 }}>
+                    &ldquo;Hold at most three of the largest names by market cap. Size each position by inverse 20-tick
+                    volatility. Add only when price is above both the 20- and 50-tick means. Exit a name fully when it
+                    closes below its 50-tick mean. Do nothing when no rule fires.&rdquo;
+                  </div>
+                  <div className="m3" style={{ fontSize: 11, marginTop: 8, lineHeight: 1.45 }}>
+                    It names an entry, an exit, a size rule and what to do when nothing applies. The last clause matters
+                    most: without it a model asked every tick will find a reason to act.
                   </div>
                 </div>
-                {/* NO STRATEGY TYPE FIELD. Every agent made here has a mandate,
-                    and a mandate is read only by the model. The field used to
-                    accept "momentum" — its own placeholder — which ran the
-                    built-in momentum rule and left the mandate unread. */}
-              </Step>
-            ) : null}
+              </details>
+              <div className="callout callout-warn">
+                <strong>Write protective levels as fractions, in both scales.</strong> <span className="mono">0.0015</span>{' '}
+                is 0.15%, not 0.15. An owner who wrote 0.15 meaning &ldquo;get me out if it drops 0.15%&rdquo; armed a
+                stop a hundred times further away, and the record was correct so nothing caught it.
+              </div>
+            </>
+          ) : null}
+        </Part>
 
-            {step === 1 ? (
-              <Step
-                title="Strategy"
-                lede="A template, or your own words. The mandate is what the model is given every tick, and what the agent is judged against."
-              >
-                {templates?.templates.length ? (
-                  <div className="seg" style={{ fontSize: 12, width: 'max-content' }}>
-                    <button className="seg-opt" aria-current={mode === 'template' ? 'true' : undefined} onClick={() => setMode('template')}>
-                      Template
-                    </button>
-                    <button className="seg-opt" aria-current={mode === 'free' ? 'true' : undefined} onClick={() => setMode('free')}>
-                      Free-form mandate
-                    </button>
-                  </div>
-                ) : null}
+        {/* -------------------------------------------------- 3. wallet */}
+        <Part n={3} title="Wallet" lede="The agent trades from its own wallet. You fund it; you can take the key at any time.">
+          <div className="two-col">
+            <label className="tpl" style={walletMode === 'derive' ? { borderColor: 'var(--color-accent)' } : undefined}>
+              <input type="radio" name="wallet" checked={walletMode === 'derive'} onChange={() => setWalletMode('derive')} />
+              <b style={{ color: 'var(--color-text)', fontWeight: 500 }}>Generate a new wallet</b>{' '}
+              <span className="m3">· default</span>
+              <div style={{ marginTop: 4 }}>
+                Derived by the signer from this agent&rsquo;s id. It holds only what you put in it, and the key is
+                exportable later behind a three-step confirmation. Recommended.
+              </div>
+            </label>
+            <label className="tpl" style={walletMode === 'import' ? { borderColor: 'var(--color-accent)' } : undefined}>
+              <input type="radio" name="wallet" checked={walletMode === 'import'} onChange={() => setWalletMode('import')} />
+              <b style={{ color: 'var(--color-text)', fontWeight: 500 }}>Import a dedicated wallet key</b>
+              <div style={{ marginTop: 4 }}>
+                A private key for a wallet you created for this purpose and nothing else.{' '}
+                <span className="dn">ARCANA can sign anything from an imported wallet — not only trades.</span>
+              </div>
+            </label>
+          </div>
 
-                {mode === 'template' && templates ? (
-                  <>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, marginTop: 12 }}>
-                      {templates.templates.map((t) => (
-                        <label key={t.id} className="tpl" style={templateId === t.id ? { borderColor: 'var(--color-accent)' } : undefined}>
-                          <input
-                            type="radio"
-                            name="tpl"
-                            checked={templateId === t.id}
-                            onChange={() => setTemplateId(t.id)}
-                          />
-                          <b style={{ color: 'var(--color-text)', fontWeight: 500 }}>{t.label}</b>
-                          <br />
-                          {t.description}
-                        </label>
-                      ))}
-                    </div>
-                    {tpl && tpl.params.length > 0 ? (
-                      <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>
-                        {tpl.params.map((p) => (
-                          <TemplateParam
-                            key={String(p.name)}
-                            p={p}
-                            value={params[String(p.name)] ?? String(p.default ?? '')}
-                            onChange={(v) => setParams({ ...params, [String(p.name)]: v })}
-                          />
-                        ))}
-                      </div>
-                    ) : null}
-                    <div className="m3" style={{ fontSize: 11, marginTop: 12, lineHeight: 1.45 }}>
-                      {templates.note}
-                    </div>
-                  </>
-                ) : null}
+          {walletMode === 'import' ? (
+            <>
+              {/* THE WARNING IS NOT A FOOTNOTE. */}
+              <div className="callout callout-bad">
+                <strong>If you import a key, ARCANA can sign anything from that wallet — not only trades.</strong> The
+                signer restricts what it will build: two named transaction shapes, an allowlisted router, an
+                allowlisted token, no raw calldata. But that is ARCANA restricting itself, not a property of the key.
+                Never import a wallet that holds anything else, and never import your main wallet.
+              </div>
+              <div className="field">
+                <label htmlFor="pk">Private key</label>
+                <input
+                  id="pk"
+                  className="input mono"
+                  type="password"
+                  value={privateKey}
+                  onChange={(e) => setPrivateKey(e.target.value)}
+                  placeholder="0x…"
+                  style={{ width: '100%', fontSize: 12 }}
+                />
+                <div className="help">
+                  It travels to the signer over the internal network and is never written to a log, a database or an
+                  error message here.{' '}
+                  {privateKey.trim() && !walletOk ? <span className="dn">That is not a 32-byte hex key.</span> : null}
+                </div>
+              </div>
+            </>
+          ) : null}
+        </Part>
 
-                {mode === 'free' ? (
-                  <>
-                    <div className="field" style={{ marginTop: 12 }}>
-                      <label htmlFor="mandate">Mandate</label>
-                      <textarea
-                        id="mandate"
-                        className="input"
-                        rows={8}
-                        value={mandate}
-                        onChange={(e) => setMandate(e.target.value)}
-                        style={{ width: '100%', lineHeight: 1.55 }}
-                      />
-                      <div className="help" style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-                        <span>Be concrete: what to hold, when to enter, when to exit, what to do when unsure.</span>
-                        <span className={mandate.length > maxChars ? 'mono dn' : 'mono'}>
-                          {mandate.length} / {maxChars}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="box" style={{ marginTop: 12 }}>
-                      <div className="lbl">A MANDATE THAT WORKS, AND WHY</div>
-                      <div className="m2" style={{ fontSize: 12.5, marginTop: 6, lineHeight: 1.55 }}>
-                        &ldquo;Hold at most three of the largest names by market cap. Size each position by inverse
-                        20-tick volatility. Add only when price is above both the 20- and 50-tick means. Exit a name
-                        fully when it closes below its 50-tick mean. Do nothing when no rule fires.&rdquo;
-                      </div>
-                      <div className="m3" style={{ fontSize: 11, marginTop: 8, lineHeight: 1.45 }}>
-                        It names an entry, an exit, a size rule and what to do when nothing applies. The last clause
-                        matters most: without it a model asked every tick will find a reason to act.
-                      </div>
-                    </div>
-                    <div className="callout callout-warn" style={{ marginTop: 12 }}>
-                      <strong>Write protective levels as fractions, in both scales.</strong>{' '}
-                      <span className="mono">0.0015</span> is 0.15%, not 0.15. An owner who wrote 0.15 meaning
-                      &ldquo;get me out if it drops 0.15%&rdquo; armed a stop a hundred times further away, and the
-                      record was correct so nothing caught it.
-                    </div>
-                  </>
-                ) : null}
-              </Step>
-            ) : null}
+        {/* ---------------------------------------------- 4. visibility */}
+        {/* PRIVATE AGENT. PUBLIC PROOF. Asked, with the default already chosen,
+            because the choice only moves one way. */}
+        <Part n={4} title="Visibility" lede="Public by default. This is the one choice here that cannot be undone in one direction.">
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5, color: 'var(--ink-2)' }}>
+            <input type="radio" name="visibility" checked={visibility === 'public'} onChange={() => setVisibility('public')} style={{ marginTop: 3 }} />
+            <span>
+              <strong style={{ color: 'var(--color-text)' }}>Public.</strong> The mandate, risk rules and the prompt,
+              raw response, model and thesis behind every decision are readable by anyone.{' '}
+              <span className="m3">It can never be made private later.</span>
+            </span>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5, color: 'var(--ink-2)' }}>
+            <input type="radio" name="visibility" checked={visibility === 'private'} onChange={() => setVisibility('private')} style={{ marginTop: 3 }} />
+            <span>
+              <strong style={{ color: 'var(--color-text)' }}>Private.</strong> The mandate, risk rules, protective
+              levels, prompts, model and reasoning stay yours. Decisions, executions, performance, score, rank and DNA
+              stay public, and every decision is sealed with a commitment that proves its reasoning was not changed
+              afterwards. You can open a single decision, or make the whole agent public, later — either is permanent
+              and on its public record. A subscription does not unlock it.
+            </span>
+          </label>
+        </Part>
 
-            {step === 2 ? (
-              <Step
-                title="Risk"
-                lede="Hard limits the platform applies before any order is sent. The model cannot override them; an order that breaks one is refused and recorded."
-              >
-                <div className="two-col" style={{ marginTop: 4 }}>
+        {/* ------------------------------------------------ defaults */}
+        <section>
+          <h2 style={{ fontSize: 20, margin: 0 }}>What you are agreeing to</h2>
+          <div className="m2" style={{ fontSize: 12.5, marginTop: 4, lineHeight: 1.5 }}>
+            These have defaults. Every value is shown with what it means; open one only if you want it different.
+          </div>
+
+          <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
+            <details className="fold">
+              <summary>
+                <span>Risk limits</span>
+                <span className="fold-state">
+                  stop {stopLoss || '—'} = {asPct(stopLoss) ?? 'not set'} · target {takeProfit ? `${takeProfit} = ${asPct(takeProfit)}` : 'none'} · max
+                  position {asPct(maxPosition) ?? '—'} · cash floor {asPct(cashFloor) ?? '—'} · cost budget{' '}
+                  {costBudget ? `${costBudget}%/month` : 'unmetered'}
+                </span>
+              </summary>
+              <div className="fold-body">
+                <div className="m2" style={{ fontSize: 12, lineHeight: 1.5, marginBottom: 12 }}>
+                  Hard limits the platform applies before any order is sent. The model cannot override them; an order
+                  that breaks one is refused and recorded.
+                </div>
+                <div className="two-col">
                   <Fraction label="Max position size" value={maxPosition} onChange={setMaxPosition} help="The largest a single symbol may be, at fill." />
                   <Fraction label="Cash floor" value={cashFloor} onChange={setCashFloor} help="A buy that would take cash below this is refused." />
                   <Fraction label="stop_loss_fraction" value={stopLoss} onChange={setStopLoss} help="Armed on every fill. Fires as a protective exit — recorded as the platform's act, not as the agent's decision." accent />
@@ -315,61 +398,22 @@ export function Wizard({
                     percentUnits
                   />
                 </div>
+              </div>
+            </details>
 
-                <WorkedConversion stop={stopLoss} take={takeProfit} />
+            {/* THE CONVERSION IS OUTSIDE THE FOLD, so it is read whether or not
+                anybody opens it. */}
+            <WorkedConversion stop={stopLoss} take={takeProfit} />
 
-                <div className="callout callout-note" style={{ marginTop: 12 }}>
-                  A key this platform does not read is accepted, stored, and silently ignored — so the response to
-                  step 7 names every key the engine will not read, and every key whose NAME lies about its scale. Read
-                  it; that is the moment a typo costs you the protection you think you just set.
-                </div>
-              </Step>
-            ) : null}
-
-            {step === 3 ? (
-              <Step title="Cadence" lede="How often the agent is asked for a decision.">
-                {/* THE STEP THAT SAYS THE SLIDER DOES NOT EXIST. */}
-                <div className="callout callout-warn">
-                  <strong>Cadence is not a property of an agent on this platform.</strong> A COMPETITION ticks on a
-                  timer the operator sets, and every agent in it is asked on the same clock. There is no per-agent
-                  interval to choose here, and a slider offering one would be a control that changes nothing.
-                </div>
-                <div className="box" style={{ marginTop: 12 }}>
-                  <div className="lbl">THE CADENCE ACTUALLY IN FORCE</div>
-                  <div className="mono" style={{ fontSize: 22, marginTop: 4 }}>
-                    {cadence.known && cadence.ticks_per_day !== null ? (
-                      <>
-                        {cadence.ticks_per_day} <span className="m3" style={{ fontSize: 12 }}>ticks / day</span>
-                      </>
-                    ) : (
-                      <span className="m3">—</span>
-                    )}
-                  </div>
-                  <div className="m3" style={{ fontSize: 11, marginTop: 6, lineHeight: 1.45 }}>
-                    {cadence.note}
-                  </div>
-                </div>
-                <div className="box" style={{ marginTop: 12 }}>
-                  <div className="lbl">WHAT EACH TICK COSTS</div>
-                  <div className="m2" style={{ fontSize: 12.5, marginTop: 6, lineHeight: 1.55 }}>
-                    A tick costs a model call; a tick that trades also costs gas and a pool fee. This platform does not
-                    publish a price-per-call or a gas estimate before an agent has traded, so no projection is offered
-                    here — a figure made from a guessed model price and a guessed fill rate would be a number with a
-                    currency symbol and no measurement behind it.
-                  </div>
-                  <div className="m3" style={{ fontSize: 11, marginTop: 8, lineHeight: 1.45 }}>
-                    Once the agent has made a few priced executions, its wallet page reports the median gas of its own
-                    fills and how many more transactions the balance covers. That figure is measured.
-                    {costBudget
-                      ? ` And the cost budget you set (${costBudget}% a month) pauses it before it spends past that.`
-                      : ' You set no cost budget, so nothing will meter what it spends.'}
-                  </div>
-                </div>
-              </Step>
-            ) : null}
-
-            {step === 4 ? (
-              <Step title="Universe" lede="The set of symbols this agent may trade. It decides which seasons it can enter.">
+            <details className="fold">
+              <summary>
+                <span>Universe</span>
+                <span className="fold-state">
+                  {uni ? `${uni.label} · ${uni.value}` : 'none could be read'}
+                  {uni && uni.symbols.length > 0 ? ` · ${uni.symbols.length} symbols` : ''}
+                </span>
+              </summary>
+              <div className="fold-body">
                 {universes.length === 0 ? (
                   <div className="callout callout-bad">
                     No universe could be read from the platform, so none can be offered. Nothing is invented here — an
@@ -378,26 +422,18 @@ export function Wizard({
                 ) : (
                   <div style={{ display: 'grid', gap: 10 }}>
                     {universes.map((u) => (
-                      <label
-                        key={u.value}
-                        className="tpl"
-                        style={universe === u.value ? { borderColor: 'var(--color-accent)' } : undefined}
-                      >
+                      <label key={u.value} className="tpl" style={universe === u.value ? { borderColor: 'var(--color-accent)' } : undefined}>
                         <input type="radio" name="universe" checked={universe === u.value} onChange={() => setUniverse(u.value)} />
                         <b style={{ color: 'var(--color-text)', fontWeight: 500 }}>{u.label}</b>
                         <span className="mono m3"> {u.value}</span>
                         {u.symbols.length > 0 ? (
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 8 }}>
-                            {u.symbols.slice(0, 24).map((s) => (
-                              <span key={s} className="sym">
-                                {s}
+                            {u.symbols.slice(0, 24).map((sym) => (
+                              <span key={sym} className="sym">
+                                {sym}
                               </span>
                             ))}
-                            {u.symbols.length > 24 ? (
-                              <span className="m3" style={{ fontSize: 11 }}>
-                                +{u.symbols.length - 24} more
-                              </span>
-                            ) : null}
+                            {u.symbols.length > 24 ? <span className="m3" style={{ fontSize: 11 }}>+{u.symbols.length - 24} more</span> : null}
                           </div>
                         ) : null}
                         {u.note ? (
@@ -409,180 +445,142 @@ export function Wizard({
                     ))}
                   </div>
                 )}
-                <div className="m3" style={{ fontSize: 11, marginTop: 12, lineHeight: 1.45 }}>
-                  The design offers a basket of individually ticked symbols. This platform stores ONE universe name per
-                  agent and the engine reads that, so choosing symbols one by one would be a control whose result is
-                  thrown away on the way out.
+                <div className="m3" style={{ fontSize: 11, marginTop: 10, lineHeight: 1.45 }}>
+                  One universe name is stored per agent and the engine reads that, so there is no basket of individually
+                  ticked symbols to choose.
                 </div>
-              </Step>
-            ) : null}
+              </div>
+            </details>
 
-            {step === 5 ? (
-              <Step title="Wallet" lede="The agent trades from its own wallet. You fund it; you can take the key at any time.">
-                <div className="two-col">
-                  <label className="tpl" style={walletMode === 'derive' ? { borderColor: 'var(--color-accent)' } : undefined}>
-                    <input type="radio" name="wallet" checked={walletMode === 'derive'} onChange={() => setWalletMode('derive')} />
-                    <b style={{ color: 'var(--color-text)', fontWeight: 500 }}>Generate a new wallet</b>
-                    <div style={{ marginTop: 4 }}>
-                      Derived by the signer from this agent&rsquo;s id. It holds only what you put in it, and the key
-                      is exportable later behind a three-step confirmation. Recommended.
-                    </div>
-                  </label>
-                  <label className="tpl" style={walletMode === 'import' ? { borderColor: 'var(--color-accent)' } : undefined}>
-                    <input type="radio" name="wallet" checked={walletMode === 'import'} onChange={() => setWalletMode('import')} />
-                    <b style={{ color: 'var(--color-text)', fontWeight: 500 }}>Import a dedicated wallet key</b>
-                    <div style={{ marginTop: 4 }}>
-                      A private key for a wallet you created for this purpose and nothing else.
-                    </div>
-                  </label>
-                </div>
+            <CadenceCost cadence={cadence} costRef={costReference} costBudget={costBudget} />
+          </div>
+        </section>
 
-                {walletMode === 'import' ? (
-                  <>
-                    {/* THE WARNING IS NOT A FOOTNOTE. */}
-                    <div className="callout callout-bad" style={{ marginTop: 12 }}>
-                      <strong>If you import a key, ARCANA can sign anything from that wallet — not only trades.</strong>{' '}
-                      The signer restricts what it will build: two named transaction shapes, an allowlisted router, an
-                      allowlisted token, no raw calldata. But that is ARCANA restricting itself, not a property of the
-                      key. Never import a wallet that holds anything else, and never import your main wallet.
-                    </div>
-                    <div className="field" style={{ marginTop: 12 }}>
-                      <label htmlFor="pk">Private key</label>
-                      <input
-                        id="pk"
-                        className="input mono"
-                        type="password"
-                        value={privateKey}
-                        onChange={(e) => setPrivateKey(e.target.value)}
-                        placeholder="0x…"
-                        style={{ width: '100%', fontSize: 12 }}
-                      />
-                      <div className="help">
-                        It travels to the signer over the internal network and is never written to a log, a database
-                        or an error message here.
-                      </div>
-                    </div>
-                  </>
-                ) : null}
-              </Step>
-            ) : null}
+        {/* ------------------------------------------------ create */}
+        <section style={{ borderTop: '1px solid var(--color-divider)', paddingTop: 16 }}>
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5, color: 'var(--ink-2)' }}>
+            <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} style={{ marginTop: 2 }} />
+            I understand this agent will trade real funds from its own wallet, that its decisions are public
+            {visibility === 'public' ? ' and so is its mandate' : ' while its intelligence stays private'}, and that the
+            mandate cannot be edited once it is active — changing it means creating a new version, which starts its
+            record over.
+          </label>
 
-            {step === 6 ? (
-              <Step title="Review" lede="Nothing has been written yet. Creating writes a draft; activating is the step that takes a slot.">
-                <div className="two-col">
-                  <div className="box">
-                    <Row k="Name" v={name || '—'} />
-                    <Row k="Decided by" v="the model, reading this mandate" />
-                    <Row k="Universe" v={universe || '—'} />
-                    <Row k="Wallet" v={walletMode === 'derive' ? 'new · derived by the signer' : 'imported key'} />
-                  </div>
-                  <div className="box">
-                    <Row k="max_position_pct" v={`${maxPosition} = ${asPct(maxPosition) ?? '—'}`} />
-                    <Row k="cash_floor_pct" v={`${cashFloor} = ${asPct(cashFloor) ?? '—'}`} />
-                    <Row k="stop_loss_fraction" v={`${stopLoss} = ${asPct(stopLoss) ?? '—'}`} />
-                    <Row k="take_profit_fraction" v={takeProfit ? `${takeProfit} = ${asPct(takeProfit)}` : 'none'} />
-                    <Row k="cost_budget_monthly_pct" v={costBudget ? `${costBudget}% a month` : 'unmetered'} />
-                  </div>
-                </div>
-
-                <div style={{ borderLeft: '2px solid var(--color-accent)', padding: '4px 0 4px 14px', marginTop: 16 }}>
-                  <div className="k" style={{ marginBottom: 6 }}>
-                    {mode === 'template' ? 'Mandate · rendered from the template at creation' : 'Mandate · stored verbatim'}
-                  </div>
-                  <div style={{ fontSize: 13.5, lineHeight: 1.5 }}>
-                    {mode === 'template'
-                      ? `${tpl?.label ?? templateId} — the platform renders the text from this template and the answers above, and stores the result.`
-                      : mandate || <span className="m3">nothing written</span>}
-                  </div>
-                </div>
-
-                {/* PRIVATE AGENT. PUBLIC PROOF. Chosen here, with what each choice
-                    means stated before anything is written, because the choice
-                    only moves one way: private can later become public, public can
-                    never become private. */}
-                <div className="box" style={{ marginTop: 16 }}>
-                  <div className="k" style={{ marginBottom: 8 }}>Visibility</div>
-                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5, color: 'var(--ink-2)' }}>
-                    <input type="radio" name="visibility" checked={visibility === 'public'} onChange={() => setVisibility('public')} style={{ marginTop: 3 }} />
-                    <span>
-                      <strong style={{ color: 'var(--color-text)' }}>Public.</strong> The mandate, risk rules and the
-                      prompt, raw response, model and thesis behind every decision are readable by anyone.{' '}
-                      <span className="m3">It can never be made private later.</span>
-                    </span>
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5, color: 'var(--ink-2)', marginTop: 10 }}>
-                    <input type="radio" name="visibility" checked={visibility === 'private'} onChange={() => setVisibility('private')} style={{ marginTop: 3 }} />
-                    <span>
-                      <strong style={{ color: 'var(--color-text)' }}>Private.</strong> The mandate, risk rules, protective
-                      levels, prompts, model and reasoning stay yours. Decisions, executions, performance, score, rank
-                      and DNA stay public, and every decision is sealed with a commitment that proves its reasoning was
-                      not changed afterwards. You can open a single decision, or make the whole agent public, later —
-                      either is permanent and on its public record. A subscription does not unlock it.
-                    </span>
-                  </label>
-                </div>
-
-                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5, marginTop: 16, color: 'var(--ink-2)' }}>
-                  <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} style={{ marginTop: 2 }} />
-                  I understand this agent will trade real funds from its own wallet, that its decisions are public
-                  {visibility === 'public' ? ' and so is its mandate' : ' while its intelligence stays private'}, and
-                  that the mandate cannot be edited once it is active — changing it means creating a new version,
-                  which starts its record over.
-                </label>
-
-                <button
-                  className="btn btn-primary"
-                  style={{ marginTop: 14, opacity: ack && canReview ? 1 : 0.45 }}
-                  disabled={!ack || !canReview || pending}
-                  onClick={submit}
-                >
-                  {pending ? 'Creating the draft…' : 'Create as a draft'}
-                </button>
-                {!canReview ? (
-                  <div className="dn" style={{ fontSize: 11.5, marginTop: 8 }}>
-                    A name, a strategy and a universe are all required before anything can be written.
-                  </div>
-                ) : null}
-                {fail ? <Problem f={fail} /> : null}
-              </Step>
-            ) : null}
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginTop: 18, paddingTop: 12, borderTop: '1px solid var(--color-divider)' }}>
-              <button className="btn" onClick={() => setStep(Math.max(0, step - 1))} disabled={step === 0}>
-                Back
-              </button>
-              {step < 6 ? (
-                <button className="btn btn-primary" onClick={() => setStep(step + 1)}>
-                  Next · {STEPS[step + 1]}
-                </button>
-              ) : null}
+          <button
+            className="btn btn-primary"
+            style={{ marginTop: 14, opacity: ack && canCreate ? 1 : 0.45 }}
+            disabled={!ack || !canCreate || pending}
+            onClick={submit}
+          >
+            {pending ? 'Creating the draft…' : 'Create as a draft'}
+          </button>
+          {!canCreate ? (
+            <div className="dn" style={{ fontSize: 11.5, marginTop: 8 }}>
+              {!nameOk ? 'A name of 3–100 characters is needed. ' : ''}
+              {!strategyOk ? 'A template or a mandate is needed. ' : ''}
+              {!universe ? 'A universe is needed. ' : ''}
+              {!walletOk ? 'The imported key is not a valid private key.' : ''}
             </div>
-          </>
-        )}
+          ) : null}
+          {fail ? <Problem f={fail} /> : null}
+        </section>
       </div>
     </div>
   );
 }
 
-function Step({ title, lede, children }: { title: string; lede: string; children: React.ReactNode }) {
+function Part({ n, title, lede, children }: { n: number; title: string; lede: string; children: React.ReactNode }) {
   return (
     <section>
-      <h2 style={{ fontSize: 22, margin: 0 }}>{title}</h2>
+      <h2 style={{ fontSize: 20, margin: 0 }}>
+        <span className="mono m3" style={{ fontSize: 13, marginRight: 8 }}>
+          {n}
+        </span>
+        {title}
+      </h2>
       <div className="m2" style={{ fontSize: 12.5, marginTop: 4, lineHeight: 1.5 }}>
         {lede}
       </div>
-      <div style={{ marginTop: 16, display: 'grid', gap: 14 }}>{children}</div>
+      <div style={{ marginTop: 12, display: 'grid', gap: 12 }}>{children}</div>
     </section>
   );
 }
 
-function Row({ k, v }: { k: string; v: string }) {
+/**
+ * The cadence in force, and what it costs — from measurements only.
+ *
+ * TOKENS AND GAS ARE MEASURED, A MODEL PRICE IS NOT. The projection multiplies
+ * the running season's ticks per day by what live agents on this platform have
+ * actually used over 30 days. Where a factor has not been measured the line says
+ * so instead of filling it in; a figure made from a guessed price would be a
+ * number with a currency symbol and no measurement behind it.
+ */
+function CadenceCost({
+  cadence,
+  costRef,
+  costBudget,
+}: {
+  cadence: { known: boolean; ticks_per_day: number | null; note: string };
+  costRef: CostReference | null;
+  costBudget: string;
+}) {
+  const tpd = cadence.known ? cadence.ticks_per_day : null;
+  const tokensPerDay = tpd !== null && costRef?.median_tokens_per_decision != null ? Math.round(tpd * costRef.median_tokens_per_decision) : null;
+  const gasPerDay =
+    tpd !== null &&
+    costRef?.share_of_decisions_that_traded != null &&
+    costRef.transactions_per_trade != null &&
+    costRef.median_gas_usd_per_transaction != null
+      ? tpd * costRef.share_of_decisions_that_traded * costRef.transactions_per_trade * costRef.median_gas_usd_per_transaction
+      : null;
+
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12, padding: '3px 0' }}>
-      <span className="m3">{k}</span>
-      <span className="mono" style={{ textAlign: 'right', wordBreak: 'break-word' }}>
-        {v}
-      </span>
+    <div className="box">
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', alignItems: 'baseline' }}>
+        <span className="k">Cadence &amp; projected cost</span>
+        <span className="mono m2" style={{ fontSize: 11 }}>
+          {tpd !== null ? `${tpd} ticks / day` : 'no cadence measured'}
+        </span>
+      </div>
+      <div className="m3" style={{ fontSize: 11, marginTop: 6, lineHeight: 1.45 }}>
+        Cadence is not a property of an agent on this platform: a competition ticks on a timer the operator sets, and
+        every agent in it is asked on the same clock. {cadence.note}
+      </div>
+
+      <div className="mono" style={{ fontSize: 12, marginTop: 10, display: 'grid', gap: 4 }}>
+        <div>
+          model:{' '}
+          {tokensPerDay !== null ? (
+            <>
+              ~{tokensPerDay.toLocaleString('en-US')} tokens / day{' '}
+              <span className="m3">({costRef!.median_tokens_per_decision} median per decision · dollar price not recorded)</span>
+            </>
+          ) : (
+            <span className="m3">not measured — no cadence or no priced decisions to take a median from</span>
+          )}
+        </div>
+        <div>
+          gas:{' '}
+          {gasPerDay !== null ? (
+            <>
+              ~${gasPerDay.toFixed(4)} / day{' '}
+              <span className="m3">
+                ({(costRef!.share_of_decisions_that_traded! * 100).toFixed(1)}% of decisions traded ·{' '}
+                {costRef!.transactions_per_trade} tx per trade · ${costRef!.median_gas_usd_per_transaction} median per tx)
+              </span>
+            </>
+          ) : (
+            <span className="m3">not measured — too few priced transactions on record to project from</span>
+          )}
+        </div>
+      </div>
+      <div className="m3" style={{ fontSize: 10.5, marginTop: 8, lineHeight: 1.45 }}>
+        Measured over {costRef?.window ?? 'nothing — the reference could not be read'}. Your agent&rsquo;s own figures
+        will differ with its mandate; once it has a few priced fills its wallet tab measures them.{' '}
+        {costBudget
+          ? `The cost budget you set (${costBudget}% a month) pauses it before it spends past that.`
+          : 'You set no cost budget, so nothing will meter what it spends.'}
+      </div>
     </div>
   );
 }
@@ -592,8 +590,7 @@ function Row({ k, v }: { k: string; v: string }) {
  *
  * `percentUnits` is the exception that proves the rule: cost_budget_monthly_pct
  * really is a percentage — 2 means 2% — while every other key here is a
- * fraction. Showing "2 = 200%" for it would be the same mistake in reverse, so
- * the one field that differs is marked rather than treated like its neighbours.
+ * fraction. Showing "2 = 200%" for it would be the same mistake in reverse.
  */
 function Fraction({
   label,
@@ -631,14 +628,14 @@ function Fraction({
   );
 }
 
-/** The two levels, converted against a worked entry price. */
+/** The two levels, converted against a worked entry price, with the example that matters. */
 function WorkedConversion({ stop, take }: { stop: string; take: string }) {
   const entry = 128.4;
   const s = Number(stop);
   const t = Number(take);
   return (
     <div className="box">
-      <div className="lbl">WORKED CONVERSION · AN ENTRY AT {entry.toFixed(2)}</div>
+      <div className="lbl">WHAT YOUR STOP AND TARGET MEAN · AN ENTRY AT {entry.toFixed(2)}</div>
       <div className="mono" style={{ fontSize: 12, marginTop: 6, display: 'grid', gap: 3 }}>
         <div>
           stop <span className="m3">{stop || '—'}</span> →{' '}
@@ -652,7 +649,10 @@ function WorkedConversion({ stop, take }: { stop: string; take: string }) {
         </div>
       </div>
       <div className="m3" style={{ fontSize: 10.5, marginTop: 8, lineHeight: 1.45 }}>
-        If those prices are not where you meant them, the fraction is the thing to change — not the entry.
+        These are FRACTIONS: <span className="mono">0.0015</span> means 0.15%, not 0.15. If those prices are not where
+        you meant them, the fraction is the thing to change — not the entry. A key this platform does not read is
+        accepted and ignored, so the next screen names every key the engine will not read and every key whose name
+        lies about its scale.
       </div>
     </div>
   );
@@ -803,7 +803,7 @@ function Done({
             Public profile
           </Link>
           <Link href="/me" className="btn btn-ghost">
-            Back to overview
+            Back to the dashboard
           </Link>
         </div>
       )}

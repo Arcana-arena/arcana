@@ -126,6 +126,10 @@ try {
     check('and says a creator profile is a separate, deliberate act',
       /no creator profile yet/i.test(t), 'the page does not explain the missing profile');
     check('rather than reporting a failure', !/could not be read/i.test(t), 'it reports a read failure');
+    // THE DOOR. A signed-in wallet with no profile is offered the step that
+    // makes one, in the header, rather than an address pill to guess at.
+    check('and the header offers to set the profile up',
+      /hdr-dash[^>]*>Set up profile</.test(p.html), 'no "Set up profile" button in the signed-in header');
   });
 
   // --- the fixture ---------------------------------------------------------
@@ -191,6 +195,32 @@ try {
     check('and the page prints the cap rather than a number of its own',
       t.includes(`of ${d.body.slots.cap}`), `expected "of ${d.body.slots.cap}" on the page`);
 
+    // WHAT AN AGENT IS DOING, per row. The response carries it, and the page
+    // draws it — nothing else.
+    const row = (d.body?.agents ?? []).find((a) => a.id === agentId) ?? {};
+    check('each agent row says what it holds (null before any snapshot, never absent)',
+      'positions' in row && (row.positions === null || Array.isArray(row.positions)), JSON.stringify(row.positions));
+    check('and what it last decided, not only when', 'last_decision' in row, Object.keys(row).join(','));
+    check('and its gas, which is not read for a draft rather than guessed', 'gas' in row && row.gas === null,
+      JSON.stringify(row.gas));
+    check('the create form\'s cost reference is measured, and says the model price is not',
+      /not recorded anywhere/i.test(d.body?.cost_reference?.model_price_note ?? ''), JSON.stringify(d.body?.cost_reference));
+    check('the signed-in header offers the Dashboard directly',
+      /hdr-dash[^>]*>Dashboard</.test(p.html), 'no Dashboard button in the header');
+    check('the dashboard is one table: holding, last decision, needs you',
+      /Holding/.test(t) && /Last decision/.test(t) && /Needs you/.test(t), 'the agent table columns are missing');
+    check('with no form, setting or wallet panel on it',
+      // "Save risk limits", not "Risk limits": the site footer links a doc called
+      // "Risk limits & fractions", and that link is not a control.
+      !/<textarea|Save risk limits|Export private key|Take possession of the key|Payments received/i.test(p.html),
+      'a control or the earnings panel is back on the dashboard');
+    check('and earnings one click away', p.html.includes('href="/me/earnings"'), 'no link to /me/earnings');
+
+    const ep = await page('/me/earnings');
+    const et = text(ep.html);
+    check('the earnings page renders', ep.status === 200, `status ${ep.status}`);
+    check('and carries what moved there', /Paid, all time/.test(et) && /Reputation/.test(et), 'earnings figures missing');
+
     // THE CHECKS THAT WERE MISSING. The earnings read failed for every creator
     // with a wallet from 2026-09-13, and this suite loaded /me for such a
     // creator on every run and passed: agent-service turns arca's 500 into a
@@ -201,8 +231,23 @@ try {
     check('the earnings read answers for a creator with a wallet', e.status === 200, `status ${e.status}`);
     check('and is available, not a tolerated failure', e.body?.available === true,
       `available=${e.body?.available} reason=${e.body?.reason ?? ''}`);
-    check('so the dashboard does not say the payment record could not be read',
-      !/payment record could not be read/i.test(t), 'the /me page renders the earnings failure state');
+    check('so the earnings page does not say the payment record could not be read',
+      !/payment record could not be read/i.test(et), 'the /me/earnings page renders the earnings failure state');
+
+    // THE CREATE FORM: fewer decisions, nothing less said. Server-rendered, so
+    // what is checked is what arrives before any script runs.
+    const np = await page('/me/agents/new');
+    const nt = text(np.html);
+    check('the create form renders', np.status === 200, `status ${np.status}`);
+    check('on one page, not a step rail with Next buttons', !/Next ·/.test(nt) && /What you are agreeing to/.test(nt),
+      'the form still steps, or the defaults section is missing');
+    check('the fraction example is on it before anything is typed', /0\.0015/.test(nt) && /means 0\.15%/.test(nt),
+      'the 0.0015 = 0.15% example is not on the form');
+    check('importing a key is warned about before it is chosen',
+      /ARCANA can sign anything from an imported wallet/.test(nt), 'the import warning only appears after choosing import');
+    check('the cadence comes with a projected cost that names what is not measured',
+      /projected cost/i.test(nt) && /dollar price not recorded|not measured/i.test(nt), 'no cost projection on the form');
+    check('and visibility is asked, with public as the stated default', /Public by default/.test(nt), 'visibility is not asked');
   });
 
   await section('Risk limits can be changed on a live agent, and removal is named', async () => {
@@ -212,6 +257,11 @@ try {
     const dt = text(dp.html);
     check('the manage page of a draft offers to activate it',
       /is a draft/i.test(dt) && /Activate /.test(dt), 'no Activate button on a draft agent\'s page');
+    check('its risk limits keep the hundredfold example in view',
+      /0\.0015/.test(dt) && /means 0\.15%/.test(dt), 'the fraction warning is not on the manage page');
+    check('and its controls are sections that say what is set while closed',
+      (dp.html.match(/class="fold"/g) ?? []).length >= 5 && /Lifecycle/.test(dt) && /Marketplace listing/.test(dt),
+      'the manage tab is not split into sections');
 
     const act = await api(`/v1/agents/${agentId}/activate`, { method: 'POST' });
     check('the draft activates', act.status < 300, `${act.status} ${JSON.stringify(act.body)}`);
@@ -408,6 +458,17 @@ try {
     check('a gas runway with nothing to measure says so rather than defaulting',
       b.body?.gas?.known === false && /median needs at least three/i.test(b.body?.gas?.reason ?? ''),
       JSON.stringify(b.body?.gas));
+
+    // THE DASHBOARD READS THE SAME MEASUREMENT. An active agent with a wallet
+    // and no fills is unknown there too — never "fine", never a gas_low guess.
+    const d2 = await api(`/v1/creators/${creatorId}/dashboard`);
+    const r2 = (d2.body?.agents ?? []).find((a) => a.id === agentId) ?? {};
+    check('the dashboard reports that same gas as unknown, with the reason',
+      r2.gas?.known === false && r2.gas?.low === null && typeof r2.gas?.note === 'string' && r2.gas.note.length > 10,
+      JSON.stringify(r2.gas));
+    check('and raises no low-gas item for an unmeasured wallet',
+      !(d2.body?.attention ?? []).some((x) => x.agent_id === agentId && x.kind === 'gas_low'),
+      JSON.stringify((d2.body?.attention ?? []).filter((x) => x.agent_id === agentId)));
 
     const t = await api(`/v1/agents/${agentId}/wallet/transactions`);
     check('transactions answer', t.status === 200, `status ${t.status}`);
