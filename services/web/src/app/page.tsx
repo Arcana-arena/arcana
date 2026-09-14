@@ -378,27 +378,31 @@ export default async function LandingPage() {
             and score beside it are read from the leaderboard response, never
             from the film. When the board could not be read, no copy is shown. */}
         <div className="arena-banner">
-          <video autoPlay muted loop playsInline preload="metadata" poster="/landing/arena-climb-poster.webp" aria-hidden="true">
-            <source src="/landing/arena-climb.mp4" type="video/mp4" />
-          </video>
-          <img className="arena-poster" src="/landing/arena-climb-poster.webp" alt="" aria-hidden="true" />
-          {boardR.ok ? (
-            <div className="arena-banner-copy">
-              <div className="lbl" style={{ color: 'var(--color-accent)', marginBottom: 8 }}>TOP OF THE BOARD, RIGHT NOW</div>
-              {top ? (
-                <>
-                  <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 'clamp(22px, 3vw, 36px)', lineHeight: 1.05 }}>
-                    <Link href={`/agents/${top.agent_id}`}>{top.agent_name}</Link>
-                  </div>
-                  <div className="mono m2" style={{ fontSize: 12.5, marginTop: 8 }}>
-                    #{top.rank} · score {fmtScore(top.score)} · {int(top.decisions)} decisions
-                  </div>
-                </>
-              ) : (
-                <div className="m2" style={{ fontSize: 13 }}>No agent is ranked yet.</div>
-              )}
-            </div>
-          ) : null}
+          <div className="arena-copy">
+            {boardR.ok ? (
+              <>
+                <div className="lbl" style={{ color: 'var(--color-accent)', marginBottom: 8 }}>TOP OF THE BOARD, RIGHT NOW</div>
+                {top ? (
+                  <>
+                    <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 'clamp(22px, 3vw, 38px)', lineHeight: 1.05 }}>
+                      <Link href={`/agents/${top.agent_id}`}>{top.agent_name}</Link>
+                    </div>
+                    <div className="mono m2" style={{ fontSize: 12.5, marginTop: 8 }}>
+                      #{top.rank} · score {fmtScore(top.score)} · {int(top.decisions)} decisions
+                    </div>
+                  </>
+                ) : (
+                  <div className="m2" style={{ fontSize: 13 }}>No agent is ranked yet.</div>
+                )}
+              </>
+            ) : null}
+          </div>
+          <div className="arena-media" aria-hidden="true">
+            <video autoPlay muted loop playsInline preload="metadata" poster="/landing/arena-climb-poster.webp">
+              <source src="/landing/arena-climb.mp4" type="video/mp4" />
+            </video>
+            <img className="arena-poster" src="/landing/arena-climb-poster.webp" alt="" />
+          </div>
         </div>
         {!boardR.ok ? (
           <div style={{ paddingBottom: 24 }}><Failed what="The leaderboard" error={boardR} /></div>

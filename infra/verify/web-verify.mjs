@@ -850,7 +850,9 @@ await section('The landing art loads, and the figure beside it is the leaderboar
   // leaderboard's, so they are checked against the leaderboard, not the art.
   const home = await page('/');
   const t = text(home.html).replace(/\s+/g, ' ');
-  const shown = t.match(/TOP OF THE BOARD, RIGHT NOW (\S+) #(\d+) · score ([\d.]+)/);
+  // Spaces allowed around the pieces: server rendering separates the parts of
+  // "#{rank} · score {score}" with comment nodes, which read as spaces here.
+  const shown = t.match(/TOP OF THE BOARD, RIGHT NOW\s+(\S+)\s+#\s*(\d+)\s*·\s*score\s*([\d.]+)/);
   const top = (board.body?.items ?? []).find((i) => i.ranked);
   if (!top) {
     nothingToCheck('no agent is ranked, so the banner names nobody');
