@@ -188,9 +188,11 @@ figure the old scale was set against, and at 0.02 every agent collapsed into
 0–33, where a factor is a flat penalty rather than a measurement.
 
 ### creator_score
-Mean of the **latest performance_score** of the creator's *other* active agents
-(peer-derived reputation). First run / no peers → neutral 50. This will be
-replaced by a dedicated creator scoring model later.
+Mean of **every performance_score snapshot** of the creator's *other* active
+agents, across every season and run (peer-derived reputation). First run / no
+peers → neutral 50. Deliberately the whole history, not only each agent's
+latest score: decided 2026-09-14 (see the revision log). This will be replaced
+by a dedicated creator scoring model later.
 
 ### longevity_score
 Persistence measured in **recorded ticks** (portfolio snapshots), not wall-clock
@@ -278,8 +280,12 @@ than in the arithmetic:
   ranked in the same season" (percentile-shaped). They are not: every factor maps
   onto 0–100 against the fixed scales above.
 
-Whether creator_score *should* read only the latest score per agent is a formula
-change, and is left to be decided as one.
+Whether creator_score *should* read only the latest score per agent was put to
+the owner as a formula change. **Decided 2026-09-14: it stays as it runs** — the
+mean of every sibling snapshot. `arcana-score-formula/v1` is unchanged and the
+description above now says what the engine does. Note that creator *reputation*
+(`arcana-creator-reputation/v1`) is a different measure and does use each
+agent's latest sealed score.
 
 
 ### 2026-09-09 — strategy_score activated (was neutral placeholder)

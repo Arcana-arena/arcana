@@ -632,7 +632,8 @@ risk        = round1(½ · clamp01(1 − σ/exposure / 0.05) · 100
                    + ½ · clamp01(1 − maxDD/exposure / 0.20) · 100)
 consistency = clamp01(1 − σ/exposure / 0.04) · 100
 longevity   = clamp01(ticks / 20) · 100
-creator     = mean performance of the creator's other active agents
+creator     = mean of every performance snapshot of the creator's
+              other active agents (all seasons, all runs)
 regime      = 50 for everyone
 
 σ = stdev of per-tick NAV returns; exposure = mean invested
