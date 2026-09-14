@@ -6,13 +6,23 @@ import { OwnershipService } from '../auth/ownership.service';
 import { ParseUuidAllPipe } from '../common/parse-uuid-all.pipe';
 import { CreateCompetitionDto } from './dto/create-competition.dto';
 import { CompetitionsListQueryDto } from '../common/list-query.dto';
-import { IsNotEmpty, IsString, IsUUID, MaxLength } from 'class-validator';
+import { IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 
 export class OpenTickDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(120)
   marketSnapshotRef: string;
+
+  /**
+   * The interval the cadence enforces, recorded on the tick so the status page
+   * can tell when the next one is due from the record (0050). Optional: a tick
+   * opened by anything that does not run on an interval leaves it unrecorded.
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(60)
+  cadenceIntervalSeconds?: number;
 }
 
 export class JoinCompetitionDto {
@@ -175,7 +185,7 @@ export class InternalCompetitionsController {
     @Param('id', ParseUuidAllPipe) id: string,
     @Body() dto: OpenTickDto,
   ) {
-    return this.competitions.openTick(id, dto.marketSnapshotRef);
+    return this.competitions.openTick(id, dto.marketSnapshotRef, dto.cadenceIntervalSeconds ?? null);
   }
 
   @Post(':id/ticks/close')

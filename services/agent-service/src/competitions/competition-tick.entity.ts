@@ -24,6 +24,10 @@ export class CompetitionTick {
   @Column({ name: 'window_end', type: 'timestamptz', nullable: true })
   windowEnd: Date | null;
 
+  /** The cadence interval this tick was opened under (0050). NULL = not recorded. */
+  @Column({ name: 'cadence_interval_seconds', type: 'int', nullable: true })
+  cadenceIntervalSeconds: number | null;
+
   @Column({ name: 'created_at', type: 'timestamptz', default: () => 'now()' })
   createdAt: Date;
 }

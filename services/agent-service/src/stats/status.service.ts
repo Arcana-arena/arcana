@@ -36,10 +36,25 @@ export type Component = {
   measured_at: string | null;
 };
 
-/** A tick is expected roughly this often; beyond it the engine is quiet. */
-const TICK_QUIET_MINUTES = 90;
-/** A market snapshot older than this is stale enough to affect decisions. */
-const SNAPSHOT_STALE_MINUTES = 120;
+/**
+ * How late a tick may be before it counts. The cadence timer fires once a
+ * minute and a tick takes minutes to run, so "due" is never to the second.
+ */
+const TICK_GRACE_MINUTES = 15;
+/**
+ * Used ONLY when no running competition's cadence can be read (no recorded
+ * interval and fewer than two ticks). It was the whole rule once, and a fixed
+ * number is what reported DEGRADED four times a day on a 4-hour cadence.
+ */
+const TICK_QUIET_FALLBACK_MINUTES = 90;
+
+type CadenceRow = {
+  competition_id: string;
+  window_start: Date;
+  market_snapshot_ref: string;
+  recorded_seconds: number | null;
+  measured_seconds: number | null;
+};
 /** Model latency above this is slow enough to be worth saying. */
 const MODEL_SLOW_MS = 15000;
 
@@ -75,7 +90,62 @@ export class StatusService {
       measured_at: new Date().toISOString(),
     });
 
+    // ---- the cadence each running competition is on --------------------
+    //
+    // JUDGED AGAINST THE CADENCE IN FORCE, NOT A FIXED NUMBER. A snapshot is
+    // taken when a tick opens, and ticks open on each competition's own
+    // interval — so "stale" only means something relative to when the next
+    // tick was due. The interval is read from the record: the cadence writes
+    // it onto every tick it opens (0050). For ticks from before that, the gap
+    // between the competition's last two ticks stands in, and the row says
+    // which one it used. That stand-in cannot see a tick missed BEFORE the last
+    // one; it is replaced by the recorded interval at each competition's next
+    // tick.
+    let cadence: CadenceRow[] | null = null;
+    let cadenceError: unknown = null;
+    try {
+      cadence = await this.db.query(
+        `WITH ranked AS (
+           SELECT t.competition_id, t.window_start, t.market_snapshot_ref, t.cadence_interval_seconds,
+                  row_number() OVER (PARTITION BY t.competition_id ORDER BY t.window_start DESC) AS rn
+             FROM competition_ticks t
+             JOIN competitions c ON c.id = t.competition_id AND c.status = 'running'
+         )
+         SELECT l.competition_id::text AS competition_id, l.window_start, l.market_snapshot_ref,
+                l.cadence_interval_seconds AS recorded_seconds,
+                extract(epoch FROM l.window_start - p.window_start)::int AS measured_seconds
+           FROM ranked l
+           LEFT JOIN ranked p ON p.competition_id = l.competition_id AND p.rn = 2
+          WHERE l.rn = 1
+          ORDER BY l.window_start DESC`,
+      );
+    } catch (e) {
+      cadenceError = e;
+    }
+    const schedule = (cadence ?? []).map((c) => {
+      const seconds = c.recorded_seconds ?? c.measured_seconds ?? null;
+      const due = seconds !== null ? new Date(new Date(c.window_start).getTime() + seconds * 1000) : null;
+      return {
+        id: c.competition_id.slice(0, 8),
+        seconds,
+        source: c.recorded_seconds !== null ? 'recorded' : c.measured_seconds !== null ? 'measured from its last two ticks' : null,
+        due,
+        lateMinutes: due ? Math.floor((now - due.getTime()) / 60000) : null,
+      };
+    });
+    const hours = (s: number) => (s % 3600 === 0 ? `${s / 3600}h` : `${Math.round(s / 60)}m`);
+    const hhmm = (d: Date) => d.toISOString().slice(11, 16);
+    const longestCadenceMinutes = schedule.reduce<number | null>(
+      (m, x) => (x.seconds === null ? m : Math.max(m ?? 0, Math.ceil(x.seconds / 60))),
+      null,
+    );
+
     // ---- the decision engine -------------------------------------------
+    //
+    // Quiet is measured against the longest cadence any running competition
+    // is on, plus the grace. With two 4-hour competitions offset by 90 minutes
+    // the normal silence is 150 minutes, and the old fixed 90 called that
+    // degraded every afternoon.
     try {
       const rows = await this.db.query(
         `SELECT count(*) FILTER (WHERE ts > now() - interval '24 hours')::int AS last_24h,
@@ -85,14 +155,18 @@ export class StatusService {
       const r = rows[0] ?? {};
       const quiet = minutesSince(r.last_decision);
       const never = r.last_decision === null;
+      const quietLimit = longestCadenceMinutes !== null ? longestCadenceMinutes + TICK_GRACE_MINUTES : TICK_QUIET_FALLBACK_MINUTES;
       components.push({
         key: 'decision_engine',
         label: 'Decision engine',
-        state: never ? 'unknown' : quiet !== null && quiet > TICK_QUIET_MINUTES ? 'degraded' : 'operational',
+        state: never ? 'unknown' : quiet !== null && quiet > quietLimit ? 'degraded' : 'operational',
         detail: never
           ? 'no decision has ever been recorded'
           : `${Number(r.last_24h ?? 0)} decisions in the last 24h · last one ${quiet} minutes ago`,
-        threshold: `quiet for more than ${TICK_QUIET_MINUTES} minutes is degraded`,
+        threshold:
+          longestCadenceMinutes !== null
+            ? `quiet for more than ${quietLimit} minutes (the longest running cadence, ${hours(longestCadenceMinutes * 60)}, plus ${TICK_GRACE_MINUTES}) is degraded`
+            : `quiet for more than ${TICK_QUIET_FALLBACK_MINUTES} minutes is degraded (no running competition's cadence could be read)`,
         unknown_because: never ? 'There is no decision to measure against.' : null,
         measured_at: r.last_decision ? new Date(r.last_decision).toISOString() : null,
       });
@@ -101,21 +175,51 @@ export class StatusService {
     }
 
     // ---- the market data every decision is made against ----------------
+    //
+    // DEGRADED MEANS A TICK IS LATE: a running competition whose next tick is
+    // more than the grace past its interval has no fresh snapshot to decide
+    // against. Between ticks an old snapshot is simply the latest one, and it
+    // is what the next tick replaces.
     try {
+      if (cadenceError) throw cadenceError;
       const rows = await this.db.query(
         `SELECT ref, tick_time FROM market_snapshots ORDER BY tick_time DESC LIMIT 1`,
       );
       const r = rows[0] ?? null;
       const age = minutesSince(r?.tick_time);
+      const late = schedule.filter((x) => x.lateMinutes !== null && x.lateMinutes > TICK_GRACE_MINUTES);
+      const unread = schedule.filter((x) => x.seconds === null);
+      const plan = schedule
+        .map((x) =>
+          x.due
+            ? `${x.id} next due ${hhmm(x.due)} UTC (${hours(x.seconds!)}, ${x.source})` +
+              (x.lateMinutes! > TICK_GRACE_MINUTES ? ` — OVERDUE by ${x.lateMinutes} minutes` : '')
+            : `${x.id}: cadence not readable yet (one tick, no interval recorded)`,
+        )
+        .join(' · ');
+      const state: Health = !r
+        ? 'unknown'
+        : late.length > 0
+          ? 'degraded'
+          : schedule.length > 0 && unread.length === schedule.length
+            ? 'unknown'
+            : 'operational';
       components.push({
         key: 'market_data',
         label: 'Market data',
-        state: !r ? 'unknown' : age !== null && age > SNAPSHOT_STALE_MINUTES ? 'degraded' : 'operational',
+        state,
         detail: r
-          ? `latest snapshot ${r.ref} · ${age} minutes old`
+          ? `latest snapshot ${r.ref} · ${age} minutes old · ` +
+            (schedule.length === 0 ? 'no competition is running, so no tick is due' : plan)
           : 'no market snapshot has ever been recorded',
-        threshold: `older than ${SNAPSHOT_STALE_MINUTES} minutes is degraded`,
-        unknown_because: r ? null : 'There is no snapshot to measure the age of.',
+        threshold:
+          `a running competition's next tick more than ${TICK_GRACE_MINUTES} minutes past its cadence interval is ` +
+          'degraded (the interval the cadence recorded on the tick, or the gap between its last two ticks)',
+        unknown_because: !r
+          ? 'There is no snapshot to measure the age of.'
+          : state === 'unknown'
+            ? 'No running competition has a readable cadence yet, so nothing says when the next snapshot is due.'
+            : null,
         measured_at: r?.tick_time ? new Date(r.tick_time).toISOString() : null,
       });
     } catch (e) {

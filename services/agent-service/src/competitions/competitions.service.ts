@@ -432,6 +432,7 @@ export class CompetitionsService {
   async openTick(
     competitionId: string,
     marketSnapshotRef: string,
+    cadenceIntervalSeconds: number | null = null,
   ): Promise<CompetitionTick> {
     const competition = await this.findOne(competitionId);
     if (competition.status === 'completed') {
@@ -483,6 +484,7 @@ export class CompetitionsService {
       phase: 'open',
       marketSnapshotRef,
       windowStart: new Date(),
+      cadenceIntervalSeconds,
     });
     const saved = await this.ticks.save(tick);
 

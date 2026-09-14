@@ -608,6 +608,19 @@ await section('System status never reports a missing check as a passing one', as
   check('every judged component states the threshold it was judged against',
     noThreshold.length === 0, `without a threshold: ${noThreshold.join(', ')}`);
 
+  // STALE IS RELATIVE TO THE CADENCE. Market data used to be judged against a
+  // fixed 120 minutes while competitions tick every 4 hours, and reported
+  // DEGRADED four times a day with nothing late. The threshold names the
+  // cadence, and a degraded verdict names the tick that is overdue.
+  const md = comps.find((c) => c.key === 'market_data');
+  if (md && md.state !== 'unknown') {
+    check('market data is judged against the cadence, not a fixed age',
+      /cadence interval/i.test(md.threshold ?? '') && !/older than \d+ minutes/i.test(md.threshold ?? ''),
+      md.threshold ?? '');
+    check('and a degraded market-data verdict names the overdue tick',
+      md.state !== 'degraded' || /OVERDUE by \d+ minutes/.test(md.detail ?? ''), md.detail ?? '');
+  }
+
   // NO UPTIME PERCENTAGE. There is no probe log to compute one from, and a
   // figure with a decimal point and no measurement behind it is the most
   // convincing kind of invented number.

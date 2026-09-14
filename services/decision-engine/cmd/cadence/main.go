@@ -277,7 +277,7 @@ func main() {
 			"disputed in the snapshot and carry both figures", pt.Disputed)
 	}
 
-	opened, err := startTick(ctx, cfg, *compID, pt.Ref)
+	opened, err := startTick(ctx, cfg, *compID, pt.Ref, *interval)
 	if err != nil {
 		log.Fatalf("open tick: %v", err)
 	}
@@ -457,8 +457,14 @@ func getOpenTick(ctx context.Context, cfg config, compID string) (*tick, error) 
 	return &t, nil
 }
 
-func startTick(ctx context.Context, cfg config, compID, ref string) (*tick, error) {
-	payload, _ := json.Marshal(map[string]string{"marketSnapshotRef": ref})
+func startTick(ctx context.Context, cfg config, compID, ref string, interval time.Duration) (*tick, error) {
+	// THE INTERVAL GOES ON THE RECORD (0050). It lived only as this program's
+	// -interval flag, so nothing reading the database could tell when the next
+	// tick was due — and the status page guessed with a fixed 120 minutes.
+	payload, _ := json.Marshal(map[string]any{
+		"marketSnapshotRef":      ref,
+		"cadenceIntervalSeconds": int(interval.Seconds()),
+	})
 	// INTERNAL tier. Opening a tick is a write to the record every score is
 	// computed from, so it sits behind the internal key — /v1/competitions
 	// exposes only the reads. The first run of this binary used the public
