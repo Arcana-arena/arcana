@@ -213,6 +213,9 @@ const ATTENTION_TONE: Record<Attention['kind'], 'dn' | 'am' | 'm3'> = {
 
 const ORDER: Attention['kind'][] = ['guard_held_back', 'unguarded_position', 'gas_low', 'paused_by_meter', 'no_wallet', 'quiet', 'unranked'];
 
+/** "0.000412300000" → "0.0004123"; an exact zero reads as 0, not eighteen zeros. */
+const ethShort = (v: string) => (v.includes('.') ? v.replace(/0+$/, '').replace(/\.$/, '') : v);
+
 function ago(ts: string | null): string {
   if (!ts) return '';
   const mins = Math.floor((Date.now() - new Date(ts).getTime()) / 60000);
@@ -252,7 +255,7 @@ function AgentRow({ a, attention }: { a: DashboardAgent; attention: Attention[] 
 
   return (
     <tr>
-      <td style={{ minWidth: 150 }}>
+      <td data-label="Agent" style={{ minWidth: 150 }}>
         <Link href={`/me/agents/${a.id}`} style={{ fontWeight: 500 }}>
           {a.name}
         </Link>{' '}
@@ -266,10 +269,10 @@ function AgentRow({ a, attention }: { a: DashboardAgent; attention: Attention[] 
           </Link>
         </div>
       </td>
-      <td>
+      <td data-label="Status">
         <StatusTag status={a.status} />
       </td>
-      <td className="r mono" style={{ whiteSpace: 'nowrap' }}>
+      <td data-label="Score" className="r mono" style={{ whiteSpace: 'nowrap' }}>
         {/* THE ENGINE'S LAST SCORE, AND WHETHER ANYBODY ELSE CAN SEE IT. The
             leaderboard withholds below the threshold; this does not. */}
         {a.latest_score === null ? <span className="m3">—</span> : fmtScore(a.latest_score)}
@@ -277,7 +280,7 @@ function AgentRow({ a, attention }: { a: DashboardAgent; attention: Attention[] 
           {a.ranked ? 'published' : `not published · ${int(a.decisions)}/${int(a.decisions_needed_to_rank)}`}
         </div>
       </td>
-      <td style={{ minWidth: 120 }}>
+      <td data-label="Holding" style={{ minWidth: 120 }}>
         {a.positions === null ? (
           <span className="m3">no snapshot yet</span>
         ) : a.positions.length === 0 ? (
@@ -294,7 +297,7 @@ function AgentRow({ a, attention }: { a: DashboardAgent; attention: Attention[] 
           </div>
         ) : null}
       </td>
-      <td style={{ minWidth: 130 }}>
+      <td data-label="Last decision" style={{ minWidth: 130 }}>
         {a.last_decision ? (
           <>
             <span className="mono">
@@ -310,7 +313,7 @@ function AgentRow({ a, attention }: { a: DashboardAgent; attention: Attention[] 
           <span className="m3">has never decided</span>
         )}
       </td>
-      <td style={{ minWidth: 220 }}>
+      <td data-label="Needs you" style={{ minWidth: 220 }}>
         {items.length === 0 ? (
           live ? (
             <span className="up" style={{ fontSize: 12 }}>
@@ -339,7 +342,7 @@ function AgentRow({ a, attention }: { a: DashboardAgent; attention: Attention[] 
         {/* UNKNOWN GAS IS SAID, NOT LEFT BLANK. A blank would read as enough. */}
         {live && a.gas && !a.gas.known ? (
           <div className="m3" style={{ fontSize: 10.5, marginTop: items.length ? 6 : 2, lineHeight: 1.4 }} title={a.gas.note ?? undefined}>
-            gas runway unknown{a.gas.native_amount ? ` · ${a.gas.native_amount} ETH` : ''}
+            gas runway unknown{a.gas.native_amount ? ` · ${ethShort(a.gas.native_amount)} ETH` : ''}
           </div>
         ) : null}
       </td>

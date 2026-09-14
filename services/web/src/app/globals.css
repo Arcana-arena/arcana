@@ -344,6 +344,17 @@ h2 { font-size: 22px; }
 .fold-body > .box { border: none; padding: 0; }
 .fold-body > .box > .k:first-child { display: none; }
 .agent-rows td { vertical-align: top; }
+/* ON A PHONE THE AGENTS COME FIRST. The creator sidebar drops below the page
+   content, and each agent row becomes a stacked card with its column names, so
+   what it holds and what needs attention are not scrolled off to the right. */
+@media (max-width: 720px) {
+  .creator-grid > nav.docnav { order: 2; }
+  .agent-rows thead { display: none; }
+  .agent-rows, .agent-rows tbody, .agent-rows tr { display: block; width: 100%; }
+  .agent-rows tr { border-bottom: 1px solid var(--color-divider); padding: 10px 0; }
+  .agent-rows td { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px; border: none; padding: 3px 0; min-width: 0 !important; text-align: left !important; }
+  .agent-rows td::before { content: attr(data-label); font-family: var(--font-mono), monospace; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); padding-top: 2px; }
+}
 
 /* A TABLE THAT SCROLLS SAYS SO. A shadow sits on whichever edge has more
    table behind it, and disappears at the end — the covers scroll with the

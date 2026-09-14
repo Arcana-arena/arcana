@@ -316,7 +316,9 @@ export default async function ManageAgentPage({
               )}
             </div>
             <div className="m3" style={{ fontSize: 10.5, lineHeight: 1.4 }}>
-              {dashAgent.gas?.native_amount ? `${dashAgent.gas.native_amount} ETH · ` : ''}
+              {dashAgent.gas?.native_amount
+                ? `${dashAgent.gas.native_amount.includes('.') ? dashAgent.gas.native_amount.replace(/0+$/, '').replace(/\.$/, '') : dashAgent.gas.native_amount} ETH · `
+                : ''}
               <Link href={`/me/agents/${id}?tab=wallet`}>wallet</Link>
             </div>
           </div>
