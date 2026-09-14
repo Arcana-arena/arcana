@@ -10,6 +10,17 @@ type Check = { name: string; ok: boolean; detail?: string };
 
 const US = `'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'`;
 
+/** A decimal string in one spelling: no leading or trailing zeros, no "-0". Exact, no float. */
+function decimalKey(v: string): string {
+  const m = /^(-?)(\d*)(?:\.(\d*))?$/.exec(v.trim());
+  if (!m) return v;
+  const int = m[2].replace(/^0+/, '') || '0';
+  const frac = (m[3] ?? '').replace(/0+$/, '');
+  const sign = m[1] && (int !== '0' || frac) ? '-' : '';
+  return `${sign}${int}${frac ? `.${frac}` : ''}`;
+}
+const sameDecimal = (a: string | null, b: string | null) => (a === null || b === null ? a === b : decimalKey(a) === decimalKey(b));
+
 const SCORE_COLUMNS: Array<[keyof ScoreOutputs, string]> = [
   ['arcana', 'arcana_score'],
   ['performance', 'performance_score'],
@@ -24,7 +35,7 @@ const SCORE_COLUMNS: Array<[keyof ScoreOutputs, string]> = [
 const HOW_TO_RECOMPUTE = [
   'Fetch the manifest (manifest.body). sha256 of its exact bytes must equal the score\'s seal.',
   'Read it line by line: the first line is arcana-score/v1; every other line is `key: <JSON>`.',
-  'Check every input against the record: each nav_series row is a portfolio snapshot of this agent in this season (same ts, nav, cash and seal); each decision exists with that action and commitment; each creator_peers row is a score snapshot with that performance_score and seal.',
+  'Check every input against the record: each nav_series row is a portfolio snapshot of this agent in this season (same ts and seal; nav and cash equal as decimal values, since "0" and "0.00" are one number); each decision exists with that action and commitment; each creator_peers row is a score snapshot with that performance_score and seal.',
   'Check each sealed input against the chain with GET /v1/anchors/leaves/:seal (or the decision anchor endpoint), and the snapshot manifests themselves: sha256 of each snapshot manifest equals its seal.',
   'Follow the steps of the formula version the manifest names (GET /v1/score-formulas/:version) using the manifest\'s constants. Every output must come out equal, not approximately equal.',
   'Check the score\'s own seal against its anchor. That root was written only after every sealed input was already in a mined anchor.',
@@ -167,9 +178,12 @@ export class ReputationService {
         ORDER BY ps.ts`,
       [agentId, m.season_id, m.ts],
     );
+    // nav and cash are decimals, compared as decimals: the column is
+    // numeric(20,2) and says "0.00", while a score sealed before the engine read
+    // the column as text lists a zero NAV as "0". Same value, different spelling.
     const navMismatch = m.nav_series.filter((p, i) => {
       const s = snaps[i];
-      return !s || s.ts !== p.ts || s.nav !== p.nav || s.cash !== p.cash || (s.seal ?? null) !== (p.seal ?? null);
+      return !s || s.ts !== p.ts || !sameDecimal(s.nav, p.nav) || !sameDecimal(s.cash, p.cash) || (s.seal ?? null) !== (p.seal ?? null);
     }).length;
     push('every snapshot in the NAV series is the recorded snapshot, in order', navMismatch === 0, `${navMismatch} differ`);
     push('and no snapshot recorded before the score is missing from it', snaps.length === m.nav_series.length,

@@ -82,9 +82,13 @@ type SnapshotPoint struct {
 }
 
 // PortfolioNAVSeries returns all NAV snapshots for a portfolio ordered by time.
+//
+// nav and cash are read AS TEXT: they go into the score manifest as the
+// column's exact spelling. Scanned as numeric, a zero NAV came back "0" while
+// the column and the snapshot's own manifest say "0.00".
 func (s *Store) PortfolioNAVSeries(ctx context.Context, portfolioID string) ([]SnapshotPoint, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT ts, nav, cash, coalesce(trim(seal), '') FROM portfolio_snapshots
+		SELECT ts, nav::text, cash::text, coalesce(trim(seal), '') FROM portfolio_snapshots
 		WHERE portfolio_id = $1
 		ORDER BY ts ASC`, portfolioID)
 	if err != nil {

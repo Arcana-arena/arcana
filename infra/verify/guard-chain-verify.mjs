@@ -260,13 +260,24 @@ await section("The exit emptied the position", async () => {
 
 // --- 5. It went through the brakes ----------------------------------------
 await section("It counted against the brakes, rather than going around them", async () => {
+  // THE WINDOW IS THE 24 HOURS AROUND THE EXIT, not the 24 hours before now.
+  // Measured from now(), this check turned red on its own a day after the last
+  // real exit (2026-09-13 00:28 UTC exit, failing from 2026-09-14 00:28) while
+  // nothing about the brakes had changed. The claim is that the exit's cost is in
+  // the rows the meter sums, and that is true or false of the exit's own window.
   const day = psql(`SELECT round(sum(coalesce(gas_cost_usd,0) + coalesce(pool_fee_usd,0))::numeric, 6)
-                      FROM executions WHERE agent_id = '${agentID}' AND ts >= now() - interval '24 hours'`);
+                      FROM executions WHERE agent_id = '${agentID}'
+                       AND ts > '${tat}'::timestamptz - interval '24 hours'
+                       AND ts <= '${tat}'::timestamptz + interval '5 minutes'`);
   const thisExit = psql(`SELECT round((coalesce(gas_cost_usd,0) + coalesce(pool_fee_usd,0))::numeric, 6)
                            FROM executions WHERE decision_id = ${decID} AND intent_action = 'sell'`);
   check('the cost meter can see this exit in the window',
-    Number(day) >= Number(thisExit) && Number(thisExit) > 0, `exit ${thisExit}, 24h total ${day}`);
-  console.log(`      this exit cost $${thisExit}; the agent has spent $${day} in 24h`);
+    Number(day) >= Number(thisExit) && Number(thisExit) > 0, `exit ${thisExit}, 24h total up to the exit ${day}`);
+  console.log(`      this exit cost $${thisExit}; the agent had spent $${day} in the 24h up to it`);
+
+  // The signer keeps TODAY's count only (per UTC day, sigcount.go), so an exit
+  // from an earlier UTC day cannot be checked against it. Say so; do not pass.
+  const exitToday = psql(`SELECT ('${tat}'::timestamptz AT TIME ZONE 'UTC')::date = (now() AT TIME ZONE 'UTC')::date`) === 't';
 
   // The signature counter is the signer's own file. It is only reachable once
   // the signer carrying it is deployed; say which, rather than passing quietly.
@@ -277,7 +288,10 @@ await section("It counted against the brakes, rather than going around them", as
     });
     if (r.ok) counts = await r.json();
   } catch {}
-  if (counts) {
+  if (counts && !exitToday) {
+    nothingToCheck(`the signer's signature count is per UTC day and this exit (${tat}) was on an earlier day; ` +
+      'the count it added is gone by design, so this run cannot see it');
+  } else if (counts) {
     const n = counts?.counts?.[agentID] ?? null;
     check('the signer counted the signatures this exit needed',
       Number(n) >= 2, `the signer reports ${JSON.stringify(n)} for this agent today`);

@@ -57,6 +57,16 @@ const nothing = (why) => nothingToCheck(why);
 
 const US = `'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'`;
 
+/** A decimal string in one spelling (no leading/trailing zeros, no "-0"), so "0" equals "0.00". Exact, no float. */
+const decimalKey = (v) => {
+  const m = /^(-?)(\d*)(?:\.(\d*))?$/.exec(String(v).trim());
+  if (!m) return String(v);
+  const int = m[2].replace(/^0+/, '') || '0';
+  const frac = (m[3] ?? '').replace(/0+$/, '');
+  return `${m[1] && (int !== '0' || frac) ? '-' : ''}${int}${frac ? `.${frac}` : ''}`;
+};
+const sameDecimal = (a, b) => (a == null || b == null ? (a ?? null) === (b ?? null) : decimalKey(a) === decimalKey(b));
+
 /** key: value manifest lines, after the scheme line. */
 const lines = (body, scheme) => {
   const ls = body.replace(/\n$/, '').split('\n');
@@ -262,9 +272,16 @@ await section('Every sealed score recomputes here, a third time, from inputs tha
         SELECT to_char(ps.ts AT TIME ZONE 'UTC', ${US}) AS ts, ps.nav::text AS nav, ps.cash::text AS cash, trim(ps.seal) AS seal
           FROM portfolio_snapshots ps JOIN portfolios p ON p.id = ps.portfolio_id
          WHERE p.agent_id = '${s.agent}' AND p.season_id = '${s.season}' AND ps.ts <= '${s.ts}') x`);
-    const navBad = m.nav_series.length !== snaps.length ||
-      m.nav_series.some((p, i) => p.ts !== snaps[i].ts || p.nav !== snaps[i].nav || p.cash !== snaps[i].cash || (p.seal ?? null) !== (snaps[i].seal ?? null));
-    check(`${tag}: its NAV series is the recorded series, complete and in order`, !navBad, `${m.nav_series.length} listed, ${snaps.length} recorded`);
+    // nav and cash compared as decimal VALUES: the column says "0.00" and a score
+    // sealed before the engine read it as text lists a zero NAV as "0".
+    const navDiff = m.nav_series.length !== snaps.length ? `${m.nav_series.length} listed, ${snaps.length} recorded`
+      : m.nav_series.map((p, i) => {
+          const r = snaps[i];
+          const bad = [p.ts !== r.ts && `ts ${p.ts} vs ${r.ts}`, !sameDecimal(p.nav, r.nav) && `nav ${p.nav} vs ${r.nav}`,
+            !sameDecimal(p.cash, r.cash) && `cash ${p.cash} vs ${r.cash}`, (p.seal ?? null) !== (r.seal ?? null) && 'seal'].filter(Boolean);
+          return bad.length ? `#${i}: ${bad.join(', ')}` : null;
+        }).filter(Boolean)[0] ?? null;
+    check(`${tag}: its NAV series is the recorded series, complete and in order`, navDiff === null, navDiff ?? '');
 
     const ids = m.decisions.map((d) => d.id);
     const decs = ids.length ? json(`SELECT coalesce(json_object_agg(id, json_build_object('ts', to_char(ts AT TIME ZONE 'UTC', ${US}), 'action', action, 'commitment', trim(commitment))), '{}')
