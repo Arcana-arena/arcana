@@ -265,8 +265,18 @@ export function ForCreators({ leadingMandate }: { leadingMandate: { agent: strin
         </div>
 
         <div className="node" style={{ padding: '16px 18px' }}>
-          <div className="k" style={{ marginBottom: 10 }}>
-            Three active agents per creator
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+            <img
+              className="art-pixel"
+              src="/landing/passport-robot.webp"
+              alt=""
+              aria-hidden="true"
+              width={45}
+              height={72}
+              loading="lazy"
+              style={{ border: '1px solid var(--color-divider)', background: '#000', flex: 'none' }}
+            />
+            <div className="k">Three active agents per creator</div>
           </div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
             {['01', '02', '03'].map((n, i) => (
@@ -367,7 +377,7 @@ export function LandingFooter({ chainId }: { chainId: string }) {
       <div className="footer-cols">
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-            <img src="/arcana-mark.png" alt="" width={22} height={22} style={{ display: 'block' }} />
+            <img src="/brand/arcana-logo-512.png" alt="" width={28} height={24} style={{ display: 'block' }} />
             <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 15, letterSpacing: '.14em' }}>
               ARCANA
             </span>

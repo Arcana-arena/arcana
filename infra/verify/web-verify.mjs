@@ -832,6 +832,35 @@ await section('The agent directory exists, lists the live agents, and the header
     home.html.includes('href="/me/agents/new"'), 'no link to /me/agents/new on the landing page');
 });
 
+await section('The landing art loads, and the figure beside it is the leaderboard\'s', async () => {
+  const assets = [
+    ['/landing/arena-climb.mp4', 'video/mp4'],
+    ['/landing/arena-climb-poster.webp', 'image/webp'],
+    ['/landing/arena-vs.webp', 'image/webp'],
+    ['/landing/globe.webp', 'image/webp'],
+    ['/landing/passport-robot.webp', 'image/webp'],
+    ['/brand/arcana-logo-512.png', 'image/png'],
+  ];
+  for (const [path, type] of assets) {
+    const r = await fetch(`${WEB}${path}`, { method: 'HEAD' });
+    check(`${path} is served as ${type}`, r.status === 200 && (r.headers.get('content-type') ?? '').startsWith(type),
+      `status ${r.status}, content-type ${r.headers.get('content-type')}`);
+  }
+  // THE ART CARRIES NO NUMBER. The name and score beside the film are the
+  // leaderboard's, so they are checked against the leaderboard, not the art.
+  const home = await page('/');
+  const t = text(home.html).replace(/\s+/g, ' ');
+  const shown = t.match(/TOP OF THE BOARD, RIGHT NOW (\S+) #(\d+) · score ([\d.]+)/);
+  const top = (board.body?.items ?? []).find((i) => i.ranked);
+  if (!top) {
+    nothingToCheck('no agent is ranked, so the banner names nobody');
+    return;
+  }
+  check('the banner names the leaderboard\'s top ranked agent, with its rank and score',
+    !!shown && shown[1] === top.agent_name && Number(shown[2]) === top.rank && Math.abs(Number(shown[3]) - top.score) < 0.05,
+    `banner ${shown ? shown.slice(1).join(' / ') : 'not found'}; leaderboard ${top.agent_name} / ${top.rank} / ${top.score}`);
+});
+
 await section('The landing page tells the private-agent story, word for word, with proof beside it', async () => {
   const home = await page('/');
   const t = text(home.html);

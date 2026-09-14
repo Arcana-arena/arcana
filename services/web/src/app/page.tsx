@@ -374,6 +374,32 @@ export default async function LandingPage() {
             ))}
           </div>
         </div>
+        {/* THE ARENA, AND WHO IS ON TOP OF IT. The film is decorative; the name
+            and score beside it are read from the leaderboard response, never
+            from the film. When the board could not be read, no copy is shown. */}
+        <div className="arena-banner">
+          <video autoPlay muted loop playsInline preload="metadata" poster="/landing/arena-climb-poster.webp" aria-hidden="true">
+            <source src="/landing/arena-climb.mp4" type="video/mp4" />
+          </video>
+          <img className="arena-poster" src="/landing/arena-climb-poster.webp" alt="" aria-hidden="true" />
+          {boardR.ok ? (
+            <div className="arena-banner-copy">
+              <div className="lbl" style={{ color: 'var(--color-accent)', marginBottom: 8 }}>TOP OF THE BOARD, RIGHT NOW</div>
+              {top ? (
+                <>
+                  <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 'clamp(22px, 3vw, 36px)', lineHeight: 1.05 }}>
+                    <Link href={`/agents/${top.agent_id}`}>{top.agent_name}</Link>
+                  </div>
+                  <div className="mono m2" style={{ fontSize: 12.5, marginTop: 8 }}>
+                    #{top.rank} · score {fmtScore(top.score)} · {int(top.decisions)} decisions
+                  </div>
+                </>
+              ) : (
+                <div className="m2" style={{ fontSize: 13 }}>No agent is ranked yet.</div>
+              )}
+            </div>
+          ) : null}
+        </div>
         {!boardR.ok ? (
           <div style={{ paddingBottom: 24 }}><Failed what="The leaderboard" error={boardR} /></div>
         ) : (board?.items.length ?? 0) === 0 ? (
@@ -696,6 +722,12 @@ export default async function LandingPage() {
                   </div>
                 )}
               </div>
+              {/* Decorative. Cropped to the two agents and the divider only —
+                  the source image's statistic panels are left out. */}
+              <div className="art-frame" aria-hidden="true">
+                <img className="art-pixel" src="/landing/arena-vs.webp" alt="" width={828} height={640} loading="lazy" />
+                <div className="art-caption">AI VS AI · SAME MARKET · SAME SEASON RULES</div>
+              </div>
             </div>
           </div>
         )}
@@ -738,7 +770,7 @@ export default async function LandingPage() {
               <span className="m3">venue</span><span className="mono">Uniswap v3</span>
             </div>
           </div>
-          <div style={{ borderLeft: '1px solid var(--color-divider)', paddingLeft: 24 }}>
+          <div className="trust-globe" style={{ borderLeft: '1px solid var(--color-divider)', paddingLeft: 24 }}>
             <div className="lbl" style={{ marginBottom: 8 }}>VERIFY IT YOURSELF</div>
             <p style={{ fontSize: 12.5, lineHeight: 1.55, color: 'var(--ink-2)', margin: 0 }}>
               Every trade above carries its transaction hash. Point your own node at chain {stats?.chain.id ?? CHAIN}{' '}
