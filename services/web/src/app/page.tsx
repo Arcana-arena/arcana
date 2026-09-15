@@ -174,10 +174,10 @@ export default async function LandingPage() {
             anyone who asked for less motion. `muted` and `playsInline` are what
             let iOS autoplay it. */}
         <div className="px-hero-film" aria-hidden="true">
-          <video autoPlay muted loop playsInline preload="metadata" poster="/landing/hero-arcana-poster.webp">
-            <source src="/landing/hero-arcana.mp4" type="video/mp4" />
+          <video autoPlay muted loop playsInline preload="metadata" poster="/landing/hero-arcana-hq-poster.webp">
+            <source src="/landing/hero-arcana-hq.mp4" type="video/mp4" />
           </video>
-          <img className="px-hero-poster" src="/landing/hero-arcana-poster.webp" alt="" />
+          <img className="px-hero-poster" src="/landing/hero-arcana-hq-poster.webp" alt="" />
         </div>
         </div>
       </section>
