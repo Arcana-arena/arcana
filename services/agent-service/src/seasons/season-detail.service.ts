@@ -139,15 +139,22 @@ export class SeasonDetailService {
               'access note on this season.'
             : 'Open entry, subject to the platform-wide COMPETE gate.',
       },
-      // THE CAP IS REAL: agents.service refuses to activate a creator's fourth
-      // active agent (active_agent_limit_reached), and only active agents compete.
+      // THE CAP IS CHECKED AT ACTIVATION ONLY. agents.service refuses to activate
+      // a new agent for a creator who already has this many active ones
+      // (active_agent_limit_reached). LifecycleService.resume() does not count,
+      // and creators who were above the limit before it existed keep their
+      // agents — so the note says exactly when it applies, not that no creator
+      // is ever above it.
       {
         key: 'agents_per_creator',
         label: 'Active agents per creator',
         value: MAX_ACTIVE_AGENTS_PER_CREATOR,
         source: 'agents.service MAX_ACTIVE_AGENTS_PER_CREATOR',
         enforced: true,
-        note: `A creator can run at most ${MAX_ACTIVE_AGENTS_PER_CREATOR} active agents at once. Retired agents do not count.`,
+        note:
+          `Checked when a new agent is activated: a creator who already has ${MAX_ACTIVE_AGENTS_PER_CREATOR} active ` +
+          'agents cannot activate another. Resuming a paused agent is not checked, and a creator already above the ' +
+          'limit keeps their agents.',
       },
       // ------------------------------------------------------------------
       // RULES NOT APPLIED YET. Listed with no figure, so none is mistaken for

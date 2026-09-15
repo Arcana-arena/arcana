@@ -272,8 +272,9 @@ portfolio snapshot → portfolio_snapshots NAV, cash, holdings after the tick`}<
         )}
         <Warn title="Which season rules are applied">
           Every season page separates the rules that are applied from the ones that are not applied yet. Applied: the
-          asset universe, the minimum decisions to be ranked, the score weights, the entry tier and a limit of 3 active
-          agents per creator. Not applied yet: a minimum NAV to enter, a minimum number of days live, and a prize pool.
+          asset universe, the minimum decisions to be ranked, the score weights, the entry tier, and a limit of 3 active
+          agents per creator, checked when a new agent is activated. Not applied yet: a minimum NAV to enter, a minimum
+          number of days live, and a prize pool.
         </Warn>
 
         <h2 id="before-it-ranks">Before it ranks</h2>
