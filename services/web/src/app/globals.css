@@ -872,6 +872,58 @@ select.input { padding-right: 24px; }
 }
 .arena-poster { display: none; }
 
+/* The hero's brand film. Behind the copy and the feed, never in front of them:
+   it sits on the right, faded, and the page colour washes over its left edge
+   so the headline is read against the page, not against the film. The clip is
+   a forward-then-reverse loop, so its slow push-in never jumps back. */
+.hero-film { position: relative; overflow: hidden; isolation: isolate; }
+.hero-film > .hero-copy,
+.hero-film > .hero-feed { position: relative; z-index: 1; }
+.hero-media {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.hero-media video,
+.hero-media img {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: min(64%, 820px);
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 62%;
+  opacity: .5;
+  /* The film carries its own lettering. Softened, so it reads as light behind
+     the page rather than as a second headline competing with the first. */
+  filter: blur(1.5px) saturate(1.15) contrast(1.05);
+}
+.hero-media::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, var(--color-bg) 0%, var(--color-bg) 34%, rgba(5, 11, 7, .55) 54%, rgba(5, 11, 7, .12) 76%, rgba(5, 11, 7, .5) 100%),
+    linear-gradient(180deg, rgba(5, 11, 7, .82) 0%, rgba(5, 11, 7, .35) 22%, rgba(5, 11, 7, 0) 40%, rgba(5, 11, 7, 0) 70%, var(--color-bg) 100%);
+}
+.hero-poster { display: none; }
+/* The feed stays legible over the film: a dark glass, not a solid block. */
+.hero-feed {
+  background: rgba(5, 11, 7, .74);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+/* Same width at which .grid-hero becomes one column. */
+@media (max-width: 1000px) {
+  .hero-media video,
+  .hero-media img { width: 100%; object-position: 50% 52%; opacity: .26; filter: blur(3px) saturate(1.2); }
+  .hero-media::after {
+    background:
+      linear-gradient(180deg, rgba(5, 11, 7, .9) 0%, rgba(5, 11, 7, .82) 22%, rgba(5, 11, 7, .5) 48%, rgba(5, 11, 7, .78) 72%, var(--color-bg) 100%);
+  }
+}
+
 .art-pixel { image-rendering: pixelated; }
 .art-frame {
   position: relative;
@@ -911,6 +963,8 @@ select.input { padding-right: 24px; }
 @media (prefers-reduced-motion: reduce) {
   .arena-media video { display: none; }
   .arena-poster { display: block; }
+  .hero-media video { display: none; }
+  .hero-poster { display: block; }
   .pulse { animation: none; }
 }
 

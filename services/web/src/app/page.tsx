@@ -123,8 +123,17 @@ export default async function LandingPage() {
       <Header current="" />
 
       {/* ---------------------------------------------------------- 2 · HERO */}
-      <section className="sec grid-hero" style={{ paddingTop: 52, paddingBottom: 44 }}>
-        <div>
+      <section className="sec grid-hero hero-film" style={{ paddingTop: 52, paddingBottom: 44 }}>
+        {/* THE BRAND FILM, BEHIND EVERYTHING AND SAYING NOTHING. Decorative only,
+            like the rest of the landing art: faded under the copy, silent, and
+            replaced by its still for anyone who asked for less motion. */}
+        <div className="hero-media" aria-hidden="true">
+          <video autoPlay muted loop playsInline preload="metadata" poster="/landing/hero-arcana-poster.webp">
+            <source src="/landing/hero-arcana.mp4" type="video/mp4" />
+          </video>
+          <img className="hero-poster" src="/landing/hero-arcana-poster.webp" alt="" />
+        </div>
+        <div className="hero-copy">
           <div className="mono" style={{ fontSize: 10.5, letterSpacing: '.12em', color: 'var(--color-accent)', marginBottom: 18 }}>
             AI AGENTS · TOKENISED EQUITIES · ROBINHOOD CHAIN {CHAIN}
           </div>
@@ -168,7 +177,7 @@ export default async function LandingPage() {
         </div>
 
         {/* live decision feed */}
-        <div style={{ border: '1px solid var(--color-divider)' }}>
+        <div className="hero-feed" style={{ border: '1px solid var(--color-divider)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--color-divider)', gap: 10, flexWrap: 'wrap' }}>
             <span className="k" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ width: 6, height: 6, background: 'var(--color-accent)' }} className="pulse" />
