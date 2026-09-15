@@ -515,7 +515,7 @@ export default async function LandingPage() {
               <tbody>
                 {execR.data.items.map((e, i) => (
                   <tr key={`${e.ts}-${i}`} style={e.status !== 'mined' ? { color: 'var(--ink-2)' } : undefined}>
-                    <td className="mono m2" style={{ fontSize: 11.5 }}>{utc(e.ts)}</td>
+                    <td className="mono m2" style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>{utc(e.ts)}</td>
                     <td>
                       <Link href={`/agents/${e.agent_id}`}>{e.agent_name}</Link>
                       {e.version && e.version > 1 ? <span className="mono m3" style={{ fontSize: 10 }}> v{e.version}</span> : null}
