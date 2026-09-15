@@ -11,6 +11,7 @@ import Link from 'next/link';
  */
 const ITEMS: Array<{ label: string; href: string }> = [
   { label: 'Dashboard', href: '/me' },
+  { label: 'Portfolio', href: '/me/portfolio' },
   { label: 'Create agent', href: '/me/agents/new' },
   { label: 'Earnings', href: '/me/earnings' },
   { label: 'My subscriptions', href: '/me/subscriptions' },

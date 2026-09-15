@@ -41,7 +41,7 @@ export class AgentPositionsService {
     if (agent.length === 0) throw new NotFoundException(`Agent ${agentId} not found`);
 
     const snap = await this.db.query(
-      `SELECT ps.ts, ps.nav::float8 AS nav, ps.cash::float8 AS cash, ps.holdings, p.season_id
+      `SELECT ps.ts, ps.nav::float8 AS nav, ps.cash::float8 AS cash, ps.holdings, p.season_id, p.id::text AS portfolio_id
          FROM portfolio_snapshots ps
          JOIN portfolios p ON p.id = ps.portfolio_id
         WHERE p.agent_id = $1
@@ -103,6 +103,23 @@ export class AgentPositionsService {
     }
 
     const held = snap.length > 0 ? positionsOf(snap[0].holdings as Record<string, number>) : [];
+    const portfolioId: string | null = snap[0]?.portfolio_id ?? null;
+
+    // THE COST BASIS COMES FROM THE FILL LEDGER (0051), for every position.
+    // It used to come only from a guard, so a position opened without a stop
+    // had none. The guard's entry is still used where the ledger has no row,
+    // and the response says which one it is.
+    const ledger: Array<{ symbol: string; qty_after: number; avg_cost_after: number | null; episode: number; source: string }> =
+      portfolioId
+        ? await this.db.query(
+            `SELECT DISTINCT ON (symbol) symbol, qty_after::float8 AS qty_after, avg_cost_after::float8 AS avg_cost_after,
+                    episode, source
+               FROM position_fills WHERE portfolio_id = $1
+              ORDER BY symbol, ts DESC, id DESC`,
+            [portfolioId],
+          )
+        : [];
+    const ledgerBy = new Map(ledger.map((l) => [l.symbol, l]));
 
     const bySymbol = new Map<string, any>();
     for (const g of guards) {
@@ -114,7 +131,11 @@ export class AgentPositionsService {
     const open = held.map(([symbol, qty]) => {
       const g = bySymbol.get(symbol) ?? null;
       const price = typeof prices[symbol] === 'number' ? prices[symbol] : null;
-      const entry = g?.entry_price ?? null;
+      const l = ledgerBy.get(symbol) ?? null;
+      const ledgerEntry = l && l.qty_after > 0 && l.avg_cost_after !== null ? Number(l.avg_cost_after) : null;
+      const guardEntry = g?.entry_price ?? null;
+      const entry = ledgerEntry ?? guardEntry;
+      const entrySource = ledgerEntry !== null ? 'fills' : guardEntry !== null ? 'guard' : null;
       const value = price !== null ? qty * price : null;
       // P&L only where BOTH an entry and a price exist. Anything else would be
       // a number invented from one half of a subtraction.
@@ -129,10 +150,19 @@ export class AgentPositionsService {
         quantity: round(qty, 8),
         entry_price: round(entry, 6),
         entry_known: entry !== null,
-        entry_note: entry === null
-          ? 'No guard recorded an entry price for this position, and the record does not pair a buy ' +
-            'to the position it opened. The entry is unknown rather than reconstructed.'
-          : null,
+        // fills = the average cost of the fills that opened it (every position
+        // since 0051); guard = the entry a protective level recorded, used only
+        // where the ledger has no basis.
+        entry_source: entrySource,
+        entry_note:
+          entrySource === 'fills'
+            ? `Average cost of the recorded fills since this position was last flat${l?.source === 'reconstructed' ? ' (rebuilt from the record when fills began to be stored)' : ''}.`
+            : entrySource === 'guard'
+              ? 'The entry a protective level recorded. The fill ledger holds no cost basis for these shares.'
+              : l && l.qty_after > 0
+                ? 'Some of these shares arrived without a fill ARCANA recorded, so the position’s cost is unknown ' +
+                  'until it is next flat. It is not priced at a later fill.'
+                : 'No recorded fill opened this position, so its cost is unknown rather than reconstructed.',
         price: round(price, 6),
         // THREE DIFFERENT ABSENCES, KEPT APART. The market could not be
         // reached; the snapshot was read and has no quote for this symbol; or
@@ -227,9 +257,63 @@ export class AgentPositionsService {
         }))
       : closed;
 
+    // WHAT EVERY FINISHED POSITION MADE (0051). A trade's result is the sum of
+    // its episode's realized P&L, minus the gas its fills paid. Where a basis or
+    // a gas price was unknown the net is null and the row says why — never a
+    // number assembled from half of what it needs. Public for every agent: what
+    // it did and what that produced is the record, private or not.
+    const episodes: Array<Record<string, any>> = portfolioId
+      ? await this.db.query(
+          `SELECT symbol, episode, opened_at, closed_at, bought_qty::float8 AS bought_qty,
+                  bought_notional::float8 AS bought_notional, sold_qty::float8 AS sold_qty,
+                  sold_notional::float8 AS sold_notional, realized_pnl::float8 AS realized_pnl,
+                  realized_unknown, gas_usd::float8 AS gas_usd, gas_unpriced, net_pnl::float8 AS net_pnl,
+                  fills, reconstructed
+             FROM position_episodes
+            WHERE portfolio_id = $1 AND closed_at IS NOT NULL
+            ORDER BY closed_at DESC
+            LIMIT 100`,
+          [portfolioId],
+        )
+      : [];
+    const trades = episodes.map((e) => ({
+      symbol: e.symbol,
+      episode: Number(e.episode),
+      opened_at: e.opened_at ? new Date(e.opened_at).toISOString() : null,
+      closed_at: e.closed_at ? new Date(e.closed_at).toISOString() : null,
+      quantity: round(e.bought_qty, 8),
+      avg_entry: e.bought_qty > 0 ? round(e.bought_notional / e.bought_qty, 6) : null,
+      avg_exit: e.sold_qty > 0 ? round(e.sold_notional / e.sold_qty, 6) : null,
+      realized_pnl: e.realized_unknown ? null : round(e.realized_pnl, 6),
+      gas_usd: e.gas_unpriced ? null : round(e.gas_usd, 6),
+      net_pnl: e.net_pnl === null ? null : round(e.net_pnl, 6),
+      net_pct: e.net_pnl !== null && e.bought_notional > 0 ? round((e.net_pnl / e.bought_notional) * 100, 3) : null,
+      fills: Number(e.fills),
+      reconstructed: e.reconstructed === true,
+      note: e.realized_unknown
+        ? 'Part of this position had no recorded cost, so what it made is unknown.'
+        : e.gas_unpriced
+          ? 'A fill’s gas could not be priced in dollars, so the net is unknown. The realized figure excludes gas.'
+          : null,
+    }));
+    const known = trades.filter((t) => t.net_pnl !== null);
+    const tradeTotals = {
+      closed: trades.length,
+      with_known_result: known.length,
+      realized_pnl: round(known.reduce((s, t) => s + (t.realized_pnl ?? 0), 0), 6),
+      gas_usd: round(known.reduce((s, t) => s + (t.gas_usd ?? 0), 0), 6),
+      net_pnl: round(known.reduce((s, t) => s + (t.net_pnl ?? 0), 0), 6),
+      winners: known.filter((t) => (t.net_pnl ?? 0) > 0).length,
+      note:
+        'Sums over the closed positions whose result is known. A position whose cost or gas was unknown is ' +
+        'counted in `closed` and left out of the sums.',
+    };
+
     return {
       agent_id: agentId,
       visibility: privateAgent ? 'private' : 'public',
+      trades,
+      trade_totals: tradeTotals,
       as_of: snap.length > 0 ? new Date(snap[0].ts).toISOString() : null,
       nav: round(snap[0]?.nav, 2),
       cash: round(snap[0]?.cash, 2),

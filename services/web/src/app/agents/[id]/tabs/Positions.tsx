@@ -59,6 +59,8 @@ type OpenPosition = {
   quantity: number | null;
   entry_price: number | null;
   entry_known: boolean;
+  /** fills = average cost of the recorded fills (0051); guard = a protective level's entry; null = unknown. */
+  entry_source?: 'fills' | 'guard' | null;
   entry_note: string | null;
   price: number | null;
   price_status: 'unavailable' | 'symbol_not_in_snapshot' | 'from_snapshot';
@@ -75,6 +77,16 @@ type PositionsResp = {
   cash: number | null;
   prices: { snapshot_ref: string | null; tick_time: string | null; available: boolean; reason: string | null; source: string };
   open: OpenPosition[];
+  trades?: Trade[];
+  trade_totals?: {
+    closed: number;
+    with_known_result: number;
+    realized_pnl: number | null;
+    gas_usd: number | null;
+    net_pnl: number | null;
+    winners: number;
+    note: string;
+  };
   closed: Array<{
     symbol: string;
     status: string;
@@ -87,6 +99,73 @@ type PositionsResp = {
   }>;
   note: string | null;
 };
+
+/** A finished position: flat to flat, and what it made (0051). */
+export type Trade = {
+  symbol: string;
+  episode: number;
+  opened_at: string | null;
+  closed_at: string | null;
+  quantity: number | null;
+  avg_entry: number | null;
+  avg_exit: number | null;
+  realized_pnl: number | null;
+  gas_usd: number | null;
+  net_pnl: number | null;
+  net_pct: number | null;
+  fills: number;
+  reconstructed: boolean;
+  note: string | null;
+};
+
+/** Small money: a $0.0053 result must not print as $0.01. */
+const usd = (v: number | null | undefined, dp = 4) =>
+  v === null || v === undefined || !Number.isFinite(v) ? null : `${v < 0 ? '−' : ''}$${Math.abs(v).toFixed(dp)}`;
+
+export function TradesTable({ trades, limit }: { trades: Trade[]; limit?: number }) {
+  const rows = typeof limit === 'number' ? trades.slice(0, limit) : trades;
+  return (
+    <div className="scroll-x">
+      <table className="table" style={{ marginTop: 8 }}>
+        <thead>
+          <tr>
+            <th style={{ width: 150 }}>Closed</th>
+            <th style={{ width: 80 }}>Symbol</th>
+            <th className="r">Quantity</th>
+            <th className="r">Entry → exit</th>
+            <th className="r">Realized</th>
+            <th className="r">Gas</th>
+            <th className="r">Net</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((t) => (
+            <tr key={`${t.symbol}-${t.episode}`}>
+              <td className="mono m2" style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>
+                {t.closed_at ? utc(t.closed_at) : '—'}
+              </td>
+              <td className="mono">{t.symbol}</td>
+              <td className="r mono">{num(t.quantity, 8)}</td>
+              <td className="r mono" style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>
+                {t.avg_entry === null ? '—' : num(t.avg_entry, 4)} → {t.avg_exit === null ? '—' : num(t.avg_exit, 4)}
+              </td>
+              <td className={`r mono ${t.realized_pnl === null ? 'm3' : t.realized_pnl > 0 ? 'up' : t.realized_pnl < 0 ? 'dn' : ''}`} title={t.note ?? undefined}>
+                {usd(t.realized_pnl) ?? 'unknown'}
+              </td>
+              <td className="r mono m2" title={t.gas_usd === null ? t.note ?? undefined : undefined}>
+                {usd(t.gas_usd) ?? 'unpriced'}
+              </td>
+              <td className={`r mono ${t.net_pnl === null ? 'm3' : t.net_pnl > 0 ? 'up' : t.net_pnl < 0 ? 'dn' : ''}`} title={t.note ?? undefined}>
+                {usd(t.net_pnl) ?? 'unknown'}
+                {t.net_pct !== null ? <div className="m3" style={{ fontSize: 10 }}>{num(t.net_pct, 2)}%</div> : null}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 export async function PositionsTab({ id }: { id: string }) {
   const r = await agent<PositionsResp>(`/v1/agents/${id}/positions`);
@@ -158,9 +237,14 @@ export async function PositionsTab({ id }: { id: string }) {
                     <td className="r"><Num value={num(p.quantity, 6)} /></td>
                     <td className="r">
                       {p.entry_known ? (
-                        <Num value={money(p.entry_price)} />
+                        <span title={p.entry_note ?? undefined}>
+                          <Num value={money(p.entry_price)} />
+                          <div className="mono m3" style={{ fontSize: 10 }}>
+                            {p.entry_source === 'fills' ? 'avg cost' : p.entry_source === 'guard' ? 'from guard' : ''}
+                          </div>
+                        </span>
                       ) : (
-                        <span className="mono m3" title={p.entry_note ?? undefined}>not recorded</span>
+                        <span className="mono m3" title={p.entry_note ?? undefined}>unknown</span>
                       )}
                     </td>
                     <td className="r">
@@ -249,11 +333,46 @@ export async function PositionsTab({ id }: { id: string }) {
         <div className="mono m3" style={{ fontSize: 10.5, marginTop: 8 }}>
           prices: {d.prices.available ? d.prices.source : `unavailable — ${d.prices.reason ?? 'no reason given'}`}
           {d.prices.snapshot_ref ? ` · ${d.prices.snapshot_ref}` : ''}
+          {d.prices.tick_time ? ` · snapshot taken ${utc(d.prices.tick_time)}` : ''}
         </div>
       </section>
 
+      {/* WHAT EACH FINISHED POSITION MADE. Recorded from its fills when they
+          happened, not worked out on this page. */}
       <section>
-        <Key>Closed positions</Key>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
+          <Key>Closed positions · what each made</Key>
+          {d.trade_totals && d.trade_totals.closed > 0 ? (
+            <span className="mono m2" style={{ fontSize: 11 }} title={d.trade_totals.note}>
+              {d.trade_totals.closed} closed · net{' '}
+              <span className={(d.trade_totals.net_pnl ?? 0) > 0 ? 'up' : (d.trade_totals.net_pnl ?? 0) < 0 ? 'dn' : ''}>
+                {usd(d.trade_totals.net_pnl) ?? '—'}
+              </span>{' '}
+              after {usd(d.trade_totals.gas_usd) ?? '—'} gas · {d.trade_totals.winners} of {d.trade_totals.with_known_result} positive
+            </span>
+          ) : null}
+        </div>
+        {!d.trades || d.trades.length === 0 ? (
+          <div className="m3" style={{ fontSize: 12, marginTop: 8 }}>
+            No position has been opened and closed again on record. A counted zero.
+          </div>
+        ) : (
+          <>
+            <TradesTable trades={d.trades} />
+            <div className="m3" style={{ fontSize: 10.5, marginTop: 8, lineHeight: 1.45 }}>
+              Average cost: the entry is the volume-weighted price of the buys since the position was last flat; realized
+              is exit minus that, times what was sold. Prices are as filled, so a pool fee is already inside them; gas is
+              not, and is subtracted for the net.
+              {d.trades.some((t) => t.reconstructed)
+                ? ' Positions closed before fills were stored were rebuilt from the executions and snapshots on record.'
+                : ''}
+            </div>
+          </>
+        )}
+      </section>
+
+      <section>
+        <Key>Protective levels · history</Key>
         {d.closed.length === 0 ? (
           <div className="m3" style={{ fontSize: 12, marginTop: 8 }}>
             No position has been closed out with a recorded guard. The platform keeps a closing record only where a

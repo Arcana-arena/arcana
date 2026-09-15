@@ -274,6 +274,10 @@ func (e *Engine) ExecuteProtective(ctx context.Context, t Trigger) (ProtectiveOu
 	if derr != nil {
 		return ProtectiveOutcome{}, derr
 	}
+	// The exit is a fill like any other, and it is the one that closes the
+	// position's episode and realizes its result (0051).
+	e.writeFill(ctx, g.AgentID, store.FillBook{PortfolioID: portfolio.ID}, &id, set.ExecID,
+		req.Timestamp, "on_chain", set.Fill)
 
 	// 6. CLOSE THE GUARD, and only on a real exit.
 	//

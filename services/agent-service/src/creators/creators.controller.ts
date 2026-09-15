@@ -14,6 +14,7 @@ import { CurrentWallet, JwtAuthGuard } from '@arcana/auth';
 import { CreatorsService } from './creators.service';
 import { CreatorDashboardService } from './dashboard.service';
 import { CreatorEarningsService } from './earnings.client';
+import { CreatorPortfolioService } from './portfolio.service';
 import { ParseUuidAllPipe } from '../common/parse-uuid-all.pipe';
 import { CreateCreatorDto } from './dto/create-creator.dto';
 import { UpdateCreatorDto } from './dto/update-creator.dto';
@@ -28,6 +29,7 @@ export class CreatorsController {
     private readonly ownership: OwnershipService,
     private readonly dashboardSvc: CreatorDashboardService,
     private readonly earningsSvc: CreatorEarningsService,
+    private readonly portfolioSvc: CreatorPortfolioService,
   ) {}
 
   /** 🔑 Register the calling wallet's creator profile. */
@@ -108,6 +110,24 @@ export class CreatorsController {
   ) {
     await this.ownership.assertOwnsCreator(wallet, id);
     return this.earningsSvc.forCreator(id);
+  }
+
+  /**
+   * 🔒 Every agent's book in one place: holdings with their cost basis, what
+   * each finished position made, chain balances with when they were read, and
+   * subscribers' wallets aggregated separately and never summed in.
+   *
+   * PRIVATE for the same reason as the dashboard: wallet addresses and chain
+   * balances together are a map of somebody's money.
+   */
+  @Get(':id/portfolio')
+  @UseGuards(JwtAuthGuard)
+  async portfolio(
+    @Param('id', ParseUuidAllPipe) id: string,
+    @CurrentWallet() wallet: string,
+  ) {
+    await this.ownership.assertOwnsCreator(wallet, id);
+    return this.portfolioSvc.forCreator(id);
   }
 
   /** 🔒 Yourself only. */

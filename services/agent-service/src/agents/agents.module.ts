@@ -21,6 +21,8 @@ import { AgentWalletViewService } from './wallet-view.service';
   providers: [AgentsService, AgentWalletsService, DecisionClient, AgentOverviewService, AgentPositionsService, MarketPriceClient, AgentLifecycleService, AgentTriggersService, AgentWalletViewService],
   // AgentWalletViewService is exported so the creator dashboard reads gas with
   // the wallet tab's own measurement instead of a second definition of "low".
-  exports: [AgentWalletsService, AgentWalletViewService],
+  // AgentPositionsService is exported so the creator portfolio reads positions
+  // through the same code as the public Positions tab.
+  exports: [AgentWalletsService, AgentWalletViewService, AgentPositionsService],
 })
 export class AgentsModule {}

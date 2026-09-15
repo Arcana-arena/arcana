@@ -160,7 +160,9 @@ export default async function MePage() {
       ) : null}
 
       <div className="m3" style={{ fontSize: 10.5, marginTop: 18, lineHeight: 1.45, maxWidth: 760 }}>
-        {d.attention_note} Payments, subscribers and reputation are on <Link href="/me/earnings">Earnings</Link>.{' '}
+        {d.attention_note} What each agent holds and what its closed positions made is on{' '}
+        <Link href="/me/portfolio">Portfolio</Link>; payments, subscribers and reputation are on{' '}
+        <Link href="/me/earnings">Earnings</Link>.{' '}
         <span className="mono">read {utc(d.as_of)}</span>
       </div>
     </Shell>

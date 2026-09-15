@@ -272,6 +272,9 @@ func (e *Engine) Execute(ctx context.Context, req ExecuteRequest) (int64, error)
 	var qty *float64
 	var execID *int64
 	var set settlement
+	// What the virtual book held of the traded symbol BEFORE the fill, for the
+	// fill ledger's reconciliation. The chain path reads its own.
+	virtualHeld := HeldQty(holdings, intent.Symbol)
 	if wallet != nil {
 		if e.broker == nil {
 			return 0, fmt.Errorf(
@@ -340,6 +343,16 @@ func (e *Engine) Execute(ctx context.Context, req ExecuteRequest) (int64, error)
 		if err := e.store.LinkExecutionToDecision(ctx, *execID, decisionID); err != nil {
 			log.Printf("ERROR execution %d recorded but not linked to decision %d: %v", *execID, decisionID, err)
 		}
+	}
+
+	// THE FILL, with its price and its effect on the position (0051). Every
+	// position gets a cost basis here, whether or not a guard is armed on it.
+	if wallet != nil {
+		e.writeFill(ctx, req.AgentID, store.FillBook{PortfolioID: portfolio.ID}, &decisionID, execID,
+			req.Timestamp, "on_chain", set.Fill)
+	} else {
+		e.writeFill(ctx, req.AgentID, store.FillBook{PortfolioID: portfolio.ID}, &decisionID, nil,
+			req.Timestamp, "simulated", virtualFill(action, symbol, qty, prices, virtualHeld))
 	}
 
 	// Protective levels are armed AFTER the decision exists, so the guard row
@@ -430,6 +443,7 @@ func (e *Engine) ExecuteManual(ctx context.Context, req ExecuteManualRequest) (i
 	symbol := req.Trade.Symbol
 	qty := req.Trade.Quantity
 	rationale := fmt.Sprintf("human decision: %s %s x %.2f", action, symbol, qty)
+	heldBefore := HeldQty(holdings, symbol)
 
 	switch action {
 	case "hold":
@@ -474,6 +488,8 @@ func (e *Engine) ExecuteManual(ctx context.Context, req ExecuteManualRequest) (i
 	if err != nil {
 		return 0, err
 	}
+	e.writeFill(ctx, req.AgentID, store.FillBook{PortfolioID: portfolio.ID}, &decisionID, nil,
+		req.Timestamp, "simulated", virtualFill(action, symbol, &qty, prices, heldBefore))
 	return decisionID, nil
 }
 

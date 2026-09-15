@@ -100,6 +100,46 @@ The residue itself is still in the wallet: it merged into the position bought at
 11:00 (filled `15850403013324052`, held `…053`). The next exit sweeps it,
 because an exit now sends the balance.
 
+## What a position cost, and what it made (0051)
+
+Until 0051 an entry price existed only where a protective guard recorded one,
+so a position opened without a stop had no cost basis, and a position that
+closed left no result anywhere. Both were data that was never stored.
+
+Every fill that changes a book is now written to `position_fills` when it
+happens — the virtual settlement, a human's manual trade, the creator's
+on-chain fill, a protective exit, and each subscriber's leg and exit — by
+`Engine.writeFill`, with the accounting done at write time by
+`store.ApplyFill`:
+
+- **Average cost.** The basis is the volume-weighted price of the buys since the
+  position was last flat. A sell realizes `(price − average cost) × quantity`
+  and leaves the average unchanged.
+- **Prices are as filled.** On chain that is quote units spent over share units
+  received, so the pool fee is already inside the price; `pool_fee_usd` is kept
+  as information only. Gas is not in the price and is kept per fill.
+- **Unknown stays unknown.** Shares that arrived without a recorded fill (moved
+  in from outside, or bought before 0051 and not reconstructable) make the
+  average cost `NULL` until the position is next flat. Shares that left outside
+  ARCANA keep the basis of what remains and realize nothing.
+- **Episodes.** A position's life from flat to flat. `position_episodes` sums an
+  episode's realized P&L and gas; its `net_pnl` is `NULL` whenever either half
+  is unknown.
+- **Two books.** `book = 'agent'` is the agent's portfolio in a season;
+  `book = 'subscription'` is one buyer's wallet and is never added into an
+  agent's or a creator's totals.
+
+The ledger is append-only (a trigger refuses edits, and refuses deletes while
+the book still exists). History from before 0051 was rebuilt once by
+`decision-engine/cmd/fills`: on-chain fills from `executions`, virtual fills
+from decisions at the price in the snapshot each one names. Those rows carry
+`source = 'reconstructed'`.
+
+`infra/verify/fills-verify.mjs` checks that every mined buy/sell and every
+virtual buy/sell has a fill, that every row's accounting adds up, and that the
+round trips computed by hand on 2026-09-14 (AAPL +0.0053, AAPL +0.0066,
+MSFT −0.0312) are the ledger's own results.
+
 ## Verification
 
 `infra/verify/dust-verify.mjs` drives it rather than reading it: a sell built

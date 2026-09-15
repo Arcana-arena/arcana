@@ -333,7 +333,15 @@ func (e *Engine) exitForSubscriber(ctx context.Context, t Trigger, subj guardSub
 	if aerr != nil {
 		log.Printf("ERROR %s: protective exit %s could not be recorded: %v", subj.Who, er.Status, aerr)
 	}
-	_ = execID
+	var execPtr *int64
+	if execID != 0 {
+		execPtr = &execID
+	}
+	// The buyer's exit closes a position in the buyer's book (0051). No decision
+	// row, as above — the fill names the execution, and the execution names the
+	// guard that fired.
+	e.writeFill(wctx, g.AgentID, store.FillBook{SubscriptionID: *subj.SubID}, nil, execPtr,
+		time.Now().UTC(), "on_chain", e.chainFillFrom(er, before))
 
 	if ap := er.Approve; ap != nil {
 		if _, err := e.store.AppendExecution(wctx, store.ExecutionInsert{

@@ -218,7 +218,14 @@ func (e *Engine) tradeForOne(
 	if aerr != nil {
 		log.Printf("ERROR subscription %s: execution %s could not be recorded: %v", sub.ID, er.Status, aerr)
 	}
-	_ = execID
+	var execPtr *int64
+	if execID != 0 {
+		execPtr = &execID
+	}
+	// THE SUBSCRIBER'S OWN BOOK (0051). Their fill, their price, their cost
+	// basis — never the agent's, and never added into the agent's totals.
+	e.writeFill(wctx, req.AgentID, store.FillBook{SubscriptionID: sub.ID}, &decisionID, execPtr,
+		req.Timestamp, "on_chain", e.chainFillFrom(er, before))
 
 	// The approval is its own transaction with its own gas, paid by this wallet.
 	if ap := er.Approve; ap != nil {

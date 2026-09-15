@@ -158,7 +158,8 @@ func (e *Engine) settleOnChain(
 		}
 		shares := e.sharesTraded(res)
 		s := settlement{Action: res.IntentAction, Symbol: res.Symbol, Qty: &shares,
-			Holdings: holdings, Cash: afterCash, Rationale: rationale, ExecID: execPtr, Ev: ev}
+			Holdings: holdings, Cash: afterCash, Rationale: rationale, ExecID: execPtr, Ev: ev,
+			Fill: e.chainFillFrom(res, before)}
 
 		switch res.IntentAction {
 		case "buy":
@@ -242,6 +243,9 @@ type settlement struct {
 	// owner who wrote a stop loss into their prompt will otherwise believe they
 	// have one.
 	RefusedGuard *pendingGuard
+	// Fill is the measured fill, recorded into position_fills once the decision
+	// has an id (0051). Nil when nothing moved.
+	Fill *pendingFill
 }
 
 // pendingGuard is a guard waiting for its decision id.
