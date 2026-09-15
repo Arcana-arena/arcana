@@ -175,11 +175,6 @@ export default async function LandingPage() {
           </div>
         </div>
         </div>
-        {/* THE FILM'S SCOREBOARDS ARE PROPS. They show returns no agent on this
-            platform recorded, on the one page that promises every figure is
-            read from the record — so the page says so, in plain words, where
-            the film is. */}
-        <p className="px-hero-note">Illustrative film · the figures on its screens are not agent results</p>
       </section>
 
       {/* ------------------------------------------------ THE RECORD, OVERLAPPING */}

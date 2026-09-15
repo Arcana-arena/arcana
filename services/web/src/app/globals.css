@@ -1015,11 +1015,6 @@ select.input { padding-right: 24px; }
     linear-gradient(180deg, rgba(5, 11, 7, .35) 0%, rgba(5, 11, 7, 0) 16%, rgba(5, 11, 7, 0) 84%, var(--color-bg) 100%);
 }
 .px-hero-poster { display: none; }
-.px-hero-note {
-  position: absolute; right: 32px; bottom: 76px; z-index: 1; margin: 0;
-  font-family: var(--font-mono), monospace; font-size: 10.5px; letter-spacing: .04em; color: rgba(228, 237, 231, .62);
-  text-shadow: 0 1px 8px rgba(0, 0, 0, .85);
-}
 
 /* ---- the record, overlapping the hero */
 .px-stats,
@@ -1225,11 +1220,9 @@ select.input { padding-right: 24px; }
   .px-wrap { padding-left: 16px; padding-right: 16px; }
   /* Phones: the film is a full-width 16:9 band of its own, above the copy. */
   .px-hero { display: block; min-height: 0; padding-block: 0 104px; }
-  .px-hero-media { position: relative; inset: auto; z-index: 0; aspect-ratio: 16 / 9; max-width: 100%; margin-bottom: 56px; }
+  .px-hero-media { position: relative; inset: auto; z-index: 0; aspect-ratio: 16 / 9; max-width: 100%; margin-bottom: 28px; }
   .px-hero-media::after { background: linear-gradient(180deg, rgba(5, 11, 7, 0) 72%, var(--color-bg) 100%); }
   .px-hero-copy { text-shadow: none; }
-  /* Under the film, not over it, so the note never covers the picture. */
-  .px-hero-note { left: 16px; right: 16px; top: calc(56.25vw + 8px); bottom: auto; font-size: 9.5px; line-height: 1.45; text-shadow: none; color: var(--ink-3); }
   .px-h1 { font-size: clamp(36px, 10.4vw, 48px); }
   .px-cta .px-btn { flex: 1 1 100%; justify-content: center; }
   .px-stats, .px-stats-fail { margin-top: -80px; }
