@@ -1,13 +1,11 @@
 /**
  * One season: who is winning, what the rules are, and whether it has been running.
  *
- * THE RULES PANEL IS THE POINT OF THIS PAGE. It lists every rule this
- * competition would be run under, and it marks the ones nothing enforces —
- * there is no days-live threshold, no NAV floor, no per-creator cap and no
- * prize pool on this platform. Omitting those rows would make a short list read
- * as a complete one; giving them plausible figures would state rules that will
- * not turn anybody away. Each row therefore carries its source, or the fact
- * that it has none.
+ * THE RULES PANEL IS THE POINT OF THIS PAGE. It lists every rule of this
+ * competition and marks the ones not applied yet — there is no days-live
+ * threshold, no NAV floor and no prize pool on this platform (the cap on active
+ * agents per creator is applied). Rules not applied are shown without a figure,
+ * so none of them reads as a rule in force.
  *
  * A CLOSED SEASON IS DRAWN AS FROZEN. Its standings are the last thing that
  * happened, not a live board, and the page says so — an ended season whose
@@ -324,17 +322,16 @@ function RulesPanel({ r }: { r: Awaited<ReturnType<typeof agent<RulesResponse>>>
         ))}
       </div>
 
-      {/* THE RULES NOBODY ENFORCES. Listed rather than omitted, and marked
-          rather than given numbers — a four-rule table read as a complete one
-          is how an entrant learns the page was decoration. */}
+      {/* RULES NOT APPLIED YET. Listed rather than omitted, and shown without a
+          figure, so none of them reads as a rule in force. */}
       {described.length > 0 ? (
         <div className="box" style={{ marginTop: 16, borderColor: 'rgba(212,162,74,.45)' }}>
           <div className="k am" style={{ marginBottom: 8 }}>
             Described, not enforced · {described.length}
           </div>
           <div className="m2" style={{ fontSize: 12, lineHeight: 1.5, marginBottom: 10 }}>
-            These are rules a competition like this would normally have. Nothing on this platform applies them today, so
-            they carry no figure — a plausible number here would state a rule that will not turn anybody away.
+            These rules are part of the competition&rsquo;s design but are not applied automatically yet, so no figure is
+            shown for them.
           </div>
           {described.map((x) => (
             <div key={x.key} style={{ paddingTop: 8, borderTop: '1px solid var(--color-divider)', marginTop: 8 }}>

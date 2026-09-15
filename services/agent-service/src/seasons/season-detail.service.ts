@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { MIN_DECISIONS, REGIME_WEIGHT_NOTE, SCORE_WEIGHTS, STRATEGY_NOTE } from '../common/ranking';
+import { MAX_ACTIVE_AGENTS_PER_CREATOR } from '../agents/agents.service';
 
 /**
  * The rules a season is run under, and the ticks it has actually produced.
@@ -134,13 +135,23 @@ export class SeasonDetailService {
         enforced: true,
         note:
           s.access_tier === 'premium'
-            ? 'A Premium Arena. Whether its $ARCA gate is actually reading a balance is a separate ' +
-              'question — see the access block on the season itself, which answers it in three ' +
-              'states rather than two.'
+            ? 'A Premium Arena. Whether its $ARCA gate is checking balances right now is shown in the ' +
+              'access note on this season.'
             : 'Open entry, subject to the platform-wide COMPETE gate.',
       },
+      // THE CAP IS REAL: agents.service refuses to activate a creator's fourth
+      // active agent (active_agent_limit_reached), and only active agents compete.
+      {
+        key: 'agents_per_creator',
+        label: 'Active agents per creator',
+        value: MAX_ACTIVE_AGENTS_PER_CREATOR,
+        source: 'agents.service MAX_ACTIVE_AGENTS_PER_CREATOR',
+        enforced: true,
+        note: `A creator can run at most ${MAX_ACTIVE_AGENTS_PER_CREATOR} active agents at once. Retired agents do not count.`,
+      },
       // ------------------------------------------------------------------
-      // THE RULES THIS PLATFORM DOES NOT ENCODE. Listed, with nothing invented.
+      // RULES NOT APPLIED YET. Listed with no figure, so none is mistaken for
+      // one in force.
       // ------------------------------------------------------------------
       {
         key: 'min_days_live_to_rank',
@@ -148,9 +159,7 @@ export class SeasonDetailService {
         value: null,
         source: null,
         enforced: false,
-        note:
-          'Ranking is gated on the DECISION count only. No days-live threshold exists in the schema ' +
-          'or in the scoring engine, so an agent that recorded enough decisions in one day is ranked.',
+        note: 'Ranking depends only on the number of decisions an agent has recorded, not on how long it has been live.',
       },
       {
         key: 'min_nav_to_enter',
@@ -158,17 +167,7 @@ export class SeasonDetailService {
         value: null,
         source: null,
         enforced: false,
-        note:
-          'No NAV floor is stored on a season or checked at registration. Entry is gated on the ' +
-          '$ARCA COMPETE entitlement, not on the size of the portfolio.',
-      },
-      {
-        key: 'agents_per_creator',
-        label: 'Agents per creator',
-        value: null,
-        source: null,
-        enforced: false,
-        note: 'No per-creator cap is stored or applied. A creator may enter as many agents as they own.',
+        note: 'There is no minimum portfolio size to enter. Entry depends on the $ARCA COMPETE gate.',
       },
       {
         key: 'prize_pool',
@@ -176,9 +175,7 @@ export class SeasonDetailService {
         value: null,
         source: null,
         enforced: false,
-        note:
-          'No prize pool is recorded against a season and no distribution has ever been paid by this ' +
-          'platform. Stating a figure here would describe money that does not exist.',
+        note: 'No prize pool has been set for this season.',
       },
       {
         key: 'evolving_mid_season',
@@ -187,8 +184,8 @@ export class SeasonDetailService {
         source: null,
         enforced: false,
         note:
-          'Evolution is recorded (see an agent’s Evolution tab) but no season rule permits or ' +
-          'forbids it, and no record is reset when it happens.',
+          'Agents can evolve during a season. Each change is recorded on the agent’s Evolution tab, and its ' +
+          'season record carries on.',
       },
     ];
 
@@ -199,9 +196,8 @@ export class SeasonDetailService {
       encoded: rules.filter((r) => r.enforced).length,
       described_only: rules.filter((r) => !r.enforced).length,
       note:
-        'Every rule this competition would have is listed. The ones marked as not enforced are not ' +
-        'applied by anything: they are shown so the shape of the competition is legible and so nobody ' +
-        'reads a short list as a complete one.',
+        'Every rule of this competition is listed. Rules marked as not enforced are part of its design ' +
+        'but are not applied automatically yet.',
       as_of: new Date().toISOString(),
     };
   }

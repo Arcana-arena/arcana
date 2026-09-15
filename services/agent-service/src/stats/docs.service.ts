@@ -19,10 +19,10 @@ import { MIN_DECISIONS, REGIME_WEIGHT_NOTE, SCORE_WEIGHTS, STRATEGY_NOTE } from 
  * it comes from here, and here reads the same constants the engine and the
  * leaderboard read.
  *
- * WHAT IS DELIBERATELY ABSENT. There is no prize pool, no minimum days live, no
- * NAV floor and no per-creator cap, because nothing on this platform holds or
- * enforces one. They are listed as unencoded rules by /v1/seasons/:id/rules
- * rather than given plausible values here.
+ * WHAT IS DELIBERATELY ABSENT. There is no prize pool, no minimum days live and
+ * no NAV floor, because nothing on this platform holds or enforces one. They are
+ * listed as rules not applied yet by /v1/seasons/:id/rules, with no figure. (The
+ * cap on active agents per creator IS enforced, by agents.service.)
  */
 @Injectable()
 export class DocsService {
