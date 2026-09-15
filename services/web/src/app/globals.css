@@ -966,7 +966,7 @@ select.input { padding-right: 24px; }
   font-family: var(--font-display), var(--font-body), system-ui, sans-serif;
 }
 .px-h1 {
-  font-weight: 700; font-size: clamp(38px, 4.3vw, 62px); line-height: 1.02; letter-spacing: -.035em;
+  font-weight: 700; font-size: clamp(40px, 5vw, 72px); line-height: 1.02; letter-spacing: -.035em;
   margin: 20px 0 22px; max-width: 860px; text-wrap: balance;
 }
 .px-accent { color: var(--color-accent); }
@@ -992,39 +992,38 @@ select.input { padding-right: 24px; }
 .px-btn-ghost:hover { border-color: var(--color-accent); color: var(--color-accent); }
 .px-live-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--color-accent); box-shadow: 0 0 14px rgba(47, 232, 140, .8); flex: none; }
 
-/* ---- hero: copy on the left, the brand film whole on the right.
-   The film is portrait (720×1080) and composed as one picture — logo, lettering,
-   the case on its pedestal — so it is never cropped to fill a wide hero. It sits
-   uncropped in a frame, and its own still, heavily blurred, fills the full
-   width behind everything so the hero still reads as one cinematic band. The
-   frame ends above the hero's bottom padding, so the record card that overlaps
-   the hero never covers the film. */
-.px-hero { position: relative; isolation: isolate; overflow: hidden; padding-block: 56px 150px; }
-.px-hero-grid { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 56px; align-items: center; }
-.px-hero-copy { position: relative; min-width: 0; }
-.px-hero-media { position: absolute; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
-.px-hero-media img {
-  position: absolute; inset: -60px; width: calc(100% + 120px); height: calc(100% + 120px);
-  object-fit: cover; object-position: 50% 45%; opacity: .6; filter: blur(32px) saturate(1.25);
+/* ---- hero: the arena film, full-bleed and whole.
+   The film is 16:9, so the hero takes the film's own proportion (up to the
+   viewport's height) and the film fills it uncropped at common desktop sizes.
+   The copy sits on its left over a page-colour wash only as deep as legibility
+   needs, and the bottom edge fades into the page. On phones the film is its own
+   full-width band above the copy, so it is still seen whole. */
+.px-hero {
+  position: relative; isolation: isolate; overflow: hidden;
+  min-height: min(56.25vw, calc(100vh - 52px)); display: flex; align-items: center;
+  padding-block: 64px 112px;
 }
+.px-hero-grid { display: block; }
+.px-hero-copy { position: relative; min-width: 0; max-width: 660px; text-shadow: 0 2px 24px rgba(0, 0, 0, .55); }
+.px-hero-media { position: absolute; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; background: #000; }
+.px-hero-media video,
+.px-hero-media img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 50%; }
 .px-hero-media::after {
   content: ''; position: absolute; inset: 0;
   background:
-    linear-gradient(90deg, rgba(5, 11, 7, .9) 0%, rgba(5, 11, 7, .66) 48%, rgba(5, 11, 7, .3) 100%),
-    linear-gradient(180deg, rgba(5, 11, 7, .15) 0%, rgba(5, 11, 7, 0) 45%, var(--color-bg) 100%);
+    linear-gradient(90deg, rgba(5, 11, 7, .88) 0%, rgba(5, 11, 7, .62) 30%, rgba(5, 11, 7, .12) 58%, rgba(5, 11, 7, 0) 100%),
+    linear-gradient(180deg, rgba(5, 11, 7, .35) 0%, rgba(5, 11, 7, 0) 16%, rgba(5, 11, 7, 0) 84%, var(--color-bg) 100%);
 }
-.px-hero-film {
-  position: relative; height: min(calc(100vh - 140px), 720px); min-height: 480px; aspect-ratio: 2 / 3; max-width: 100%;
-  border-radius: 22px; overflow: hidden; background: #000; border: 1px solid rgba(228, 237, 231, .14);
-  box-shadow: 0 40px 100px rgba(0, 0, 0, .6), 0 0 90px rgba(47, 232, 140, .1);
-}
-.px-hero-film video,
-.px-hero-film img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .px-hero-poster { display: none; }
+.px-hero-note {
+  position: absolute; right: 32px; bottom: 76px; z-index: 1; margin: 0;
+  font-family: var(--font-mono), monospace; font-size: 10.5px; letter-spacing: .04em; color: rgba(228, 237, 231, .62);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, .85);
+}
 
 /* ---- the record, overlapping the hero */
 .px-stats,
-.px-stats-fail { position: relative; z-index: 2; margin-top: -104px; }
+.px-stats-fail { position: relative; z-index: 2; margin-top: -56px; }
 .px-stats {
   display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 1px;
   background: var(--px-line); border: 1px solid var(--px-line); border-radius: var(--px-radius); overflow: hidden;
@@ -1211,17 +1210,25 @@ select.input { padding-right: 24px; }
   .px-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .px-steps, .px-checks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-/* One column: the film, still whole, sits under the copy. */
+/* Narrower: the copy covers more of the film, so the wash reaches further. */
 @media (max-width: 1000px) {
-  .px-hero-grid { grid-template-columns: minmax(0, 1fr); gap: 40px; }
-  .px-hero-film { height: auto; min-height: 0; width: min(100%, 440px); justify-self: center; }
+  .px-hero-media::after {
+    background:
+      linear-gradient(90deg, rgba(5, 11, 7, .86) 0%, rgba(5, 11, 7, .5) 60%, rgba(5, 11, 7, .22) 100%),
+      linear-gradient(180deg, rgba(5, 11, 7, .3) 0%, rgba(5, 11, 7, 0) 20%, rgba(5, 11, 7, 0) 80%, var(--color-bg) 100%);
+  }
   .px-features, .px-private-grid, .px-leading, .px-creators { grid-template-columns: minmax(0, 1fr); }
   .px-proof { position: static; }
   .px-creators-side { border-left: none; border-top: 1px solid var(--px-line); }
 }
 @media (max-width: 720px) {
   .px-wrap { padding-left: 16px; padding-right: 16px; }
-  .px-hero { padding-block: 40px 116px; }
+  /* Phones: the film is a full-width 16:9 band of its own, above the copy. */
+  .px-hero { display: block; min-height: 0; padding-block: 0 104px; }
+  .px-hero-media { position: relative; inset: auto; z-index: 0; aspect-ratio: 16 / 9; max-width: 100%; margin-bottom: 28px; }
+  .px-hero-media::after { background: linear-gradient(180deg, rgba(5, 11, 7, 0) 72%, var(--color-bg) 100%); }
+  .px-hero-copy { text-shadow: none; }
+  .px-hero-note { right: 16px; left: 16px; top: calc(56.25vw - 22px); bottom: auto; font-size: 9.5px; text-align: right; }
   .px-h1 { font-size: clamp(36px, 10.4vw, 48px); }
   .px-cta .px-btn { flex: 1 1 100%; justify-content: center; }
   .px-stats, .px-stats-fail { margin-top: -80px; }
@@ -1243,6 +1250,6 @@ select.input { padding-right: 24px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .px-ticker-track { animation: none; }
-  .px-hero-film video { display: none; }
-  .px-hero-film .px-hero-poster { display: block; }
+  .px-hero-media video { display: none; }
+  .px-hero-media .px-hero-poster { display: block; }
 }

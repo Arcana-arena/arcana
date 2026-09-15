@@ -850,10 +850,8 @@ await section('The agent directory exists, lists the live agents, and the header
 
 await section('The landing art loads, and the figure beside it is the leaderboard\'s', async () => {
   const assets = [
-    ['/landing/hero-arcana.mp4', 'video/mp4'],
-    ['/landing/hero-arcana-poster.webp', 'image/webp'],
-    ['/landing/hero-arcana-hq.mp4', 'video/mp4'],
-    ['/landing/hero-arcana-hq-poster.webp', 'image/webp'],
+    ['/landing/hero-arena.mp4', 'video/mp4'],
+    ['/landing/hero-arena-poster.webp', 'image/webp'],
     ['/landing/arena-climb.mp4', 'video/mp4'],
     ['/landing/arena-climb-poster.webp', 'image/webp'],
     ['/landing/arena-vs.webp', 'image/webp'],
