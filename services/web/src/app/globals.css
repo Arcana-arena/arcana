@@ -1109,6 +1109,12 @@ select.input { padding-right: 24px; }
 .px-feature-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
 .px-feature-art { width: 132px; max-width: 34%; height: auto; border-radius: 12px; flex: none; border: 1px solid var(--px-line); background: #000; }
 .px-feature-link { margin-top: auto; }
+/* A picture across the top of a feature card, edge to edge. Anchored right:
+   the left of the source is empty black once its headline is painted out. */
+.px-feature-banner {
+  display: block; width: calc(100% + 60px); max-width: none; height: auto; margin: -28px -30px 4px;
+  aspect-ratio: 2 / 1; object-fit: cover; object-position: 100% 45%; border-bottom: 1px solid var(--px-line); background: #000;
+}
 .px-mini { display: flex; flex-direction: column; border-top: 1px solid var(--px-line); }
 .px-mini-row { display: flex; align-items: center; gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--px-line); font-size: 13px; }
 .px-mini-row > a { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1148,6 +1154,21 @@ select.input { padding-right: 24px; }
 .px-proof-cta .px-btn { padding: 11px 18px; font-size: 11.5px; }
 
 /* ---- leading agent */
+/* The section opens on a wide picture, with its title over the empty left. */
+.px-lead-banner { display: flex; align-items: center; min-height: 380px; margin-bottom: 20px; background: #000; }
+.px-lead-banner-art {
+  position: absolute; inset: 0; width: 100%; height: 100%; max-width: none;
+  object-fit: cover; object-position: 70% 40%;
+}
+.px-lead-banner::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(90deg, rgba(0, 0, 0, .8) 0%, rgba(0, 0, 0, .45) 34%, rgba(0, 0, 0, 0) 58%);
+}
+.px-lead-banner-copy { position: relative; z-index: 1; padding: 32px 36px; max-width: 480px; }
+.px-lead-banner-name {
+  font-family: var(--font-display), var(--font-body), sans-serif; font-weight: 700; letter-spacing: -.02em;
+  font-size: clamp(24px, 2.6vw, 34px); line-height: 1.1; color: var(--color-accent); margin: 10px 0 16px; overflow-wrap: anywhere;
+}
 .px-leading { display: grid; grid-template-columns: minmax(0, 440px) minmax(0, 1fr); gap: 20px; }
 .px-big { font-family: var(--font-mono), monospace; font-size: 58px; line-height: 1; font-weight: 300; letter-spacing: -.03em; color: var(--color-accent); }
 .px-mini-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 14px; margin-top: 18px; border-top: 1px solid var(--px-line); padding-top: 16px; }
@@ -1235,6 +1256,10 @@ select.input { padding-right: 24px; }
   .px-private::before { width: 320px; height: 280px; right: -140px; opacity: .05; }
   .px-feature { padding: 22px 20px; }
   .px-feature-art { width: 96px; }
+  .px-feature-banner { width: calc(100% + 40px); margin: -22px -20px 4px; }
+  .px-lead-banner { min-height: 260px; align-items: flex-end; }
+  .px-lead-banner::after { background: linear-gradient(0deg, rgba(0, 0, 0, .85) 0%, rgba(0, 0, 0, .35) 55%, rgba(0, 0, 0, 0) 100%); }
+  .px-lead-banner-copy { padding: 20px; }
   .px-creators-main, .px-creators-side { padding: 24px 20px; }
   .px-big { font-size: 46px; }
   .px-arena .arena-copy { padding: 18px 20px !important; }

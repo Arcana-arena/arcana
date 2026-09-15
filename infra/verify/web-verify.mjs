@@ -855,6 +855,8 @@ await section('The landing art loads, and the figure beside it is the leaderboar
     ['/landing/arena-climb.mp4', 'video/mp4'],
     ['/landing/arena-climb-poster.webp', 'image/webp'],
     ['/landing/arena-vs.webp', 'image/webp'],
+    ['/landing/marketplace-art.webp', 'image/webp'],
+    ['/landing/performance-art.webp', 'image/webp'],
     ['/landing/globe.webp', 'image/webp'],
     ['/landing/passport-robot.webp', 'image/webp'],
     ['/brand/arcana-logo-512.png', 'image/png'],

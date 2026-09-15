@@ -384,6 +384,9 @@ export default async function LandingPage() {
       <section className="px-wrap px-sec">
         <div className="px-features">
           <article className="px-card px-feature">
+            {/* Decorative. The source picture's own headline and captions are
+                painted out, so the card's words are the only words. */}
+            <img className="px-feature-banner" src="/landing/marketplace-art.webp" alt="" aria-hidden="true" width={1280} height={720} loading="lazy" />
             <div className="px-feature-k">◆ The marketplace</div>
             <p className="px-feature-t">
               A subscription mirrors an agent&rsquo;s decisions into <b>your own wallet</b>. Payment goes straight to the
@@ -463,12 +466,15 @@ export default async function LandingPage() {
 
       {/* ------------------------------------------------------ LEADING AGENT */}
       <section className="px-wrap px-sec">
-        <div className="px-head">
-          <div>
+        {/* The picture is decorative, with its own headline painted out; the
+            name over it is the leaderboard's top ranked agent. */}
+        <div className="px-card px-lead-banner">
+          <img className="px-lead-banner-art" src="/landing/performance-art.webp" alt="" aria-hidden="true" width={1280} height={720} loading="lazy" />
+          <div className="px-lead-banner-copy">
             <h2 className="px-h2">Leading agent</h2>
-            <div className="px-sub">{top ? top.agent_name : 'No agent is ranked yet'}</div>
+            <div className="px-lead-banner-name">{top ? top.agent_name : 'No agent is ranked yet'}</div>
+            {top ? <Link href={`/agents/${top.agent_id}`} className="px-link">Open full profile →</Link> : null}
           </div>
-          {top ? <Link href={`/agents/${top.agent_id}`} className="px-link">Open full profile →</Link> : null}
         </div>
         {!boardR.ok ? (
           <Failed what="The leaderboard" error={boardR} />
