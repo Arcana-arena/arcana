@@ -966,7 +966,7 @@ select.input { padding-right: 24px; }
   font-family: var(--font-display), var(--font-body), system-ui, sans-serif;
 }
 .px-h1 {
-  font-weight: 700; font-size: clamp(40px, 5.4vw, 76px); line-height: 1.02; letter-spacing: -.035em;
+  font-weight: 700; font-size: clamp(38px, 4.3vw, 62px); line-height: 1.02; letter-spacing: -.035em;
   margin: 20px 0 22px; max-width: 860px; text-wrap: balance;
 }
 .px-accent { color: var(--color-accent); }
@@ -992,29 +992,34 @@ select.input { padding-right: 24px; }
 .px-btn-ghost:hover { border-color: var(--color-accent); color: var(--color-accent); }
 .px-live-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--color-accent); box-shadow: 0 0 14px rgba(47, 232, 140, .8); flex: none; }
 
-/* ---- hero: the brand film, full-bleed. Blurred and washed with the page colour
-   so its own lettering reads as light behind the copy, never as a second
-   headline; the wash reaches the page colour before the hero ends, so nothing of
-   the film shows in the band under the copy. */
-.px-hero {
-  position: relative; isolation: isolate; overflow: hidden;
-  min-height: min(calc(100vh - 52px), 760px); display: flex; align-items: center;
-  padding-block: 88px 156px;
-}
-.px-hero-copy { position: relative; }
-.px-hero-media { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
-.px-hero-media video,
+/* ---- hero: copy on the left, the brand film whole on the right.
+   The film is portrait (720×1080) and composed as one picture — logo, lettering,
+   the case on its pedestal — so it is never cropped to fill a wide hero. It sits
+   uncropped in a frame, and its own still, heavily blurred, fills the full
+   width behind everything so the hero still reads as one cinematic band. The
+   frame ends above the hero's bottom padding, so the record card that overlaps
+   the hero never covers the film. */
+.px-hero { position: relative; isolation: isolate; overflow: hidden; padding-block: 56px 150px; }
+.px-hero-grid { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 56px; align-items: center; }
+.px-hero-copy { position: relative; min-width: 0; }
+.px-hero-media { position: absolute; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
 .px-hero-media img {
-  position: absolute; inset: 0; width: 100%; height: 100%;
-  object-fit: cover; object-position: 50% 30%;
-  opacity: .6; filter: blur(2px) saturate(1.1) contrast(1.05);
+  position: absolute; inset: -60px; width: calc(100% + 120px); height: calc(100% + 120px);
+  object-fit: cover; object-position: 50% 45%; opacity: .6; filter: blur(32px) saturate(1.25);
 }
 .px-hero-media::after {
   content: ''; position: absolute; inset: 0;
   background:
-    linear-gradient(90deg, rgba(5, 11, 7, .95) 0%, rgba(5, 11, 7, .84) 36%, rgba(5, 11, 7, .35) 64%, rgba(5, 11, 7, .82) 86%, rgba(5, 11, 7, .92) 100%),
-    linear-gradient(180deg, rgba(5, 11, 7, .92) 0%, rgba(5, 11, 7, .78) 30%, rgba(5, 11, 7, .3) 50%, rgba(5, 11, 7, .85) 72%, var(--color-bg) 86%);
+    linear-gradient(90deg, rgba(5, 11, 7, .9) 0%, rgba(5, 11, 7, .66) 48%, rgba(5, 11, 7, .3) 100%),
+    linear-gradient(180deg, rgba(5, 11, 7, .15) 0%, rgba(5, 11, 7, 0) 45%, var(--color-bg) 100%);
 }
+.px-hero-film {
+  position: relative; height: min(calc(100vh - 140px), 720px); min-height: 480px; aspect-ratio: 2 / 3; max-width: 100%;
+  border-radius: 22px; overflow: hidden; background: #000; border: 1px solid rgba(228, 237, 231, .14);
+  box-shadow: 0 40px 100px rgba(0, 0, 0, .6), 0 0 90px rgba(47, 232, 140, .1);
+}
+.px-hero-film video,
+.px-hero-film img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .px-hero-poster { display: none; }
 
 /* ---- the record, overlapping the hero */
@@ -1206,25 +1211,23 @@ select.input { padding-right: 24px; }
   .px-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .px-steps, .px-checks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-/* Same width at which the film was always collapsed to a softer backdrop. */
+/* One column: the film, still whole, sits under the copy. */
 @media (max-width: 1000px) {
-  .px-hero-media video,
-  .px-hero-media img { opacity: .34; filter: blur(3px) saturate(1.2); object-position: 60% 40%; }
-  .px-hero-media::after {
-    background: linear-gradient(180deg, rgba(5, 11, 7, .85) 0%, rgba(5, 11, 7, .6) 40%, rgba(5, 11, 7, .85) 70%, var(--color-bg) 88%);
-  }
+  .px-hero-grid { grid-template-columns: minmax(0, 1fr); gap: 40px; }
+  .px-hero-film { height: auto; min-height: 0; width: min(100%, 440px); justify-self: center; }
   .px-features, .px-private-grid, .px-leading, .px-creators { grid-template-columns: minmax(0, 1fr); }
   .px-proof { position: static; }
   .px-creators-side { border-left: none; border-top: 1px solid var(--px-line); }
 }
 @media (max-width: 720px) {
   .px-wrap { padding-left: 16px; padding-right: 16px; }
-  .px-hero { min-height: 0; padding-block: 56px 124px; }
+  .px-hero { padding-block: 40px 116px; }
   .px-h1 { font-size: clamp(36px, 10.4vw, 48px); }
   .px-cta .px-btn { flex: 1 1 100%; justify-content: center; }
   .px-stats, .px-stats-fail { margin-top: -80px; }
   .px-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .px-stat { padding: 18px 16px; }
+  .px-seg { border-radius: 14px; }
   .px-sec { padding-block: 56px 0; }
   .px-steps, .px-checks { grid-template-columns: minmax(0, 1fr); }
   .px-private { padding: 28px 18px; border-radius: var(--px-radius); }
@@ -1240,6 +1243,6 @@ select.input { padding-right: 24px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .px-ticker-track { animation: none; }
-  .px-hero-media video { display: none; }
-  .px-hero-poster { display: block; }
+  .px-hero-film video { display: none; }
+  .px-hero-film .px-hero-poster { display: block; }
 }

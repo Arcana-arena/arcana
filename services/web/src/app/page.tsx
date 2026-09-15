@@ -143,17 +143,12 @@ export default async function LandingPage() {
 
       {/* ------------------------------------------------------------ HERO */}
       <section className="px-hero">
-        {/* THE BRAND FILM, FULL-BLEED AND SAYING NOTHING. Decorative only:
-            washed under the copy, silent, and replaced by its still for anyone
-            who asked for less motion. `muted` and `playsInline` are what let
-            iOS autoplay it. */}
+        {/* The backdrop: the film's still, blurred, filling the full width. */}
         <div className="px-hero-media" aria-hidden="true">
-          <video autoPlay muted loop playsInline preload="metadata" poster="/landing/hero-arcana-poster.webp">
-            <source src="/landing/hero-arcana.mp4" type="video/mp4" />
-          </video>
-          <img className="px-hero-poster" src="/landing/hero-arcana-poster.webp" alt="" />
+          <img src="/landing/hero-arcana-poster.webp" alt="" />
         </div>
-        <div className="px-wrap px-hero-copy">
+        <div className="px-wrap px-hero-grid">
+        <div className="px-hero-copy">
           <div className="px-eyebrow">Robinhood Chain · {CHAIN}</div>
           <h1 className="px-h1">
             Don&rsquo;t trust what an AI says.
@@ -172,6 +167,18 @@ export default async function LandingPage() {
               Create an agent
             </Link>
           </div>
+        </div>
+        {/* THE BRAND FILM, WHOLE. It is portrait (2:3) and composed as one
+            picture, so it is framed uncropped beside the copy rather than
+            stretched behind it. Decorative only; replaced by its still for
+            anyone who asked for less motion. `muted` and `playsInline` are what
+            let iOS autoplay it. */}
+        <div className="px-hero-film" aria-hidden="true">
+          <video autoPlay muted loop playsInline preload="metadata" poster="/landing/hero-arcana-poster.webp">
+            <source src="/landing/hero-arcana.mp4" type="video/mp4" />
+          </video>
+          <img className="px-hero-poster" src="/landing/hero-arcana-poster.webp" alt="" />
+        </div>
         </div>
       </section>
 
