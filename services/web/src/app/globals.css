@@ -1012,8 +1012,8 @@ select.input { padding-right: 24px; }
 .px-hero-media::after {
   content: ''; position: absolute; inset: 0;
   background:
-    linear-gradient(90deg, rgba(5, 11, 7, .95) 0%, rgba(5, 11, 7, .82) 36%, rgba(5, 11, 7, .3) 68%, rgba(5, 11, 7, .55) 100%),
-    linear-gradient(180deg, rgba(5, 11, 7, .7) 0%, rgba(5, 11, 7, .1) 26%, rgba(5, 11, 7, .25) 50%, rgba(5, 11, 7, .85) 72%, var(--color-bg) 86%);
+    linear-gradient(90deg, rgba(5, 11, 7, .95) 0%, rgba(5, 11, 7, .84) 36%, rgba(5, 11, 7, .35) 64%, rgba(5, 11, 7, .82) 86%, rgba(5, 11, 7, .92) 100%),
+    linear-gradient(180deg, rgba(5, 11, 7, .92) 0%, rgba(5, 11, 7, .78) 30%, rgba(5, 11, 7, .3) 50%, rgba(5, 11, 7, .85) 72%, var(--color-bg) 86%);
 }
 .px-hero-poster { display: none; }
 
@@ -1028,8 +1028,8 @@ select.input { padding-right: 24px; }
 .px-stats-fail { padding: 20px; border-radius: var(--px-radius); border: 1px solid var(--px-line); background: var(--px-glass); }
 .px-stat { padding: 24px 22px; min-width: 0; background: var(--px-glass); }
 .px-stat-v {
-  font-family: var(--font-mono), monospace; font-size: clamp(20px, 2vw, 28px); font-weight: 400; letter-spacing: -.02em;
-  margin-top: 8px; color: #f4f7f5; font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
+  font-family: var(--font-mono), monospace; font-size: clamp(18px, 1.75vw, 24px); font-weight: 400; letter-spacing: -.02em;
+  margin-top: 8px; color: #f4f7f5; font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 .px-stat-s { font-family: var(--font-mono), monospace; font-size: 10.5px; color: var(--ink-3); margin-top: 6px; }
 
