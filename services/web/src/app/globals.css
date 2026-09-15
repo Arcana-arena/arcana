@@ -1338,6 +1338,30 @@ select.input { padding-right: 24px; }
 .lx-page .lx-wordmark { color: var(--lx-gold-hi); }
 .lx-page .lx-foot-bar { border-top-color: var(--lx-hair-soft); }
 
+/* LINING FIGURES IN THE DISPLAY FACE. Cormorant's default old-style figures
+   set "holder_v1" as "holder_vɪ" and shrink the rank numerals: an agent's name
+   is an identifier, and an identifier that can be misread is a defect, not a
+   style. */
+.lx-page .lx-h1,
+.lx-page .lx-h2,
+.lx-page .lx-h3,
+.lx-page .lx-arena-name,
+.lx-page .lx-private-motto,
+.lx-page .lx-step-t,
+.lx-page .lx-num,
+.lx-page .lx-proof-n,
+.lx-page .lx-board .lx-podium .lx-rank {
+  font-variant-numeric: lining-nums;
+  font-feature-settings: 'lnum' 1;
+}
+
+/* THE FILM'S OWN LETTERING stays under the page: a deeper wash across the top
+   of the hero, where the clip's words sit above the decision panel. */
+.lx-page .lx-hero::after {
+  content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background: linear-gradient(180deg, rgba(5, 11, 7, .92) 0%, rgba(5, 11, 7, .7) 16%, rgba(5, 11, 7, 0) 38%);
+}
+
 @media (max-width: 720px) {
   .lx-page .lx-h1 { font-size: clamp(40px, 11vw, 54px); }
   .lx-page .lx-hero { min-height: 0; }
