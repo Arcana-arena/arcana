@@ -151,8 +151,7 @@ func main() {
 	// ---- virtual --------------------------------------------------------
 	vrows, err := pool.Query(ctx, `
 		SELECT d.id, d.agent_id::text, d.ts, d.action, d.symbol, d.quantity::float8, d.market_snapshot_ref, p.id::text
-		  -- raw-by-design: reconstructing every fill that changed a book, including rows later marked as artefacts
-		  FROM decisions d
+		  FROM decisions d -- raw-by-design: reconstructing every fill that changed a book, including rows later marked as artefacts
 		  JOIN portfolios p ON p.agent_id = d.agent_id AND p.season_id = d.season_id
 		 WHERE d.action IN ('buy', 'sell') AND d.quantity > 0
 		   AND NOT EXISTS (SELECT 1 FROM agent_wallets w WHERE w.agent_id = d.agent_id)
