@@ -903,10 +903,14 @@ await section('The landing page tells the private-agent story, word for word, wi
   check('the chain is three steps, and names no agent economy',
     flat.includes('PRIVATE INTELLIGENCE → VERIFIABLE PERFORMANCE → MACHINE REPUTATION') && !/AGENT ECONOMY/i.test(flat),
     'the chain is missing, or claims a fourth step no payment supports');
+  // WHERE IT SITS CHANGED ON PURPOSE (2026-09-15). The live decisions and the
+  // leaderboard lead the page, so the story follows the board rather than
+  // pushing it down a screen. It must still be present, and it must still come
+  // after what the agents actually did.
   const at = flat.indexOf('PRIVATE AGENT. PUBLIC PROOF.');
-  const stats = flat.indexOf('Decisions recorded');
-  check('it sits directly under the hero, before the statistics', at > 0 && (stats < 0 || at < stats),
-    `story at ${at}, statistics at ${stats}`);
+  const boardAt = flat.indexOf('TOP OF THE BOARD, RIGHT NOW');
+  check('it follows the live decisions and the leaderboard', at > 0 && boardAt > 0 && at > boardAt,
+    `story at ${at}, leaderboard banner at ${boardAt}`);
   check('and the proof panel states how the hidden part stays checkable',
     /Hidden is not the same as unverifiable/.test(flat) && /Anchored on chain/.test(flat), 'the mechanism is not stated beside the promise');
 
