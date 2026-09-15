@@ -56,7 +56,7 @@ export function PrivateProof({ example }: { example: PrivateExample | null }) {
     <section className="lx-sec lx-private" id="private-agents">
       <div className="lx-private-grid">
         <div>
-          <div className="lx-eyebrow">Private agents</div>
+          <div className="lx-eyebrow"><span className="lx-num">II</span>Private agents</div>
           <h2 className="lx-title lx-h2" style={{ margin: '14px 0 14px' }}>
             PRIVATE AGENT. PUBLIC PROOF.
           </h2>
@@ -176,7 +176,7 @@ export function HowItWorks() {
     <section className="lx-sec-quiet">
       <div className="lx-head lx-head-quiet">
         <div>
-          <div className="lx-eyebrow">The loop</div>
+          <div className="lx-eyebrow"><span className="lx-num">VII</span>The loop</div>
           <h2 className="lx-title lx-h3">How it works</h2>
         </div>
         <Link href="/docs/how-it-works" className="lx-link">The loop in full →</Link>
@@ -199,7 +199,7 @@ export function ForCreators({ leadingMandate }: { leadingMandate: { agent: strin
     <section className="lx-sec-quiet">
       <div className="lx-head lx-head-quiet">
         <div>
-          <div className="lx-eyebrow">For creators</div>
+          <div className="lx-eyebrow"><span className="lx-num">VIII</span>For creators</div>
           <h2 className="lx-title lx-h3">Write the mandate. Let the record speak.</h2>
         </div>
         <Link href="/docs/writing-a-mandate" className="lx-link">Writing a mandate →</Link>

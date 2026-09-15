@@ -1188,3 +1188,158 @@ select.input { padding-right: 24px; }
 @media (prefers-reduced-motion: reduce) {
   .lx-ticker-track { animation: none; }
 }
+
+/* ======================================================= landing · exclusive
+ * The second pass. Luxury as restraint, not decoration: a serif display face
+ * for the few lines that are meant to be read slowly, one champagne tone used
+ * only for hairlines, numerals and eyebrows (the brand green stays for data and
+ * actions), grain and vignette so the dark reads as depth rather than as an
+ * empty screen, and small corner marks instead of heavy frames.
+ *
+ * Numbers stay in the mono face: on this site the typeface of a figure is a
+ * correctness feature, and a serif price is a price you read twice.
+ */
+:root {
+  --lx-gold: #d8c69b;
+  --lx-gold-hi: #f1e4c2;
+  --lx-hair: rgba(216, 198, 155, .24);
+  --lx-hair-soft: rgba(216, 198, 155, .12);
+  --lx-silver: #c8d0cb;
+  --lx-bronze: #c79a6b;
+}
+
+/* grain: a whisper of texture over the whole landing page */
+.lx-page { position: relative; }
+.lx-page::after {
+  content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 80; opacity: .045; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+/* display type */
+.lx-page .lx-h1,
+.lx-page .lx-h2,
+.lx-page .lx-h3,
+.lx-page .lx-arena-name,
+.lx-page .lx-private-motto,
+.lx-page .lx-step-t {
+  font-family: var(--font-display), 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+  font-weight: 500;
+  letter-spacing: -.012em;
+}
+.lx-page .lx-h1 { font-size: clamp(46px, 5.6vw, 92px); line-height: .98; letter-spacing: -.02em; }
+.lx-page .lx-h2 { font-size: clamp(36px, 4vw, 62px); line-height: 1; }
+.lx-page .lx-h3 { font-size: clamp(28px, 2.7vw, 40px); line-height: 1.05; }
+.lx-page .lx-accent {
+  font-style: italic;
+  background: linear-gradient(96deg, var(--lx-gold) 0%, var(--lx-gold-hi) 34%, var(--color-accent-800) 72%, var(--color-accent) 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.lx-page .lx-arena-name { font-size: clamp(38px, 4.4vw, 68px); font-style: italic; }
+.lx-page .lx-private-motto { font-size: clamp(32px, 3.6vw, 50px); font-style: italic; color: var(--lx-gold-hi); }
+.lx-page .lx-step-t { font-size: 24px; }
+.lx-page .lx-lead { font-size: 17.5px; color: #b9c5be; }
+
+/* eyebrows and chapter numerals */
+.lx-page .lx-eyebrow { color: var(--lx-gold); letter-spacing: .28em; }
+.lx-page .lx-eyebrow::before { width: 46px; background: linear-gradient(90deg, rgba(216, 198, 155, 0), var(--lx-gold)); opacity: .8; }
+.lx-num {
+  font-family: var(--font-display), 'Cormorant Garamond', Georgia, serif; font-style: italic;
+  font-size: 16px; letter-spacing: 0; text-transform: none; color: var(--lx-gold-hi); margin-right: 2px;
+}
+
+/* the hero: depth, not a flat dark */
+.lx-page .lx-hero { min-height: min(calc(100vh - 52px), 900px); }
+.lx-page .lx-hero::before {
+  content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(900px 520px at 74% 42%, rgba(47, 232, 140, .09), rgba(47, 232, 140, 0) 62%),
+    radial-gradient(760px 520px at 8% 108%, rgba(216, 198, 155, .08), rgba(216, 198, 155, 0) 60%),
+    radial-gradient(1400px 900px at 50% 50%, rgba(0, 0, 0, 0) 55%, rgba(0, 0, 0, .55) 100%);
+}
+
+/* buttons */
+.lx-page .lx-btn.btn-primary {
+  background: linear-gradient(180deg, #4ff2a2 0%, #25cf7f 100%);
+  border: 1px solid rgba(255, 255, 255, .18); color: #041008; font-weight: 600;
+  box-shadow: 0 12px 34px rgba(47, 232, 140, .22), inset 0 1px 0 rgba(255, 255, 255, .45);
+  transition: transform .2s ease, box-shadow .2s ease;
+}
+.lx-page .lx-btn.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 16px 44px rgba(47, 232, 140, .32), inset 0 1px 0 rgba(255, 255, 255, .5); }
+.lx-page .lx-btn-ghost { border-color: var(--lx-hair); color: var(--lx-gold-hi); transition: border-color .2s ease, color .2s ease; }
+.lx-page .lx-btn-ghost:hover { border-color: var(--lx-gold); color: #fff; }
+.lx-page .lx-link { color: var(--lx-gold); }
+.lx-page .lx-link:hover { color: var(--lx-gold-hi); text-decoration: none; }
+
+/* frames: hairline gold corners on glass panels, cards and the arena */
+.lx-page .lx-glass,
+.lx-page .lx-card,
+.lx-page .lx-arena { position: relative; }
+.lx-page .lx-glass::after,
+.lx-page .lx-card::after,
+.lx-page .lx-arena::after {
+  content: ''; position: absolute; inset: -1px; pointer-events: none; z-index: 3; opacity: .9;
+  background:
+    linear-gradient(var(--lx-gold), var(--lx-gold)) top left / 16px 1px no-repeat,
+    linear-gradient(var(--lx-gold), var(--lx-gold)) top left / 1px 16px no-repeat,
+    linear-gradient(var(--lx-gold), var(--lx-gold)) top right / 16px 1px no-repeat,
+    linear-gradient(var(--lx-gold), var(--lx-gold)) top right / 1px 16px no-repeat,
+    linear-gradient(var(--lx-gold), var(--lx-gold)) bottom left / 16px 1px no-repeat,
+    linear-gradient(var(--lx-gold), var(--lx-gold)) bottom left / 1px 16px no-repeat,
+    linear-gradient(var(--lx-gold), var(--lx-gold)) bottom right / 16px 1px no-repeat,
+    linear-gradient(var(--lx-gold), var(--lx-gold)) bottom right / 1px 16px no-repeat;
+}
+.lx-page .lx-glass { border-color: var(--lx-hair-soft); box-shadow: 0 50px 120px rgba(0, 0, 0, .6), 0 0 0 1px rgba(0, 0, 0, .4), inset 0 1px 0 rgba(241, 228, 194, .06); }
+.lx-page .lx-card { border-color: rgba(228, 237, 231, .08); background: linear-gradient(180deg, rgba(241, 228, 194, .025), rgba(241, 228, 194, 0) 60%); }
+.lx-page .lx-live { color: var(--lx-gold-hi); }
+
+/* section rules carry a small ornament */
+.lx-page .lx-sec-quiet { position: relative; }
+.lx-page .lx-sec::after,
+.lx-page .lx-sec-quiet::after {
+  content: '◆'; position: absolute; left: 50%; bottom: -8px; transform: translateX(-50%);
+  font-size: 8px; line-height: 16px; padding: 0 12px; color: var(--lx-gold); background: var(--color-bg); z-index: 2;
+}
+.lx-page .lx-sec, .lx-page .lx-sec-quiet { border-bottom-color: var(--lx-hair-soft); }
+
+/* ticker: diamonds, not rules */
+.lx-page .lx-ticker { border-bottom-color: var(--lx-hair-soft); border-top: 1px solid var(--lx-hair-soft); background: linear-gradient(90deg, rgba(216, 198, 155, .04), rgba(47, 232, 140, .025) 50%, rgba(216, 198, 155, .04)); }
+.lx-page .lx-ticker-item { border-right: none; padding: 14px 18px; }
+.lx-page .lx-ticker-item::after { content: '◆'; margin-left: 26px; font-size: 7px; color: var(--lx-gold); opacity: .55; }
+
+/* the leaderboard's top three: gold, silver, bronze numerals */
+.lx-page .lx-board .lx-podium .lx-rank {
+  font-family: var(--font-display), 'Cormorant Garamond', Georgia, serif; font-style: italic; font-size: 26px; line-height: 1;
+}
+.lx-page .lx-board tbody tr.lx-podium:nth-child(1) .lx-rank { color: var(--lx-gold-hi); }
+.lx-page .lx-board tbody tr.lx-podium:nth-child(2) .lx-rank { color: var(--lx-silver); }
+.lx-page .lx-board tbody tr.lx-podium:nth-child(3) .lx-rank { color: var(--lx-bronze); }
+.lx-page .lx-board tbody tr.lx-podium:nth-child(1) { background: linear-gradient(90deg, rgba(216, 198, 155, .07), rgba(216, 198, 155, 0) 55%); }
+.lx-page .lx-board th { color: var(--lx-gold); border-bottom-color: var(--lx-hair-soft); }
+.lx-page .lx-arena { box-shadow: 0 50px 110px rgba(0, 0, 0, .55); }
+
+/* the record band */
+.lx-page .lx-stats { border-top: 1px solid var(--lx-hair-soft); border-bottom-color: var(--lx-hair-soft); background: linear-gradient(180deg, rgba(241, 228, 194, .02), rgba(241, 228, 194, 0)); }
+.lx-page .lx-stat { border-right-color: var(--lx-hair-soft); }
+.lx-page .lx-stat .lbl { color: var(--lx-gold); }
+.lx-page .lx-stat-v { font-weight: 300; color: #f4f7f5; }
+
+/* private agents */
+.lx-page .lx-chain { color: var(--lx-gold); }
+.lx-page .lx-keep-proves { border-color: rgba(216, 198, 155, .4); background: linear-gradient(180deg, rgba(216, 198, 155, .06), rgba(216, 198, 155, .01)); }
+.lx-page .lx-keep-proves .lbl { color: var(--lx-gold) !important; }
+.lx-page .lx-proof-n { font-family: var(--font-display), 'Cormorant Garamond', Georgia, serif; font-style: italic; font-size: 17px; color: var(--lx-gold-hi); }
+.lx-page .lx-private-sub { color: var(--color-accent-800); }
+
+/* leading agent and footer */
+.lx-page .lx-big { color: var(--lx-gold-hi); }
+.lx-page .lx-step-n { color: var(--lx-gold); }
+.lx-page .lx-steps { border-top-color: var(--lx-hair-soft); }
+.lx-page .lx-footer { border-top: 1px solid var(--lx-hair-soft); background: linear-gradient(180deg, rgba(241, 228, 194, .02), rgba(0, 0, 0, 0) 40%); }
+.lx-page .lx-wordmark { color: var(--lx-gold-hi); }
+.lx-page .lx-foot-bar { border-top-color: var(--lx-hair-soft); }
+
+@media (max-width: 720px) {
+  .lx-page .lx-h1 { font-size: clamp(40px, 11vw, 54px); }
+  .lx-page .lx-hero { min-height: 0; }
+  .lx-page .lx-board .lx-podium .lx-rank { font-size: 21px; }
+}

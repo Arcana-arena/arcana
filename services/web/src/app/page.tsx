@@ -127,7 +127,7 @@ export default async function LandingPage() {
   const feed = feedR.ok ? feedR.data.items : [];
 
   return (
-    <div className="page">
+    <div className="page lx-page">
       <Header current="" />
 
       {/* ------------------------------------------------ HERO · LIVE DECISIONS */}
@@ -241,7 +241,7 @@ export default async function LandingPage() {
       <section className="lx-sec" id="leaderboard">
         <div className="lx-head">
           <div>
-            <div className="lx-eyebrow">The arena{board?.season ? ` · ${board.season.name}` : ''}</div>
+            <div className="lx-eyebrow"><span className="lx-num">I</span>The arena{board?.season ? ` · ${board.season.name}` : ''}</div>
             <h2 className="lx-title lx-h2">Leaderboard</h2>
           </div>
           <div className="seg">
@@ -366,7 +366,7 @@ export default async function LandingPage() {
       <section className="lx-sec-quiet">
         <div className="lx-head lx-head-quiet">
           <div>
-            <div className="lx-eyebrow">Leading agent</div>
+            <div className="lx-eyebrow"><span className="lx-num">III</span>Leading agent</div>
             <h2 className="lx-title lx-h3">{top ? top.agent_name : 'No agent is ranked yet'}</h2>
           </div>
           {top ? <Link href={`/agents/${top.agent_id}`} className="lx-link">Open full profile →</Link> : null}
@@ -485,7 +485,7 @@ export default async function LandingPage() {
       <section className="lx-sec-quiet">
         <div className="lx-head lx-head-quiet">
           <div>
-            <div className="lx-eyebrow">On chain</div>
+            <div className="lx-eyebrow"><span className="lx-num">IV</span>On chain</div>
             <h2 className="lx-title lx-h3">Recent activity</h2>
           </div>
           <span className="mono m3" style={{ fontSize: 11 }}>settled trades across all agents · not decisions</span>
@@ -551,7 +551,7 @@ export default async function LandingPage() {
       <section className="lx-sec-quiet">
         <div className="lx-head lx-head-quiet">
           <div>
-            <div className="lx-eyebrow">Subscribe</div>
+            <div className="lx-eyebrow"><span className="lx-num">V</span>Subscribe</div>
             <h2 className="lx-title lx-h3">Marketplace</h2>
           </div>
           <Link href="/marketplace" className="lx-link">All listings →</Link>
@@ -606,7 +606,7 @@ export default async function LandingPage() {
         <div className="lx-head lx-head-quiet">
           <div>
             <div className="lx-eyebrow">
-              Seasons{stats ? ` · ${int(stats.seasons.running)} running of ${int(stats.seasons.total)}` : ''}
+              <span className="lx-num">VI</span>Seasons{stats ? ` · ${int(stats.seasons.running)} running of ${int(stats.seasons.total)}` : ''}
             </div>
             <h2 className="lx-title lx-h3">{running[0]?.name ?? 'No season is running'}</h2>
           </div>

@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { Barlow, Barlow_Condensed, JetBrains_Mono } from 'next/font/google';
+import { Barlow, Barlow_Condensed, Cormorant_Garamond, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
 
 /**
@@ -25,6 +25,19 @@ const barlowCondensed = Barlow_Condensed({
   display: 'swap',
 });
 
+/**
+ * The display face, for the few landing lines meant to be read slowly — the
+ * headline, section titles, the leading agent's name. Never a number: figures
+ * stay in JetBrains Mono, which is the contract above.
+ */
+const cormorant = Cormorant_Garamond({
+  subsets: ['latin'],
+  weight: ['400', '500', '600'],
+  style: ['normal', 'italic'],
+  variable: '--font-display',
+  display: 'swap',
+});
+
 const jetbrains = JetBrains_Mono({
   subsets: ['latin'],
   weight: ['400', '500'],
@@ -40,7 +53,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${barlow.variable} ${barlowCondensed.variable} ${jetbrains.variable}`}>
+    <html lang="en" className={`${barlow.variable} ${barlowCondensed.variable} ${cormorant.variable} ${jetbrains.variable}`}>
       <body>{children}</body>
     </html>
   );
