@@ -63,6 +63,44 @@ type Refusal struct {
 
 func (r *Refusal) Error() string { return r.Code + ": " + r.Message }
 
+// Fault is the signer answering something this client cannot act on.
+//
+// IT IS NOT A REFUSAL, AND THE DIFFERENCE IS THE WHOLE REASON IT IS A SEPARATE
+// TYPE. A Refusal means the signer looked at the intent and said no — a normal
+// outcome, recorded as `refused`, and the operator's next step is to read which
+// policy declined it. A Fault means the signer never got far enough to decide,
+// or answered in a shape this client does not understand: a reverse proxy
+// returning 503 in front of it, a truncated body, a version mismatch. Recording
+// that as `refused` would put a decision in the record that nobody made, and
+// would send an operator looking through signer policy for a rule that was
+// never consulted.
+//
+// So it carries a code — which is what was missing, and why every one of these
+// used to arrive as an untyped sentence — while leaving the execution status at
+// `blocked`: nothing was signed and nothing was sent, which is true in both
+// cases and is all this client actually knows.
+type Fault struct {
+	Code    string
+	Status  int
+	Message string
+}
+
+func (f *Fault) Error() string { return f.Code + ": " + f.Message }
+
+// truncate bounds the BODY quoted inside a fault message.
+//
+// Safe here, and only because the code has already been lifted out into its own
+// field before this is called. Truncating a response that is still the only
+// carrier of its own code is a different thing entirely — the code survives or
+// not depending on how long the message happened to be, which is luck rather
+// than design. The cadence and scheduler workers had exactly that.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
+}
+
 func (s *SignerClient) Sign(ctx context.Context, req SignRequest) (*SignResponse, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -82,13 +120,29 @@ func (s *SignerClient) Sign(ctx context.Context, req SignRequest) (*SignResponse
 	raw, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
 	var out SignResponse
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, fmt.Errorf("signer returned HTTP %d with an unreadable body", res.StatusCode)
+		return nil, &Fault{
+			Code:   "signer_unreadable_response",
+			Status: res.StatusCode,
+			Message: fmt.Sprintf("the signer answered HTTP %d with a body this client could not parse: %q",
+				res.StatusCode, truncate(string(raw), 200)),
+		}
 	}
 	if out.Error != nil {
 		return nil, &Refusal{Code: out.Error.Code, Message: out.Error.Message}
 	}
+	// A NON-200 THAT NAMED NOTHING. The signer's own refuse() always sets
+	// `error`, so reaching here means the answer did not come from the signer's
+	// handler at all — a proxy, a gateway, a crash before the body was written.
+	// Saying so is the point: an operator who sees this must look at the
+	// transport, and the old bare string sent them to the policy instead.
 	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("signer returned HTTP %d", res.StatusCode)
+		return nil, &Fault{
+			Code:   "signer_unexpected_status",
+			Status: res.StatusCode,
+			Message: fmt.Sprintf("the signer answered HTTP %d with no error code, which its own handler "+
+				"never does — the answer did not come from the signer itself. Body: %q",
+				res.StatusCode, truncate(string(raw), 200)),
+		}
 	}
 	if out.Raw == "" {
 		return nil, fmt.Errorf("signer returned no signed transaction")

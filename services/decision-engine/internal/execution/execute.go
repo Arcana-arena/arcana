@@ -141,6 +141,17 @@ func (b *Broker) Execute(ctx context.Context, req Request) (*Result, error) {
 			res.Note = ref.Message
 			return res, nil
 		}
+		// A FAULT IS NAMED TOO, but it stays `blocked` rather than `refused`.
+		// Nothing was signed either way; what differs is whether the signer
+		// decided. Recording the code against a blocked row is what lets an
+		// operator tell a transport problem from a policy one without reading
+		// the note — which is the whole reason the code is carried.
+		var flt *Fault
+		if errors.As(err, &flt) {
+			res.RefusalCode = flt.Code
+			res.Note = flt.Message
+			return res, nil
+		}
 		res.Note = "the signer could not be reached, so nothing was signed: " + err.Error()
 		return res, nil
 	}
@@ -275,10 +286,18 @@ func (b *Broker) approve(ctx context.Context, req Request, tokenIn TokenCfg, amo
 	})
 	if err != nil {
 		var ref *Refusal
+		var flt *Fault
 		if errors.As(err, &ref) {
 			res.Status = StatusRefused
 			res.RefusalCode = ref.Code
 			res.Note = "the approval was refused, so no swap was attempted: " + ref.Message
+		} else if errors.As(err, &flt) {
+			// Blocked, not refused: see the swap leg above. The approval is the
+			// leg where this matters most — an unresolved approval stops
+			// everything, and an operator needs to know whether to fix the
+			// signer's policy or the route to it.
+			res.RefusalCode = flt.Code
+			res.Note = "the approval could not be signed, so no swap was attempted: " + flt.Message
 		} else {
 			res.Note = "the approval could not be signed: " + err.Error()
 		}
