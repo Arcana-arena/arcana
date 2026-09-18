@@ -79,10 +79,18 @@ export async function claimPayment(listingId: string, txHash: string): Promise<C
  */
 export async function findUnclaimed(
   listingId: string,
-): Promise<{ ok: true; data: Unclaimed } | { ok: false; status: number | null; reason: string }> {
+): Promise<
+  { ok: true; data: Unclaimed } | { ok: false; status: number | null; reason: string; code: string | null }
+> {
   const r = await authed<Unclaimed>(`/v1/marketplace/listings/${listingId}/unclaimed-payments`, {
     base: MARKETPLACE_API,
   });
   if (r.ok) return { ok: true, data: r.data };
-  return { ok: false, status: r.status, reason: r.reason };
+  // THE CODE MATTERS MOST ON THIS ONE. It is rate limited upstream precisely
+  // because each call reads the chain, so `rate_limited` is the likeliest
+  // refusal a buyer meets here — and it means "ask again in a moment", which
+  // is the opposite of what `payment_verification_unavailable` means. Both
+  // used to arrive as a sentence with the code already discarded.
+  const c = (r.body?.code ?? (r.body?.error as Record<string, unknown> | undefined)?.code) as unknown;
+  return { ok: false, status: r.status, reason: r.reason, code: typeof c === 'string' ? c : null };
 }

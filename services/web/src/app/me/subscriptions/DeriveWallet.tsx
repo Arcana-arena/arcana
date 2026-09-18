@@ -26,7 +26,15 @@ export function DeriveWallet({ subscriptionId }: { subscriptionId: string }) {
             setFail(null);
             const r = await deriveSubscriptionWallet(subscriptionId);
             if (r.ok) router.refresh();
-            else setFail(`${r.status ?? ''} ${r.reason}`.trim());
+            // THE CODE DECIDES WHAT TO TELL THEM. `signer_unavailable` is an
+            // outage and the right advice is to try again; anything else is
+            // not, and saying "try again shortly" would send somebody clicking
+            // at a refusal that will never change.
+            else if (r.code === 'signer_unavailable') {
+              setFail(`the signer could not be reached, so nothing was done. Try again shortly. (${r.reason})`);
+            } else {
+              setFail(`${r.code ?? r.status ?? ''} — ${r.reason}`.trim());
+            }
           })
         }
       >

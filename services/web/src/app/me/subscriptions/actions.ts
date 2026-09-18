@@ -16,15 +16,37 @@ import { authed } from '@/lib/session';
  * which a client could name a wallet. Idempotent: asking twice returns the same
  * address.
  */
+const asRecord = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' ? (v as Record<string, unknown>) : {});
+/**
+ * The service's own code, kept rather than dropped.
+ *
+ * `authed()` already unwraps the envelope and hands back `body`; this action
+ * was throwing it away and returning the sentence alone. The signer names its
+ * refusals — `signer_unavailable` is an outage worth retrying,
+ * `wallet_blocked` is not — and a page holding only prose cannot tell a
+ * customer which of those just happened.
+ */
+const codeOf = (body: Record<string, unknown> | null) => {
+  const c = body?.code ?? asRecord(body?.error).code;
+  return typeof c === 'string' ? c : null;
+};
+
 export async function deriveSubscriptionWallet(
   subscriptionId: string,
-): Promise<{ ok: true; address: string } | { ok: false; status: number | null; reason: string }> {
+): Promise<
+  { ok: true; address: string } | { ok: false; status: number | null; reason: string; code: string | null }
+> {
   const r = await authed<{ wallet_address: string | null }>(`/v1/subscriptions/${subscriptionId}/wallet`, {
     method: 'POST',
   });
-  if (!r.ok) return { ok: false, status: r.status, reason: r.reason };
+  if (!r.ok) return { ok: false, status: r.status, reason: r.reason, code: codeOf(r.body) };
   if (!r.data?.wallet_address) {
-    return { ok: false, status: null, reason: 'the service answered without a wallet address, so none is shown' };
+    return {
+      ok: false,
+      status: null,
+      code: null,
+      reason: 'the service answered without a wallet address, so none is shown',
+    };
   }
   revalidatePath('/me/subscriptions');
   return { ok: true, address: r.data.wallet_address };

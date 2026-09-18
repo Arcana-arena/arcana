@@ -93,7 +93,15 @@ export function SubscribeFlow({
         setUnclaimedError(null);
       } else {
         setUnclaimed(null);
-        setUnclaimedError(`${r.status ?? ''} ${r.reason}`.trim());
+        // "Ask again in a moment" and "this could not be checked" are
+        // different answers, and this lookup is rate limited precisely because
+        // it reads the chain — so the first one is the one a buyer most often
+        // meets here. Both used to render as the same sentence.
+        setUnclaimedError(
+          r.code === 'rate_limited'
+            ? 'That was asked too quickly. Wait a moment and look again — nothing is wrong with your payment.'
+            : `${r.code ?? r.status ?? ''} — ${r.reason}`.trim(),
+        );
       }
     });
   };
