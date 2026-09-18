@@ -58,24 +58,65 @@ export class DecisionClient {
   }
 
   /**
+   * The engine's own code, when it named one.
+   *
+   * The engine emits `{error:{code,message}}` and, since the market-data client
+   * started carrying codes, that code is the actual cause —
+   * `snapshot_not_found`, `vendor_unavailable`, `invalid_request` — rather than
+   * one word for everything. Replacing it here would undo the whole chain at
+   * the last hop.
+   */
+  private parseUpstream(text: string): { code: string | null; message: string } {
+    try {
+      const body = JSON.parse(text) as { error?: { code?: string; message?: string } };
+      const code = typeof body?.error?.code === 'string' ? body.error.code : null;
+      return { code, message: body?.error?.message ?? text };
+    } catch {
+      return { code: null, message: text };
+    }
+  }
+
+  /**
    * An engine failure is reported as an engine failure. It is not folded into a
    * 403, because the caller's ownership was already established — telling them
    * "forbidden" here would blame them for our outage.
    */
   private upstream(message: string, status: number | null): HttpException {
     const traceId = randomUUID();
+    const parsed = status === null ? { code: null, message } : this.parseUpstream(message);
     this.logger.error(
       `manual decision submit failed (${status ?? 'no response'}) [trace ${traceId}]: ${message}`,
     );
+    // THE CODE SURVIVES WHATEVER THE STATUS WAS. `vendor_unavailable` arrives
+    // as a 503 and `snapshot_not_found` as a 422; both are the answer, and
+    // keeping only the first would lose exactly the distinction this chain was
+    // rebuilt to carry.
+    //
+    // The STATUS is mapped rather than echoed, because it means something
+    // different once it crosses a boundary. A 4xx is a fact about the request
+    // and passes through — an engine that refused a malformed payload used to
+    // be reported as "the decision engine is unavailable", a diagnosis pointing
+    // at the wrong machine and the opposite of what the engine said. A 503 is a
+    // downstream outage and stays a 503. Any other 5xx is this platform
+    // failing, which is a 502 to the caller — but it keeps its code.
+    const code = parsed.code ?? 'decision_engine_unavailable';
+    let out: number = HttpStatus.BAD_GATEWAY;
+    if (status !== null && parsed.code !== null) {
+      if (status >= 400 && status < 500) out = status;
+      else if (status === HttpStatus.SERVICE_UNAVAILABLE) out = HttpStatus.SERVICE_UNAVAILABLE;
+    }
     return new HttpException(
       {
         error: {
-          code: 'decision_engine_unavailable',
-          message: `Could not record the trade: ${message}`,
+          code,
+          message:
+            out === HttpStatus.BAD_GATEWAY
+              ? `Could not record the trade: ${parsed.message}`
+              : parsed.message,
           trace_id: traceId,
         },
       },
-      HttpStatus.BAD_GATEWAY,
+      out,
     );
   }
 }

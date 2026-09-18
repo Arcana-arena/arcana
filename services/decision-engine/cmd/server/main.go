@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -353,7 +354,7 @@ func (s *server) handleExecute(w http.ResponseWriter, r *http.Request) {
 
 	decisionID, err := s.engine.Execute(ctx, req)
 	if err != nil {
-		writeError(w, http.StatusUnprocessableEntity, "execute_failed", err.Error())
+		writeExecError(w, err)
 		return
 	}
 
@@ -376,7 +377,7 @@ func (s *server) handleManual(w http.ResponseWriter, r *http.Request) {
 
 	decisionID, err := s.engine.ExecuteManual(ctx, req)
 	if err != nil {
-		writeError(w, http.StatusUnprocessableEntity, "execute_failed", err.Error())
+		writeExecError(w, err)
 		return
 	}
 
@@ -390,6 +391,34 @@ func writeJSON(w http.ResponseWriter, code int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(body)
+}
+
+// writeExecError answers a failed run with the code of whatever actually
+// refused, rather than with one word for everything.
+//
+// `execute_failed` was the only code this endpoint ever emitted, so every cause
+// arrived at agent-service identically: a snapshot that was never stored, a
+// price vendor that is down, a database that would not answer. The first needs
+// somebody to look at why the tick is missing, the second clears by itself, and
+// telling them apart meant reading a prose blob.
+//
+// The engine wraps the underlying error with %w at every hop, so the cause is
+// still in the chain by the time it reaches here — nothing upstream had to
+// change for this to work, which is why the fix is one function and not a
+// rewrite of the call path.
+func writeExecError(w http.ResponseWriter, err error) {
+	var md *marketdata.Fault
+	if errors.As(err, &md) {
+		// A market-data outage is not the caller's fault and is worth
+		// retrying; a snapshot that does not exist is neither.
+		status := http.StatusUnprocessableEntity
+		if md.Retryable() {
+			status = http.StatusServiceUnavailable
+		}
+		writeError(w, status, md.Code, err.Error())
+		return
+	}
+	writeError(w, http.StatusUnprocessableEntity, "execute_failed", err.Error())
 }
 
 func writeError(w http.ResponseWriter, code int, errCode, message string) {
