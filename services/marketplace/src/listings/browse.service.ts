@@ -56,6 +56,32 @@ function withoutConfiguredLimits(riskPersonality: unknown): Record<string, unkno
   return out;
 }
 
+/**
+ * THE AGENT DECIDES WHETHER ITS LISTING IS ON SALE, AND THAT IS NOT STORED.
+ *
+ * A listing is shown to buyers only while its agent is `active`. Retired,
+ * paused and draft agents drop out of discovery — not because anything is
+ * written to their listing row, but because this set is consulted on every
+ * read.
+ *
+ * WHY DERIVED RATHER THAN A FLAG. The alternative is to switch `l.active` off
+ * when an agent is paused, and it fails in both directions. It destroys the
+ * creator's own switch — a listing the creator had deliberately turned off
+ * would come back on when the agent resumed — and it leaves the rule depending
+ * on a write that has to fire at exactly the right moment. Every path that
+ * changes an agent's status would have to remember, and the day one forgets,
+ * a dead agent is back on sale with nothing to say it went wrong. Derived
+ * visibility cannot drift: the listing disappears the instant the agent stops
+ * being active, and comes back the instant it resumes, with no creator action
+ * and nothing to reconcile.
+ *
+ * ELIGIBILITY, NOT EXISTENCE. The rule is "the agent can accept a subscription
+ * today", spelled as one status. It is deliberately not a list of exclusions:
+ * a status added later is hidden until somebody decides it is sellable, rather
+ * than being on sale until somebody remembers to exclude it.
+ */
+const SELLABLE_AGENT_STATUS = 'active';
+
 /** Why a listing cannot be bought right now. `null` means it can. */
 type Unbuyable =
   | 'listing_inactive'
@@ -126,6 +152,18 @@ export class BrowseService {
    * query that silently drops two of them leaves the page unable to say which
    * happened. The caller asks for `buyable_only=true` when it wants only the
    * sellable ones; the counts are reported either way.
+   *
+   * THE ONE EXCEPTION IS THE AGENT'S OWN STATUS. A listing whose agent is not
+   * active is WITHHELD rather than flagged, because the two cases are not
+   * alike. "Switched off by its creator" is a fact about a product that still
+   * exists and could be sold tomorrow; a retired agent is a product that has
+   * ended. Showing it in a grid people shop in invites somebody to click a
+   * dead thing, and this platform has already spent a manual repair — a wallet
+   * granted to arcana_labs and a listing moved by hand — on that exact
+   * outcome. `include_unavailable=true` brings them back for the surfaces that
+   * are inspecting rather than shopping, and `counts.hidden_unavailable` says
+   * how many were held back either way, so no caller has to infer it from a
+   * short array.
    */
   async browse(opts: {
     q?: string;
@@ -135,6 +173,7 @@ export class BrowseService {
     maxPrice?: number;
     sort?: string;
     buyableOnly?: boolean;
+    includeUnavailable?: boolean;
   }) {
     const rows: Array<Record<string, any>> = await this.db.query(
       `
@@ -185,13 +224,31 @@ export class BrowseService {
 
     let items = rows.map((r) => this.shape(r, leader, series));
 
+    // Counted over EVERY row, before anything is withheld or filtered, so the
+    // page can tell an empty grid apart from an empty marketplace.
+    const unavailable = items.filter((i) => i.agent_status !== SELLABLE_AGENT_STATUS);
     const counts = {
       listings: items.length,
       buyable: items.filter((i) => i.buyable).length,
       inactive: items.filter((i) => !i.active).length,
       active_but_unbuyable: items.filter((i) => i.active && !i.buyable).length,
       creators_without_wallet: items.filter((i) => i.not_buyable_because === 'creator_has_no_wallet').length,
+      // Held back from discovery because the agent is not active. Broken out by
+      // status: "hidden" is a number, and "hidden because three agents were
+      // retired" is the answer to the question that number raises.
+      hidden_unavailable: unavailable.length,
+      hidden_by_agent_status: unavailable.reduce<Record<string, number>>((acc, i) => {
+        const k = i.agent_status ?? 'unknown';
+        acc[k] = (acc[k] ?? 0) + 1;
+        return acc;
+      }, {}),
     };
+
+    // WITHHELD FIRST, and not as one of the filters. The user's filters narrow
+    // what they asked to see; this decides what is on sale at all, and it is
+    // applied whether or not anything was asked for.
+    const showingUnavailable = opts.includeUnavailable === true;
+    if (!showingUnavailable) items = items.filter((i) => i.agent_status === SELLABLE_AGENT_STATUS);
 
     // FILTERS, applied to the assembled row because two of the fields they act
     // on (score, return) come from another service. Applied HERE rather than in
@@ -236,6 +293,18 @@ export class BrowseService {
       // A row with no value for the sort field sinks to the end rather than
       // being scored as zero; this says how many did.
       unsortable_rows: sortable ? missing : null,
+      // Whether the withheld rows are in `items`, said outright rather than
+      // left to be worked out from two counts.
+      including_unavailable: showingUnavailable,
+      hidden_note:
+        counts.hidden_unavailable === 0
+          ? null
+          : showingUnavailable
+            ? `${counts.hidden_unavailable} listing(s) belong to an agent that is not active. They are INCLUDED here ` +
+              'because include_unavailable=true was asked for; they are not on sale.'
+            : `${counts.hidden_unavailable} listing(s) are not shown because their agent is not active — it was ` +
+              'retired, paused, or never started. Their rows are untouched: a paused agent’s listing reappears by ' +
+              'itself the moment its creator resumes it.',
       counts,
       facets: this.facets(rows),
       performance_source: series.available

@@ -354,6 +354,148 @@ try {
       `status ${out.status}`);
   });
 
+  await section('A stopped agent takes its listing off the market, and the market says so', async () => {
+    // WHAT THIS SUITE USED TO PROVE, AND WHY IT WAS NOT ENOUGH. Every check
+    // above builds a listing that CAN be bought and confirms it is offered.
+    // That is an existence test: it can only fail if something correct stops
+    // working. The defect it could never see is the opposite one — a listing
+    // that should NOT be offered and is — and that is the defect production
+    // actually had. A retired agent stayed on the marketplace until somebody
+    // noticed by hand, and the repair was manual: a wallet granted to
+    // arcana_labs and the listing moved to an agent that still ran.
+    //
+    // So this section asks the question the other way round, against LIVE rows
+    // rather than a fixture: of everything the marketplace is offering right
+    // now, is any of it dead? A fixture cannot answer that — it is excluded by
+    // provenance before the status rule is ever consulted.
+    const stopped = Number(
+      sql(`SELECT count(*) FROM marketplace_listings l JOIN agents a ON a.id = l.agent_id
+            WHERE a.provenance = 'live' AND a.status <> 'active'`),
+    );
+
+    const b = await api(MARKET, '/v1/marketplace/browse');
+    check('the browse grid answers', b.status === 200, `status ${b.status}`);
+    const shown = b.body?.items ?? [];
+    const dead = shown.filter((i) => i.agent_status !== 'active');
+    check('every listing the grid offers belongs to an agent that is still active',
+      dead.length === 0,
+      dead.map((i) => `${i.agent_name} is ${i.agent_status}`).join('; '));
+
+    // COUNTED, NOT INFERRED FROM A SHORT ARRAY. An empty grid and a grid that
+    // withheld everything look identical from the outside, and the page has to
+    // tell a shopper which.
+    check('and the grid reports how many it withheld, matching the database',
+      b.body?.counts?.hidden_unavailable === stopped,
+      `grid says ${b.body?.counts?.hidden_unavailable}, the database holds ${stopped}`);
+    if (stopped > 0) {
+      check('with the reason broken down by status rather than a bare total',
+        Object.values(b.body?.counts?.hidden_by_agent_status ?? {}).reduce((a, n) => a + n, 0) === stopped,
+        JSON.stringify(b.body?.counts?.hidden_by_agent_status));
+      check('and says in words that nothing was deleted',
+        typeof b.body?.hidden_note === 'string' && /resumes? it|not shown/i.test(b.body.hidden_note),
+        String(b.body?.hidden_note));
+    } else {
+      nothingToCheck('no live listing currently belongs to a stopped agent, so there is no withheld row to describe');
+    }
+
+    // THE ROWS ARE STILL THERE. Hidden is not deleted, and the difference is
+    // the whole of the owner's constraint.
+    const all = await api(MARKET, '/v1/marketplace/browse?include_unavailable=true');
+    check('include_unavailable=true returns the withheld rows rather than having dropped them',
+      (all.body?.items ?? []).length === shown.length + stopped,
+      `${(all.body?.items ?? []).length} with them, ${shown.length} without, ${stopped} withheld`);
+    check('and the response says it is including them',
+      all.body?.including_unavailable === true, String(all.body?.including_unavailable));
+
+    // THE LANDING PAGE READS A DIFFERENT QUERY, and it was the one with no
+    // status rule at all.
+    const disc = await api(MARKET, '/v1/marketplace/agents?sort=score_desc');
+    check('the discovery feed the landing page reads answers', disc.status === 200, `status ${disc.status}`);
+    const feedIds = (disc.body ?? []).map((r) => r.agent_id).filter(Boolean);
+    const feedDead = feedIds.length
+      ? sql(`SELECT coalesce(string_agg(name || ' is ' || status, '; '), '') FROM agents
+              WHERE id = ANY(ARRAY['${feedIds.join("','")}']::uuid[]) AND status <> 'active'`)
+      : '';
+    check('and it offers no agent that has stopped trading', feedDead === '', feedDead);
+  });
+
+  await section('The money path refuses a stopped agent BEFORE anything is sent', async () => {
+    // THE GRID'S HONESTY WAS ADVISORY. It printed "RETIRED" on a card and the
+    // quote endpoint went on handing out an address and an amount, so a
+    // bookmark, a renewal or an open tab could still pay for a dead agent. A
+    // refusal that arrives after the transfer is not a refusal.
+    for (const [status, code] of [['paused', 'agent_paused'], ['retired', 'agent_retired']]) {
+      sql(`UPDATE agents SET status = '${status}' WHERE id = '${agentId}'`);
+
+      const q = await api(MARKET, `/v1/marketplace/listings/${listingId}/quote`);
+      check(`a ${status} agent's listing is refused a quote`, q.status === 400, `status ${q.status}`);
+      check(`and the refusal names why (${code})`, q.body?.code === code,
+        `${q.body?.code}: ${q.body?.message ?? ''}`);
+      check('and the refusal tells the buyer not to send anything',
+        /should be sent|not (?:be )?sent|Nothing was charged/i.test(String(q.body?.message ?? '')),
+        String(q.body?.message ?? ''));
+
+      // THE DETAIL PAGE STAYS READABLE. A buyer holding a link to something
+      // they already paid for must still be able to read the record; what
+      // changes is that it cannot be bought.
+      const d = await api(MARKET, `/v1/marketplace/listings/${listingId}/detail`);
+      check(`the ${status} listing is still readable by direct link`, d.status === 200, `status ${d.status}`);
+      check('and states it cannot be bought, with the reason',
+        d.body?.buyable === false && d.body?.not_buyable_because === code,
+        `buyable=${d.body?.buyable} because=${d.body?.not_buyable_because}`);
+    }
+
+    // AND RESUMING PUTS IT BACK, with nobody touching the listing row. This is
+    // the reason the rule is derived from the agent instead of written onto the
+    // listing: there is no flag to restore, so there is no flag to forget.
+    const activeBefore = sql(`SELECT active FROM marketplace_listings WHERE id = '${listingId}'`);
+    sql(`UPDATE agents SET status = 'active' WHERE id = '${agentId}'`);
+    const back = await api(MARKET, `/v1/marketplace/listings/${listingId}/quote`);
+    check('resuming the agent makes its listing quotable again, with no creator action',
+      back.status === 200, `status ${back.status} ${JSON.stringify(back.body)}`);
+    check('and the listing row was never written to while it was hidden',
+      sql(`SELECT active FROM marketplace_listings WHERE id = '${listingId}'`) === activeBefore,
+      `active was ${activeBefore} before the pause`);
+  });
+
+  await section('A term already paid for outlives the agent that stopped', async () => {
+    // THE OWNER'S RULE. Hiding a listing must not reach backwards into what
+    // somebody already bought: thirty days were paid for, and a paused agent
+    // may yet come back. So access keeps its date, and what changes is that
+    // nothing new can be sold and the buyer is TOLD that nothing is arriving.
+    const buyerWallet = '0x' + 'b7'.repeat(20);
+    sql(`INSERT INTO subscriptions (user_wallet, listing_id, agent_id, expires_at, status)
+         VALUES ('${buyerWallet}', '${listingId}', '${agentId}', now() + interval '20 days', 'active')`);
+
+    sql(`UPDATE agents SET status = 'retired' WHERE id = '${agentId}'`);
+    const after = sql(`SELECT status || ' ' || (expires_at > now())::text FROM subscriptions
+                        WHERE listing_id = '${listingId}' AND user_wallet = '${buyerWallet}'`);
+    check('retiring the agent does not cancel a running subscription',
+      after === 'active true', `the subscription reads '${after}'`);
+
+    // AND THE BUYER IS NOT LEFT TO INFER IT from a wallet that stops moving.
+    const acc = await api(ARCA, `/v1/subscriptions/${buyerWallet}`);
+    if (acc.status === 200 && Array.isArray(acc.body)) {
+      const row = acc.body.find((r) => r.listing_id === listingId);
+      check('the buyer’s own subscription card still reports access', row?.phase === 'active',
+        `phase=${row?.phase}`);
+      check('and stops claiming the agent is trading for them', row?.trading === false,
+        `trading=${row?.trading}`);
+      check('and says what happened to the agent, and until when the access runs',
+        typeof row?.agent_standing?.note === 'string' && row.agent_standing.status === 'retired',
+        JSON.stringify(row?.agent_standing ?? null));
+    } else {
+      // The buyer-facing list is JWT-scoped to its own wallet; where this suite
+      // cannot present that wallet's signature, the database rule above is
+      // still proved and the surface is checked by subscription-verify.
+      nothingToCheck(
+        `the buyer subscription list answered ${acc.status} for a wallet this suite cannot sign for; ` +
+        'the term itself is checked above');
+    }
+
+    sql(`UPDATE agents SET status = 'active' WHERE id = '${agentId}'`);
+  });
+
   await section('A fixture listing does not leak into the public grid', async () => {
     // THE PROVENANCE RULE, PROVED WHILE A FIXTURE IS LIVE. Every counting
     // surface excludes verification rows, and the only way to know that still

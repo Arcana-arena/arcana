@@ -61,12 +61,19 @@ export type BrowseResponse = {
   sorted: boolean;
   sort_note: string;
   unsortable_rows: number | null;
+  including_unavailable: boolean;
+  hidden_note: string | null;
   counts: {
     listings: number;
     buyable: number;
     inactive: number;
     active_but_unbuyable: number;
     creators_without_wallet: number;
+    // Withheld from the grid because the agent behind them is not active.
+    // `counts.listings` still counts them, so an empty grid can be told apart
+    // from an empty marketplace.
+    hidden_unavailable: number;
+    hidden_by_agent_status: Record<string, number>;
   };
   facets: {
     strategy_type: Array<{ value: string; listings: number }>;

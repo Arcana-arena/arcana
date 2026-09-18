@@ -41,6 +41,7 @@ index lookup, not three RPC round trips.
 | 1 | Hash is `0x` + 64 hex | `malformed_tx_hash` | never reaches chain or database |
 | 2 | **Not already claimed** | `tx_already_claimed` | the main attack; see below |
 | 3 | Listing exists and is active | `listing_not_found` | |
+| 3a | **The agent is still trading** (quote only) | `agent_retired` / `agent_paused` / `agent_draft` | a stopped agent mirrors nothing; see below |
 | 4 | Listing has a price | `listing_has_no_price` | nothing to check an amount against |
 | 5 | **Creator has a wallet on file** | `creator_has_no_wallet` | with no address, accepting would mean believing the claim instead of the chain |
 | 6 | **Verification is possible at all** | `payment_verification_unavailable` | see "cannot check" below |
@@ -66,6 +67,15 @@ happened.
 
 **5 and 4** — refusing when there is nothing to verify against, rather than
 proceeding on a null.
+
+**3a — the agent behind the listing.** A listing whose agent has been retired
+or paused is refused a quote: it would sell thirty days of decisions that are
+not being made. This check is on the **quote only**, never on the claim. A
+claim is reached by somebody whose money is already on the chain, and refusing
+them would mean no access and no refund. What was paid is honoured and the
+response says what state the agent is in; what has not been paid for is refused
+before it is sent. The whole rule, and the incident behind it, is in
+[listing-visibility.md](./listing-visibility.md).
 
 **And the transfer is read from the LOGS**, not from the transaction's `to` and
 `value`. An ERC-20 transfer moves no native value and its recipient is a

@@ -57,8 +57,14 @@ export class SubscriptionsService {
     const rows = await this.db.query(
       `SELECT s.id::text, s.user_wallet, s.listing_id::text, s.agent_id::text,
               s.wallet_address, s.status, s.expires_at, s.trading_paused,
-              coalesce(s.risk_profile, '{}'::jsonb) AS risk_profile
-         FROM subscriptions s WHERE s.id = $1`,
+              coalesce(s.risk_profile, '{}'::jsonb) AS risk_profile,
+              -- The agent's own standing, read here because "is this trading
+              -- for me" is not answerable from the subscription row alone: a
+              -- retired agent leaves every field on it looking healthy.
+              a.status AS agent_status, a.name AS agent_name
+         FROM subscriptions s
+         LEFT JOIN agents a ON a.id = s.agent_id
+        WHERE s.id = $1`,
       [subId],
     );
     if (rows.length === 0) throw new NotFoundException(`Subscription ${subId} not found`);
@@ -323,6 +329,19 @@ export class SubscriptionsService {
         'the positions are yours, you can read them here, and you can take the key with ' +
         'POST /v1/subscriptions/:id/wallet/export and move them whenever you like.';
     }
+    // A LIVE TERM WHOSE AGENT HAS STOPPED. The term is not cut short — it was
+    // paid for — so the honest thing is to say that nothing is arriving rather
+    // than to keep reporting that the agent trades for this wallet.
+    if (s.agent_status === 'retired') {
+      return `${s.agent_name ?? 'This agent'} has been retired and makes no further decisions. Your access ` +
+        'runs to the end of the term you paid for, but nothing more will be mirrored here. What the wallet ' +
+        'already holds stays yours — take the key with POST /v1/subscriptions/:id/wallet/export whenever ' +
+        'you like.';
+    }
+    if (s.agent_status === 'paused') {
+      return `${s.agent_name ?? 'This agent'} is paused by its creator, so nothing is being mirrored into ` +
+        'this wallet right now. Your term keeps running, and mirroring resumes by itself if the agent does.';
+    }
     return 'The agent is trading for this wallet. Your own limits size every position; the ' +
       'creator chooses only the direction.';
   }
@@ -342,7 +361,15 @@ export class SubscriptionsService {
       // moments. Grace keeps a lapsed buyer READING the record, which costs
       // nothing. It does not keep spending their money on a subscription that
       // has not been paid for.
-      trading: s.status === 'active' && !s.trading_paused && !expired && !!s.wallet_address,
+      // AND THE AGENT HAS TO BE DECIDING. Every other term here is a fact about
+      // the subscription, and all of them stay true when the agent retires —
+      // which is exactly when this field was most wrong. The engine will not
+      // decide for a non-active agent, so reporting `trading: true` described
+      // something that could not happen.
+      agent_status: s.agent_status ?? null,
+      trading:
+        s.status === 'active' && !s.trading_paused && !expired && !!s.wallet_address &&
+        (s.agent_status == null || s.agent_status === 'active'),
     };
   }
 

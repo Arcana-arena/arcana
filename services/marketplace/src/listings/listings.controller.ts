@@ -78,6 +78,7 @@ export class ListingsController {
     @Query('max_price') maxPrice?: string,
     @Query('sort') sort?: string,
     @Query('buyable_only') buyableOnly?: string,
+    @Query('include_unavailable') includeUnavailable?: string,
   ) {
     const numOrUndef = (v?: string) => {
       if (v === undefined || v === null || v === '') return undefined;
@@ -92,6 +93,7 @@ export class ListingsController {
       maxPrice: numOrUndef(maxPrice),
       sort,
       buyableOnly: buyableOnly === 'true',
+      includeUnavailable: includeUnavailable === 'true',
     });
   }
 

@@ -196,6 +196,14 @@ export default async function MarketplacePage({ searchParams }: { searchParams: 
                 <ListingCard key={i.listing_id} i={i} />
               ))}
             </div>
+            {d && d.counts.hidden_unavailable > 0 ? (
+              <div className="m3" style={{ fontSize: 11.5, marginTop: 16 }}>
+                <span className="mono">{int(d.counts.hidden_unavailable)}</span> more listing
+                {d.counts.hidden_unavailable === 1 ? ' is' : 's are'} not shown — {describeHidden(d.counts.hidden_by_agent_status)}.
+                A stopped agent decides nothing, so a subscription bought today would mirror nothing. The listings are
+                untouched: a paused agent’s comes back by itself the moment its creator resumes it.
+              </div>
+            ) : null}
             {d && d.counts.inactive > 0 && !buyableOnly ? (
               <div className="m3" style={{ fontSize: 11.5, marginTop: 16 }}>
                 <span className="mono">{int(d.counts.inactive)}</span> of these listing
@@ -221,7 +229,43 @@ export default async function MarketplacePage({ searchParams }: { searchParams: 
  * block can say which — an empty grid that does not is a claim about the
  * marketplace that may be false.
  */
+/**
+ * "3 retired, 1 paused" — the statuses, not just the total.
+ *
+ * A bare count invites the wrong conclusion in both directions: three paused
+ * agents is a quiet week, three retired ones is a marketplace emptying out.
+ */
+function describeHidden(by: Record<string, number>): string {
+  const WORDS: Record<string, string> = {
+    retired: 'retired',
+    paused: 'paused by their creator',
+    draft: 'never started',
+  };
+  const entries = Object.entries(by).sort((a, b) => b[1] - a[1]);
+  if (entries.length === 0) return 'their agents are not active';
+  if (entries.length === 1) {
+    const [status, n] = entries[0];
+    const word = WORDS[status] ?? status;
+    return n === 1 ? `its agent is ${word}` : `their agents are ${word}`;
+  }
+  const parts = entries.map(([status, n]) => `${int(n)} ${WORDS[status] ?? status}`);
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+}
+
 function EmptyGrid({ d, filtered }: { d: BrowseResponse; filtered: boolean }) {
+  // EVERY LISTING WITHHELD is its own fact, and it is not "nothing can be
+  // bought". The marketplace is not broken and the creators are not unpayable;
+  // the agents stopped. Checked before the filter branch because a withheld row
+  // is not a row the filters rejected.
+  if (d.counts.hidden_unavailable > 0 && d.counts.hidden_unavailable === d.counts.listings) {
+    return (
+      <Empty title="No agent on the marketplace is running right now">
+        Every listing here belongs to an agent that is not active — {describeHidden(d.counts.hidden_by_agent_status)}.
+        None of them is shown, because a stopped agent decides nothing and a subscription bought today would mirror
+        nothing. Nothing has been deleted: a paused agent’s listing returns by itself when its creator resumes it.
+      </Empty>
+    );
+  }
   if (filtered && d.counts.listings > 0) {
     return (
       <Empty title="No listing matches these filters">

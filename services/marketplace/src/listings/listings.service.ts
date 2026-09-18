@@ -45,6 +45,7 @@ export class ListingsService {
    * of "can this be paid for", and this codebase has had one of those before.
    */
   async create(dto: CreateListingDto): Promise<MarketplaceListing> {
+    await this.assertNotRetired(dto.agentId);
     await this.assertPayable(dto.agentId);
     const listing = this.listings.create({
       agentId: dto.agentId,
@@ -81,10 +82,45 @@ export class ListingsService {
     // had no wallet must not come back without one, or the guard above is a
     // formality that one PATCH walks around.
     if (dto.active !== undefined) {
-      if (dto.active && !listing.active) await this.assertPayable(listing.agentId);
+      if (dto.active && !listing.active) {
+        await this.assertNotRetired(listing.agentId);
+        await this.assertPayable(listing.agentId);
+      }
       listing.active = dto.active;
     }
     return this.listings.save(listing);
+  }
+
+  /**
+   * Refuse to publish a listing for an agent whose record has closed.
+   *
+   * ONLY `retired`, and that is the point. A draft agent has not started yet
+   * and a paused one is between ticks; both become sellable again by an act
+   * their creator can perform, and their listing simply waits, hidden, until
+   * they do. Retirement is the one status that cannot be undone — resume()
+   * refuses it by name — so a listing created against it could never become
+   * buyable, and publishing it would only put a dead product where a live one
+   * is supposed to be.
+   *
+   * Asked locally, unlike the payee check, because this service reads `agents`
+   * directly in every discovery query it serves. There is no second definition
+   * to drift from: the column is the fact.
+   */
+  private async assertNotRetired(agentId: string): Promise<void> {
+    const rows: Array<{ status: string; name: string }> = await this.listings.manager.query(
+      `SELECT status, name FROM agents WHERE id = $1`,
+      [agentId],
+    );
+    if (rows.length === 0) return; // ownership has already been asserted upstream
+    if (rows[0].status === 'retired') {
+      throw new BadRequestException({
+        code: 'agent_retired',
+        message:
+          `Agent ${agentId} (${rows[0].name}) has been retired, and a retired agent cannot come back — ` +
+          'its record has closed. A listing for it could never be bought, so it is not published. List a ' +
+          'running agent instead, or evolve this one and list the new version.',
+      });
+    }
   }
 
   /**
@@ -291,6 +327,19 @@ export class ListingsService {
    * Agent discovery: active listings joined with the agent's latest ARCANA score
    * (score_snapshots latest per agent). Optional sort=score_desc (default) or
    * price_asc; filter by universe via agent row.
+   *
+   * TWO CONDITIONS THAT WERE MISSING, and the landing page reads this query.
+   *
+   * `l.active = true` was the whole of it, which asks whether the CREATOR left
+   * the listing switched on and nothing about whether the agent behind it still
+   * trades. A retired agent whose listing flag was never flipped was offered
+   * here, on the front page, under a score it earned before it stopped. That is
+   * the shape of the arcana_labs incident, and the repair it took was manual.
+   *
+   * `a.provenance = 'live'` is the rule every other public surface applies —
+   * browse() has carried it from the start. Without it a fixture built by a
+   * verification run is a product on the landing page for as long as that run
+   * takes, which is a thing this platform must never sell.
    */
   async discover(opts: {
     universe?: string;
@@ -316,6 +365,8 @@ export class ListingsService {
         's.agent_id = l.agent_id',
       )
       .where('l.active = true')
+      .andWhere("a.status = 'active'")
+      .andWhere("a.provenance = 'live'")
       .orderBy(
         opts.sort === 'price_asc' ? 'l.price_usd' : 's.arcana_score',
         opts.sort === 'price_asc' ? 'ASC' : 'DESC',

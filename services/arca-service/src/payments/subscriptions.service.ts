@@ -158,8 +158,21 @@ export class SubscriptionsService {
 
     return rows.map((s) => {
       const expired = s.expiresAt <= now;
-      const trading = s.status === 'active' && !s.tradingPaused && !expired && !!s.walletAddress;
       const d = extra.get(s.id) ?? null;
+
+      // AN AGENT THAT IS NOT DECIDING IS NOT TRADING FOR ANYBODY, and this card
+      // used to say it was. `trading` was derived from the subscription row
+      // alone — paid, not paused, not expired, wallet bound — none of which is
+      // a fact about the agent. Retire the agent and every one of those stays
+      // true, so a buyer whose wallet had stopped moving was told "the agent is
+      // trading for this wallet" indefinitely. The decision engine already
+      // refuses to decide for anything but an active agent, so this is not a
+      // new rule; it is the buyer's card finally agreeing with what the engine
+      // does. Unknown agent leaves the old answer alone: absent is not stopped.
+      const agentStatus = (d?.agent as { status?: string } | null)?.status ?? null;
+      const agentDeciding = agentStatus === null || agentStatus === 'active';
+      const trading =
+        s.status === 'active' && !s.tradingPaused && !expired && !!s.walletAddress && agentDeciding;
 
       // THE THREE PHASES OF A TERM, DERIVED IN ONE PLACE.
       //
@@ -209,7 +222,30 @@ export class SubscriptionsService {
           pnl_pct: null,
           points: 0,
         },
-        next_step: this.nextStep(s, trading, expired),
+        // WHAT HAPPENS TO A TERM WHOSE AGENT STOPPED, stated on the card rather
+        // than left to be noticed. The term is not cut short — it was paid for,
+        // and a paused agent can come back — so the only thing that changes is
+        // that no new subscription can be bought and nothing is mirrored while
+        // it is stopped.
+        agent_standing:
+          agentStatus === null || agentStatus === 'active'
+            ? null
+            : {
+                status: agentStatus,
+                access_ends_at: s.expiresAt.toISOString(),
+                note:
+                  agentStatus === 'paused'
+                    ? 'This agent is paused by its creator and is making no decisions. Your access is not cut ' +
+                      'short — it runs to the date above, and mirroring resumes by itself if the agent does. ' +
+                      'While it is paused the listing is off the marketplace, so it cannot be renewed or bought.'
+                    : agentStatus === 'retired'
+                      ? 'This agent has been retired and will make no further decisions. Your access is not cut ' +
+                        'short — it runs to the date above — but nothing will be mirrored into your wallet for ' +
+                        'the rest of it, and it cannot be renewed. Your positions and your key remain yours: ' +
+                        'read the book, and export the key whenever you like.'
+                      : `This agent is '${agentStatus}' and is making no decisions. Your access runs to the date above.`,
+              },
+        next_step: this.nextStep(s, trading, expired, agentStatus),
       };
     });
   }
@@ -351,7 +387,7 @@ export class SubscriptionsService {
   }
 
   /** One sentence the buyer can act on. Never "everything is fine" when it is not. */
-  private nextStep(s: Subscription, trading: boolean, expired: boolean): string {
+  private nextStep(s: Subscription, trading: boolean, expired: boolean, agentStatus?: string | null): string {
     if (!s.agentId) {
       return 'This listing names no agent, so nothing trades for this subscription. Your payment ' +
         'went through — the listing is the thing to look at.';
@@ -369,6 +405,20 @@ export class SubscriptionsService {
       return 'The agent has stopped trading for this wallet. Whatever it holds stays where it is: ' +
         'read it at GET /v1/subscriptions/' + s.id + '/book, and take the key with ' +
         'POST /v1/subscriptions/' + s.id + '/wallet/export whenever you like.';
+    }
+    // The term is still running; the agent is not. Checked BEFORE `trading`,
+    // which is now false for exactly this reason — without a branch here the
+    // card would fall through to "not being traded for, and that is a bug".
+    if (agentStatus === 'retired') {
+      return 'This agent has been retired. Your access runs to the end of the term you paid for, but ' +
+        'nothing more will be mirrored into this wallet, and it cannot be renewed. Read what it holds ' +
+        'at GET /v1/subscriptions/' + s.id + '/book, and take the key with POST /v1/subscriptions/' +
+        s.id + '/wallet/export whenever you like.';
+    }
+    if (agentStatus === 'paused') {
+      return 'This agent is paused by its creator, so nothing is being mirrored into this wallet right now. ' +
+        'Your term keeps running and mirroring resumes by itself if the agent does. What it already holds ' +
+        'stays where it is — read it at GET /v1/subscriptions/' + s.id + '/book.';
     }
     if (trading) {
       return 'The agent is trading for this wallet. Your own limits size every position; the ' +

@@ -113,6 +113,9 @@ export class ClaimsService {
   async claim(claimant: string, listingId: string, txHash: string): Promise<{
     granted: true; listing_id: string; tx_hash: string; amount: string;
     confirmations: number; expires_at: Date;
+    // The agent's standing at the moment access was granted. Null when it is
+    // active, which is the ordinary case and needs no explanation.
+    agent_status: string | null; agent_note: string | null;
   }> {
     const hash = (txHash ?? '').trim().toLowerCase();
 
@@ -404,6 +407,13 @@ export class ClaimsService {
       `payment verified ${hash}: ${claimant} -> listing ${listingId}, ${paid} units, ` +
       `${confirmations} confirmations`);
 
+    // WHAT THEY JUST BOUGHT, IF IT IS NOT TRADING. The quote refuses to price a
+    // paused or retired agent, so reaching here with one means the money was
+    // already on the chain when it stopped — a tab left open, a payment sent
+    // minutes before its creator paused. The access is granted, because it was
+    // paid for. Saying nothing would let the buyer find out by watching a wallet
+    // that never moves.
+    const standing = await this.agentStanding(listingId);
     return {
       granted: true,
       listing_id: listingId,
@@ -411,7 +421,33 @@ export class ClaimsService {
       amount: paid.toString(),
       confirmations,
       expires_at: sub.expiresAt,
+      agent_status: standing?.status ?? null,
+      agent_note: standing && standing.status !== 'active'
+        ? `Access is yours until ${new Date(sub.expiresAt).toISOString()}, but ${standing.name} is ` +
+          `'${standing.status}' and is making no decisions — so nothing will be mirrored into your wallet ` +
+          (standing.status === 'paused'
+            ? 'until its creator resumes it. Your term runs from today either way.'
+            : 'for the rest of the term. A retired agent does not come back.')
+        : null,
     };
+  }
+
+  /** The agent behind a listing, and whether it is still deciding. */
+  private async agentStanding(listingId: string): Promise<{ status: string; name: string } | null> {
+    try {
+      const rows: Array<{ status: string; name: string }> = await this.db.query(
+        `SELECT a.status, a.name FROM marketplace_listings l
+           JOIN agents a ON a.id = l.agent_id
+          WHERE l.id = $1`,
+        [listingId],
+      );
+      return rows[0] ?? null;
+    } catch (e) {
+      // Decoration only. A failure to describe the agent must never turn a
+      // verified payment into an error after the grant has been written.
+      this.logger.warn(`could not read the agent behind listing ${listingId}: ${e}`);
+      return null;
+    }
   }
 
   /**
@@ -502,6 +538,57 @@ export class ClaimsService {
     const whole = s.slice(0, s.length - decimals);
     const frac = decimals === 0 ? '' : `.${s.slice(s.length - decimals)}`;
     return `${neg ? '-' : ''}${whole}${frac}`;
+  }
+
+  /**
+   * Refuse to quote or accept a payment for an agent that cannot trade.
+   *
+   * WHY THIS IS HERE AND NOT ONLY IN THE GRID. The marketplace already knew how
+   * to say a retired agent's listing is unbuyable — it printed the reason on
+   * the card. But that lived entirely in the READ path, so it governed what a
+   * shopper saw and nothing about what the platform would accept. A direct link,
+   * a bookmark, a renewal, or a buyer who simply kept the tab open reached
+   * `quote()` and got an address and an amount; paying it would have granted
+   * thirty days of a subscription that mirrors nothing, and the chain does not
+   * give money back. The grid's honesty was advisory. This is the refusal.
+   *
+   * It reads the agent through the listing IN THE SAME QUERY the payee is
+   * resolved from, so there is no window in which one is fresh and the other is
+   * stale.
+   *
+   * PAUSED REFUSES TOO, and it is the harder of the two calls. A paused agent
+   * may resume tomorrow, and refusing costs its creator a sale. But the buyer
+   * pays for a fixed thirty days starting now, and nothing about a pause
+   * promises when — or whether — it ends. Selling a term that has already begun
+   * against decisions that may never come is the platform choosing its own
+   * revenue over the buyer's, and a refusal a creator can lift in one call is
+   * the cheaper mistake.
+   */
+  private async assertAgentCanBeSubscribedTo(listingId: string, agentId: string | null): Promise<void> {
+    if (!agentId) return; // a listing with no agent fails other checks first
+    const rows: Array<{ status: string; name: string }> = await this.db.query(
+      `SELECT status, name FROM agents WHERE id = $1`,
+      [agentId],
+    );
+    const agent = rows[0];
+    if (!agent || agent.status === 'active') return;
+
+    const REFUSALS: Record<string, string> = {
+      retired: `${agent.name} has been retired. It makes no further decisions, so a subscription bought now ` +
+        'would mirror nothing into your wallet for its whole term. Nothing was charged and nothing should be sent.',
+      paused: `${agent.name} is paused by its creator and is making no decisions. A subscription bought now ` +
+        'would start its thirty days today and mirror nothing until the agent resumes — which is not promised. ' +
+        'Nothing was charged and nothing should be sent. If it resumes, this listing comes back on sale by itself.',
+      draft: `${agent.name} has never been started, so there is no record to subscribe to and nothing to mirror. ` +
+        'Nothing was charged and nothing should be sent.',
+    };
+    throw new BadRequestException({
+      code: `agent_${agent.status}`,
+      message:
+        REFUSALS[agent.status] ??
+        `The agent behind listing ${listingId} is '${agent.status}', which is not a state it can accept a ` +
+          'subscription in. Nothing was charged and nothing should be sent.',
+    });
   }
 
   /** The creator's wallet for a listing, via its agent. */
@@ -753,6 +840,15 @@ export class ClaimsService {
     warning: string;
   }> {
     const { listing, creatorWallet } = await this.resolvePayable(listingId);
+    // THE GATE SITS ON THE QUOTE, WHICH IS THE LAST SURFACE BEFORE THE MONEY
+    // MOVES — and deliberately NOT inside resolvePayable(). claim() and
+    // findUnclaimed() call that too, and both of them are reached by a buyer
+    // whose transaction is ALREADY on the chain. Refusing there would answer a
+    // paid buyer with "this agent was retired" and no way to get either access
+    // or the money back, which is the precise failure the payee lookup above
+    // exists to prevent. What has been paid is honoured; what has not been paid
+    // for is refused here, before it is sent.
+    await this.assertAgentCanBeSubscribedTo(listingId, listing.agentId ?? null);
     if (!this.token.enabled) {
       throw new ServiceUnavailableException({
         code: 'payment_verification_unavailable',
