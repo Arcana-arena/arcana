@@ -84,6 +84,14 @@ func run(ctx context.Context) error {
 
 	sender, err := sg.address(ctx)
 	if err != nil {
+		// The same treatment as the signing call below: this is where
+		// `anchor_signer_not_configured` surfaces, and it is the one refusal
+		// that never clears by itself.
+		var ref *signerRefusal
+		if errors.As(err, &ref) {
+			return fmt.Errorf("anchoring signer: refused %s (HTTP %d): %s — %s",
+				ref.Code, ref.Status, ref.Message, nextStep(ref.Code))
+		}
 		return fmt.Errorf("anchoring signer: %w", err)
 	}
 
@@ -169,6 +177,24 @@ func run(ctx context.Context) error {
 	// ---- 4. sign, record, send ----------------------------------------------
 	signed, err := sg.sign(ctx, root, nonce, maxFee, tip, gas)
 	if err != nil {
+		var ref *signerRefusal
+		if errors.As(err, &ref) {
+			// WAITING IS NOT FAILING. The same reasoning as NOT YET FUNDED
+			// above: the cap resets at midnight, the timer runs every fifteen
+			// minutes, and the sealed records are still queued. Exiting 1 here
+			// would page somebody ninety-six times for a condition whose only
+			// correct response is to do nothing. It cannot hide a real stall
+			// either — anchor-verify fails the sweep once any sealed decision
+			// has waited 45 minutes, whatever the reason.
+			if ref.Code == "daily_cap_reached" {
+				log.Printf("anchor: DAILY CAP REACHED — %s %d sealed record(s) are waiting. %s",
+					ref.Message, len(leaves), nextStep(ref.Code))
+				return nil
+			}
+			// Everything else is actionable, and the action is named with it.
+			return fmt.Errorf("sign anchor: refused %s (HTTP %d): %s — %s",
+				ref.Code, ref.Status, ref.Message, nextStep(ref.Code))
+		}
 		return fmt.Errorf("sign anchor: %w", err)
 	}
 	if !strings.EqualFold(signed.From, sender) || !strings.EqualFold(signed.To, sender) {
@@ -311,9 +337,75 @@ func (s *signer) do(ctx context.Context, method, path string, body any, out any)
 	defer res.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(res.Body, 1<<16))
 	if res.StatusCode >= 300 {
-		return fmt.Errorf("%s %s answered %d: %s", method, path, res.StatusCode, strings.TrimSpace(string(raw)))
+		// THE SIGNER'S OWN DISCRIMINATOR, READ RATHER THAN IGNORED. Every
+		// refusal it makes sets `refused: true` beside a code; nothing else
+		// does. So this is not "did the body happen to contain a code" — it is
+		// the signer stating that it looked at the request and declined. A 503
+		// from a proxy in front of it carries neither, and must not be read as
+		// the signer having decided anything.
+		var body struct {
+			Refused bool   `json:"refused"`
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		}
+		if err := json.Unmarshal(raw, &body); err == nil && body.Refused && body.Code != "" {
+			return &signerRefusal{Code: body.Code, Status: res.StatusCode, Message: body.Message}
+		}
+		return fmt.Errorf("%s %s answered %d with no refusal of its own, so the answer did not come from "+
+			"the anchoring signer: %s", method, path, res.StatusCode, strings.TrimSpace(string(raw)))
 	}
 	return json.Unmarshal(raw, out)
+}
+
+// signerRefusal is the anchoring signer declining, by name.
+//
+// TWELVE CODES USED TO ARRIVE AS ONE STRING, and three of them call for three
+// different things from whoever is on call: `daily_cap_reached` means wait
+// until tomorrow, `fee_above_cap` means lower the fee or wait for the chain to
+// calm and it can be retried within the minute, and
+// `anchor_signer_not_configured` means nothing will ever anchor until a person
+// installs a key. Flattened into prose they were one alert that said "anchoring
+// failed" and left the operator to read the signer's source to find out which.
+type signerRefusal struct {
+	Code    string
+	Status  int
+	Message string
+}
+
+func (e *signerRefusal) Error() string {
+	return fmt.Sprintf("the anchoring signer refused (%s): %s", e.Code, e.Message)
+}
+
+// nextStep turns a refusal code into the thing to actually do about it.
+//
+// Kept beside the codes rather than in a runbook, because an alert that names a
+// code an operator then has to go and look up is most of the way back to the
+// string this replaced.
+func nextStep(code string) string {
+	switch code {
+	case "daily_cap_reached":
+		return "the signer's per-day signature cap is spent; it resets at UTC midnight and the sealed " +
+			"records wait until then. Nothing to do unless this repeats across days, which would mean the " +
+			"cap is set below the anchoring rate."
+	case "fee_above_cap":
+		return "the chain's fee is above the anchor job's ceiling. Retryable NOW: either wait for the fee " +
+			"to fall — the timer runs every fifteen minutes — or raise ANCHOR_MAX_FEE_WEI if the new level " +
+			"is the real one."
+	case "tip_above_fee", "bad_fee", "gas_out_of_range", "bad_root", "nonce_required", "bad_request":
+		return "the anchor job built a request the signer rejects. This is a code fault, not an outage: " +
+			"the two sides disagree about what a valid anchor looks like."
+	case "anchor_signer_not_configured":
+		return "the anchoring signer holds no key, so NOTHING will anchor until an operator installs one. " +
+			"This does not clear on its own."
+	case "signature_count_unreadable", "signature_count_unwritable":
+		return "the signer cannot read or write its own signature counter, so it refuses rather than sign " +
+			"an unbounded number. Check the signer's state directory and its permissions."
+	case "sign_failed":
+		return "the key is present and signing itself failed. Check the anchoring signer's log."
+	default:
+		return "no next step is recorded for this code, which means it is newer than this job. Read the " +
+			"anchoring signer's log."
+	}
 }
 
 func (s *signer) address(ctx context.Context) (string, error) {
