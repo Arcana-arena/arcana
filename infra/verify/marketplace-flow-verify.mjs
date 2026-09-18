@@ -52,8 +52,10 @@ const sql = (q) =>
     .split('\n')[0]
     .trim();
 
-async function api(base, path) {
-  const r = await fetch(`${base}${path}`, { headers: { accept: 'application/json' } });
+async function api(base, path, token = null) {
+  const r = await fetch(`${base}${path}`, {
+    headers: { accept: 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+  });
   const t = await r.text();
   let body = null;
   try {
@@ -463,7 +465,20 @@ try {
     // somebody already bought: thirty days were paid for, and a paused agent
     // may yet come back. So access keeps its date, and what changes is that
     // nothing new can be sold and the buyer is TOLD that nothing is arriving.
-    const buyerWallet = '0x' + 'b7'.repeat(20);
+    // A REAL WALLET, SIGNED IN. The buyer-facing list is JWT-scoped to its own
+    // address, so a made-up one can only ever produce a 401 — and a 401 here
+    // would be recorded as "not proven", which is not a pass and is not the
+    // answer this section exists to give.
+    const buyer = privateKeyToAccount(generatePrivateKey());
+    const buyerWallet = buyer.address.toLowerCase();
+    const s = await sharedSignIn(process.env.AGENT_URL || 'http://127.0.0.1:3001', buyer, {
+      chainId: 4663,
+      domain: SIWE_DOMAIN,
+      uri: SIWE_URI,
+    });
+    const token = s.status === 200 ? s.body?.access_token : null;
+    check('the buyer can sign in', !!token, `status ${s.status} ${JSON.stringify(s.body)}`);
+
     sql(`INSERT INTO subscriptions (user_wallet, listing_id, agent_id, expires_at, status)
          VALUES ('${buyerWallet}', '${listingId}', '${agentId}', now() + interval '20 days', 'active')`);
 
@@ -474,24 +489,17 @@ try {
       after === 'active true', `the subscription reads '${after}'`);
 
     // AND THE BUYER IS NOT LEFT TO INFER IT from a wallet that stops moving.
-    const acc = await api(ARCA, `/v1/subscriptions/${buyerWallet}`);
-    if (acc.status === 200 && Array.isArray(acc.body)) {
-      const row = acc.body.find((r) => r.listing_id === listingId);
-      check('the buyer’s own subscription card still reports access', row?.phase === 'active',
-        `phase=${row?.phase}`);
-      check('and stops claiming the agent is trading for them', row?.trading === false,
-        `trading=${row?.trading}`);
-      check('and says what happened to the agent, and until when the access runs',
-        typeof row?.agent_standing?.note === 'string' && row.agent_standing.status === 'retired',
-        JSON.stringify(row?.agent_standing ?? null));
-    } else {
-      // The buyer-facing list is JWT-scoped to its own wallet; where this suite
-      // cannot present that wallet's signature, the database rule above is
-      // still proved and the surface is checked by subscription-verify.
-      nothingToCheck(
-        `the buyer subscription list answered ${acc.status} for a wallet this suite cannot sign for; ` +
-        'the term itself is checked above');
-    }
+    const acc = await api(ARCA, `/v1/subscriptions/${buyerWallet}`, token);
+    check('the buyer can read their own subscriptions', acc.status === 200,
+      `status ${acc.status} ${JSON.stringify(acc.body)}`);
+    const row = Array.isArray(acc.body) ? acc.body.find((r) => r.listing_id === listingId) : null;
+    check('and the term they paid for is still there, still in its active phase',
+      row?.phase === 'active', `phase=${row?.phase ?? 'the subscription is not in the list'}`);
+    check('and the card stops claiming the agent is trading for them',
+      row?.trading === false, `trading=${row?.trading}`);
+    check('and says what happened to the agent, and until when the access runs',
+      row?.agent_standing?.status === 'retired' && typeof row?.agent_standing?.note === 'string',
+      JSON.stringify(row?.agent_standing ?? null));
 
     sql(`UPDATE agents SET status = 'active' WHERE id = '${agentId}'`);
   });
