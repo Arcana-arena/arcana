@@ -398,7 +398,8 @@ func takePoolTick(ctx context.Context, cfg config) (*poolTickResult, error) {
 	defer res.Body.Close()
 	body, _ := io.ReadAll(res.Body)
 	if res.StatusCode != http.StatusOK {
-		return nil, upstream.From(http.MethodPost, url, res.StatusCode, body)
+		return nil, upstream.From(http.MethodPost, cfg.marketDataURL+"/internal/v1/market/ticks/pool",
+			res.StatusCode, body)
 	}
 	var out poolTickResult
 	if err := json.Unmarshal(body, &out); err != nil {
@@ -509,7 +510,8 @@ func runAgent(ctx context.Context, cfg config, seasonID, agentID, ref string) er
 	defer res.Body.Close()
 	body, _ := io.ReadAll(res.Body)
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return upstream.From(http.MethodPost, url, res.StatusCode, body)
+		return upstream.From(http.MethodPost, cfg.decisionEngineURL+"/internal/v1/decisions/execute",
+			res.StatusCode, body)
 	}
 	return nil
 }
