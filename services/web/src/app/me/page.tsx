@@ -92,7 +92,7 @@ export default async function MePage() {
   if (!dashR.ok) {
     return (
       <Shell>
-        <Failed what="Your dashboard" error={{ ok: false, status: dashR.status, reason: dashR.reason }} />
+        <Failed what="Your dashboard" error={{ ok: false, status: dashR.status, reason: dashR.reason, code: dashR.code }} />
       </Shell>
     );
   }

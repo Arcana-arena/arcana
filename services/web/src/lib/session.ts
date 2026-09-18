@@ -128,11 +128,13 @@ export async function authed<T>(
   init?: { method?: string; body?: unknown; base?: string },
 ): Promise<
   | { ok: true; data: T }
-  | { ok: false; status: number | null; reason: string; body: Record<string, unknown> | null }
+  | { ok: false; status: number | null; reason: string; body: Record<string, unknown> | null; code: string | null }
 > {
   const token = await accessToken();
   if (!token) {
-    return { ok: false, status: 401, reason: 'no session cookie was sent with this request', body: null };
+    return {
+      ok: false, status: 401, reason: 'no session cookie was sent with this request', body: null, code: null,
+    };
   }
   try {
     const r = await fetch(`${init?.base ?? AGENT_API}${path}`, {
@@ -155,6 +157,7 @@ export async function authed<T>(
         status: r.status,
         reason: `the service answered ${r.status} with something that is not JSON`,
         body: null,
+        code: null,
       };
     }
     if (!r.ok) {
@@ -166,10 +169,20 @@ export async function authed<T>(
         status: r.status,
         reason: Array.isArray(msg) ? msg.join('; ') : String(msg || r.status),
         body: detail,
+        // THE SAME FIELD THE READ PATH NOW CARRIES. This wrapper always
+        // unwrapped the envelope correctly and handed back `body`, so every
+        // caller that wanted the code had to dig it out — three files grew
+        // their own four-line `codeOf` helper doing exactly that. Lifting it
+        // here is what lets one <Failed> render a code whichever wrapper
+        // produced the failure; `body` stays, because the four claim screens
+        // read far more than the code from it.
+        code: typeof detail?.code === 'string' ? detail.code : null,
       };
     }
     return { ok: true, data: body as T };
   } catch (e) {
-    return { ok: false, status: null, reason: e instanceof Error ? e.message : String(e), body: null };
+    return {
+      ok: false, status: null, reason: e instanceof Error ? e.message : String(e), body: null, code: null,
+    };
   }
 }

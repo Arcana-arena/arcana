@@ -126,7 +126,7 @@ export default async function PortfolioPage() {
       <Shell creatorId={creator_id}>
         <h1>Portfolio</h1>
         <div style={{ marginTop: 16 }}>
-          <Failed what="Your portfolio" error={{ ok: false, status: r.status, reason: r.reason }} />
+          <Failed what="Your portfolio" error={{ ok: false, status: r.status, reason: r.reason, code: r.code }} />
         </div>
       </Shell>
     );

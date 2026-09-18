@@ -56,6 +56,17 @@ export function Failed({ what, error }: { what: string; error: Err }) {
       {error.status === null
         ? `The service did not answer: ${error.reason}`
         : `The service answered ${error.status}: ${error.reason}`}
+      {/*
+        THE CODE, WHERE THE SERVICE GAVE ONE. It is the part a reader can quote
+        and a reader can search for, and it is what tells `auth_unavailable`
+        from `forbidden_not_owner` — "we could not find out" from "no" — which
+        the sentence alone does not always make obvious.
+      */}
+      {error.code ? (
+        <div className="mono m3" style={{ marginTop: 6, fontSize: 11 }}>
+          {error.code}
+        </div>
+      ) : null}
       <div className="mono m3" style={{ marginTop: 8, fontSize: 11 }}>
         Nothing is shown below rather than an empty list, because an empty list here would mean
         &ldquo;there are none&rdquo; and that is not what happened.

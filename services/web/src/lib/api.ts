@@ -16,7 +16,16 @@
 const TIMEOUT_MS = Number(process.env.API_TIMEOUT_MS || 8000);
 
 export type Ok<T> = { ok: true; data: T };
-export type Err = { ok: false; status: number | null; reason: string };
+/**
+ * A failed read, with the reason a person can act on AND the code a page can
+ * branch on.
+ *
+ * `code` was missing entirely, which is how the reason came to be wrong too:
+ * with nowhere to put the envelope's `code`, the failure branch reached past
+ * `message` and stringified the whole `error` object. `null` is honest here —
+ * a timeout and a non-JSON body genuinely have no code.
+ */
+export type Err = { ok: false; status: number | null; reason: string; code: string | null };
 export type Result<T> = Ok<T> | Err;
 
 export const AGENT_API = process.env.AGENT_API || 'http://127.0.0.1:3001';
@@ -48,17 +57,37 @@ async function read<T>(base: string, path: string): Promise<Result<T>> {
     try {
       body = text ? JSON.parse(text) : null;
     } catch {
-      return { ok: false, status: r.status, reason: `the service answered ${r.status} with something that is not JSON` };
+      return {
+        ok: false,
+        status: r.status,
+        reason: `the service answered ${r.status} with something that is not JSON`,
+        code: null,
+      };
     }
     if (!r.ok) {
-      const msg =
-        (body as { message?: unknown } | null)?.message ??
-        (body as { error?: unknown } | null)?.error ??
-        r.statusText;
+      // THE ENVELOPE IS UNWRAPPED, NOT STRINGIFIED.
+      //
+      // Every ARCANA service answers `{error:{code,message,trace_id}}`, which
+      // has no top-level `message`. The old branch fell through to `?.error`,
+      // found the OBJECT, and `String()` turned it into `[object Object]` —
+      // rendered by <Failed> at forty-eight call sites as "The service answered
+      // 401: [object Object]". That is a page telling a reader nothing while
+      // looking like it told them something, on the exact surface this file
+      // exists to keep honest: `auth_unavailable` and `forbidden_not_owner` are
+      // "we could not find out" and "no", and both arrived as the same nothing.
+      //
+      // A plain Nest exception (`{message, error:'Not Found', statusCode}`)
+      // still works: its `error` is a string, so it is not treated as an
+      // envelope and its top-level message is used. This is the same unwrap
+      // session.ts has always done on the write path — the two now agree.
+      const inner = (body as { error?: unknown } | null)?.error;
+      const detail = (inner && typeof inner === 'object' ? inner : body) as Record<string, unknown> | null;
+      const msg = detail?.message ?? r.statusText;
       return {
         ok: false,
         status: r.status,
         reason: Array.isArray(msg) ? msg.join('; ') : String(msg || `status ${r.status}`),
+        code: typeof detail?.code === 'string' ? detail.code : null,
       };
     }
     return { ok: true, data: body as T };
@@ -70,6 +99,9 @@ async function read<T>(base: string, path: string): Promise<Result<T>> {
       reason: aborted
         ? `the service did not answer within ${TIMEOUT_MS}ms`
         : `the service could not be reached (${e instanceof Error ? e.message : String(e)})`,
+      // No answer means no code. Inventing one here would let a page branch on
+      // a refusal that was never made.
+      code: null,
     };
   } finally {
     clearTimeout(timer);

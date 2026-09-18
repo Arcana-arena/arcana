@@ -472,7 +472,7 @@ export default async function ManageAgentPage({
 
         {tab === 'triggers' ? (
           !triggersR.ok ? (
-            <Failed what="The armed conditions" error={{ ok: false, status: triggersR.status, reason: triggersR.reason }} />
+            <Failed what="The armed conditions" error={{ ok: false, status: triggersR.status, reason: triggersR.reason, code: triggersR.code }} />
           ) : (
             <TriggersPanel t={triggersR.data} />
           )
@@ -527,10 +527,10 @@ async function WalletTab({
   id: string;
   agentName: string;
   wallet: { address: string; key_custody: string | null; exported_at: string | null; imported_at: string | null; note: string | null } | null;
-  walletError: { status: number | null; reason: string } | null;
+  walletError: { status: number | null; reason: string; code: string | null } | null;
 }) {
   if (walletError) {
-    return <Failed what="This agent's wallet" error={{ ok: false, status: walletError.status, reason: walletError.reason }} />;
+    return <Failed what="This agent's wallet" error={{ ok: false, status: walletError.status, reason: walletError.reason, code: walletError.code }} />;
   }
   if (!wallet?.address) {
     return (
@@ -582,7 +582,7 @@ async function WalletTab({
       </section>
 
       {!balR.ok ? (
-        <Failed what="The balances" error={{ ok: false, status: balR.status, reason: balR.reason }} />
+        <Failed what="The balances" error={{ ok: false, status: balR.status, reason: balR.reason, code: balR.code }} />
       ) : (
         <>
           <div className="two-col">
@@ -645,7 +645,7 @@ async function WalletTab({
         </div>
         {!txR.ok ? (
           <div style={{ marginTop: 10 }}>
-            <Failed what="The transactions" error={{ ok: false, status: txR.status, reason: txR.reason }} />
+            <Failed what="The transactions" error={{ ok: false, status: txR.status, reason: txR.reason, code: txR.code }} />
           </div>
         ) : txR.data.items.length === 0 ? (
           <div className="m3" style={{ fontSize: 12, marginTop: 10, lineHeight: 1.5 }}>

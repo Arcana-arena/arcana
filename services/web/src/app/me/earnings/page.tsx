@@ -115,13 +115,13 @@ export default async function EarningsPage() {
         ) : null}
         {!dashR.ok ? (
           <div style={{ marginTop: 14 }}>
-            <Failed what="Your reputation and payee state" error={{ ok: false, status: dashR.status, reason: dashR.reason }} />
+            <Failed what="Your reputation and payee state" error={{ ok: false, status: dashR.status, reason: dashR.reason, code: dashR.code }} />
           </div>
         ) : null}
       </section>
 
       <section style={{ marginTop: 28 }}>
-        <EarningsPanel e={earnings} error={earnR.ok ? null : { status: earnR.status, reason: earnR.reason }} />
+        <EarningsPanel e={earnings} error={earnR.ok ? null : { status: earnR.status, reason: earnR.reason, code: earnR.code }} />
       </section>
 
       {d ? (
@@ -146,13 +146,13 @@ function Shell({ children, creatorId, handle }: { children: React.ReactNode; cre
   );
 }
 
-function EarningsPanel({ e, error }: { e: Earnings | null; error: { status: number | null; reason: string } | null }) {
+function EarningsPanel({ e, error }: { e: Earnings | null; error: { status: number | null; reason: string; code: string | null } | null }) {
   if (error) {
     return (
       <>
         <Key>Payments</Key>
         <div style={{ marginTop: 8 }}>
-          <Failed what="Your earnings" error={{ ok: false, status: error.status, reason: error.reason }} />
+          <Failed what="Your earnings" error={{ ok: false, status: error.status, reason: error.reason, code: error.code }} />
         </div>
       </>
     );

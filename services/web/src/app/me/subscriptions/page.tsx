@@ -57,7 +57,7 @@ export default async function MySubscriptionsPage() {
   if (!subsR.ok) {
     return (
       <Shell wallet={wallet}>
-        <Failed what="Your subscriptions" error={{ ok: false, status: subsR.status, reason: subsR.reason }} />
+        <Failed what="Your subscriptions" error={{ ok: false, status: subsR.status, reason: subsR.reason, code: subsR.code }} />
       </Shell>
     );
   }

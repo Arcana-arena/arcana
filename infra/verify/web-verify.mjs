@@ -92,7 +92,44 @@ await section('The public surface answers without a session', async () => {
     check(`${name} is not the error boundary`,
       !/This page failed to render/.test(p.html),
       'the error boundary was rendered instead of the page');
+    // A JavaScript object printed where a sentence belongs. It reached every
+    // reader page at once, because the one wrapper they all read through
+    // stringified the error envelope instead of unwrapping it — "The service
+    // answered 401: [object Object]". Checked on the rendered page rather than
+    // in the file, because the file has been correct-looking throughout.
+    check(`${name} prints no stringified object`,
+      !/\[object Object\]/.test(p.html),
+      'the page contains [object Object], so something rendered a value instead of a reason');
   }
+});
+
+// ---------------------------------------------------------------------------
+
+await section('The shape every reader page depends on is the shape services send', async () => {
+  // WHY THIS IS CHECKED AT ALL. The wrapper in src/lib/api.ts reads
+  // `{error:{code,message}}` and falls back to a top-level `message` for a
+  // plain Nest exception. It went wrong for a year in the gap between those
+  // two: the envelope has NO top-level message, so the fallback found the
+  // `error` OBJECT and printed it. The fix depends on the envelope staying the
+  // envelope, and nothing else asserts that from the outside.
+  const md = await api(process.env.MARKET_DATA_URL || 'http://127.0.0.1:8083',
+    '/v1/market/snapshots/a-ref-that-does-not-exist');
+  check('a Go service refuses with the platform envelope', md.status === 404 && !!md.body?.error?.code,
+    `status ${md.status} body ${JSON.stringify(md.body)}`);
+  check('and that envelope carries NO top-level message — the gap the bug lived in',
+    md.body?.message === undefined, JSON.stringify(md.body));
+  check('so a reader unwrapping .error finds a sentence, not an object',
+    typeof md.body?.error?.message === 'string' && md.body.error.message.length > 0,
+    JSON.stringify(md.body?.error));
+
+  // And the other shape the same wrapper has to handle: a plain Nest
+  // exception, where the message IS at the top level.
+  const nest = await api(AGENT, '/v1/agents/not-a-uuid');
+  check('a Nest exception still puts its message at the top level',
+    typeof nest.body?.message === 'string', JSON.stringify(nest.body));
+  check('and names no code there, so the two shapes stay distinguishable',
+    nest.body?.error === undefined || typeof nest.body.error === 'string',
+    JSON.stringify(nest.body));
 });
 
 // ---------------------------------------------------------------------------
