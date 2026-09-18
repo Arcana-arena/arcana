@@ -187,8 +187,8 @@ func run(ctx context.Context) error {
 			// either — anchor-verify fails the sweep once any sealed decision
 			// has waited 45 minutes, whatever the reason.
 			if ref.Code == "daily_cap_reached" {
-				log.Printf("anchor: DAILY CAP REACHED — %s %d sealed record(s) are waiting. %s",
-					ref.Message, len(leaves), nextStep(ref.Code))
+				log.Printf("anchor: DAILY CAP REACHED. %d sealed record(s) are waiting. The signer said: %s — %s",
+					len(leaves), strings.TrimRight(ref.Message, "."), nextStep(ref.Code))
 				return nil
 			}
 			// Everything else is actionable, and the action is named with it.
