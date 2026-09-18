@@ -282,9 +282,32 @@ export class ListingsService {
     // not, so a client could show the text and act on none of it. The
     // fall-back is unchanged for an upstream that names nothing.
     let upstreamCode: string | null = null;
+    // AND THE REST OF THE REFUSAL, NOT JUST ITS NAME.
+    //
+    // arca does not build these payloads for decoration. `tx_already_claimed`
+    // carries which agent the hash already bought, when, by which wallet, and
+    // whether that term is still running — because the buyer has to tell "I
+    // pasted last month's renewal hash" from "somebody used my transaction",
+    // and both arrive as the same 409. `insufficient_amount` carries the
+    // shortfall, `no_matching_transfer` the addresses the money actually
+    // reached, `insufficient_confirmations` how many blocks are left.
+    //
+    // The web has a screen for each and this wrapper was starving all four:
+    // everything past `code` and `message` was dropped here. The pending screen
+    // could not render at all, because it keys off a `pending` flag that never
+    // arrived.
+    //
+    // ONLY WHEN THE UPSTREAM NAMED ITSELF. A body carrying a `code` is a
+    // refusal somebody designed and meant a caller to read. An unnamed 500 is
+    // not, and republishing its internals through a public endpoint is a
+    // different act from forwarding a designed one.
+    let detail: Record<string, unknown> | null = null;
     try {
       const parsed = JSON.parse(message) as { message?: string | string[]; code?: string };
-      if (typeof parsed?.code === 'string' && parsed.code) upstreamCode = parsed.code;
+      if (typeof parsed?.code === 'string' && parsed.code) {
+        upstreamCode = parsed.code;
+        detail = parsed as Record<string, unknown>;
+      }
       if (parsed?.message) {
         message = Array.isArray(parsed.message) ? parsed.message.join('; ') : parsed.message;
       }
@@ -298,6 +321,10 @@ export class ListingsService {
     return new HttpException(
       {
         error: {
+          // Spread FIRST so the four fields below are the ones this service
+          // owns: an upstream that happened to carry its own `trace_id` must
+          // not replace the id in this service's log line.
+          ...(detail ?? {}),
           code: upstreamCode ?? `arca_${op}_failed`,
           // Which call failed, kept beside the reason rather than in place of
           // it, so a log still says where this came from.

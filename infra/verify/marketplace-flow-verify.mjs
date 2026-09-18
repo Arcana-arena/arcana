@@ -513,6 +513,78 @@ try {
     sql(`UPDATE agents SET status = 'active' WHERE id = '${agentId}'`);
   });
 
+  await section('A refusal keeps its WHOLE payload across the service boundary', async () => {
+    // WHY THIS IS HERE AND NOT IN claims-verify. That suite starts its own
+    // arca-service and asks it directly, so it proves arca BUILDS these
+    // payloads — and it has passed every day while no buyer ever saw one,
+    // because the marketplace wrapper in front of it kept `code` and `message`
+    // and dropped everything else. Each side was right; nothing tested the
+    // seam. This asks the running marketplace, through the door a browser uses.
+    //
+    // The refusal is provoked with a REAL mined transaction that paid somebody
+    // else — an anchoring self-send — so nothing is spent and the chain
+    // genuinely disagrees with the claim. `no_matching_transfer` carries the
+    // address the money was supposed to reach and the transfers it actually
+    // made, which is the difference between "you paid the wrong place" and "we
+    // could not tell".
+    const realHash = sql(
+      `SELECT trim(tx_hash) FROM decision_anchors WHERE status = 'mined' ORDER BY id DESC LIMIT 1`,
+    );
+    if (!realHash || !/^0x[0-9a-f]{64}$/i.test(realHash)) {
+      nothingToCheck('no mined anchor transaction exists to claim with, so the refusal cannot be provoked');
+      return;
+    }
+
+    const buyer = privateKeyToAccount(generatePrivateKey());
+    const s = await sharedSignIn(process.env.AGENT_URL || 'http://127.0.0.1:3001', buyer, {
+      chainId: 4663,
+      domain: SIWE_DOMAIN,
+      uri: SIWE_URI,
+    });
+    if (s.status !== 200 || !s.body?.access_token) {
+      check('a buyer can sign in to submit a claim', false, `status ${s.status}`);
+      return;
+    }
+
+    const r = await fetch(`${MARKET}/v1/marketplace/listings/${listingId}/claim-payment`, {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+        authorization: `Bearer ${s.body.access_token}`,
+      },
+      body: JSON.stringify({ txHash: realHash }),
+    });
+    const body = await r.json().catch(() => null);
+    const err = body?.error ?? body ?? {};
+
+    check('claiming a transaction that paid somebody else is refused', r.status >= 400, `status ${r.status}`);
+    check('and the refusal is named, not generic',
+      err.code === 'no_matching_transfer', `${err.code}: ${err.message ?? ''}`);
+
+    // THE FIELDS THE SCREEN IS BUILT FROM. Without these the page can print
+    // the sentence and nothing else — no address to compare, no transfer list.
+    check('the address the money should have reached survives the proxy',
+      typeof err.expected_recipient === 'string' && err.expected_recipient.startsWith('0x'),
+      String(err.expected_recipient));
+    check('and the token it should have been paid in',
+      typeof err.expected_token === 'string' && err.expected_token.startsWith('0x'),
+      String(err.expected_token));
+    check('and the transfers the transaction actually made',
+      Array.isArray(err.transfers), JSON.stringify(err.transfers ?? null));
+
+    // AND THE WRAPPER STILL SAYS WHICH CALL FAILED, beside the upstream code
+    // rather than instead of it.
+    check('while the wrapper still records which call it was',
+      err.failed === 'arca_claim_payment_failed', String(err.failed));
+    check('and attaches its own trace id', typeof err.trace_id === 'string' && err.trace_id.length > 0,
+      String(err.trace_id));
+
+    // Nothing was bought by a refused claim.
+    const rows = sql(`SELECT count(*) FROM payment_claims WHERE tx_hash = '${realHash.toLowerCase()}'`);
+    check('and a refused claim records nothing', rows === '0', `${rows} claim row(s)`);
+  });
+
   await section('A fixture listing does not leak into the public grid', async () => {
     // THE PROVENANCE RULE, PROVED WHILE A FIXTURE IS LIVE. Every counting
     // surface excludes verification rows, and the only way to know that still
