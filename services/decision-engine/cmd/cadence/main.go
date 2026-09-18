@@ -86,6 +86,8 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/arcana/decision-engine/internal/upstream"
 )
 
 // MinInterval is the shortest cadence this program will accept.
@@ -396,7 +398,7 @@ func takePoolTick(ctx context.Context, cfg config) (*poolTickResult, error) {
 	defer res.Body.Close()
 	body, _ := io.ReadAll(res.Body)
 	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("market-data returned HTTP %d: %s", res.StatusCode, truncate(string(body), 300))
+		return nil, upstream.From(http.MethodPost, url, res.StatusCode, body)
 	}
 	var out poolTickResult
 	if err := json.Unmarshal(body, &out); err != nil {
@@ -507,7 +509,7 @@ func runAgent(ctx context.Context, cfg config, seasonID, agentID, ref string) er
 	defer res.Body.Close()
 	body, _ := io.ReadAll(res.Body)
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return fmt.Errorf("HTTP %d: %s", res.StatusCode, truncate(string(body), 200))
+		return upstream.From(http.MethodPost, url, res.StatusCode, body)
 	}
 	return nil
 }
@@ -524,7 +526,7 @@ func httpGet(ctx context.Context, url string) ([]byte, error) {
 	defer res.Body.Close()
 	body, _ := io.ReadAll(res.Body)
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return nil, fmt.Errorf("GET %s: HTTP %d: %s", url, res.StatusCode, truncate(string(body), 200))
+		return nil, upstream.From(http.MethodGet, url, res.StatusCode, body)
 	}
 	return body, nil
 }
@@ -543,17 +545,11 @@ func httpPost(ctx context.Context, cfg config, url string, payload []byte) ([]by
 	defer res.Body.Close()
 	body, _ := io.ReadAll(res.Body)
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return nil, fmt.Errorf("POST %s: HTTP %d: %s", url, res.StatusCode, truncate(string(body), 200))
+		return nil, upstream.From(http.MethodPost, url, res.StatusCode, body)
 	}
 	return body, nil
 }
 
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "..."
-}
 
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {

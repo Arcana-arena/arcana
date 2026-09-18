@@ -36,6 +36,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/arcana/decision-engine/internal/upstream"
 )
 
 type config struct {
@@ -216,7 +218,7 @@ func fetchDailySession(ctx context.Context, cfg config) (*sessionResult, int, er
 		return nil, status, nil
 	}
 	if status >= 400 {
-		return nil, status, fmt.Errorf("market-data returned HTTP %d: %s", status, string(body))
+		return nil, status, upstream.From(http.MethodPost, cfg.marketDataURL+"/internal/v1/market/sessions/daily", status, body)
 	}
 	var out sessionResult
 	if err := json.Unmarshal(body, &out); err != nil {
@@ -347,7 +349,7 @@ func httpPost(ctx context.Context, url string, payload []byte) ([]byte, error) {
 		return nil, err
 	}
 	if status >= 400 {
-		return nil, fmt.Errorf("http %d: %s", status, string(body))
+		return nil, upstream.From(http.MethodPost, url, status, body)
 	}
 	return body, nil
 }
@@ -392,7 +394,7 @@ func do(req *http.Request) ([]byte, error) {
 		return nil, err
 	}
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("http %d: %s", resp.StatusCode, buf.String())
+		return nil, upstream.From(req.Method, req.URL.String(), resp.StatusCode, buf.Bytes())
 	}
 	return buf.Bytes(), nil
 }
