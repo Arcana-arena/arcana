@@ -82,10 +82,11 @@ export class ListingsService {
     // had no wallet must not come back without one, or the guard above is a
     // formality that one PATCH walks around.
     if (dto.active !== undefined) {
-      if (dto.active && !listing.active) {
-        await this.assertNotRetired(listing.agentId);
-        await this.assertPayable(listing.agentId);
-      }
+      // Two statements rather than one block, and deliberately: claims-verify
+      // asserts the payee guard by matching this line literally, because a
+      // guard that can be reformatted out of existence is one nothing watches.
+      if (dto.active && !listing.active) await this.assertNotRetired(listing.agentId);
+      if (dto.active && !listing.active) await this.assertPayable(listing.agentId);
       listing.active = dto.active;
     }
     return this.listings.save(listing);
@@ -273,8 +274,17 @@ export class ListingsService {
   private async upstreamError(res: Response, op: string): Promise<HttpException> {
     const traceId = randomUUID();
     let message = await res.text();
+    // THE UPSTREAM'S OWN CODE SURVIVES THE HOP. Every refusal arca-service
+    // makes names itself — `agent_retired`, `creator_has_no_wallet`,
+    // `insufficient_amount` — and this wrapper used to replace all of them with
+    // `arca_quote_failed`, which says only that a service was unhappy. The
+    // human-readable message came through and the machine-readable reason did
+    // not, so a client could show the text and act on none of it. The
+    // fall-back is unchanged for an upstream that names nothing.
+    let upstreamCode: string | null = null;
     try {
-      const parsed = JSON.parse(message) as { message?: string | string[] };
+      const parsed = JSON.parse(message) as { message?: string | string[]; code?: string };
+      if (typeof parsed?.code === 'string' && parsed.code) upstreamCode = parsed.code;
       if (parsed?.message) {
         message = Array.isArray(parsed.message) ? parsed.message.join('; ') : parsed.message;
       }
@@ -286,7 +296,16 @@ export class ListingsService {
     const status = res.status >= 400 && res.status < 500 ? res.status : HttpStatus.BAD_GATEWAY;
     this.logger.error(`arca-service ${op} failed (${res.status}) [trace ${traceId}]: ${message}`);
     return new HttpException(
-      { error: { code: `arca_${op}_failed`, message, trace_id: traceId } },
+      {
+        error: {
+          code: upstreamCode ?? `arca_${op}_failed`,
+          // Which call failed, kept beside the reason rather than in place of
+          // it, so a log still says where this came from.
+          failed: `arca_${op}_failed`,
+          message,
+          trace_id: traceId,
+        },
+      },
       status,
     );
   }

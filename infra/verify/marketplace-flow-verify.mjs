@@ -430,12 +430,16 @@ try {
       sql(`UPDATE agents SET status = '${status}' WHERE id = '${agentId}'`);
 
       const q = await api(MARKET, `/v1/marketplace/listings/${listingId}/quote`);
+      // The marketplace proxies arca's refusal, so the body is the wrapped
+      // shape. Read BOTH spellings: the point of the check is that the reason
+      // reaches the caller, not which envelope carries it.
+      const qCode = q.body?.error?.code ?? q.body?.code;
+      const qMessage = String(q.body?.error?.message ?? q.body?.message ?? '');
       check(`a ${status} agent's listing is refused a quote`, q.status === 400, `status ${q.status}`);
-      check(`and the refusal names why (${code})`, q.body?.code === code,
-        `${q.body?.code}: ${q.body?.message ?? ''}`);
+      check(`and the refusal names why (${code}) rather than only that a service was unhappy`,
+        qCode === code, `${qCode}: ${qMessage}`);
       check('and the refusal tells the buyer not to send anything',
-        /should be sent|not (?:be )?sent|Nothing was charged/i.test(String(q.body?.message ?? '')),
-        String(q.body?.message ?? ''));
+        /should be sent|not (?:be )?sent|Nothing was charged/i.test(qMessage), qMessage);
 
       // THE DETAIL PAGE STAYS READABLE. A buyer holding a link to something
       // they already paid for must still be able to read the record; what
@@ -492,7 +496,12 @@ try {
     const acc = await api(ARCA, `/v1/subscriptions/${buyerWallet}`, token);
     check('the buyer can read their own subscriptions', acc.status === 200,
       `status ${acc.status} ${JSON.stringify(acc.body)}`);
-    const row = Array.isArray(acc.body) ? acc.body.find((r) => r.listing_id === listingId) : null;
+    // The rows are TypeORM entities spread into the response, so the listing
+    // key is camelCase there while the fields this endpoint adds are snake_case.
+    // Matched on either rather than on the one that happened to be guessed.
+    const row = Array.isArray(acc.body)
+      ? acc.body.find((r) => (r.listingId ?? r.listing_id) === listingId)
+      : null;
     check('and the term they paid for is still there, still in its active phase',
       row?.phase === 'active', `phase=${row?.phase ?? 'the subscription is not in the list'}`);
     check('and the card stops claiming the agent is trading for them',
