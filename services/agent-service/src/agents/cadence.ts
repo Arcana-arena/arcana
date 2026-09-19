@@ -137,8 +137,15 @@ export async function dueAgents(db: Querier, now = new Date()): Promise<DueAgent
           AND $1::timestamptz <  s.end_at
         ORDER BY a.id, (c.type = 'ai_vs_ai') DESC, s.start_at DESC, c.id
      ), last AS (
+       -- AT OR BEFORE THE INSTANT ASKED ABOUT, so this is a question about a
+       -- point in time rather than about whenever it is answered. Without the
+       -- bound, a decision written after that instant — by the pacer's next run,
+       -- or by the manual endpoint — would come back as this agent's "last" and make
+       -- the age negative, so an audit of a past minute would quietly report
+       -- nobody as due.
        SELECT seat.agent_id,
-              (SELECT max(d.ts) FROM decisions d WHERE d.agent_id = seat.agent_id) AS last_ts
+              (SELECT max(d.ts) FROM decisions d
+                WHERE d.agent_id = seat.agent_id AND d.ts <= $1::timestamptz) AS last_ts
          FROM seat
      )
      SELECT seat.agent_id::text,

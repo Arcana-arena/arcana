@@ -181,7 +181,7 @@ keep working when auth is misconfigured (§5).
 | `POST /v1/competitions` · `POST /v1/competitions/:id/complete` | 👑 |
 | `POST /internal/v1/competitions/:id/ticks` · `/ticks/close` | ⚙️ |
 | `POST /internal/v1/competitions/:id/participants/reconcile` | ⚙️ |
-| `GET /internal/v1/agents/due` | ⚙️ |
+| `GET /internal/v1/agents/due` (optional `?as_of=`) | ⚙️ |
 | `POST /v1/subscriptions/:id/wallet` | 🔒 buyer |
 | `GET /v1/subscriptions/:id/book` | 🔒 buyer |
 | `PATCH /v1/subscriptions/:id` | 🔒 buyer |

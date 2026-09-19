@@ -578,11 +578,33 @@ export class AgentsController {
 export class InternalAgentPacingController {
   constructor(private readonly pacing: AgentPacingService) {}
 
+  /**
+   * `as_of` answers the same question about a chosen instant instead of now.
+   *
+   * It is not a test hook. "Who was due at 18:20, and why did nobody decide?" is
+   * the first question anybody asks of a pacer that appears to have skipped a
+   * minute, and reconstructing it by hand means re-deriving four joins against a
+   * history that has moved on since. The query bounds each agent's last decision
+   * to the instant asked about, so the answer is what the pacer would have seen.
+   *
+   * A malformed date is refused rather than silently read as now, which would
+   * answer a different question than the one asked.
+   */
   @Get('due')
-  async due() {
-    const agents = await this.pacing.due();
+  async due(@Query('as_of') asOf?: string) {
+    let at = new Date();
+    if (asOf !== undefined) {
+      at = new Date(asOf);
+      if (Number.isNaN(at.getTime())) {
+        throw new BadRequestException({
+          code: 'invalid_as_of',
+          message: `as_of must be an ISO 8601 timestamp; received ${JSON.stringify(asOf)}.`,
+        });
+      }
+    }
+    const agents = await this.pacing.due(at);
     return {
-      as_of: new Date().toISOString(),
+      as_of: at.toISOString(),
       count: agents.length,
       agents,
       note: agents.length

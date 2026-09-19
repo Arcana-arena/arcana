@@ -119,8 +119,21 @@ const mkAgent = async (label, { live = false, cadenceSeconds } = {}) => {
   return { token, creatorId: creator.body?.id, agentId: agent.body?.id, created: agent };
 };
 
-const dueList = async () => {
-  const r = await req(`${AGENT}/internal/v1/agents/due`, { headers: key });
+/**
+ * ASKED ABOUT A PINNED INSTANT, not about now, and the first run of this suite is
+ * why. Its fixtures are live, active and seated, which is exactly what the
+ * PRODUCTION pacer looks for — so within a minute it decided for them, their
+ * last decision became now, and the due list this suite then asked for was
+ * empty. Four exclusion checks passed against nothing, and only the control
+ * ("the list is not simply empty") noticed.
+ *
+ * as_of fixes the question rather than racing the answer: each agent's last
+ * decision is bounded to that instant, so a decision the pacer writes a moment
+ * later cannot change what this suite is asserting about.
+ */
+const AS_OF = new Date().toISOString();
+const dueList = async (asOf = AS_OF) => {
+  const r = await req(`${AGENT}/internal/v1/agents/due?as_of=${encodeURIComponent(asOf)}`, { headers: key });
   return { status: r.status, body: r.body, ids: (r.body?.agents ?? []).map((a) => a.agent_id) };
 };
 
@@ -138,8 +151,11 @@ const seat = (agentId) => {
 // foreign key, and inventing one would fail the insert rather than the check.
 const SNAPSHOT = psql(`SELECT ref FROM market_snapshots ORDER BY tick_time DESC LIMIT 1`);
 const decideAgo = (agentId, seconds) => {
+  // Dated from AS_OF rather than now(), so the age this suite asserts on is the
+  // age the endpoint measures.
   psql(`INSERT INTO decisions (agent_id, season_id, ts, market_snapshot_ref, action, rationale)
-        VALUES ('${agentId}'::uuid, '${SEASON}'::uuid, now() - interval '${seconds} seconds',
+        VALUES ('${agentId}'::uuid, '${SEASON}'::uuid,
+                '${AS_OF}'::timestamptz - interval '${seconds} seconds',
                 '${SNAPSHOT}', 'hold', 'pace-verify fixture')`);
 };
 
@@ -314,7 +330,7 @@ await section('The due list is machine tier, and the pacer refuses a verificatio
     // version of this check read "exited non-zero" as "refused" — so a missing
     // binary passed it. That is the same shape as a suite reporting success
     // because it found no data, which this repository has written down twice.
-    spawnErr = e.code ?? null;
+    spawnErr = e.code ?? e.message?.slice(0, 80) ?? null;
     out = `${e.stdout ?? ''}${e.stderr ?? ''}`;
   }
   const said = out.trim() !== '';
