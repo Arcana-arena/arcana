@@ -162,24 +162,45 @@ func (e *Engine) Execute(ctx context.Context, req ExecuteRequest) (int64, error)
 	// the first decision through.
 	var prevPrices map[string]float64
 	var prevSnap *marketdata.Snapshot
-	if ownRef, oerr := e.store.LastDecisionSnapshotRef(ctx, req.AgentID, req.SeasonID); oerr != nil {
+	ownRef, oerr := e.store.LastDecisionSnapshotRef(ctx, req.AgentID, req.SeasonID)
+	fallBackToGlobal := false
+	switch {
+	case oerr != nil:
 		log.Printf("agent %s: could not read its last decision's snapshot (%v); comparing against "+
 			"the previous snapshot instead, which may be a shorter window than its cadence", req.AgentID, oerr)
-	} else if ownRef != "" && ownRef != req.MarketSnapshotRef {
+		fallBackToGlobal = true
+	case ownRef == "" || ownRef == req.MarketSnapshotRef:
+		// NO BASIS, AND THAT IS NOT THE SAME AS A SMALL MOVE. This agent has not
+		// decided in this season, so there is no window it has not seen — and
+		// substituting "the snapshot before this one" would hand a brand-new
+		// agent whatever gap another agent's run happened to leave, usually a
+		// minute, and a rebalance band over a minute holds every time. A funded
+		// agent's FIRST decision would have been a guaranteed hold for a reason
+		// that had nothing to do with it.
+		//
+		// nil is what the deciders already understand: materialMove() reads it as
+		// "there is a book to open" and asks the model, and every deterministic
+		// strategy stands still rather than guessing a direction from nothing.
+		log.Printf("agent %s: first decision of this season, so there are no prior prices to "+
+			"compare against — the decider is asked with a nil previous rather than a window "+
+			"nobody chose", req.AgentID)
+	default:
 		own, serr := e.md.GetSnapshot(ctx, ownRef)
 		switch {
 		case serr != nil:
 			log.Printf("agent %s: its last snapshot %s is unreadable (%v); comparing against the "+
 				"previous snapshot instead", req.AgentID, ownRef, serr)
+			fallBackToGlobal = true
 		case own != nil && own.Source != snap.Source:
 			log.Printf("agent %s: its last snapshot %s came from %s and this one from %s; comparing "+
 				"across two price sources would invent a return, so the previous snapshot is used",
 				req.AgentID, ownRef, own.Source, snap.Source)
+			fallBackToGlobal = true
 		default:
 			prevSnap = own
 		}
 	}
-	if prevSnap == nil {
+	if fallBackToGlobal {
 		var perr error
 		prevSnap, perr = e.md.GetPreviousSnapshot(ctx, req.MarketSnapshotRef)
 		if perr != nil {
