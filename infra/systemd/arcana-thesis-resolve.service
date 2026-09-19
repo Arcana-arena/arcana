@@ -1,0 +1,31 @@
+# Resolve every public thesis whose deadline has passed.
+#
+# A ONESHOT OVER HTTP, like the scoring batch, rather than a binary of its own:
+# the measurement reads the market index, and MarketIndexService in
+# agent-service owns the single definition of what the market did on a tick. A
+# separate process would have had to re-derive it, and the two would agree
+# until the day they did not.
+#
+# It runs unattended on purpose. The whole promise of a thesis is that its
+# verdict arrives without anyone deciding to publish it — a resolution someone
+# has to trigger is a resolution someone can decline to trigger.
+[Unit]
+Description=ARCANA public thesis resolution
+After=arcana-agent.service
+Wants=arcana-agent.service
+OnFailure=arcana-alert@%n.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+SyslogIdentifier=arcana-thesis-resolve
+Environment=AGENT_URL=http://localhost:3001
+EnvironmentFile=-/home/ubuntu/arcana/.env.auth
+# flock, because the job is idempotent but not free: two overlapping runs would
+# both measure every due thesis, and the second would find each row already
+# resolved and log a refusal for work that succeeded.
+ExecStart=/usr/bin/flock -n /tmp/arcana-thesis-resolve.lock /home/ubuntu/arcana/infra/systemd/arca-job.sh thesis-resolve ${AGENT_URL}/internal/v1/theses/resolve
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

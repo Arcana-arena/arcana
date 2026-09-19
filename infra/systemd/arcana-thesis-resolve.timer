@@ -1,0 +1,21 @@
+# Hourly, on the hour.
+#
+# WHY NOT DAILY, like the scoring batch. Every thesis carries its own
+# resolves_at, chosen by its author; a daily sweep would leave a claim whose
+# deadline fell at 00:05 unanswered for most of a day while the page said
+# "pending". Hourly bounds that lag to the granularity a creator can actually
+# pick a deadline at.
+#
+# Persistent, so a deadline that passed while the host was down is resolved on
+# the next boot rather than skipped. The measurement window is fixed by
+# created_at and resolves_at, so a late run reads exactly the same data an
+# on-time one would have.
+[Unit]
+Description=Resolve public theses whose deadline has passed
+
+[Timer]
+OnCalendar=*-*-* *:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

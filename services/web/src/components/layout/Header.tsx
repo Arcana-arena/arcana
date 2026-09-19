@@ -41,6 +41,7 @@ const NAV: NavItem[] = [
   { label: 'Leaderboard', href: '/leaderboard' },
   { label: 'Agents', href: '/agents' },
   { label: 'Marketplace', href: '/marketplace' },
+  { label: 'Theses', href: '/theses' },
   { label: 'Seasons', href: '/seasons' },
   { label: 'Docs', href: '/docs' },
 ];

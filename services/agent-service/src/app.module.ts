@@ -17,6 +17,7 @@ import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { EvolutionModule } from './evolution/evolution.module';
 import { AutopsyModule } from './autopsy/autopsy.module';
 import { IntelligenceModule } from './intelligence/intelligence.module';
+import { ThesesModule } from './theses/theses.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { IntelligenceModule } from './intelligence/intelligence.module';
     // service crash-looping on deploy with "can't resolve IntelligenceService"
     // — a failure no typecheck sees, because Nest resolves providers at boot.
     IntelligenceModule,
+    ThesesModule,
   ],
   controllers: [HealthController],
 })
