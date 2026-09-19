@@ -132,7 +132,7 @@ patch time.
 | `trade_size_pct` | fraction of NAV one trade may commit | 0.20 |
 | `max_position_pct` | ceiling on one symbol as a fraction of NAV | 0.35 |
 | `cash_floor_pct` | fraction of NAV never spent | 0.05 |
-| `rebalance_band_pct` | price move required before the agent acts at all | 0.003 |
+| `rebalance_band_pct` | price move required before the agent acts at all, **stated over a four-hour window and scaled to this agent's cadence** (see below) | 0.003 |
 | `stop_loss_fraction` | exit automatically this far below the price paid — **a fraction: 0.0015 is 0.15%** | none |
 | `take_profit_fraction` | exit automatically this far above the price paid — same scale | none |
 | `cost_budget_monthly_pct` | stand down when gas and pool fees cross this share of capital per 30 days | none — **unmetered** |
@@ -233,6 +233,55 @@ one trade in five. What an agent spends on pool fees is its owner's to spend. Wh
 bounds the platform is measured directly, per agent: the signer's
 `max_signatures_per_agent_per_day` and the engine's daily token budget. See
 [cadence.md](./cadence.md).
+
+## The rebalance band follows the cadence, automatically
+
+`rebalance_band_pct` is the move an agent needs before it acts — it gates whether
+the model is asked at all, and it is the entry threshold for the deterministic
+strategies. It was one number per agent, which worked while every agent was asked
+every four hours, because then there was only one window it could mean.
+
+Per-agent cadence made it ambiguous. Measured on production snapshots,
+2026-09-19:
+
+| Window | Largest move | Symbols past 0.3% |
+|---|---|---|
+| Friday 13:34→17:35 UTC (4h, US session) | GOOGL −2.015% | **6 of 9** |
+| Saturday 17:55→18:34 UTC (39m, market closed) | QQQ +0.056% | **0 of 9** |
+
+So the same 0.3% is an afternoon's drift over four hours and a violent spike over
+a minute. An owner shortening their cadence would have silently raised their own
+bar, and the agent's record would have said only "no symbol moved beyond the
+rebalance band" — true, and no help at all.
+
+**The owner's number now means "this much over four hours" and is scaled to
+whatever cadence they actually chose**, by the square root of the ratio. Prices
+compound as a random walk, so the distance they cover grows with √t rather than
+linearly — the same property option pricing uses to annualise volatility, and not
+something this platform gets to choose:
+
+| Cadence | 0.3% becomes | |
+|---|---|---|
+| 4h | 0.300% | the reference |
+| 1h | 0.150% | |
+| 15m | 0.075% | |
+| 1m | 0.019% | then floored by the fee, below |
+
+Linear scaling would have been the obvious mistake and wrong in the expensive
+direction: at one minute it gives 0.00125%, an eighth of the cheapest pool fee, so
+every minute's noise would read as a signal. A unit test asserts the square root
+has not been "simplified" away.
+
+**And the pool's own fee is the floor**, per symbol: 5 bp on the tight pools, 30 bp
+on the rest, one way. A move smaller than the fee cannot pay for the swap that acts
+on it — at a one-minute cadence the scaled band is 1.9 bp, so on AAPL the effective
+threshold is 5 bp rather than 1.9. One way and not the round trip, because entering
+costs one fee now while the exit is a separate decision with its own reason.
+
+This is the fee argument the old four-hour floor got wrong, put where it belongs.
+That floor bounded how often an agent could **think**, on the theory that thinking
+leads to trading; most decisions are holds, so it charged patient agents for
+impatient ones. This bounds what counts as a **signal**, at the venue's own price.
 
 ## Activation takes a seat, or it is refused
 

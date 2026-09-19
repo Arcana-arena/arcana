@@ -29,17 +29,24 @@ type AgentRow struct {
 	// Mandate is the user-supplied half of a parameterised agent: what its
 	// owner asked it to do. Empty for the built-in deterministic agents.
 	Mandate string
+	// CadenceSeconds is how often the owner asked for this agent to decide
+	// (migration 0054). The engine needs it because the rebalance band is a move
+	// over a WINDOW, and the window is this number: the same 0.3% means a normal
+	// afternoon's drift over four hours and a violent spike over one minute. See
+	// band.go.
+	CadenceSeconds int
 }
 
 // GetActiveAgent loads an agent and verifies it is active.
 func (s *Store) GetActiveAgent(ctx context.Context, agentID string) (*AgentRow, error) {
 	row := s.pool.QueryRow(ctx,
 		`SELECT id, status, COALESCE(strategy_type,''), risk_profile, asset_universe,
-		        COALESCE(mandate,'')
+		        COALESCE(mandate,''), cadence_seconds
 		 FROM agents WHERE id = $1`, agentID)
 	var a AgentRow
 	var risk []byte
-	if err := row.Scan(&a.ID, &a.Status, &a.StrategyType, &risk, &a.AssetUniverse, &a.Mandate); err != nil {
+	if err := row.Scan(&a.ID, &a.Status, &a.StrategyType, &risk, &a.AssetUniverse, &a.Mandate,
+		&a.CadenceSeconds); err != nil {
 		return nil, fmt.Errorf("load agent %s: %w", agentID, err)
 	}
 	if err := json.Unmarshal(risk, &a.RiskProfile); err != nil {

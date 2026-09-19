@@ -156,7 +156,7 @@ func (d *llmDecider) Decide(ctx context.Context, in DeciderInput) (tradeIntent, 
 	// to be told to hold. This is the cheapest lever on both the LLM bill and
 	// the gas bill, and it is the one idea from strategy.go worth carrying over
 	// wholesale.
-	if !materialMove(in.View, in.Limits) {
+	if !materialMove(in.View, in.Limits, in.EntryFeePct) {
 		ev.ReasonCode = ReasonNoMaterialMove
 		return hold("no symbol moved beyond the rebalance band; no inference purchased"), ev, nil
 	}
@@ -326,12 +326,19 @@ func declineReason(symbol string, in DeciderInput, l RiskLimits) string {
 }
 
 // materialMove reports whether anything moved enough to be worth an opinion.
-func materialMove(view marketView, l RiskLimits) bool {
+// materialMove reports whether any symbol has moved enough to be worth acting
+// on, per symbol, against a band that already carries this agent's cadence.
+//
+// `l.RebalanceBandPct` arrives SCALED (engine.Execute calls bandForCadence), and
+// the pool's own one-way fee is the floor under it: a move smaller than the fee
+// cannot pay for the swap that would act on it. `fee` is empty on the paper path,
+// where there is no pool and therefore no floor to apply. See band.go.
+func materialMove(view marketView, l RiskLimits, fee map[string]float64) bool {
 	if view.prev == nil {
 		return true // first tick of a season: there is a book to open
 	}
 	for _, q := range view.symbols {
-		if r, ok := view.ret(q.Symbol); ok && absFloat(r) > l.RebalanceBandPct {
+		if r, ok := view.ret(q.Symbol); ok && absFloat(r) > effectiveBand(l.RebalanceBandPct, fee[q.Symbol]) {
 			return true
 		}
 	}

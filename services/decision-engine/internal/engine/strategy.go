@@ -220,13 +220,17 @@ func hold(reason string) tradeIntent {
 // conservative of the three, and it matches what every agent did before
 // strategies existed (buy once, then sit). Failing closed into frantic
 // trading would be the wrong default for an agent nobody configured.
-func decide(strategyType string, view marketView, holdings map[string]any, cash, nav float64, l RiskLimits) tradeIntent {
+// `fee` is what each symbol's pool charges to enter, one way: the floor under
+// the rebalance band, which arrives already scaled to this agent's cadence. Nil
+// on the paper path, where there is no pool and so no floor. See band.go.
+func decide(strategyType string, view marketView, holdings map[string]any, cash, nav float64, l RiskLimits,
+	fee map[string]float64) tradeIntent {
 	var out tradeIntent
 	switch strategyType {
 	case "momentum":
-		out = momentumStrategy(view, holdings, cash, nav, l)
+		out = momentumStrategy(view, holdings, cash, nav, l, fee)
 	case "mean_reversion":
-		out = meanReversionStrategy(view, holdings, cash, nav, l)
+		out = meanReversionStrategy(view, holdings, cash, nav, l, fee)
 	default:
 		// buy_and_hold, "", and anything unrecognised.
 		out = buyAndHoldStrategy(view, holdings, cash, nav, l)
@@ -245,7 +249,11 @@ func decide(strategyType string, view marketView, holdings map[string]any, cash,
 // Character: acts on almost every tick that shows a move beyond the band, so
 // turnover is high and drawdowns are deeper — it is always holding whatever
 // just went up.
-func momentumStrategy(view marketView, holdings map[string]any, cash, nav float64, l RiskLimits) tradeIntent {
+func momentumStrategy(view marketView, holdings map[string]any, cash, nav float64, l RiskLimits,
+	fee map[string]float64) tradeIntent {
+	// The band already carries this agent's cadence (engine.Execute scales it);
+	// this adds the floor the venue imposes, per symbol. See band.go.
+	band := func(sym string) float64 { return effectiveBand(l.RebalanceBandPct, fee[sym]) }
 	ranked, ok := rankByReturn(view)
 	if !ok {
 		return hold("no prior tick to measure momentum against")
@@ -253,7 +261,7 @@ func momentumStrategy(view marketView, holdings map[string]any, cash, nav float6
 
 	// Buy the leader while it is still rising.
 	best := ranked[0]
-	if best.ret > l.RebalanceBandPct {
+	if best.ret > band(best.symbol) {
 		if qty := buyableQty(best.symbol, view, holdings, cash, nav, l); qty > 0 {
 			return tradeIntent{
 				Action: "buy", Symbol: best.symbol, Quantity: qty,
@@ -266,7 +274,7 @@ func momentumStrategy(view marketView, holdings map[string]any, cash, nav float6
 	// Otherwise cut whatever is falling hardest.
 	for i := len(ranked) - 1; i >= 0; i-- {
 		c := ranked[i]
-		if c.ret >= -l.RebalanceBandPct {
+		if c.ret >= -band(c.symbol) {
 			break // sorted: nothing below this is a loser either
 		}
 		if held := HeldQty(holdings, c.symbol); held > 0 {
@@ -286,7 +294,9 @@ func momentumStrategy(view marketView, holdings map[string]any, cash, nav float6
 // Character: trades about as often as momentum but in the opposite direction,
 // so on the same market the two produce visibly different holdings and NAV
 // paths — which is the point of having both.
-func meanReversionStrategy(view marketView, holdings map[string]any, cash, nav float64, l RiskLimits) tradeIntent {
+func meanReversionStrategy(view marketView, holdings map[string]any, cash, nav float64, l RiskLimits,
+	fee map[string]float64) tradeIntent {
+	band := func(sym string) float64 { return effectiveBand(l.RebalanceBandPct, fee[sym]) }
 	ranked, ok := rankByReturn(view)
 	if !ok {
 		return hold("no prior tick to measure reversion against")
@@ -294,7 +304,7 @@ func meanReversionStrategy(view marketView, holdings map[string]any, cash, nav f
 
 	// Buy the biggest decline.
 	worst := ranked[len(ranked)-1]
-	if worst.ret < -l.RebalanceBandPct {
+	if worst.ret < -band(worst.symbol) {
 		if qty := buyableQty(worst.symbol, view, holdings, cash, nav, l); qty > 0 {
 			return tradeIntent{
 				Action: "buy", Symbol: worst.symbol, Quantity: qty,
@@ -306,7 +316,7 @@ func meanReversionStrategy(view marketView, holdings map[string]any, cash, nav f
 
 	// Otherwise take profit on whatever rose.
 	for _, c := range ranked {
-		if c.ret <= l.RebalanceBandPct {
+		if c.ret <= band(c.symbol) {
 			break // sorted desc: nothing after this rose either
 		}
 		if held := HeldQty(holdings, c.symbol); held > 0 {

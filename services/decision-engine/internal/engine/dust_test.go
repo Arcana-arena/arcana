@@ -178,7 +178,7 @@ func TestMomentumWillNotBuildASellOutOfResidue(t *testing.T) {
 		prices:  map[string]float64{"GOOGL": 90},
 		prev:    map[string]float64{"GOOGL": 100},
 	}
-	got := momentumStrategy(view, map[string]any{"GOOGL": 1e-18}, 0, 1000, l)
+	got := momentumStrategy(view, map[string]any{"GOOGL": 1e-18}, 0, 1000, l, nil)
 	if got.Action == "sell" {
 		t.Fatalf("momentum tried to sell residue: %+v", got)
 	}
@@ -193,7 +193,7 @@ func TestMomentumStillSellsARealPosition(t *testing.T) {
 		prices:  map[string]float64{"GOOGL": 90},
 		prev:    map[string]float64{"GOOGL": 100},
 	}
-	got := momentumStrategy(view, map[string]any{"GOOGL": 0.5}, 0, 1000, l)
+	got := momentumStrategy(view, map[string]any{"GOOGL": 0.5}, 0, 1000, l, nil)
 	if got.Action != "sell" || got.Symbol != "GOOGL" {
 		t.Fatalf("momentum stopped selling real positions too: %+v", got)
 	}

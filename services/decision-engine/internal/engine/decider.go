@@ -53,6 +53,14 @@ type DeciderInput struct {
 	// asking for one by accident.
 	MinGuardPct map[string]float64
 
+	// EntryFeePct is what each symbol's pool charges to enter, one way, keyed by
+	// symbol: 0.0005 on the tight pools, 0.003 on the rest. It is the floor under
+	// the rebalance band — a move smaller than the fee cannot pay for the swap
+	// that acts on it — and it is applied per symbol because the fee is per pool.
+	// Empty on the paper path: no pool, no fee, and an unknown fee must not become
+	// a floor of zero. See band.go.
+	EntryFeePct map[string]float64
+
 	// THE INFERENCE METER, read before anything is spent.
 	//
 	// TokensUsedToday is what this agent has already spent on the model since
@@ -124,6 +132,6 @@ func NewDeterministicDecider() Decider { return deterministicDecider{} }
 func (deterministicDecider) Name() string { return "deterministic" }
 
 func (deterministicDecider) Decide(_ context.Context, in DeciderInput) (tradeIntent, Evidence, error) {
-	intent := decide(in.Strategy, in.View, in.Holdings, in.Cash, in.NAV, in.Limits)
+	intent := decide(in.Strategy, in.View, in.Holdings, in.Cash, in.NAV, in.Limits, in.EntryFeePct)
 	return intent, Evidence{Decider: "deterministic"}, nil
 }

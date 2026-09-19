@@ -232,6 +232,21 @@ func (e *Engine) Execute(ctx context.Context, req ExecuteRequest) (int64, error)
 	}
 
 	limits := riskLimitsFrom(agent.RiskProfile)
+
+	// THE BAND IS A MOVE OVER A WINDOW, AND THE WINDOW IS THIS AGENT'S CADENCE.
+	//
+	// The owner's number means "this much over four hours" (BandReferenceWindow)
+	// and is scaled to whatever they actually asked to be paced at, by the square
+	// root of the ratio — prices compound as a random walk, so the distance they
+	// cover grows with the square root of the interval rather than linearly.
+	//
+	// Without this, shortening a cadence silently raised the bar: 0.3% is an
+	// afternoon's drift over four hours and a violent spike over one minute, and
+	// an agent set to a minute would have read "no symbol moved beyond the
+	// rebalance band" forever while its owner watched it do nothing. See band.go
+	// for the measurements and the fee floor that goes with it.
+	cadence := time.Duration(agent.CadenceSeconds) * time.Second
+	limits.RebalanceBandPct = bandForCadence(limits.RebalanceBandPct, cadence)
 	if wallet != nil {
 		// Tokens divide to eighteen decimals; the recorded quantity holds eight.
 		// The default hundredth-of-a-share step is a convention from simulated
@@ -263,10 +278,17 @@ func (e *Engine) Execute(ctx context.Context, req ExecuteRequest) (int64, error)
 	// What each pool will accept, for the prompt. Empty without a broker, which
 	// is the paper path: there is no pool, so there is no round trip to state.
 	minGuard := map[string]float64{}
+	// AND WHAT EACH POOL CHARGES TO ENTER, which is the floor under the band: a
+	// move smaller than the fee cannot pay for the swap that acts on it. One way
+	// rather than the round trip, because entering costs one fee now and the exit
+	// is a separate decision with its own reason. Empty on the paper path, where
+	// an unknown fee must not become a floor of zero.
+	entryFee := map[string]float64{}
 	if e.broker != nil {
 		for _, q := range snap.Symbols {
 			if fee := e.broker.PoolFeeOf(q.Symbol); fee > 0 {
 				minGuard[q.Symbol] = roundTripPct(fee)
+				entryFee[q.Symbol] = oneWayPct(fee)
 			}
 		}
 	}
@@ -282,6 +304,7 @@ func (e *Engine) Execute(ctx context.Context, req ExecuteRequest) (int64, error)
 		Limits:   limits,
 
 		MinGuardPct: minGuard,
+		EntryFeePct: entryFee,
 
 		TokensUsedToday: usedToday,
 		TokenBudget:     e.tokenBudget,
