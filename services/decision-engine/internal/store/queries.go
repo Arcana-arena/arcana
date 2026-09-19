@@ -170,6 +170,48 @@ func (s *Store) AppendDecision(ctx context.Context, d DecisionInsert) (int64, er
 	return id, nil
 }
 
+// LastDecisionSnapshotRef returns the market snapshot THIS AGENT last decided
+// against, or "" if it has never decided in this season.
+//
+// WHY IT EXISTS, and it is a bug bought on 2026-09-20. Every strategy reacts to
+// a price MOVE: the rebalance band asks whether anything moved more than the
+// owner's threshold, and momentum and mean-reversion read the same return. The
+// "previous" prices came from GetPreviousSnapshot — the snapshot immediately
+// before this one, globally.
+//
+// That was correct while one four-hourly tick made every agent decide at once:
+// the snapshot before yours was always the one from your own last decision. The
+// moment cadence became per-agent it stopped being true. Snapshots are now taken
+// whenever ANY agent is due, so "the previous snapshot" can be one minute old,
+// and an agent on a four-hour cadence was asked whether the market had moved
+// 0.3% in the last sixty seconds. It never had, so it held — forever, for a
+// reason nothing in its record would have explained.
+//
+// So the comparison is per agent: the move since THIS agent last looked. A
+// four-hour agent measures four hours, a fifteen-minute agent measures fifteen
+// minutes, and the band means what its owner thinks it means.
+//
+// Scoped to the season because a portfolio is, and ordered by ts with the id as
+// the tie-break: decisions is a hypertable keyed on (id, agent_id, ts), and two
+// rows can share a timestamp when a protective close is recorded alongside a
+// decision.
+func (s *Store) LastDecisionSnapshotRef(ctx context.Context, agentID, seasonID string) (string, error) {
+	var ref string
+	err := s.pool.QueryRow(ctx, `
+		SELECT market_snapshot_ref
+		  FROM decisions
+		 WHERE agent_id = $1 AND season_id = $2
+		 ORDER BY ts DESC, id DESC
+		 LIMIT 1`, agentID, seasonID).Scan(&ref)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", fmt.Errorf("last decision snapshot: %w", err)
+	}
+	return ref, nil
+}
+
 // WriteSnapshot upserts a portfolio snapshot for a point in time.
 func (s *Store) WriteSnapshot(ctx context.Context, portfolioID string, ts time.Time, holdings map[string]any, nav, cash string) error {
 	_, err := s.pool.Exec(ctx,

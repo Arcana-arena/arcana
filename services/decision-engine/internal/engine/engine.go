@@ -137,13 +137,54 @@ func (e *Engine) Execute(ctx context.Context, req ExecuteRequest) (int64, error)
 	cash := parseMoney(portfolio.Cash)
 	holdings := portfolio.Holdings
 
-	// Previous tick's prices give the strategy a direction to react to. Its
-	// absence (first tick of a season) is normal, and every strategy handles a
-	// nil prev by standing still rather than guessing.
+	// THE MOVE THIS AGENT HAS NOT SEEN YET, which is the prices it last decided
+	// against — not the snapshot immediately before this one.
+	//
+	// The difference did not exist while one four-hourly tick made every agent
+	// decide together: the snapshot before yours WAS the one from your last
+	// decision. Per-agent cadence broke that on 2026-09-20. Snapshots are taken
+	// whenever any agent is due, so the global previous can be sixty seconds
+	// old, and an agent on a four-hour cadence was asked whether anything had
+	// moved 0.3% in the last minute. Nothing ever had. Every agent held, on
+	// every run, and its record said only "no symbol moved beyond the rebalance
+	// band" — true, and about a window nobody chose.
+	//
+	// SOURCE MUST MATCH, and this is not defensive noise: a ref left over from
+	// the Polygon vendor path describes a different market from the pool, and
+	// comparing across them would invent a return out of the gap between two
+	// price sources. Mismatched, or unreadable, falls back to the global
+	// previous — the old behaviour, which is wrong by a different amount but
+	// never wrong about WHICH market.
+	//
+	// Its absence (this agent's first decision of the season) is normal, and
+	// every strategy handles a nil prev by standing still rather than guessing —
+	// except that materialMove() reads nil as "there is a book to open" and lets
+	// the first decision through.
 	var prevPrices map[string]float64
-	prevSnap, err := e.md.GetPreviousSnapshot(ctx, req.MarketSnapshotRef)
-	if err != nil {
-		return 0, fmt.Errorf("previous snapshot: %w", err)
+	var prevSnap *marketdata.Snapshot
+	if ownRef, oerr := e.store.LastDecisionSnapshotRef(ctx, req.AgentID, req.SeasonID); oerr != nil {
+		log.Printf("agent %s: could not read its last decision's snapshot (%v); comparing against "+
+			"the previous snapshot instead, which may be a shorter window than its cadence", req.AgentID, oerr)
+	} else if ownRef != "" && ownRef != req.MarketSnapshotRef {
+		own, serr := e.md.GetSnapshot(ctx, ownRef)
+		switch {
+		case serr != nil:
+			log.Printf("agent %s: its last snapshot %s is unreadable (%v); comparing against the "+
+				"previous snapshot instead", req.AgentID, ownRef, serr)
+		case own != nil && own.Source != snap.Source:
+			log.Printf("agent %s: its last snapshot %s came from %s and this one from %s; comparing "+
+				"across two price sources would invent a return, so the previous snapshot is used",
+				req.AgentID, ownRef, own.Source, snap.Source)
+		default:
+			prevSnap = own
+		}
+	}
+	if prevSnap == nil {
+		var perr error
+		prevSnap, perr = e.md.GetPreviousSnapshot(ctx, req.MarketSnapshotRef)
+		if perr != nil {
+			return 0, fmt.Errorf("previous snapshot: %w", perr)
+		}
 	}
 	if prevSnap != nil {
 		prevPrices = map[string]float64{}
