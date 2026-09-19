@@ -84,6 +84,63 @@ let creatorId = null;
 const agentIds = [];
 const thesisIds = [];
 
+/** USDG on this chain, and its decimals. Same constants the service uses. */
+const USDG = '0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168';
+const USDG_DECIMALS = 6;
+
+/**
+ * Publishes a thesis over a window that has already closed, with a NAV curve
+ * written under it.
+ *
+ * DIRECT SQL, not the endpoint, and only for windows in the past: the endpoint
+ * refuses a deadline that is not in the future, which is correct and is what
+ * makes it impossible to exercise resolution through it. The claim, criteria
+ * and benchmark are still written once and never touched again, so the rows
+ * take exactly the path a real thesis takes from the moment they exist.
+ */
+function publishBackdated({ agentId, claim, benchmark, criteria, from, to, navs, stamps }) {
+  const id = sql1(
+    `INSERT INTO public_theses
+       (creator_id, linked_agent_id, claim_text, benchmark_ref, criteria, created_at, resolves_at)
+     VALUES ('${creatorId}', '${agentId}', '${claim.replace(/'/g, "''")}',
+             '${JSON.stringify(benchmark)}'::jsonb, '${JSON.stringify(criteria)}'::jsonb,
+             '${from}'::timestamptz, '${to}'::timestamptz)
+     RETURNING id`);
+  thesisIds.push(id);
+
+  if (navs) {
+    let portfolioId = sql1(
+      `SELECT id FROM portfolios WHERE agent_id = '${agentId}' ORDER BY created_at LIMIT 1`);
+    if (!portfolioId) {
+      const seasonId = sql1(`SELECT id FROM seasons ORDER BY start_at DESC LIMIT 1`);
+      portfolioId = sql1(
+        `INSERT INTO portfolios (agent_id, season_id, initial_capital)
+         VALUES ('${agentId}', '${seasonId}', 100) RETURNING id`);
+    }
+    for (let i = 0; i < navs.length; i++) {
+      sql(`INSERT INTO portfolio_snapshots (portfolio_id, ts, holdings, nav, cash)
+           VALUES ('${portfolioId}', '${stamps[i]}'::timestamptz, '{}'::jsonb, ${navs[i]}, ${navs[i]})
+           ON CONFLICT (portfolio_id, ts) DO UPDATE SET nav = EXCLUDED.nav, cash = EXCLUDED.cash`);
+    }
+  }
+  return id;
+}
+
+/** Records an external transfer the way the chain reconciler records one. */
+function recordDrift({ agentId, at, symbol, tokenAddress, units, decimals }) {
+  const base = BigInt(Math.round(units * Math.pow(10, decimals)));
+  sql(`INSERT INTO custody_drift
+         (agent_id, detected_at, token_address, symbol, expected, observed, delta, resolution, note)
+       VALUES ('${agentId}', '${at}'::timestamptz, ${tokenAddress ? `'${tokenAddress}'` : 'NULL'},
+               '${symbol}', 0, ${base}, ${base}, 'reconciled', 'thesis-verify fixture')`);
+}
+
+const resolveNow = async () =>
+  api('/internal/v1/theses/resolve', { method: 'POST', headers: { 'x-internal-key': INTERNAL_KEY } });
+
+const measurementOf = (id) =>
+  JSON.parse(sql1(`SELECT coalesce(measurement::text, 'null') FROM public_theses WHERE id = '${id}'`));
+
 function purge(handleLike) {
   // DISABLE TRIGGER, because the immutability trigger refuses every delete
   // without exception — which is the whole point of section 4. Table ownership
@@ -93,6 +150,8 @@ function purge(handleLike) {
          DELETE FROM articles WHERE creator_id IN (SELECT id FROM creators WHERE handle LIKE '${handleLike}');
          DELETE FROM public_theses WHERE creator_id IN (SELECT id FROM creators WHERE handle LIKE '${handleLike}');
          ALTER TABLE public_theses ENABLE TRIGGER public_theses_immutable;
+         DELETE FROM custody_drift WHERE agent_id IN (
+           SELECT id FROM agents WHERE creator_id IN (SELECT id FROM creators WHERE handle LIKE '${handleLike}'));
          DELETE FROM portfolio_snapshots WHERE portfolio_id IN (
            SELECT p.id FROM portfolios p JOIN agents a ON a.id = p.agent_id
             WHERE a.creator_id IN (SELECT id FROM creators WHERE handle LIKE '${handleLike}'));
@@ -481,6 +540,277 @@ try {
         method: 'PATCH', body: { body: 'The prose, revised. This is allowed; the claim is not.' }});
       check('while the prose stays editable', edited.status === 200, `status ${edited.status}`);
     }
+  });
+  // =====================================================================
+  await section('7. A withdrawal is removed from the return, not counted as a loss', async () => {
+    // THE CASE THAT DECIDED THE DESIGN, reproduced number for number.
+    //
+    // onchain_live_v1's NAV fell 11.79 -> 3.98 while its own trades netted
+    // +0.07, because 7.88 USDG was moved out of the wallet. On raw NAV that is
+    // -66%, and a claim that was right would have been published as wrong for
+    // good. Until this section existed, nothing anywhere proved the adjustment
+    // actually happens — the whole reason for choosing a flow-adjusted return
+    // rested on code nobody had run.
+    const to = sql1(`SELECT max(tick_time) FROM market_snapshots`);
+    const from = sql1(
+      `SELECT tick_time FROM market_snapshots
+        WHERE tick_time <= (SELECT max(tick_time) FROM market_snapshots) - interval '25 hours'
+        ORDER BY tick_time DESC LIMIT 1`);
+    const mid = sql1(
+      `SELECT tick_time FROM market_snapshots
+        WHERE tick_time > '${from}'::timestamptz AND tick_time < '${to}'::timestamptz
+        ORDER BY tick_time ASC LIMIT 1`);
+
+    const agentId = agentIds[0];
+    const id = publishBackdated({
+      agentId,
+      claim: 'The owner moving their own money out must not decide this claim.',
+      benchmark: { kind: 'arcana_index' },
+      criteria: { comparison: 'gt', margin_pct: 0 },
+      from, to,
+      navs: [11.79, 11.86, 3.98],
+      stamps: [from, mid, to],
+    });
+    // -7.88 USDG, detected between the last two snapshots: exactly the transfer
+    // that took the NAV down.
+    recordDrift({ agentId, at: to, symbol: 'USDG', tokenAddress: USDG,
+                  units: -7.88, decimals: USDG_DECIMALS });
+
+    await resolveNow();
+    const m = measurementOf(id);
+    const agentReturn = Number(
+      sql1(`SELECT result_performance FROM public_theses WHERE id = '${id}'`));
+    const rawReturn = m?.agent?.raw_nav_return;
+
+    check('the raw NAV series really does fall about 66%',
+      rawReturn !== null && rawReturn < -0.6 && rawReturn > -0.7, `raw_nav_return=${rawReturn}`);
+    check('but the measured return is not that loss',
+      agentReturn > -0.1, `result_performance=${agentReturn}`);
+    // (3.98 - (-7.88)) / 11.79 - 1 = +0.60%, chained through the first leg.
+    check('it is the small positive the trades actually produced',
+      agentReturn > 0 && agentReturn < 0.05, `result_performance=${agentReturn}`);
+    check('and the transfer is named in the evidence, not silently netted out',
+      JSON.stringify(m?.agent?.external_flows ?? []).includes('USDG'),
+      JSON.stringify(m?.agent?.external_flows));
+    check('the measurement is marked complete, because the flow could be priced',
+      m?.complete === true, `complete=${m?.complete}`);
+
+    // AND A TRANSFER NOBODY CAN PRICE MARKS THE RESULT INEXACT rather than
+    // quietly counting as zero — which always flatters the agent, because an
+    // unremoved deposit reads as skill.
+    const agent2 = agentIds[1];
+    const id2 = publishBackdated({
+      agentId: agent2,
+      claim: 'A transfer in a token with no price must not pass as a clean measurement.',
+      benchmark: { kind: 'arcana_index' },
+      criteria: { comparison: 'gt', margin_pct: 0 },
+      from, to,
+      navs: [100, 105, 110],
+      stamps: [from, mid, to],
+    });
+    recordDrift({ agentId: agent2, at: to, symbol: 'ZZZZ', tokenAddress: null,
+                  units: 5, decimals: 18 });
+    await resolveNow();
+    const m2 = measurementOf(id2);
+    check('an unpriced transfer marks the measurement incomplete',
+      m2?.complete === false, `complete=${m2?.complete}`);
+    check('and the reason names the token it could not price',
+      typeof m2?.incomplete_because === 'string' && /ZZZZ/.test(m2.incomplete_because),
+      `${m2?.incomplete_because}`);
+
+    const api2 = await api(`/v1/theses/${id2}`);
+    check('the API says so too, beside the number rather than buried in the blob',
+      api2.body?.result?.measurement_complete === false,
+      `measurement_complete=${api2.body?.result?.measurement_complete}`);
+    const p2 = await page(`/theses/${id2}`);
+    check('and the page refuses to print it as an exact figure',
+      /approx/i.test(text(p2.html)), 'the page shows a clean number for holed data');
+  });
+
+  // =====================================================================
+  await section('8. The price-based benchmarks resolve, and the margin decides', async () => {
+    const to = sql1(`SELECT max(tick_time) FROM market_snapshots`);
+    const from = sql1(
+      `SELECT tick_time FROM market_snapshots
+        WHERE tick_time <= (SELECT max(tick_time) FROM market_snapshots) - interval '25 hours'
+        ORDER BY tick_time DESC LIMIT 1`);
+    const mid = sql1(
+      `SELECT tick_time FROM market_snapshots
+        WHERE tick_time > '${from}'::timestamptz AND tick_time < '${to}'::timestamptz
+        ORDER BY tick_time ASC LIMIT 1`);
+    const agentId = agentIds[0];
+
+    // A SINGLE SYMBOL. Until now only arcana_index was ever resolved, so the
+    // whole price-reading leg — two snapshot payloads, one ratio — had never
+    // executed outside a type signature.
+    const sym = publishBackdated({
+      agentId, claim: 'This agent outperforms the S&P 500 proxy over the window.',
+      benchmark: { kind: 'symbol', symbols: ['SPY'] },
+      criteria: { comparison: 'gt', margin_pct: 0 },
+      from, to, navs: [100, 150, 200], stamps: [from, mid, to],
+    });
+    const basket = publishBackdated({
+      agentId, claim: 'This agent outperforms an equal-weighted large-cap basket.',
+      benchmark: { kind: 'basket', symbols: ['SPY', 'QQQ'] },
+      criteria: { comparison: 'gt', margin_pct: 0 },
+      from, to, navs: [100, 150, 200], stamps: [from, mid, to],
+    });
+    await resolveNow();
+
+    const statusOf = (id) => sql1(`SELECT status FROM public_theses WHERE id = '${id}'`);
+    check('a single-symbol benchmark resolves', statusOf(sym) !== 'pending', `got ${statusOf(sym)}`);
+    check('a basket benchmark resolves', statusOf(basket) !== 'pending', `got ${statusOf(basket)}`);
+
+    const mSym = measurementOf(sym);
+    check('the symbol leg carries a price at both ends of the window',
+      (mSym?.benchmark?.legs ?? []).every((l) => l.price_from !== null && l.price_to !== null),
+      JSON.stringify(mSym?.benchmark?.legs));
+    const mBasket = measurementOf(basket);
+    check('the basket averaged two priced legs, equally weighted',
+      (mBasket?.benchmark?.legs ?? []).length === 2 && mBasket?.benchmark?.legs_unpriced === 0,
+      JSON.stringify(mBasket?.benchmark));
+    check('both sides were measured over the same interval, anchor to final',
+      mSym?.measured_window?.from === mBasket?.measured_window?.from &&
+      mSym?.measured_window?.to === mBasket?.measured_window?.to,
+      `${JSON.stringify(mSym?.measured_window)} vs ${JSON.stringify(mBasket?.measured_window)}`);
+
+    // A BENCHMARK NOTHING HAS EVER PRICED. The publish endpoint refuses this,
+    // which is why it has to be written directly: the point is what resolution
+    // does when the benchmark cannot be measured at all -- leave it pending
+    // rather than decide it, because deciding happens once and for good.
+    const unpriceable = publishBackdated({
+      agentId, claim: 'This benchmark is a ticker the market has never carried.',
+      benchmark: { kind: 'symbol', symbols: ['NOTREAL'] },
+      criteria: { comparison: 'gt', margin_pct: 0 },
+      from, to, navs: null, stamps: null,
+    });
+    const run = await resolveNow();
+    check('a thesis whose benchmark cannot be priced is left pending, not decided',
+      statusOf(unpriceable) === 'pending', `got ${statusOf(unpriceable)}`);
+    check('and the job reports it as skipped rather than resolved',
+      (run.body?.skipped ?? 0) >= 1, JSON.stringify(run.body));
+
+    // MARGIN THAT ACTUALLY BITES. Same agent, same window, same benchmark --
+    // only the locked margin differs, and it must flip the verdict.
+    const tight = publishBackdated({
+      agentId, claim: 'This agent beats the index by any margin at all over the window.',
+      benchmark: { kind: 'arcana_index' }, criteria: { comparison: 'gt', margin_pct: 0 },
+      from, to, navs: [100, 105, 110], stamps: [from, mid, to],
+    });
+    const wide = publishBackdated({
+      agentId, claim: 'This agent beats the index by more than ninety points over the window.',
+      benchmark: { kind: 'arcana_index' }, criteria: { comparison: 'gt', margin_pct: 90 },
+      from, to, navs: [100, 105, 110], stamps: [from, mid, to],
+    });
+    await resolveNow();
+    check('a ~10% gain clears a zero margin', statusOf(tight) === 'proven', `got ${statusOf(tight)}`);
+    check('and the same gain fails a 90-point margin — the criteria decide, not the numbers alone',
+      statusOf(wide) === 'not_proven', `got ${statusOf(wide)}`);
+  });
+
+  // =====================================================================
+  await section('9. Pausing the agent does not rescue the thesis', async () => {
+    // The decision taken at design time, now executed: a creator watching a
+    // claim fail must not be able to cancel the record by standing the agent
+    // down. The measurement runs to the deadline either way and the state is
+    // published beside the verdict.
+    const to = sql1(`SELECT max(tick_time) FROM market_snapshots`);
+    const from = sql1(
+      `SELECT tick_time FROM market_snapshots
+        WHERE tick_time <= (SELECT max(tick_time) FROM market_snapshots) - interval '25 hours'
+        ORDER BY tick_time DESC LIMIT 1`);
+    const mid = sql1(
+      `SELECT tick_time FROM market_snapshots
+        WHERE tick_time > '${from}'::timestamptz AND tick_time < '${to}'::timestamptz
+        ORDER BY tick_time ASC LIMIT 1`);
+
+    const agentId = agentIds[1];
+    const id = publishBackdated({
+      agentId, claim: 'This claim is about to have its agent paused underneath it.',
+      benchmark: { kind: 'arcana_index' }, criteria: { comparison: 'gt', margin_pct: 0 },
+      from, to, navs: [100, 60, 40], stamps: [from, mid, to],
+    });
+
+    const paused = await api(`/v1/agents/${agentId}/pause`, {
+      method: 'POST', body: { because: 'thesis-verify: standing the agent down mid-claim' },
+    });
+    check('the agent can be paused', paused.status === 200, `status ${paused.status}`);
+    check('and it really is paused',
+      sql1(`SELECT status FROM agents WHERE id = '${agentId}'`) === 'paused',
+      sql1(`SELECT status FROM agents WHERE id = '${agentId}'`));
+
+    await resolveNow();
+    const row = sql1(
+      `SELECT status || '|' || coalesce(agent_status_at_resolution, 'null')
+         FROM public_theses WHERE id = '${id}'`);
+    const [status, at] = row.split('|');
+    check('the thesis still resolves rather than being voided', status !== 'pending', `got ${status}`);
+    check('it resolves NOT PROVEN on the data, exactly as if nothing had been paused',
+      status === 'not_proven', `got ${status}`);
+    check('and the paused state is recorded beside the verdict for a reader to weigh',
+      at === 'paused', `agent_status_at_resolution=${at}`);
+
+    const p = await page(`/theses/${id}`);
+    check('the page says the pause did not void it',
+      /does not void the thesis/i.test(text(p.html)), 'the page omits the explanation');
+  });
+
+  // =====================================================================
+  await section('10. Paging, two-way links, and the overdue signal', async () => {
+    const paged = await api(`/v1/creators/${creatorId}/theses?page=1&page_size=2`);
+    check('a creator\'s theses are paged', (paged.body?.items ?? []).length <= 2,
+      `${(paged.body?.items ?? []).length} items came back`);
+    check('and the page reports whether more exist', paged.body?.has_more === true,
+      `has_more=${paged.body?.has_more} total=${paged.body?.total}`);
+    check('the proven rate is counted over everything, not over the page',
+      paged.body?.record?.published === paged.body?.total,
+      `record.published=${paged.body?.record?.published} total=${paged.body?.total}`);
+
+    const p2 = await api(`/v1/creators/${creatorId}/theses?page=2&page_size=2`);
+    const firstIds = (paged.body?.items ?? []).map((t) => t.id);
+    const secondIds = (p2.body?.items ?? []).map((t) => t.id);
+    check('page 2 is a different set of rows',
+      secondIds.length > 0 && secondIds.every((id) => !firstIds.includes(id)),
+      `${firstIds} vs ${secondIds}`);
+
+    const recent = await api('/v1/theses/recent?page=1&page_size=3');
+    check('the recent list is paged too', (recent.body?.items ?? []).length <= 3,
+      `${(recent.body?.items ?? []).length} items`);
+
+    // TWO-WAY LINK. The article pointed at its thesis and the thesis pointed
+    // nowhere, so a reader who landed on a verdict could not reach the argument.
+    // A thesis that section 6 has not already bound an article to.
+    const linkTarget = thesisIds[thesisIds.length - 1];
+    const article = await api('/v1/articles', { method: 'POST', body: {
+      title: `${TAG} two-way`, body: 'The argument behind the claim.', thesis_id: linkTarget }});
+    const back = await api(`/v1/theses/${linkTarget}`);
+    check('a thesis names the article that carries it',
+      back.body?.article?.id === article.body?.id,
+      `thesis.article=${JSON.stringify(back.body?.article)}`);
+    const tp = await page(`/theses/${linkTarget}`);
+    check('and the page links to it', tp.html.includes(`/articles/${article.body?.id}`),
+      'no link to the article on the thesis page');
+
+    // THE OVERDUE SIGNAL. A thesis stuck pending past its deadline used to be
+    // invisible; it is now a status component. It is scoped to live creators,
+    // so this suite's own overdue fixture must NOT be able to redden the public
+    // badge — both halves are checked, because a probe that fires on fixtures
+    // is a probe that will cry wolf every verification run.
+    const overdueFixtures = sql1(
+      `SELECT count(*) FROM public_theses t JOIN creators c ON c.id = t.creator_id
+        WHERE t.status = 'pending' AND t.resolves_at < now() - interval '2 hours'
+          AND c.provenance = 'verification'`);
+    check('this run really does leave an overdue pending fixture behind',
+      Number(overdueFixtures) >= 1, `count=${overdueFixtures}`);
+
+    const st = await api('/v1/status');
+    const probe = (st.body?.components ?? []).find((c) => c.key === 'thesis_resolution');
+    check('the status endpoint carries a thesis-resolution probe', probe !== undefined,
+      JSON.stringify((st.body?.components ?? []).map((c) => c.key)));
+    check('and a verification fixture does not turn the public badge red',
+      probe?.state === 'operational', `state=${probe?.state} detail=${probe?.detail}`);
+    check('the probe states the threshold it judges against',
+      typeof probe?.threshold === 'string' && /hours/.test(probe.threshold), `${probe?.threshold}`);
   });
 } catch (e) {
   check('the suite ran to completion', false, e?.message ?? String(e));

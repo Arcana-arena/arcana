@@ -176,6 +176,17 @@ export default async function CreatorPage({ params }: { params: Promise<{ id: st
       </div>
 
       <div className="sec" style={{ paddingBottom: 16, borderBottom: 'none' }}>
+        {/*
+          THE FORECASTING RECORD, reachable. The page existed from the day the
+          feature shipped and nothing on this site linked to it, so the only way
+          in was to know the URL — which is the same as it not existing for
+          everyone but its author.
+        */}
+        <div style={{ marginBottom: 14 }}>
+          <Link href={`/creators/${id}/theses`} style={{ fontSize: 12.5 }}>
+            Forecasting record — every thesis this creator published →
+          </Link>
+        </div>
         <div className="stat-row">
           <div className="box">
             <Key>Agents live</Key>

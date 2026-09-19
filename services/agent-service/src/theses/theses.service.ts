@@ -195,10 +195,12 @@ export class ThesesService {
   /** 🌐 One thesis, with everything a reader needs to disagree with it. */
   async findOne(id: string) {
     const rows = await this.db.query(
-      `SELECT t.*, c.handle AS creator_handle, a.name AS agent_name, a.status AS agent_status
+      `SELECT t.*, c.handle AS creator_handle, a.name AS agent_name, a.status AS agent_status,
+              ar.id AS article_id, ar.title AS article_title
          FROM public_theses t
          JOIN creators c ON c.id = t.creator_id
          JOIN agents a ON a.id = t.linked_agent_id
+         LEFT JOIN articles ar ON ar.thesis_id = t.id
         WHERE t.id = $1`,
       [id],
     );
@@ -206,16 +208,26 @@ export class ThesesService {
     return this.present(rows[0]);
   }
 
-  /** 🌐 Every thesis a creator has published — including the ones going badly. */
-  async listForCreator(creatorId: string) {
+  /**
+   * 🌐 Every thesis a creator has published — including the ones going badly.
+   *
+   * PAGED, but `record` is counted from the creator's own counters rather than
+   * from the page: a proven rate computed over whatever rows this page happens
+   * to hold would shrink as you page forward, which is the one number on here
+   * that must not move.
+   */
+  async listForCreator(creatorId: string, page: number, pageSize: number, offset: number) {
     const rows = await this.db.query(
-      `SELECT t.*, c.handle AS creator_handle, a.name AS agent_name, a.status AS agent_status
+      `SELECT t.*, c.handle AS creator_handle, a.name AS agent_name, a.status AS agent_status,
+              ar.id AS article_id, ar.title AS article_title
          FROM public_theses t
          JOIN creators c ON c.id = t.creator_id
          JOIN agents a ON a.id = t.linked_agent_id
+         LEFT JOIN articles ar ON ar.thesis_id = t.id
         WHERE t.creator_id = $1
-        ORDER BY t.created_at DESC`,
-      [creatorId],
+        ORDER BY t.created_at DESC
+        LIMIT $2 OFFSET $3`,
+      [creatorId, pageSize, offset],
     );
     const counters = await this.db.query(
       `SELECT theses_published, theses_proven FROM creators WHERE id = $1`, [creatorId]);
@@ -225,6 +237,10 @@ export class ThesesService {
     const proven: number = counters[0].theses_proven;
     return {
       creator_id: creatorId,
+      page,
+      page_size: pageSize,
+      total: published,
+      has_more: offset + rows.length < published,
       record: {
         published,
         proven,
@@ -241,17 +257,29 @@ export class ThesesService {
   }
 
   /** 🌐 Recently published, newest first. */
-  async listRecent(limit: number) {
-    const rows = await this.db.query(
-      `SELECT t.*, c.handle AS creator_handle, a.name AS agent_name, a.status AS agent_status
-         FROM public_theses t
-         JOIN creators c ON c.id = t.creator_id
-         JOIN agents a ON a.id = t.linked_agent_id
-        ORDER BY t.created_at DESC
-        LIMIT $1`,
-      [limit],
-    );
-    return { limit, items: rows.map((r: Record<string, unknown>) => this.present(r)) };
+  async listRecent(page: number, pageSize: number, offset: number) {
+    const [rows, totalRow] = await Promise.all([
+      this.db.query(
+        `SELECT t.*, c.handle AS creator_handle, a.name AS agent_name, a.status AS agent_status,
+              ar.id AS article_id, ar.title AS article_title
+           FROM public_theses t
+           JOIN creators c ON c.id = t.creator_id
+           JOIN agents a ON a.id = t.linked_agent_id
+         LEFT JOIN articles ar ON ar.thesis_id = t.id
+          ORDER BY t.created_at DESC
+          LIMIT $1 OFFSET $2`,
+        [pageSize, offset],
+      ),
+      this.db.query(`SELECT count(*)::int AS n FROM public_theses`),
+    ]);
+    const total: number = totalRow[0]?.n ?? 0;
+    return {
+      page,
+      page_size: pageSize,
+      total,
+      has_more: offset + rows.length < total,
+      items: rows.map((r: Record<string, unknown>) => this.present(r)),
+    };
   }
 
   /**
@@ -266,6 +294,10 @@ export class ThesesService {
       id: r.id,
       creator: { id: r.creator_id, handle: r.creator_handle },
       agent: { id: r.linked_agent_id, name: r.agent_name, status_now: r.agent_status },
+      // The article that carries this claim, if one does. A stub rather than
+      // the whole article, because the article read inlines the thesis and two
+      // full objects pointing at each other is a loop.
+      article: r.article_id ? { id: r.article_id, title: r.article_title } : null,
       claim: r.claim_text,
       benchmark: r.benchmark_ref,
       criteria: r.criteria,
@@ -281,6 +313,13 @@ export class ThesesService {
               margin: Number(r.result_performance) - Number(r.result_benchmark),
               resolved_at: r.resolved_at,
               agent_status_at_resolution: r.agent_status_at_resolution,
+              // WHETHER THE FIGURES ABOVE ARE EXACT. False when an external
+              // transfer could not be priced and so was never removed from the
+              // agent's return. Surfaced as its own field rather than buried in
+              // `measurement`, because a consumer that reads `agent_return` and
+              // not the blob would otherwise print a hole as a number.
+              measurement_complete: r.measurement?.complete !== false,
+              incomplete_because: r.measurement?.incomplete_because ?? null,
               // The worked numbers, so the verdict can be recomputed rather
               // than taken. This is the whole difference between a record and
               // a claim about a record.

@@ -53,6 +53,18 @@ export interface Measurement {
    */
   agent_measurable: boolean;
   benchmark_measurable: boolean;
+  /**
+   * Whether every input the agent's return needed was actually available.
+   *
+   * SEPARATE FROM `measurable` AGAIN. `measurable: false` means there was
+   * nothing to measure; `complete: false` means there was, and a piece of it
+   * was missing — an external transfer in a token nobody had a price for, which
+   * therefore was not removed. The number still exists and is still the best
+   * available, but it is not exact, and a page that printed it like any other
+   * figure would be claiming a precision the data does not carry.
+   */
+  complete: boolean;
+  incomplete_because: string | null;
   agent_status: string;
   detail: Record<string, unknown>;
 }
@@ -98,16 +110,45 @@ export class ThesisResolutionService {
     to: Date,
     ticks: Map<string, MarketTick>,
     source: string,
-  ): Promise<{ value: number; measurable: boolean; detail: Record<string, unknown> }> {
-    // The same join the public NAV series uses, so the thesis is measured over
-    // exactly the curve a reader can pull up beside it.
+  ): Promise<{
+    value: number; measurable: boolean; complete: boolean;
+    incomplete_because: string | null; detail: Record<string, unknown>;
+  }> {
+    // SCOPED THE SAME WAY THE BENCHMARK IS, and this used to be the one place
+    // the two sides disagreed. The benchmark is anchored on the first and last
+    // tick of ONE market source inside the window; the agent's curve was taken
+    // over the raw window across every season and every source. A thesis whose
+    // window straddled the simulator/vendor switchover therefore compared a
+    // source-scoped benchmark against an unscoped NAV curve — two different
+    // bases, printed as one margin. `from` and `to` are now the anchor and
+    // final tick themselves, so both sides start and end at the same instant.
+    //
+    // Season too: portfolio_snapshots carries no season, portfolios does, and
+    // an agent that moved seasons mid-window has two capital bases whose
+    // returns are not chainable. The season holding the most points in the
+    // window is measured and the rest are counted out loud rather than mixed in.
+    const seasonRow = await this.db.query(
+      `SELECT p.season_id, count(*)::int AS n
+         FROM portfolio_snapshots ps
+         JOIN portfolios p ON p.id = ps.portfolio_id
+        WHERE p.agent_id = $1 AND ps.ts >= $2 AND ps.ts <= $3
+        GROUP BY p.season_id
+        ORDER BY n DESC, p.season_id ASC`,
+      [agentId, from, to],
+    );
+    const seasonId: string | null = seasonRow[0]?.season_id ?? null;
+    const pointsOutsideSeason = seasonRow
+      .slice(1)
+      .reduce((s: number, r: { n: number }) => s + r.n, 0);
+
     const navRows: Array<{ ts: Date; nav: string }> = await this.db.query(
       `SELECT ps.ts, ps.nav
          FROM portfolio_snapshots ps
          JOIN portfolios p ON p.id = ps.portfolio_id
         WHERE p.agent_id = $1 AND ps.ts >= $2 AND ps.ts <= $3
+          AND ($4::uuid IS NULL OR p.season_id = $4::uuid)
         ORDER BY ps.ts ASC`,
-      [agentId, from, to],
+      [agentId, from, to, seasonId],
     );
     const nav: NavPoint[] = navRows.map((r) => ({ ts: r.ts, nav: Number(r.nav) }));
 
@@ -123,8 +164,11 @@ export class ThesisResolutionService {
       return {
         value: 0,
         measurable: false,
+        complete: false,
+        incomplete_because: 'there were not two NAV snapshots to measure between',
         detail: {
           nav_points: nav.length,
+          season_id: seasonId,
           insufficient_data:
             'fewer than two NAV snapshots inside the window, so no return could be measured',
         },
@@ -132,6 +176,24 @@ export class ThesisResolutionService {
     }
 
     const flows = await this.flows(agentId, from, to, ticks, source);
+
+    // A FLOW NOBODY COULD PRICE IS A HOLE, NOT A ZERO.
+    //
+    // `usd: null` means the token had no price at that tick. Summed with `?? 0`
+    // it contributes nothing, which is arithmetically identical to no transfer
+    // having happened — and the error always runs one way: an unremoved
+    // withdrawal flatters nobody, but an unremoved DEPOSIT reads as skill. The
+    // adjustment silently not happening is exactly the failure this file exists
+    // to avoid, so the count travels with the result and the page refuses to
+    // print a clean figure from it.
+    const unpriced = flows.filter((f) => f.usd === null);
+    const complete = unpriced.length === 0;
+    const incompleteBecause = complete
+      ? null
+      : `${unpriced.length} external transfer${unpriced.length === 1 ? '' : 's'} ` +
+        `(${[...new Set(unpriced.map((f) => f.symbol ?? 'unknown token'))].join(', ')}) ` +
+        'could not be priced at the tick they were detected on, so they were not removed from ' +
+        'this return. The figure is therefore a floor on the error, not an exact measurement.';
 
     let factor = 1;
     const legs: Array<Record<string, unknown>> = [];
@@ -163,8 +225,13 @@ export class ThesisResolutionService {
     return {
       value: factor - 1,
       measurable: true,
+      complete,
+      incomplete_because: incompleteBecause,
       detail: {
         method: 'time-weighted return, external flows removed',
+        season_id: seasonId,
+        nav_points_outside_measured_season: pointsOutsideSeason,
+        external_flows_unpriced: unpriced.length,
         nav_points: nav.length,
         nav_first: { ts: nav[0].ts, nav: nav[0].nav },
         nav_last: { ts: nav[nav.length - 1].ts, nav: nav[nav.length - 1].nav },
@@ -344,19 +411,37 @@ export class ThesisResolutionService {
       withPricesFor: inWindow.map((t) => t.ref),
     });
 
+    // THE ANCHOR AND FINAL TICK ARE THE WINDOW FOR BOTH SIDES.
+    //
+    // The benchmark was always measured from the first tick of the chosen
+    // source to its last; the agent was measured over the creator's raw
+    // created_at..resolves_at. Those are different intervals whenever the
+    // market has no tick at either edge — which is every thesis, since a
+    // creator picks a deadline and the market ticks on its own cadence. Both
+    // now run between the same two instants, so the margin subtracts two
+    // returns measured over one period rather than two overlapping ones.
+    const ordered = inWindow.sort((a, b) => a.tickTime.getTime() - b.tickTime.getTime());
+    const anchor = ordered[0]?.tickTime ?? thesis.created_at;
+    const final = ordered[ordered.length - 1]?.tickTime ?? thesis.resolves_at;
+
     const agent = await this.agentReturn(
-      thesis.linked_agent_id, thesis.created_at, thesis.resolves_at, ticks, source);
+      thesis.linked_agent_id, anchor, final, ticks, source);
     const benchmark = this.benchmarkReturn(
-      thesis.benchmark_ref, thesis.created_at, thesis.resolves_at, ticks, source);
+      thesis.benchmark_ref, anchor, final, ticks, source);
 
     return {
       agent_return: agent.value,
       benchmark_return: benchmark.value,
       agent_measurable: agent.measurable,
       benchmark_measurable: benchmark.measurable,
+      complete: agent.complete,
+      incomplete_because: agent.incomplete_because,
       agent_status: agentStatus,
       detail: {
-        window: { from: thesis.created_at, to: thesis.resolves_at },
+        published_window: { from: thesis.created_at, to: thesis.resolves_at },
+        // The interval BOTH returns were actually measured over, which is not
+        // the published one: it is trimmed to the ticks that exist inside it.
+        measured_window: { from: anchor, to: final },
         market_source: source,
         agent: agent.detail,
         benchmark: benchmark.detail,
@@ -442,8 +527,17 @@ export class ThesisResolutionService {
                   resolved_at = now(), agent_status_at_resolution = $5, measurement = $6
             WHERE id = $1 AND status = 'pending'
             RETURNING id`,
+          // Completeness rides inside `measurement` rather than in a column of
+          // its own: the blob already exists to hold everything the verdict was
+          // made from, and a fact about the arithmetic belongs beside the
+          // arithmetic. No migration, and nothing can read the number without
+          // the caveat sitting next to it.
           [t.id, status, m.agent_return, m.benchmark_return, m.agent_status,
-           JSON.stringify(m.detail)],
+           JSON.stringify({
+             ...m.detail,
+             complete: m.complete,
+             incomplete_because: m.incomplete_because,
+           })],
         );
         if (updated.length > 0) results.push({ id: t.id, status });
       } catch (e) {

@@ -9,20 +9,33 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { CurrentWallet, InternalKeyGuard, JwtAuthGuard, RateLimit } from '@arcana/auth';
-import { IsIn, IsOptional } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsOptional, IsString } from 'class-validator';
 import { ParseUuidAllPipe } from '../common/parse-uuid-all.pipe';
+import { parsePage } from '../common/pagination';
 import { OwnershipService } from '../auth/ownership.service';
 import { ThesesService } from './theses.service';
 import { ThesisResolutionService } from './resolution.service';
 import { CreateThesisDto } from './dto/create-thesis.dto';
 import { CreateArticleDto, UpdateArticleDto } from './dto/create-article.dto';
 
-export class RecentThesesQueryDto {
+/**
+ * Paging for the two thesis lists.
+ *
+ * `limit` used to be a fixed whitelist, which bounded one response and nothing
+ * else: a creator with four hundred claims still returned all four hundred from
+ * the creator list, which had no bound at all.
+ */
+export class ThesesPageQueryDto {
+  // Strings, because parsePage takes the raw query values and owns both the
+  // bounds and the refusal message. A second set of rules here would disagree
+  // with it the first time either changed.
   @IsOptional()
-  @Type(() => Number)
-  @IsIn([5, 10, 20, 25, 50])
-  limit?: number;
+  @IsString()
+  page?: string;
+
+  @IsOptional()
+  @IsString()
+  page_size?: string;
 }
 
 /**
@@ -56,8 +69,9 @@ export class ThesesController {
 
   /** 🌐 Recently published claims, still running or already answered. */
   @Get('recent')
-  recent(@Query() q: RecentThesesQueryDto) {
-    return this.theses.listRecent(q.limit ?? 10);
+  recent(@Query() q: ThesesPageQueryDto) {
+    const { page, pageSize, offset } = parsePage(q.page, q.page_size);
+    return this.theses.listRecent(page, pageSize, offset);
   }
 
   /** 🌐 One thesis and, once resolved, the arithmetic behind its verdict. */
@@ -73,8 +87,9 @@ export class CreatorThesesController {
   constructor(private readonly theses: ThesesService) {}
 
   @Get(':id/theses')
-  list(@Param('id', ParseUuidAllPipe) id: string) {
-    return this.theses.listForCreator(id);
+  list(@Param('id', ParseUuidAllPipe) id: string, @Query() q: ThesesPageQueryDto) {
+    const { page, pageSize, offset } = parsePage(q.page, q.page_size);
+    return this.theses.listForCreator(id, page, pageSize, offset);
   }
 
   @Get(':id/articles')

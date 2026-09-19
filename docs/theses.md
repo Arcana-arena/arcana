@@ -46,12 +46,22 @@ It is checked three ways, because any one of them can agree with a stale belief:
 ## What "proven" means
 
 ```
-agent return    time-weighted over [created_at, resolves_at], recorded
-                external flows removed
+measured window the first and last market tick of one source inside
+                [created_at, resolves_at] — the SAME two instants for both
+                sides, and one season for the agent's curve
+agent return    time-weighted over that window, recorded external flows removed
 benchmark       one symbol, an equal-weighted basket held from the anchor
                 tick, or the ARCANA index (market_snapshots.market_return)
 proven          agent_return > benchmark_return + margin_pct/100
 ```
+
+**Both sides are scoped identically**, and they were not to begin with. The
+benchmark ran anchor-tick to final-tick of one market source; the agent ran the
+creator's raw `created_at..resolves_at` across every season and source. Those
+are different intervals for every thesis, since a creator picks a deadline and
+the market ticks on its own cadence — and a window straddling the
+simulator/vendor switchover compared two unrelated bases and printed the
+difference as a margin.
 
 **The agent return is flow-adjusted and the ARCANA Score's is not.** That is
 deliberate and the pages say so. A score is a verdict on an agent; a thesis is a
@@ -98,6 +108,22 @@ beat a market that had fallen. So each side of the comparison now carries
 - **agent unmeasurable** → `not_proven`, with the reason stored. A claim whose
   agent produced no readable NAV over the whole window was not demonstrated.
   Voiding it would be the same escape hatch a pause must not be.
+
+**An incomplete measurement is not a wrong one, and is not a clean one either.**
+A `custody_drift` row in a token nobody had a price for at that tick cannot be
+valued, so it is not removed — and summing it as zero is arithmetically
+identical to no transfer having happened. The error runs one way: an unremoved
+withdrawal flatters nobody, an unremoved **deposit reads as skill**. So the
+count travels with the verdict as `result.measurement_complete: false` plus
+`incomplete_because`, and the page prints `≈` and labels the figure *approx.*
+rather than showing a precise number the data does not support.
+
+**A thesis stuck pending is visible.** The `thesis_resolution` component on
+`/v1/status` goes `degraded` when a published thesis is more than two hours past
+its own deadline — two runs of an hourly job, so one miss is ordinary and two is
+a pattern. Scoped to `creators.provenance = 'live'`, because a verification run
+leaves overdue fixtures behind for the length of the run and a probe that cried
+wolf every time the suite executed would train everyone to ignore it.
 
 **The denominator is every thesis ever published**, pending ones included. Ten
 theses with three proven must not read like three with three. The counters are

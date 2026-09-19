@@ -18,6 +18,8 @@ export type Thesis = {
   id: string;
   creator: { id: string; handle: string };
   agent: { id: string; name: string; status_now: string | null };
+  /** The article carrying this claim, when one does. */
+  article: { id: string; title: string } | null;
   claim: string;
   benchmark: Benchmark;
   criteria: { comparison: string; margin_pct: number };
@@ -30,6 +32,9 @@ export type Thesis = {
     margin: number;
     resolved_at: string;
     agent_status_at_resolution: string | null;
+    /** False when a transfer could not be priced, so the figures are not exact. */
+    measurement_complete: boolean;
+    incomplete_because: string | null;
     measurement: unknown;
   } | null;
   basis: string;

@@ -57,6 +57,12 @@ type CadenceRow = {
 };
 /** Model latency above this is slow enough to be worth saying. */
 const MODEL_SLOW_MS = 15000;
+/**
+ * How long a published thesis may sit past its own deadline before that is a
+ * fault rather than a wait. The resolution timer is hourly, so this is two
+ * runs: one miss is ordinary, two is a pattern.
+ */
+const THESIS_OVERDUE_HOURS = 2;
 
 @Injectable()
 export class StatusService {
@@ -331,6 +337,53 @@ export class StatusService {
       });
     } catch (e) {
       components.push(this.probeFailed('protection', 'Protective levels', e));
+    }
+
+    // ---- published claims whose verdict never arrived ------------------
+    //
+    // A THESIS THAT STAYS PENDING PAST ITS DEADLINE IS A BROKEN PROMISE, and
+    // until this probe existed it was a silent one. The resolution job leaves a
+    // row pending on purpose when the benchmark cannot be measured over its
+    // window — resolution happens once and for good, so deciding on data we
+    // could not read is worse than waiting. But "wait and try again next hour"
+    // with nothing watching is indistinguishable from "wait forever", and the
+    // page that promised an automatic verdict would go on saying `pending`
+    // while nobody was coming.
+    //
+    // The grace is two hours: the job runs hourly, so one missed run is
+    // ordinary and two is a pattern.
+    try {
+      const rows = await this.db.query(
+        // LIVE CREATORS ONLY. Every verification run leaves fixtures behind
+        // for the length of the run, and a probe that counted them would turn
+        // the public badge red every time the suite executed — which trains
+        // whoever watches it to ignore the one component that only ever fires
+        // on a real broken promise. Same scoping the other probes use.
+        `SELECT count(*)::int AS overdue, min(t.resolves_at) AS oldest
+           FROM public_theses t
+           JOIN creators c ON c.id = t.creator_id AND c.provenance = 'live'
+          WHERE t.status = 'pending'
+            AND t.resolves_at < now() - interval '${THESIS_OVERDUE_HOURS} hours'`,
+      );
+      const overdue = Number(rows[0]?.overdue ?? 0);
+      const oldest: Date | null = rows[0]?.oldest ?? null;
+      components.push({
+        key: 'thesis_resolution',
+        label: 'Thesis resolution',
+        state: overdue > 0 ? 'degraded' : 'operational',
+        detail:
+          overdue > 0
+            ? `${overdue} published thesis/theses passed the deadline and are still unresolved` +
+              (oldest ? `, the oldest due ${new Date(oldest).toISOString()}` : '')
+            : 'every published thesis past its deadline carries a verdict',
+        threshold:
+          `a thesis still pending more than ${THESIS_OVERDUE_HOURS} hours after its own deadline ` +
+          'is degraded (the job runs hourly, so one missed run is not yet a fault)',
+        unknown_because: null,
+        measured_at: new Date().toISOString(),
+      });
+    } catch (e) {
+      components.push(this.probeFailed('thesis_resolution', 'Thesis resolution', e));
     }
 
     // THE WORST STATE WINS, and `unknown` does not resolve to green. A page

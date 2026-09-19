@@ -62,6 +62,19 @@ export default async function ThesisPage({ params }: { params: Promise<{ id: str
               {r.data.claim}
             </h1>
 
+            {/*
+              THE ARTICLE THAT CARRIES THIS CLAIM. The link was one-way until
+              now — an article pointed at its thesis and the thesis pointed
+              nowhere — so a reader who arrived at the verdict had no way back
+              to the argument that was made for it.
+            */}
+            {r.data.article ? (
+              <div className="m2" style={{ fontSize: 12.5, marginTop: 8 }}>
+                argued in{' '}
+                <Link href={`/articles/${r.data.article.id}`}>{r.data.article.title}</Link>
+              </div>
+            ) : null}
+
             <div className="m2" style={{ fontSize: 12.5, marginTop: 10 }}>
               by{' '}
               <Link href={`/creators/${r.data.creator.id}`}>{r.data.creator.handle}</Link>
@@ -115,14 +128,38 @@ export default async function ThesisPage({ params }: { params: Promise<{ id: str
                     marginTop: 10,
                   }}
                 >
-                  <Figure label="Agent" value={fracAsPct(r.data.result.agent_return)} />
+                  {/*
+                    APPROXIMATE WHEN THE INPUTS WERE. An external transfer that
+                    nobody could price was never removed from the agent's
+                    return, so the figure carries an error of unknown size — and
+                    the error runs one way, because an unremoved deposit reads
+                    as skill. Printing it like every other number would claim a
+                    precision the data does not have, so it is marked at the
+                    figure itself and not only in a footnote.
+                  */}
+                  <Figure
+                    label={r.data.result.measurement_complete ? 'Agent' : 'Agent (approx.)'}
+                    value={
+                      (r.data.result.measurement_complete ? '' : '≈ ') +
+                      fracAsPct(r.data.result.agent_return)
+                    }
+                  />
                   <Figure label="Benchmark" value={fracAsPct(r.data.result.benchmark_return)} />
                   <Figure
-                    label="Margin"
-                    value={fracAsPct(r.data.result.margin)}
+                    label={r.data.result.measurement_complete ? 'Margin' : 'Margin (approx.)'}
+                    value={
+                      (r.data.result.measurement_complete ? '' : '≈ ') +
+                      fracAsPct(r.data.result.margin)
+                    }
                     tone={r.data.result.margin > 0 ? 'up' : 'dn'}
                   />
                 </div>
+
+                {!r.data.result.measurement_complete ? (
+                  <Callout tone="warn">
+                    {r.data.result.incomplete_because}
+                  </Callout>
+                ) : null}
 
                 {r.data.result.agent_status_at_resolution &&
                 r.data.result.agent_status_at_resolution !== 'active' ? (

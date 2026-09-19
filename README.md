@@ -98,5 +98,6 @@ Foundation / V1 (target: Oct 2026). See [architecture.md §5](./architecture.md#
 - [docs/on-chain-direction.md](./docs/on-chain-direction.md) — the ten decisions and the measurements behind them
 - [docs/go-no-go-stock-tokens.md](./docs/go-no-go-stock-tokens.md) — the test that established it is possible at all
 - [docs/on-chain-rollout.md](./docs/on-chain-rollout.md) — the phases, and what each one has to prove
+- [docs/theses.md](./docs/theses.md) — Prove This Thesis: a creator's claim, timestamped before the market answers, resolved automatically and never editable
 
 Where `architecture.md` and the direction doc disagree, the direction doc is current.
