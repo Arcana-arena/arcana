@@ -189,6 +189,43 @@ indistinguishable from working. So the create and patch responses carry
 `risk_profile_unrecognised`: every key the engine does not read, listed back.
 Nothing is refused; nothing is silent either.
 
+## Activation takes a seat, or it is refused
+
+**Found on 2026-09-19, by an owner asking why their agent was not trading.** It
+was `active`, it had a wallet, a momentum mandate and an LLM strategy, and in
+sixteen hours it had recorded zero decisions. Nothing was wrong with it. It was
+not in `competitions.participant_ids`, and the cadence iterates that array — so
+nothing ever called it, and no log line anywhere said why, because to the thing
+doing the calling the agent did not exist. Six other active agents were in the
+same state.
+
+The cause was a missing line rather than a broken one: **three paths gave a seat
+back and none handed one out.** `retire()` removes a seat, `retireParent()`
+transfers it, `leaveParticipant()` returns it, and the only way in was being
+listed when the competition was created. Entry through the front door then closed
+at the competition's first tick — four hours into a three-month season.
+
+So activation seats the agent itself, **in the same transaction as the status
+change**. Two statements could leave an agent active with no seat, which is
+exactly the state that produced an agent its owner watched do nothing all day.
+
+And if nothing is open to seat it in, **activation is refused** with
+`no_live_competition` rather than succeeding. An agent that is told it is live
+and will never be called is worse than an agent that is still a draft: the draft
+is a state its owner can act on. The refusal names the platform as the cause,
+because it is.
+
+Two exclusions, both for the same reason rather than as favours: a **draft** and
+a **verification fixture** are refused by the decision engine by design, so
+seating either would write a guaranteed failure into every tick for as long as
+the row existed. A verification fixture therefore activates normally and takes no
+seat — the suites activate agents by the dozen.
+
+The seat is not only granted at activation. The cadence reconciles the field
+before every tick, so an agent that arrived by a migration, a restore, or an
+activation made while no competition was running is seated within one cadence
+interval rather than never. See [cadence.md](./cadence.md).
+
 ## Changing an active agent's strategy costs it its seat
 
 A gap, written down while it is cheap to read and before a real owner finds it.

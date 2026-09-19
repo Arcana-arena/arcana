@@ -13,6 +13,7 @@ import { UpdateAgentDto } from './dto/update-agent.dto';
 import { EntitlementClient } from '../entitlements/entitlement.client';
 import { OwnershipService } from '../auth/ownership.service';
 import { Page, pageOf } from '../common/pagination';
+import { seatable, seatInLiveCompetition } from '../competitions/seating';
 import { MANDATE_MAX_CHARS, MandateValidationError, renderMandate } from './mandate-templates';
 
 /**
@@ -413,6 +414,45 @@ export class AgentsService {
       if (agent.parentAgentId) {
         await this.retireParent(agent.parentAgentId, agent.id, tx);
       }
+
+      // ACTIVATION TAKES A SEAT. This is the line whose absence made the
+      // feature not exist: every other writer of participant_ids gives a seat
+      // BACK, and nothing handed one out, so an agent activated after its
+      // competition's creation was live, funded, mandated — and never called by
+      // the cadence, which iterates participant_ids. It made no decisions, and
+      // nothing logged a reason, because to the cadence it was not there.
+      //
+      // Inside the SAME transaction as the status change, and that is the whole
+      // point rather than tidiness: two statements could leave an agent active
+      // with no seat, which is precisely the state that produced an agent its
+      // owner could watch do nothing for sixteen hours.
+      //
+      // Succession runs first: retireParent hands the parent's seat to this
+      // agent, and seating is then a no-op instead of a second entry.
+      // A VERIFICATION FIXTURE IS ACTIVATED AND NOT SEATED. The engine refuses
+      // it by design, so a seat would only buy a failure in every tick until the
+      // sweep removed it — and the suites activate agents by the dozen. Not
+      // seating one must therefore not fail its activation either: the path
+      // those suites are testing is this one.
+      const mustSeat = seatable(agent.provenance);
+      const seat = mustSeat ? await seatInLiveCompetition(tx, agent.id) : null;
+      if (mustSeat && !seat) {
+        // REFUSED, not activated-and-idle. An agent that cannot be entered
+        // cannot decide, and telling an owner their agent is live when nothing
+        // will ever call it is the failure this whole change is about. The
+        // remedy is an operator's, so the message says so rather than implying
+        // the owner did something wrong.
+        throw new BadRequestException({
+          code: 'no_live_competition',
+          message:
+            'There is no competition running in a current season, so an activated agent would ' +
+            'never be called by the cadence and would make no decisions. Activation is refused ' +
+            'rather than leaving the agent live and idle. This is a platform-side gap, not ' +
+            'something wrong with the agent — the draft is unchanged and can be activated as ' +
+            'soon as an arena is open.',
+        });
+      }
+
       agent.status = 'active';
       return agent;
     });

@@ -227,8 +227,9 @@ export async function discloseAgent(
  * Enter an agent into a competition.
  *
  * THE SAME DOOR AS THE API, with the same gates: ownership first, then the
- * $ARCA entry gates in admit(), and a refusal once the competition has ticked.
- * That refusal is returned unchanged — it names the reason entry closes.
+ * $ARCA entry gates in admit(). No longer refused once the competition has
+ * ticked — a late entry is admitted and recorded, and the answer carries the
+ * tick its record starts at.
  */
 export async function enterCompetition(
   agentId: string,

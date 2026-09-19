@@ -180,6 +180,7 @@ keep working when auth is misconfigured (§5).
 | `POST /v1/seasons` · `PATCH /v1/seasons/:id` | 👑 |
 | `POST /v1/competitions` · `POST /v1/competitions/:id/complete` | 👑 |
 | `POST /internal/v1/competitions/:id/ticks` · `/ticks/close` | ⚙️ |
+| `POST /internal/v1/competitions/:id/participants/reconcile` | ⚙️ |
 | `POST /v1/subscriptions/:id/wallet` | 🔒 buyer |
 | `GET /v1/subscriptions/:id/book` | 🔒 buyer |
 | `PATCH /v1/subscriptions/:id` | 🔒 buyer |

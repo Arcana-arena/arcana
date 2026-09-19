@@ -142,6 +142,50 @@ anybody and does not pretend to. A competition whose only remaining
 participants are human now exits non-zero and says so, rather than recording a
 tick in which nobody decided anything.
 
+## An active agent holds a seat — the cadence makes sure of it
+
+**2026-09-19.** An owner created an agent, funded its wallet, watched it for
+sixteen hours, and asked why it was not trading. It had made no decisions at
+all. Nothing was broken in the engine, the model, the pool or the wallet: the
+agent was not in `participant_ids`, and this cadence iterates that array. To the
+program doing the calling, the agent did not exist — so there was no error to
+find, in any log, anywhere.
+
+Six other active agents were in the same state. The cause is small and was in
+plain sight for weeks: **three code paths gave a seat back and none handed one
+out.** Retirement removes a seat, succession transfers it, withdrawal returns
+it, and the only way in was a competition being created with the agent already
+listed. Activation never took one.
+
+Entry also closed at the first tick — a fairness rule, so that standings never
+compared a three-hour record with a three-day one. On a daily tick that rule
+cost an owner a day. On a continuous cadence over a three-month season it closes
+the arena **four hours after the season opens**, permanently, and every agent
+created afterwards is active, funded and never called.
+
+Both are now fixed, and the fix is in two places on purpose:
+
+| Where | What it does | Why it is not enough alone |
+|---|---|---|
+| `activate()` | takes a seat in the live competition, in the same transaction as the status change | only covers agents that go through activation — not a row from a migration, a restore, or one activated while no competition was running |
+| this binary, before every tick | calls `POST /internal/v1/competitions/:id/participants/reconcile`, which seats every active agent holding no seat in any **open** competition | runs once per cadence rather than once per activation, so it cannot seat an agent the moment its owner creates it |
+
+The comparison problem the old rule protected is **recorded rather than
+prevented**: `competition_entries.joined_tick_index` says which tick each
+agent's record begins at, and the standings carry it, so a short record reads as
+short instead of as bad. Nothing about the scoring formula changed.
+
+Two exclusions, and both are the same reason rather than two: a **draft** and a
+**verification fixture** are refused by the engine by design, so seating either
+would write a guaranteed failure into every tick for as long as the row existed
+— the permanent journal noise this document already describes twice.
+
+Reconciliation failing does **not** stop the tick. The agents already seated are
+owed their decision, and a transient 500 from agent-service must not cost them
+one; the line is loud, the next run tries again, and
+`competition-entry-verify` asserts against the live database that no active
+agent is waiting outside a competition.
+
 ## The watchdog asks a different question
 
 | | Old | New |

@@ -33,7 +33,7 @@ Units live in [`infra/systemd/`](../infra/systemd/):
 | `arcana-arca.service` | long-running | always | $ARCA entitlements, subscriptions, marketplace payment claims (port **3004** — 3003 is taken on this host) |
 | ~~`arcana-scheduler.timer`~~ | — | **RETIRED 2026-09-11** | One tick per US trading day, 23:00 UTC with retries at 01:00 and 03:00. Stock Tokens trade against a pool that never closes, so "trading day" stopped naming anything and a calendar-driven tick stood still through two thirds of every week. |
 | `arcana-cadence.timer` → `arcana-cadence.service` | oneshot | **hourly** | advance the competition on a CONTINUOUS clock. The timer decides how often the system looks; the binary measures the age of the last tick and acts only once the four-hour cadence has elapsed. Prices come from the Uniswap pool, refereed by Chainlink ([cadence.md](./cadence.md)) |
-| `arcana-cadence-b75adb8d.timer` → `arcana-cadence-b75adb8d.service` | oneshot | **every minute** | the same cadence for a second Season 2 competition (`b75adb8d-3215-4e53-9e41-9afa118151e6`), with its own lock. Opens no tick until an agent has entered, because entry closes at the first tick |
+| `arcana-cadence-b75adb8d.timer` → `arcana-cadence-b75adb8d.service` | oneshot | **every minute** | the same cadence for a second Season 2 competition (`b75adb8d-3215-4e53-9e41-9afa118151e6`), with its own lock. Seats every active agent that holds no seat anywhere before it opens a tick, then opens none if the field is still empty |
 | `arcana-decision-watchdog.timer` → `arcana-decision-watchdog.service` | oneshot | **00,06,12,18:15 UTC** | shouts if no DECISION has been recorded in twelve hours. Measures decisions rather than ticks: a tick that opened and closed with every agent failing looks healthy to anything counting ticks |
 | `arcana-execution-watchdog.timer` → `arcana-execution-watchdog.service` | oneshot | **02,06,10,14,18,22:40 UTC** | shouts if trades are failing REPEATEDLY, if a wallet can no longer pay for gas, or if the wallet sent transactions ARCANA has no row for. The decision watchdog cannot see any of these: the agent decides on time, the transaction reverts, gas burns, and decisions keep being recorded. Offset from the cadence so it never reads a half-written cycle |
 | `arcana-guard.service` | long-running | always | **take-profit and stop-loss, watched between decision ticks.** Not a timer, and that is the point: a stop loss that only fires when the next tick happens is a stop loss plus one cadence interval. Holds no model. One `eth_call` per armed level per scan (15s); gas is spent only when a level is actually crossed. `Restart=always`, because a watcher that exits cleanly has still stopped watching ([protective-levels.md](./protective-levels.md)) |
@@ -173,13 +173,17 @@ sudo systemctl restart arcana-cadence.timer arcana-scoring-job.timer
 competition, copy the unit, change the id and the lock path
 (`/tmp/arcana-cadence.lock` → unique per unit), and re-run the installer. The
 cadence no-ops safely on a completed competition, on one whose interval has
-not elapsed, and on one nobody has entered — entry closes at the first tick,
-so a tick opened on an empty competition would lock everyone out of it.
+not elapsed, and on one nobody has entered. Before each tick it calls
+`POST /internal/v1/competitions/:id/participants/reconcile`, which seats every
+ACTIVE agent holding no seat in any open competition: an active agent nothing
+calls is a silent fault, and the caller is the only thing placed to notice it
+has nobody to call.
 
 Two competitions are scheduled: `arcana-cadence` advances
 `d0653071-67e5-4302-ac78-afe2e1130d89`, and `arcana-cadence-b75adb8d` advances
-`b75adb8d-3215-4e53-9e41-9afa118151e6`, which owners enter from their agent's
-manage page until its first tick.
+`b75adb8d-3215-4e53-9e41-9afa118151e6` — the one a newly activated agent is
+seated in, and the one that reconciles the field before every tick for the
+agents that arrived by some other path.
 
 It also carries `CADENCE_INTERVAL`. Setting it below **4h** is refused at
 startup rather than clamped — see [cadence.md](./cadence.md) for why that is

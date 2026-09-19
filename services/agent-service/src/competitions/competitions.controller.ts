@@ -192,4 +192,18 @@ export class InternalCompetitionsController {
   closeTick(@Param('id', ParseUuidAllPipe) id: string) {
     return this.competitions.closeTick(id);
   }
+
+  /**
+   * The cadence seats whoever is missing, before it opens a tick.
+   *
+   * MACHINE TIER FOR THE SAME REASON THE TICKS ARE. This is the platform
+   * repairing its own field — an agent is active, so something must call it —
+   * and not a user acting on a competition. No session can reach it, and none
+   * should: the guarantee is that an active agent is never left uncalled, and a
+   * guarantee that only holds while somebody is logged in is not one.
+   */
+  @Post(':id/participants/reconcile')
+  reconcileSeats(@Param('id', ParseUuidAllPipe) id: string) {
+    return this.competitions.reconcileSeats(id);
+  }
 }

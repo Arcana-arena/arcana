@@ -214,17 +214,6 @@ func main() {
 		return
 	}
 
-	// A COMPETITION WITH NOBODY IN IT DOES NOT START.
-	//
-	// Entry closes at the first tick (joinParticipant refuses once one exists),
-	// so opening a tick on an empty competition records a tick in which nobody
-	// decided and locks every owner out of a competition nobody has entered yet.
-	// Waiting costs nothing: the timer looks again in a minute.
-	if len(comp.ParticipantIDs) == 0 {
-		log.Printf("competition %s has no participants yet; not opening a tick, so entry stays open", *compID)
-		return
-	}
-
 	// --- an open tick is closed, not re-opened -------------------------------
 	//
 	// There is no human window on a continuous cadence. Human vs AI was a
@@ -260,6 +249,57 @@ func main() {
 		log.Printf("last decision %s ago, cadence %s — opening a tick", age.Round(time.Minute), *interval)
 	} else {
 		log.Printf("no previous tick for %s — opening the first", *compID)
+	}
+
+	// --- whoever is active is in the field -----------------------------------
+	//
+	// WHY THE CADENCE DOES THIS. An agent that is `active` and holds no seat is
+	// an agent nothing ever calls, and nothing anywhere reports it: this program
+	// iterates participant_ids, so to it the agent does not exist. Seven active
+	// agents on this deployment were in exactly that state, one of them created
+	// and funded by a real owner who watched it do nothing for sixteen hours.
+	//
+	// Activation now takes a seat, which fixes the path a person walks. This
+	// fixes the rest of them — a row inserted by a migration or a restore, an
+	// agent activated while no competition was running, a competition stood up
+	// after its participants existed — because the thing doing the calling is
+	// the only thing in a position to notice it has nobody to call.
+	//
+	// AFTER THE FLOOR, so it runs once per cadence rather than once a minute,
+	// and BEFORE the pool is read, so a newly seated agent decides on this tick
+	// instead of waiting four hours for the next one.
+	//
+	// A failure here is loud and does not stop the tick. The agents already
+	// seated are owed their decision, and a transient 500 from agent-service
+	// must not cost them one. The next run reconciles again in four hours, and
+	// the verifier asserts the endpoint works, so this cannot fail silently
+	// forever.
+	if seated, err := reconcileSeats(ctx, cfg, *compID); err != nil {
+		log.Printf("WARN: could not seat unentered agents: %v — this tick runs with the "+
+			"field as it stands, and any active agent with no seat misses it", err)
+	} else if seated > 0 {
+		log.Printf("%d active agent(s) held no seat and were entered into %s", seated, *compID)
+		// Re-read: the field this tick runs on must include them, and comp was
+		// loaded before they were there.
+		if fresh, err := getCompetition(ctx, cfg, *compID); err == nil {
+			comp = fresh
+		} else {
+			log.Printf("WARN: re-reading the competition after seating failed: %v — the new "+
+				"agents decide on the next tick instead", err)
+		}
+	}
+
+	// A COMPETITION WITH NOBODY IN IT DOES NOT START.
+	//
+	// Not because entry would close — it no longer does — but because a tick in
+	// which nobody decided is a hole in the record that the backfill rule
+	// forbids filling later. Reconciliation has already run, so an empty field
+	// here means there is genuinely no active agent anywhere to call. Waiting
+	// costs nothing: the timer looks again in a minute.
+	if len(comp.ParticipantIDs) == 0 {
+		log.Printf("competition %s has no participants and no active agent is waiting; "+
+			"not opening a tick", *compID)
+		return
 	}
 
 	// --- price from the chain ------------------------------------------------
@@ -482,6 +522,31 @@ func startTick(ctx context.Context, cfg config, compID, ref string, interval tim
 		return nil, fmt.Errorf("decode opened tick: %w", err)
 	}
 	return &t, nil
+}
+
+// reconcileSeats enters every active agent that holds no seat anywhere, and
+// returns how many were entered.
+//
+// INTERNAL tier, like the ticks and for the same reason: seating is the platform
+// running the competition rather than a user acting on it, and a guarantee that
+// only holds while somebody is logged in is not a guarantee. The endpoint does
+// not charge the $ARCA gates — these agents are already active, which is where
+// the entitlement was charged — so this cannot bill an owner for a seat the
+// platform is handing out to fix its own omission.
+func reconcileSeats(ctx context.Context, cfg config, compID string) (int, error) {
+	body, err := httpPost(ctx, cfg,
+		cfg.agentServiceURL+"/internal/v1/competitions/"+compID+"/participants/reconcile",
+		[]byte("{}"))
+	if err != nil {
+		return 0, err
+	}
+	var out struct {
+		Seated []string `json:"seated"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return 0, fmt.Errorf("decode reconcile: %w", err)
+	}
+	return len(out.Seated), nil
 }
 
 func closeTick(ctx context.Context, cfg config, compID string) error {

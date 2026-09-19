@@ -11,6 +11,7 @@ import { CompetitionTick } from './competition-tick.entity';
 import { CreateCompetitionDto } from './dto/create-competition.dto';
 import { EntitlementClient } from '../entitlements/entitlement.client';
 import { PREMIUM_ARENA_ACTION, SeasonsService } from '../seasons/seasons.service';
+import { seatAgent, unseatedActiveAgentIds } from './seating';
 
 /**
  * A saved competition plus how its participants got in.
@@ -24,6 +25,15 @@ export type CompetitionRegistration = Competition & {
     tier: string;
     gates_applied: string[];
     balance_checked: boolean;
+    note: string;
+  };
+  /**
+   * Which tick this agent's record in the competition starts at. It exists
+   * because entry is no longer refused after the first tick: a late entry is
+   * admitted and MARKED, and the mark has to reach whoever admitted it.
+   */
+  entry?: {
+    joined_tick_index: number;
     note: string;
   };
 };
@@ -147,19 +157,25 @@ export class CompetitionsService {
    * uses: COMPETE always, PREMIUM_ARENA as well in a premium arena. A door that
    * reached the array without them would be a hole opened by convenience.
    *
-   * ENTRY CLOSES AT THE FIRST TICK, and that is the fairness rule.
+   * ENTRY NO LONGER CLOSES AT THE FIRST TICK, and the rule it replaces was a
+   * real one, so here is the trade in full.
    *
-   * Not at 'running' — at the first tick. A competition that has started but
-   * has not yet opened a tick has no history for a newcomer to be missing, so
-   * there is nothing unfair about joining it. Once one tick exists there is: the
-   * standings read each participant's NAV series, and an agent that has traded
+   * The old rule: once a competition had ticked, entry was refused, because the
+   * standings read each participant's NAV series and an agent that has traded
    * three hours would be ranked beside one that has traded three days as though
-   * the two numbers meant the same thing. Nothing in the standings query can
-   * express that difference, and the scoring formula is not ours to bend for it.
+   * the two numbers meant the same thing.
    *
-   * So the refusal is explicit and names the remedy — the next competition of
-   * the season — rather than admitting the agent into a comparison it cannot
-   * win or lose honestly.
+   * What it cost: a continuous cadence on a three-month season opens its first
+   * tick four hours in. From then on NOBODY could enter — not through this
+   * endpoint, and not through activation, which never took a seat at all. The
+   * arena closed permanently on its first afternoon, and every agent created
+   * afterwards was active, funded and never called. That is not a fairness rule,
+   * it is a closed door with a fairness rule written on it.
+   *
+   * So the comparison problem is RECORDED rather than prevented:
+   * competition_entries.joined_tick_index says which tick an agent's record
+   * starts at, and the standings carry it, so a short record reads as short
+   * rather than as bad. Nothing here touches the scoring formula.
    */
   async joinParticipant(competitionId: string, agentId: string): Promise<CompetitionRegistration> {
     const competition = await this.findOne(competitionId);
@@ -168,18 +184,6 @@ export class CompetitionsService {
       throw new BadRequestException({
         code: 'competition_completed',
         message: 'This competition has finished. Enter the next one in the season.',
-      });
-    }
-
-    const ticks = await this.ticks.count({ where: { competitionId } });
-    if (ticks > 0) {
-      throw new BadRequestException({
-        code: 'competition_already_started',
-        message:
-          `This competition has already run ${ticks} tick(s). An agent entering now would be ` +
-          'ranked against agents whose record covers a longer window, and the standings cannot ' +
-          'say which is which. Enter the next competition of this season instead.',
-        ticks_elapsed: ticks,
       });
     }
 
@@ -196,18 +200,20 @@ export class CompetitionsService {
 
     // Appended in the database rather than in memory: two owners entering at the
     // same moment would otherwise each write the array they read, and the later
-    // write would drop the earlier agent without any error being raised.
-    await this.competitions.manager.query(
-      `UPDATE competitions
-          SET participant_ids = array_append(participant_ids, $2::uuid)
-        WHERE id = $1::uuid
-          AND NOT ($2::uuid = ANY(coalesce(participant_ids, '{}'::uuid[])))`,
-      [competitionId, agentId],
-    );
+    // write would drop the earlier agent without any error being raised. The
+    // same helper activation uses, so the two doors cannot drift apart.
+    const seat = await seatAgent(this.competitions.manager, agentId, competitionId);
 
     const saved = await this.findOne(competitionId);
     return {
       ...saved,
+      entry: {
+        joined_tick_index: seat.joinedTickIndex,
+        note: seat.joinedTickIndex === 0
+          ? 'Entered before the first tick: this agent has the full record of the competition.'
+          : `Entered after ${seat.joinedTickIndex} tick(s). The standings mark this, so a shorter ` +
+            'record is not read as a worse one.',
+      },
       access: {
         tier: season.accessTier,
         gates_applied: premium ? ['compete', PREMIUM_ARENA_ACTION] : ['compete'],
@@ -218,6 +224,61 @@ export class CompetitionsService {
             'launched, or no threshold is set for that action). This is a pass by default, ' +
             'not a verified entitlement.',
       },
+    };
+  }
+
+  /**
+   * POST /internal/v1/competitions/:id/participants/reconcile — the platform
+   * seats whoever is missing.
+   *
+   * WHY A SECOND PATH EXISTS when activation already takes a seat. Activation
+   * is the path a person walks, and it is not the only way an agent becomes
+   * active: a row inserted by a migration, a script, or a restore does not go
+   * through it, and an agent activated while no competition was running was
+   * refused and is still waiting. Every one of those produces the same silent
+   * fault — an active agent nothing ever calls — and the cadence is the only
+   * thing in a position to notice, because it is the thing doing the calling.
+   *
+   * So the competition reconciles its own field before every tick. That makes
+   * the invariant "an active agent holds a seat" true continuously rather than
+   * only at the moment somebody clicked a button.
+   *
+   * IT DOES NOT STEAL. An agent already seated in any open competition is left
+   * where it is; only agents with no seat anywhere are admitted, so the
+   * human-vs-AI field is never emptied into the AI-vs-AI one.
+   *
+   * The gates are NOT applied here, and that is deliberate rather than
+   * forgotten: this admits agents that are already active, and activation is
+   * where the $ARCA entitlement is charged. Charging again for a seat the
+   * platform is handing out to fix its own omission would bill an owner for a
+   * bug.
+   */
+  async reconcileSeats(competitionId: string): Promise<{
+    competition_id: string;
+    seated: string[];
+    note: string;
+  }> {
+    const competition = await this.findOne(competitionId);
+    if (competition.status === 'completed') {
+      throw new BadRequestException({
+        code: 'competition_completed',
+        message: 'A finished competition takes no new participants.',
+      });
+    }
+
+    const waiting = await unseatedActiveAgentIds(this.competitions.manager);
+    const seated: string[] = [];
+    for (const agentId of waiting) {
+      const seat = await seatAgent(this.competitions.manager, agentId, competitionId);
+      if (seat.seated) seated.push(agentId);
+    }
+
+    return {
+      competition_id: competitionId,
+      seated,
+      note: seated.length
+        ? `${seated.length} active agent(s) held no seat in any open competition and were entered here.`
+        : 'Every active agent already holds a seat.',
     };
   }
 
@@ -306,6 +367,8 @@ export class CompetitionsService {
       cash: string | null;
       snapshot_at: Date | null;
       decisions: string;
+      joined_tick_index: string | null;
+      joined_at: Date | null;
     }> = await this.competitions.manager.query(
       // portfolio_snapshots is keyed by PORTFOLIO, not by agent — an agent has
       // one portfolio per season — so the join runs through `portfolios`.
@@ -336,12 +399,22 @@ export class CompetitionsService {
               l.cash,
               l.ts   AS snapshot_at,
               (SELECT count(*) FROM decisions_counted d
-                WHERE d.agent_id = a.id AND d.season_id = $2::uuid) AS decisions
+                WHERE d.agent_id = a.id AND d.season_id = $2::uuid) AS decisions,
+              -- WHEN THIS AGENT'S RECORD IN THIS CONTEST BEGINS. Entry used to
+              -- be refused after the first tick so that every row here covered
+              -- the same window; it is admitted and marked instead, and this is
+              -- the mark. NULL means the entry predates the record being kept
+              -- (migration 0053), which is not the same claim as 0 and must not
+              -- be rendered as one.
+              e.joined_tick_index,
+              e.joined_at
          FROM unnest($1::uuid[]) AS p(id)
          JOIN agents a   ON a.id = p.id
          LEFT JOIN creators c ON c.id = a.creator_id
-         LEFT JOIN latest l   ON l.agent_id = a.id`,
-      [competition.participantIds ?? [], competition.seasonId],
+         LEFT JOIN latest l   ON l.agent_id = a.id
+         LEFT JOIN competition_entries e
+                ON e.agent_id = a.id AND e.competition_id = $3::uuid`,
+      [competition.participantIds ?? [], competition.seasonId, competition.id],
     );
 
     // Sorted here rather than in SQL because a NULL nav must sort LAST
@@ -381,9 +454,19 @@ export class CompetitionsService {
         cash: r.cash,
         snapshot_at: r.snapshot_at,
         decisions: Number(r.decisions),
-        note: r.nav == null
-          ? 'No portfolio snapshot yet — this agent has not been valued in this competition.'
-          : undefined,
+        joined_tick_index: r.joined_tick_index == null ? null : Number(r.joined_tick_index),
+        joined_at: r.joined_at,
+        // Two different facts, so two different sentences rather than one that
+        // has to cover both. A late entry with no snapshot yet gets both.
+        note: [
+          r.nav == null
+            ? 'No portfolio snapshot yet — this agent has not been valued in this competition.'
+            : null,
+          r.joined_tick_index != null && Number(r.joined_tick_index) > 0
+            ? `Entered at tick ${Number(r.joined_tick_index)} of ${ticks}: this record covers a ` +
+              'shorter window than the agents that started the competition.'
+            : null,
+        ].filter(Boolean).join(' ') || undefined,
       })),
       ranked_by: 'nav',
       note:

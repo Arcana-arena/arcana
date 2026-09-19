@@ -20,11 +20,20 @@ type Fail = { ok: false; status: number | null; reason: string; code: string | n
  *
  * WHY IT EXISTS. Entering a competition had an endpoint and no screen, so an
  * owner could activate an agent and then find that nothing ever asked it to
- * decide. Activation and a seat are different things; this panel is the second.
+ * decide.
  *
- * ONLY COMPETITIONS THAT HAVE NOT STARTED ARE OFFERED. Entry closes at the first
- * tick, because standings compare NAV over a common window. A running one is
- * listed only if this agent is already in it.
+ * ACTIVATION NOW TAKES A SEAT BY ITSELF, so this panel is no longer the only way
+ * in — it is where an owner sees which competitions the agent is in, and enters
+ * another. The sentence it used to print is what this screen looked like while
+ * the product was broken: "No competition is open for entry right now. Every
+ * current one has already started", to the owner of an agent that had been live
+ * and idle for sixteen hours.
+ *
+ * EVERY COMPETITION STILL OPEN IS OFFERED, including ones that have ticked.
+ * Entry used to close at the first tick so standings compared NAV over a common
+ * window; on a continuous cadence that closed the arena four hours into a
+ * three-month season. A late entry is admitted and marked instead — the
+ * standings carry the tick it started at.
  */
 export function CompetitionPanel({
   agentId,
@@ -43,7 +52,11 @@ export function CompetitionPanel({
   const [busy, setBusy] = useState<string | null>(null);
 
   const seated = competitions.filter((c) => (c.participantIds ?? []).includes(agentId));
-  const open = competitions.filter((c) => c.status === 'pending' && !(c.participantIds ?? []).includes(agentId));
+  // `pending` AND `running`: a competition that has started still takes
+  // entrants, and the one an agent most likely wants is the one already running.
+  const open = competitions.filter(
+    (c) => c.status !== 'completed' && !(c.participantIds ?? []).includes(agentId),
+  );
 
   return (
     <section className="box">
@@ -74,7 +87,9 @@ export function CompetitionPanel({
         <ul className="m2" style={{ fontSize: 12, lineHeight: 1.6, margin: '0 0 0 18px', padding: 0 }}>
           <li>From its first tick the agent is asked for a decision every four hours, and every decision is recorded on its public record.</li>
           <li>If its wallet is funded, those decisions trade its funds on chain. If not, they are recorded and nothing is executed.</li>
-          <li>Entry closes at the competition&rsquo;s first tick. You can withdraw at any time; retiring also gives up the seat.</li>
+          <li>Activating an agent already enters it in the competition that is running, so this is only for entering another one.</li>
+          <li>Entry stays open after a competition has started. The standings mark which tick an agent joined at, so a shorter record is not read as a worse one.</li>
+          <li>You can withdraw at any time; retiring also gives up the seat.</li>
         </ul>
 
         {agentStatus !== 'active' ? (
@@ -83,7 +98,10 @@ export function CompetitionPanel({
           </div>
         ) : open.length === 0 ? (
           <div className="m3" style={{ fontSize: 12, marginTop: 10 }}>
-            No competition is open for entry right now. Every current one has already started.
+            {seated.length > 0
+              ? 'There is no other competition to enter: this agent is already in every one that is open.'
+              : 'No competition is open for entry, and none is running — so no agent is deciding right now. ' +
+                'This is a platform-side gap rather than something wrong with this agent.'}
           </div>
         ) : (
           <div className="scroll-x" style={{ marginTop: 10 }}>

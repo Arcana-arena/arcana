@@ -69,6 +69,12 @@ confirmation. Tables added beyond §7 (each documented in its migration file):
   stored in object storage (MinIO/S3).
 - `competition_ticks` (0013) — turn/session state for competitions
   (human_vs_ai rounds), referencing an immutable snapshot per tick.
+- `competition_entries` (0053) — when each agent entered each competition, and
+  after how many ticks. `competitions.participant_ids` still answers who is in
+  one NOW; this answers since when, which became a question the moment entry
+  stopped closing at the first tick. Without it, an agent seated on tick 37 and
+  one seated on tick 0 are the same row to the standings, and the shorter record
+  reads as the worse one.
 - `deposit_addresses`, `payment_events`, `creator_payouts` — **all RETIRED**
   (0024, 0028); `subscriptions` and `user_push_tokens` — **still live** (0014) — the $ARCA payment flow of §10: unique HD deposit
   addresses, off-chain listener events, batch creator payouts, manual renew,
