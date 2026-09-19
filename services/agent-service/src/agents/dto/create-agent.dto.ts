@@ -125,9 +125,11 @@ export class CreateAgentDto {
   visibility?: 'public' | 'private';
 
   /**
-   * How often this agent decides, in seconds. Omitted means the platform default
-   * of four hours — what every agent ran at when the interval lived in a systemd
-   * unit, one per competition, and no owner was asked.
+   * How often this agent decides, in seconds. Omitted means 60 — the floor, so a
+   * new agent starts looking on the next minute rather than waiting out a number
+   * nobody showed its owner. (It was four hours for the first hour of this
+   * feature's life, inherited from the interval that lived in a competition's
+   * unit file; migration 0055 has the reasoning.)
    *
    * It is the OWNER'S number, and can be changed later on a running agent
    * (PATCH). The floor of 60 is the snapshot ref's minute resolution rather than

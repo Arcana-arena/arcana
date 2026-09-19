@@ -138,9 +138,13 @@ await section('An owner sets the cadence, and the bounds are the data model', as
     fast.created.status === 201 && fast.created.body?.cadenceSeconds === 60,
     `${fast.created.status} cadenceSeconds=${JSON.stringify(fast.created.body?.cadenceSeconds)}`);
 
+  // THE DEFAULT IS THE FLOOR, not a waiting period. It was four hours for one
+  // hour on 2026-09-20, inherited from the interval that used to live in a unit
+  // file — and a funded agent created in the afternoon still sat idle until the
+  // platform's clock came round, which is the fault the whole change is about.
   const dflt = await mkAgent('default');
-  check('an owner who says nothing gets four hours, not zero',
-    dflt.created.body?.cadenceSeconds === 14400,
+  check('an owner who says nothing gets the floor, not a wait',
+    dflt.created.body?.cadenceSeconds === 60,
     `cadenceSeconds=${JSON.stringify(dflt.created.body?.cadenceSeconds)}`);
 
   // BELOW THE FLOOR IS REFUSED, and the floor is the snapshot ref's minute

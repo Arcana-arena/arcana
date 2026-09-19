@@ -105,9 +105,9 @@ export class AgentsService {
       provenance,
       // Chosen now because it only moves one way (migration 0047).
       visibility: dto.visibility ?? 'public',
-      // The owner's clock. Omitted means four hours — what every agent ran at
-      // while the interval lived in a competition's unit file — and unlike the
-      // mandate it can be changed later on a running agent.
+      // The owner's clock. Omitted means the FLOOR: a new agent looks on the next
+      // minute instead of waiting out a platform number its owner never chose.
+      // Unlike the mandate it can be changed later on a running agent.
       cadenceSeconds: dto.cadenceSeconds ?? DEFAULT_CADENCE_SECONDS,
     });
     return this.agents.save(agent);

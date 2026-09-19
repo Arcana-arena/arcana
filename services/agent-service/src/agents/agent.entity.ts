@@ -105,7 +105,7 @@ export class Agent {
    * signer's per-agent daily signature cap and the engine's per-agent daily
    * token budget.
    */
-  @Column({ name: 'cadence_seconds', type: 'int', default: 14400 })
+  @Column({ name: 'cadence_seconds', type: 'int', default: 60 })
   cadenceSeconds: number;
 
   @CreateDateColumn({ name: 'created_at' })

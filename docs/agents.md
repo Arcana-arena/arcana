@@ -192,8 +192,19 @@ Nothing is refused; nothing is silent either.
 ## How often an agent decides is its owner's number
 
 **Changed 2026-09-20.** `agents.cadence_seconds` (migration 0054), set at
-creation and changeable on a running agent with `PATCH /v1/agents/:id`. Default
-14400 — four hours, which is what every agent was already running at.
+creation and changeable on a running agent with `PATCH /v1/agents/:id`.
+
+**The default is 60 — the floor** (migration 0055). It was 14400 for the first
+hour of this feature's life, carried over from the interval that used to live in a
+competition's unit file, and that was the same mistake in a smaller shape: a
+funded agent created in the afternoon still waited up to four hours before being
+asked anything, for a number its owner had never been shown. An agent now looks
+every minute from the moment it goes active, and what keeps it from trading is the
+market not having moved beyond its own rebalance band — a fact about prices its
+decision log states — rather than a clock it cannot see.
+
+An owner who wants patience asks for it: four hours, a day, a week are all
+settable, and are now a visible choice on the row instead of a platform habit.
 
 Before this, the interval lived in a systemd unit per competition, so one number
 picked by whoever installed it governed every strategy in the room, and a new

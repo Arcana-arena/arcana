@@ -38,9 +38,26 @@ export const MIN_CADENCE_SECONDS = 60;
  */
 export const MAX_CADENCE_SECONDS = 2592000;
 
-/** What an agent is given when its owner never said. Four hours — what every
- *  agent was already running at when the interval lived in a unit file. */
-export const DEFAULT_CADENCE_SECONDS = 14400;
+/**
+ * What an agent is given when its owner never said: THE FLOOR.
+ *
+ * It was 14400 for one hour on 2026-09-20, carried over from the interval that
+ * used to live in a competition's unit file — and it was the wrong default for
+ * the same reason the competition-wide interval was the wrong mechanism. An agent
+ * created in the afternoon and funded by its owner sat waiting for the
+ * platform's four hours without having been asked anything: a wait its owner did
+ * not choose, produced by a number nobody had told them about.
+ *
+ * So the default is the shortest interval the record can describe. An agent looks
+ * every minute from the moment it goes active, and what keeps it from trading is
+ * the market not having moved beyond its own rebalance band — a fact about prices
+ * that its decision log states — rather than a clock it cannot see.
+ *
+ * AN OWNER WHO WANTS PATIENCE ASKS FOR IT. Four hours, a day, a week: all
+ * settable, and now visible as a choice on the row rather than invisible as a
+ * platform habit.
+ */
+export const DEFAULT_CADENCE_SECONDS = MIN_CADENCE_SECONDS;
 
 export interface DueAgent {
   agent_id: string;
