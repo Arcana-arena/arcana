@@ -53,25 +53,26 @@ fi
 UNIT_DIR=/etc/systemd/system
 BIN_DIR="$REPO/scheduler-bin"
 
-# STOP THE CADENCE FIRST. It fires once a minute and this script restarts the
-# agent service; when the two overlap the cadence cannot reach :3001, exits 1 —
-# correctly, because it could not perform the check — and fires its OnFailure
-# alert. That happened on two consecutive deploys. A deploy is a known window,
-# and an alarm that goes off every time somebody deploys is an alarm people
-# learn to ignore.
+# STOP EVERY TIMER FIRST. This script restarts the services; a timer that fires
+# into that window cannot reach :3001, exits 1 — correctly, because it could not
+# perform its check — and fires its OnFailure alert. A deploy is a known window,
+# and an alarm that goes off every time somebody deploys is an alarm people learn
+# to ignore.
 #
-# The timer is restarted by the enable loop at the end of this script, so a
-# deploy that dies halfway still leaves it to the next run rather than off.
-echo "==> pausing the cadence timers for the length of this deploy"
-# EVERY cadence, not just the first: one unit per competition, and each of them
-# would raise the same false alarm.
-sudo systemctl stop 'arcana-cadence*.timer' 2>/dev/null || true
-sudo systemctl reset-failed 'arcana-cadence*.service' 2>/dev/null || true
-# The pacer for the same reason, and it matters more: it fires every minute and
-# calls BOTH agent-service and the decision engine, so a deploy that restarts
-# either one lands on it almost every time.
-sudo systemctl stop 'arcana-pace.timer' 2>/dev/null || true
-sudo systemctl reset-failed 'arcana-pace.service' 2>/dev/null || true
+# NAMED ONE AT A TIME UNTIL 2026-09-20, and the list was always one unit behind.
+# It started as the cadence (two consecutive deploys alerted), grew the pacer,
+# and then arcana-thesis-resolve failed on the very next deploy with
+# "Failed to connect to localhost port 3001" — a unit nobody had thought to add,
+# raising exactly the alarm the list exists to prevent. The next timer somebody
+# writes would have been the next false alarm, so the rule is derived rather than
+# enumerated: during a deploy, no timer runs.
+#
+# Every one is restarted by the enable loop at the end of this script — which
+# derives its list from the .timer files, so this cannot leave one off — and a
+# deploy that dies halfway leaves them to the next run rather than off.
+echo "==> pausing every arcana timer for the length of this deploy"
+sudo systemctl stop 'arcana-*.timer' 2>/dev/null || true
+sudo systemctl reset-failed 'arcana-*.service' 2>/dev/null || true
 
 echo "==> making job wrapper executable"
 chmod +x "$REPO/infra/systemd/arca-job.sh"
