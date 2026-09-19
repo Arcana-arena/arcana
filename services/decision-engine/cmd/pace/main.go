@@ -87,12 +87,20 @@ type dueResponse struct {
 	Agents []dueAgent `json:"agents"`
 }
 
+// The shape market-data actually answers with. `unreadable` is an OBJECT —
+// symbol to reason — not a list, and the first version of this struct said
+// []string: the pacer refused the whole run on its own decode error rather than
+// pacing anybody against a snapshot it had misread, which is the right failure
+// and still a failure. Copied from cmd/cadence's own struct, where it was
+// already right.
 type poolTickResult struct {
-	Ref         string   `json:"ref"`
-	Symbols     int      `json:"symbols"`
-	Disputed    []string `json:"disputed"`
-	Unrefereed  []string `json:"unrefereed"`
-	Unreadable  []string `json:"unreadable"`
+	Ref        string            `json:"ref"`
+	TickTime   time.Time         `json:"tick_time"`
+	Source     string            `json:"source"`
+	Symbols    int               `json:"symbols"`
+	Disputed   []string          `json:"disputed"`
+	Unrefereed []string          `json:"unrefereed"`
+	Unreadable map[string]string `json:"unreadable"`
 }
 
 // Per-agent budget. An LLM agent that has to think, price nine pools and
