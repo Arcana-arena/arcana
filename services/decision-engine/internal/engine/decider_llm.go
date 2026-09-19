@@ -40,6 +40,11 @@ import (
 const (
 	ReasonLLMUnavailable   = "llm_unavailable"
 	ReasonLLMInvalidOutput = "llm_invalid_output"
+	// The model was still writing when the token cap stopped it. NOT
+	// llm_invalid_output: that code says the model answered and the answer was
+	// wrong, and it spent a day and a half saying so about an engine that was
+	// hanging up mid-sentence.
+	ReasonLLMTruncated = "llm_output_truncated"
 	ReasonNoMaterialMove   = "no_material_move"
 	ReasonBudgetExhausted  = "inference_budget_exhausted"
 )
@@ -192,6 +197,11 @@ func (d *llmDecider) Decide(ctx context.Context, in DeciderInput) (tradeIntent, 
 		// the tick is still recorded. Not an error return — an error here would
 		// abort the tick and leave a hole in an append-only log whose whole
 		// value is that it has none.
+		if errors.Is(err, llm.ErrTruncated) {
+			ev.ReasonCode = ReasonLLMTruncated
+			ev.ResponseBody = err.Error()
+			return hold("llm output truncated: " + err.Error()), ev, nil
+		}
 		if errors.Is(err, llm.ErrUnavailable) {
 			ev.ReasonCode = ReasonLLMUnavailable
 			ev.ResponseBody = err.Error()

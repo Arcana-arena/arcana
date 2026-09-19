@@ -74,7 +74,49 @@ func buildLLM() *llm.Client {
 		Timeout:     time.Duration(envFloat("LLM_TIMEOUT_MS", 30000)) * time.Millisecond,
 		JSONMode:    envOr("LLM_JSON_MODE", "1") == "1",
 	}
+	cfg.ExtraBody = llmExtraBody(cfg.BaseURL)
 	return llm.New(cfg)
+}
+
+// mimoBaseURL is the provider the defaults above name. Kept as a constant
+// because the thinking switch below is keyed on it and a second spelling of
+// the same URL would silently stop applying it.
+const mimoBaseURL = "https://api.xiaomimimo.com"
+
+// llmExtraBody returns the provider-specific request fields.
+//
+// WHY THERE IS A DEFAULT HERE AT ALL. mimo-v2.5 is a reasoning model and its
+// thinking is billed, capped and discarded as completion tokens. Against this
+// engine's own system prompt it spent 699 of the 700-token cap thinking and
+// returned an answer of one token — measured on the server, three runs of
+// three, finish_reason=length every time. Every LLM decision the engine
+// recorded on 2026-09-18/19 was therefore a forced hold on an empty response.
+// A default provider whose default settings cannot produce a single usable
+// answer is the same failure as a default base URL for an account we do not
+// have: configured-looking and incapable.
+//
+// SCOPED TO THAT BASE URL. `chat_template_kwargs` is mimo's spelling, not a
+// standard; sending it to whatever the next provider is would be this package
+// making a claim about an API it has not been pointed at yet.
+//
+// LLM_EXTRA_BODY overrides the whole object, and `{}` clears it — which is how
+// thinking gets turned back on, at roughly 29s and 910 completion tokens per
+// decision with LLM_MAX_TOKENS raised to 2000 to leave the answer room.
+func llmExtraBody(baseURL string) map[string]any {
+	if raw := os.Getenv("LLM_EXTRA_BODY"); raw != "" {
+		var m map[string]any
+		if err := json.Unmarshal([]byte(raw), &m); err != nil {
+			// NOT A SILENT FALLBACK. A malformed override here would otherwise
+			// leave thinking on and the cap at 700, which is the exact broken
+			// state this default exists to end, and nothing would say so.
+			log.Fatalf("LLM_EXTRA_BODY is not a JSON object: %v", err)
+		}
+		return m
+	}
+	if strings.TrimRight(baseURL, "/") == mimoBaseURL {
+		return map[string]any{"chat_template_kwargs": map[string]any{"enable_thinking": false}}
+	}
+	return nil
 }
 
 // buildBroker returns the broker, or nil when chain execution is switched off.
@@ -246,7 +288,16 @@ func main() {
 	client := buildLLM()
 	if client.Configured() {
 		eng = eng.WithLLM(engine.NewLLMDecider(client))
-		log.Printf("llm decider ACTIVE: provider=%s model=%s", client.Provider(), client.Model())
+		// PRINTS THE SETTINGS THAT DECIDE WHETHER AN ANSWER FITS, not just the
+		// provider name. The engine records latency and token counts to the
+		// database and nothing at all to the journal, so when every decision
+		// started coming back truncated the log said `provider=mimo
+		// model=mimo-v2.5` and stopped — true, and no help. max_tokens and the
+		// thinking switch are the two values that produced that, so they are
+		// the two the journal now carries.
+		params, _ := json.Marshal(client.Params())
+		log.Printf("llm decider ACTIVE: provider=%s model=%s params=%s",
+			client.Provider(), client.Model(), params)
 	} else {
 		log.Printf("WARN: llm decider INACTIVE: LLM_API_KEY not set — agents with " +
 			"strategy_type='llm' will record a HOLD with reason llm_unavailable on every " +
