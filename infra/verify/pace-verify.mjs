@@ -27,6 +27,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { privateKeyToAccount, generatePrivateKey } from 'viem/accounts';
 import { req, signInToken, bearer } from './lib/rate-aware.mjs';
@@ -56,7 +57,6 @@ const key = { 'X-Internal-Key': INTERNAL_KEY };
 const errCode = (b) => b?.error?.code ?? b?.code ?? b?.message ?? JSON.stringify(b)?.slice(0, 90);
 
 const { check, section, nothingToCheck, report } = suite('pace-verify');
-sweepOnExit('pace-verify');
 
 // The fixtures this suite owns: its own season and running competition, so the
 // agents it seats are never entered into a real arena, and the rows it marks
@@ -64,17 +64,34 @@ sweepOnExit('pace-verify');
 const ARENA = randomUUID();
 const SEASON = randomUUID();
 const LIVE_ROWS = [];
+// REGISTERED BEFORE THE SWEEP, because exit handlers run in the order they were
+// added and the order decides the outcome. The first run of this suite left a
+// fixture behind: the sweep ran first, found the agent holding a seat in THIS
+// suite's own arena, and kept it — correctly, by its own rule about rows holding
+// something real — and the arena was then deleted a moment later, leaving an
+// agent the sweep had already decided to spare. The seats go first now, so the
+// sweep sees what is actually true.
 process.on('exit', () => {
   try {
     psql(`DELETE FROM competitions WHERE id = '${ARENA}'`);
     psql(`DELETE FROM seasons WHERE id = '${SEASON}'`);
     for (const r of LIVE_ROWS) {
+      // Portfolios first: a portfolio references the agent, and the engine
+      // creates one the moment an agent decides. The first run's cleanup died on
+      // that foreign key and left the row behind.
+      psql(`DELETE FROM portfolio_snapshots WHERE portfolio_id IN
+              (SELECT id FROM portfolios WHERE agent_id = '${r.agentId}')`);
+      psql(`DELETE FROM portfolios WHERE agent_id = '${r.agentId}'`);
       psql(`DELETE FROM decisions WHERE agent_id = '${r.agentId}'`);
       psql(`DELETE FROM agents WHERE id = '${r.agentId}'`);
       if (r.creatorId) psql(`DELETE FROM creators WHERE id = '${r.creatorId}'`);
     }
   } catch { /* the summary matters more than this line */ }
 });
+
+// The shared fixture sweep goes LAST, so every seat this suite made is already
+// handed back when it looks.
+sweepOnExit('pace-verify');
 
 /**
  * `live: true` sends the verification header EMPTY, so the row is born live the
@@ -284,22 +301,30 @@ await section('The due list is machine tier, and the pacer refuses a verificatio
   // does is to run it.
   let out = '';
   let code = 0;
+  let spawnErr = null;
   try {
-    out = execFileSync(BIN, {
+    out = execFileSync(resolve(BIN), {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, ARCANA_VERIFICATION: '1', INTERNAL_API_KEY },
     });
   } catch (e) {
     code = e.status ?? 1;
+    // ENOENT, EACCES and a timeout all land here with NO output, and the first
+    // version of this check read "exited non-zero" as "refused" — so a missing
+    // binary passed it. That is the same shape as a suite reporting success
+    // because it found no data, which this repository has written down twice.
+    spawnErr = e.code ?? null;
     out = `${e.stdout ?? ''}${e.stderr ?? ''}`;
   }
-  check('the pacer refuses to run under ARCANA_VERIFICATION', code !== 0,
-    `exit ${code}: ${out.slice(0, 160)}`);
+  const said = out.trim() !== '';
+  check('the pacer ran, and refused', code !== 0 && said,
+    `exit=${code} spawn=${spawnErr} bin=${resolve(BIN)} out=${JSON.stringify(out.slice(0, 200))}`);
   check('and says what it was protecting rather than just refusing',
     /spend real funds|broadcast transactions/i.test(out), out.slice(0, 200));
   check('and nothing was asked to decide before it refused',
-    !/agent\(s\) due|decided/i.test(out), out.slice(0, 200));
+    said && !/agent\(s\) due|decided/i.test(out),
+    `it printed nothing, so this proves nothing: ${JSON.stringify(out.slice(0, 120))}`);
 });
 
 const code = report();
