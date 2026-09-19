@@ -436,6 +436,7 @@ quietly.
 | `no_material_move` | LLM decider | nothing moved beyond the rebalance band, so no inference was purchased |
 | `llm_unavailable` | LLM decider | timeout, 5xx, rate limit, or no provider configured |
 | `llm_invalid_output` | LLM decider | unparseable answer, unknown action, or a symbol not in the snapshot |
+| `llm_output_truncated` | LLM decider | the provider stopped at the token cap (`finish_reason: length`) rather than because it had finished. **Deliberately not `llm_invalid_output`**: that code says the model answered and the answer was wrong, and it spent a day and a half saying so about an engine that was hanging up mid-sentence. The recorded reason carries `max_tokens`, the completion tokens spent, how many of them were reasoning, and how many were left for the answer — so a reader can see the cap is theirs to raise |
 | `inference_budget_exhausted` | engine | the agent has spent its daily token allowance; it stands down until midnight UTC |
 | `cost_budget_exceeded` | engine / position guard | gas plus pool fees crossed the share of capital the OWNER set in `risk_profile.cost_budget_monthly_pct`. Agents that set none are unmetered, which is the default |
 | `execution_mined` | engine | the swap was mined and filled |

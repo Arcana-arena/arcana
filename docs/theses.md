@@ -10,8 +10,8 @@ attached automatically. Nothing can be edited or withdrawn afterwards.
 |---|---|
 | Publish | `POST /v1/theses` 🔒 |
 | One thesis | `GET /v1/theses/:id` 🌐 |
-| Recent | `GET /v1/theses/recent?limit=` 🌐 |
-| A creator's record | `GET /v1/creators/:id/theses` 🌐 |
+| Recent | `GET /v1/theses/recent?page=&page_size=` 🌐 |
+| A creator's record | `GET /v1/creators/:id/theses?page=&page_size=` 🌐 |
 | Articles | `POST /v1/articles` 🔒, `PATCH /v1/articles/:id` 🔒, `GET /v1/articles/:id` 🌐 |
 | Resolution | `POST /internal/v1/theses/resolve` (X-Internal-Key) |
 | Pages | `/theses`, `/theses/:id`, `/articles/:id`, `/creators/:id/theses` |
@@ -132,6 +132,17 @@ is a counter that can be set to something else.
 
 **`creators.reputation_score` is not touched.** It has its own formula and its
 own owner decision behind it.
+
+## Both lists are paged, and the creator list was the reason
+
+`page` and `page_size` through the shared `parsePage`, default 100, ceiling
+500, and a value outside those is refused by code rather than clamped.
+
+`limit` was a fixed whitelist on `/v1/theses/recent`, which bounded one response
+and nothing else: `GET /v1/creators/:id/theses` had no bound at all, so a creator
+with four hundred claims served four hundred rows to an unauthenticated caller
+every time the page loaded. Both lists now go through the same function, so
+neither can acquire its own rules the next time one of them changes.
 
 ## Immutability
 

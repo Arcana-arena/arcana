@@ -165,6 +165,7 @@ keep working when auth is misconfigured (§5).
 | `GET /v1/agents/:id/passport` · `/dna` · `/dna/similar` · `/evolution` · `/autopsy` | 🌐 |
 | `GET /v1/agents/:id/series/score` · `/series/nav` · `/decisions` | 🌐 (see docs/series-endpoints.md) |
 | `GET /v1/creators`, `GET /v1/creators/:id`, `GET /v1/creators/:id/agents` | 🌐 |
+| `GET /v1/theses/recent` · `GET /v1/theses/:id` · `GET /v1/creators/:id/theses` · `GET /v1/creators/:id/articles` · `GET /v1/articles/:id` | 🌐 (see docs/theses.md) |
 | `GET /v1/seasons`, `/:id` | 🌐 |
 | `GET /v1/competitions`, `/:id`, `/:id/ticks`, `/:id/tick/open` | 🌐 |
 | `GET /v1/auth/nonce` · `POST /v1/auth/verify` · `/refresh` · `/logout` | 🌐 (they are how you sign in) |
@@ -177,6 +178,9 @@ keep working when auth is misconfigured (§5).
 | `POST /v1/agents/:id/evolve` | 🔒 + $ARCA `evolve` |
 | `POST /v1/agents/:id/retire` | 🔒 |
 | `POST /v1/agents/:id/decisions` | 🔒 |
+| `POST /v1/theses` | 🔒 owner of `linked_agent_id`, 10/hour per wallet |
+| `POST /v1/articles` | 🔑 30/hour per wallet |
+| `PATCH /v1/articles/:id` | 🔒 author |
 | `POST /v1/seasons` · `PATCH /v1/seasons/:id` | 👑 |
 | `POST /v1/competitions` · `POST /v1/competitions/:id/complete` | 👑 |
 | `POST /internal/v1/competitions/:id/ticks` · `/ticks/close` | ⚙️ |
@@ -187,6 +191,7 @@ keep working when auth is misconfigured (§5).
 | `PATCH /v1/subscriptions/:id` | 🔒 buyer |
 | `POST /v1/subscriptions/:id/wallet/export` | 🔒 buyer |
 | `POST /internal/v1/agents/dna/compute` | ⚙️ |
+| `POST /internal/v1/theses/resolve` | ⚙️ |
 
 🔒 buyer is the `user_wallet` on the subscription, and NOT scoped by status: a
 lapsed buyer must still be able to read what they hold and take the key. See
