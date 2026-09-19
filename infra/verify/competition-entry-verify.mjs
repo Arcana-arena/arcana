@@ -77,36 +77,56 @@ sweepOnExit('competition-entry-verify');
 const FIXTURE = randomUUID();       // a pending competition: the door itself
 const ARENA = randomUUID();         // a running one, to prove activation seats
 const FIXTURE_SEASON = randomUUID();
-// One row is marked `live` for a few seconds to drive the seating path, and the
-// mark is undone here as well as inline. A suite that fails between the two
-// would otherwise leave behind an active live agent the sweep cannot see — and
-// the next run's own invariant check would fail on it, which is a flake this
-// suite would have manufactured for itself.
-let LIVE_MARKED = null;
+// The rows this suite creates as LIVE, to drive the path a real owner walks.
+// They are removed here as well as inline, and removal is a DELETE rather than
+// a downgrade: provenance is immutable (0042), and a live agent left active is
+// one the fixture sweep cannot see — the next run's own invariant check would
+// fail on it, a flake this suite would have manufactured for itself.
+const LIVE_ROWS = [];
 process.on('exit', () => {
   try {
-    if (LIVE_MARKED) {
-      psql(`UPDATE agents SET provenance = 'verification', status = 'retired' WHERE id = '${LIVE_MARKED}'`);
-    }
     psql(`DELETE FROM competitions WHERE id IN ('${FIXTURE}', '${ARENA}')`);
     psql(`DELETE FROM seasons WHERE id = '${FIXTURE_SEASON}'`);
+    for (const row of LIVE_ROWS) {
+      // Agents first: creators cascade to them, but the order is explicit so a
+      // failure on one line does not silently leave the other row behind.
+      psql(`DELETE FROM agents WHERE id = '${row.agentId}'`);
+      if (row.creatorId) psql(`DELETE FROM creators WHERE id = '${row.creatorId}'`);
+    }
   } catch { /* the summary matters more than this line */ }
 });
 
-const mkAgent = async (label) => {
+/**
+ * `live: true` creates the row the way a real owner's browser does, by sending
+ * the verification header EMPTY — provenanceFrom() reads anything but '1' as
+ * live, so the row is born live.
+ *
+ * WHY IT HAS TO BE BORN THAT WAY. The first version of this suite made an
+ * ordinary fixture and flipped `provenance` in SQL afterwards. That cannot
+ * work, and the trigger from migration 0042 said so: provenance is recorded
+ * once, at creation, and an UPDATE raises. The suite failed on its own cleanup
+ * line, which is the check being right about the schema and the suite being
+ * wrong about it.
+ *
+ * A live row is not swept by provenance, so this suite deletes what it made, by
+ * id, on the way out — see LIVE_ROWS.
+ */
+const mkAgent = async (label, { live = false } = {}) => {
   const key = generatePrivateKey();
   const acct = privateKeyToAccount(key);
   const token = await signInToken(AGENT, acct);
+  const asOwner = live ? { 'X-Arcana-Verification': '' } : {};
   const creator = await req(`${AGENT}/v1/creators`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...bearer(token) },
+    headers: { 'Content-Type': 'application/json', ...bearer(token), ...asOwner },
     body: JSON.stringify({ handle: `entry_${label}_${Date.now().toString(36)}` }),
   });
   const agent = await req(`${AGENT}/v1/agents`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...bearer(token) },
+    headers: { 'Content-Type': 'application/json', ...bearer(token), ...asOwner },
     body: JSON.stringify({ name: `entry_agent_${label}`, assetUniverse: 'us_equity' }),
   });
+  if (live && agent.body?.id) LIVE_ROWS.push({ agentId: agent.body.id, creatorId: creator.body?.id });
   return { token, creatorId: creator.body?.id, agentId: agent.body?.id, address: acct.address };
 };
 
@@ -246,12 +266,14 @@ await section('Activating an agent takes a seat, in the same call', async () => 
            WHERE '${third.agentId}'::uuid = ANY(coalesce(participant_ids,'{}'::uuid[]))`) === '0',
     'a verification fixture was entered into a competition');
 
-  // Now the live path. The row is flipped in place rather than created without
-  // the header: a live row this suite cannot sweep is exactly what provenance
-  // exists to prevent, and it is put back before the section ends.
-  const live = await mkAgent('live');
-  LIVE_MARKED = live.agentId;
-  psql(`UPDATE agents SET provenance = 'live' WHERE id = '${live.agentId}'`);
+  // Now the live path, with a row BORN live — the header sent empty, exactly as
+  // a browser leaves it. It cannot be a fixture flipped afterwards: provenance
+  // is immutable by trigger (0042), which is how the first version of this
+  // section failed.
+  const live = await mkAgent('live', { live: true });
+  check('the live fixture really is live, or this section proves nothing',
+    psql(`SELECT provenance FROM agents WHERE id='${live.agentId}'`) === 'live',
+    'the agent meant to exercise the live seating path is marked verification');
   const activated = await req(`${AGENT}/v1/agents/${live.agentId}/activate`, {
     method: 'POST', headers: bearer(live.token),
   });
@@ -265,10 +287,12 @@ await section('Activating an agent takes a seat, in the same call', async () => 
     psql(`SELECT joined_tick_index FROM competition_entries
            WHERE competition_id='${ARENA}' AND agent_id='${live.agentId}'`) === '0',
     'no entry row for an agent seated at activation');
-  psql(`UPDATE agents SET provenance = 'verification', status = 'retired' WHERE id = '${live.agentId}'`);
-  psql(`UPDATE competitions SET participant_ids = array_remove(participant_ids, '${live.agentId}'::uuid)
-         WHERE id = '${ARENA}'`);
-  LIVE_MARKED = null;
+  // Removed now rather than only at exit: the invariant section that follows
+  // asks whether any active agent is unseated, and this one's arena is about to
+  // be deleted underneath it.
+  psql(`DELETE FROM agents WHERE id = '${live.agentId}'`);
+  psql(`DELETE FROM creators WHERE id = '${live.creatorId}'`);
+  LIVE_ROWS.length = 0;
 });
 
 await section('On this database, every active agent holds a seat', async () => {
@@ -298,10 +322,15 @@ await section('On this database, every active agent holds a seat', async () => {
     Array.isArray(r.body?.seated) && r.body.seated.length === 0,
     `seated = ${JSON.stringify(r.body?.seated)}`);
 
+  // 403 forbidden_internal, not 401: the internal tier answers "machine-only
+  // endpoint, wrong or absent key" (packages/auth/src/errors.ts), which is a
+  // different sentence from "you are not signed in" and the one auth-verify
+  // asserts for every other internal route.
   const anon = await req(`${AGENT}/internal/v1/competitions/${FIXTURE}/participants/reconcile`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
   });
-  check('a caller with no internal key cannot move the field', anon.status === 401,
+  check('a caller with no internal key cannot move the field',
+    anon.status === 403 && anon.body?.error?.code === 'forbidden_internal',
     `${anon.status} ${errCode(anon.body)}`);
 });
 

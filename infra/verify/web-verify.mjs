@@ -68,7 +68,27 @@ const text = (html) =>
  * property a client-side re-sort would break while leaving every other check
  * green.
  */
-const positions = (hay, needles) => needles.map((n) => hay.indexOf(n));
+/**
+ * Where each needle appears, SEARCHED FORWARD from the last one found.
+ *
+ * Not `indexOf` from the start, and the difference is a false failure this
+ * produced on 2026-09-19. Two agents can share a NAME — a retired version and
+ * the version that replaced it both carry a record on an ended season's board —
+ * and the API returned `reversion_v1` at rank 5 and again at rank 6. Searching
+ * from zero found the same first occurrence for both, reported the pair as
+ * position 1232 twice, and failed a page that was rendering them in exactly the
+ * order the API sent. Reading each name after the previous one is also what "in
+ * this order" means, so the check gets stricter rather than looser: a page that
+ * printed the second row above the first now fails, where before it could not.
+ */
+const positions = (hay, needles) => {
+  let from = 0;
+  return needles.map((n) => {
+    const at = hay.indexOf(n, from);
+    if (at >= 0) from = at + n.length;
+    return at;
+  });
+};
 const isAscending = (xs) => xs.every((v, i) => i === 0 || (v > xs[i - 1] && v >= 0));
 
 const score1 = (v) => (typeof v === 'number' && Number.isFinite(v) ? v.toFixed(1) : null);
