@@ -1,0 +1,20 @@
+# arcana-pace.timer — look every minute; the agents' own cadences decide who runs.
+#
+# The timer must look at least as often as the shortest cadence an owner can set,
+# and that floor is sixty seconds (the pool snapshot ref resolves to the minute,
+# and decisions reference it by id). A run with nobody due is one HTTP read.
+#
+# No RandomizedDelaySec beyond a second or two: an agent set to a one-minute
+# cadence is measured against its last decision, so jitter does not accumulate —
+# but a delay comparable to the floor itself would make a one-minute cadence
+# indistinguishable from a two-minute one.
+[Unit]
+Description=Run the ARCANA pacer every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00 UTC
+RandomizedDelaySec=2
+Persistent=true
+
+[Install]
+WantedBy=timers.target

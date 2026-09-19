@@ -87,41 +87,87 @@ catches.
 
 Both should be **re-measured rather than re-argued** if the pools deepen.
 
-## The four-hour floor is arithmetic
+## Cadence belongs to the agent, not to the competition
 
-Every decision that trades pays the pool fee: 5 bp on the tight pools, 30 bp on
-the rest. A round trip is therefore **10 to 60 bp of NAV**, before slippage and
-before gas.
+**Changed 2026-09-20.** The interval used to live in a systemd unit, one per
+competition, and `cadence` called the engine for every participant in it. So one
+number chosen by whoever installed the unit governed every strategy in the room:
+four hours for an agent whose edge lasts an hour, four hours for one that wants a
+weekly rebalance, and no way for either owner to ask for anything else. A new
+agent's first decision also waited for the competition's next boundary — which is
+how a funded agent came to sit idle for sixteen hours on the day it was created.
 
-| Cadence | Decisions/day | Daily cost if every one trades |
+Timing is part of a strategy. It is now `agents.cadence_seconds` (migration
+0054), set by the owner at creation and changeable on a running agent, and
+[`cmd/pace`](../services/decision-engine/cmd/pace/main.go) drives it.
+
+| | `cadence` (per competition) | `pace` (per agent) |
+|---|---|---|
+| Unit | one per competition | one for the platform |
+| Looks | every minute | every minute |
+| Acts when | the competition's interval has elapsed | an AGENT's own interval has elapsed since ITS last decision |
+| Effect | opens and closes a tick carrying a pool snapshot | asks the engine for one decision per due agent |
+| Calls the engine | **no, not any more** | yes — the only caller |
+
+Two callers would double every agent's decisions and its fees, so the decide loop
+was deleted rather than gated.
+
+### The four-hour floor is gone, and what replaced it is better
+
+The old floor was arithmetic, and the arithmetic was right:
+
+| Cadence | Decisions/day | Daily cost **if every one trades** |
 |---|---|---|
 | 4h | 6 | 0.6% – 3.6% |
 | 1h | 24 | **2.4% – 14%** |
 
-No edge survives the second row. Below four hours the fee schedule decides the
-outcome and the agent does not.
+The premise was wrong. It assumed **deciding is trading**. Most decisions are
+holds, a hold pays no pool fee at all, and the measured rate on the first
+chain-backed agent was **one trade in five decisions**. The floor charged agents
+that rarely transact for the habits of agents that frequently do — and the table
+above is a worst case, not a cost of thinking.
 
-**The binary refuses to start below the floor rather than clamping.** Silently
-raising a number somebody set means running a cadence nobody chose, and the log
-line saying so scrolls away.
+What bounds the two real costs is now measured directly, per agent, at the
+process that can spend:
 
-### The timer and the cadence are different numbers
+| Cost | Bound | Where |
+|---|---|---|
+| Transactions | `max_signatures_per_agent_per_day` | the signer — the only process that can sign |
+| Inference | a per-agent daily token budget | the decision engine; an exhausted agent stands down with a recorded reason |
 
-The **timer fires hourly**. The **binary acts every four hours**, measured
-against the age of the last recorded tick.
+And the fees an agent does pay are **its owner's to spend**. A platform floor on
+that was a platform opinion about somebody else's money.
 
-That split does two things. A timer misconfigured to fire every ten minutes
-cannot produce ten-minute decisions, because the floor is enforced against the
-*record* rather than the *schedule*. And a missed interval — a reboot, a
-transient RPC failure — is picked up within the hour instead of waiting for the
-next four-hour boundary. Under a continuous cadence there is no market-closed
-excuse for a gap, and the backfill rule still forbids filling a scored season
-backwards, so a missed interval is a permanent hole in the record.
+### Sixty seconds, and it is the data model rather than a policy
+
+A pool snapshot is identified by `pool-` + UTC `YYYYMMDDTHHMMZ` — **minute
+resolution** — and `decisions.market_snapshot_ref` is a foreign key into
+`market_snapshots`. Two decisions inside one minute are two decisions claiming
+the same immutable description of the market, so below a minute the record stops
+being able to say what the agent saw.
+
+It is enforced in three places on purpose, because it is a fact about the rows
+rather than a preference: a CHECK constraint on `agents.cadence_seconds`, a
+validator on the create and patch DTOs, and the cadence binary's own refusal to
+start below it. Lowering it means changing the snapshot ref format first.
+
+The ceiling is a month. Past that an agent is not being paced, it is parked, and
+`retire` is the word the product already has for that.
+
+### The timer and the cadence are still different numbers
+
+The **timers fire every minute**. Each agent acts when **its own** interval has
+elapsed, measured against the age of its **last recorded decision**.
+
+That split does two things. A timer misconfigured to fire every ten seconds
+cannot produce ten-second decisions, because the interval is enforced against the
+*record* rather than the *schedule*. And a missed minute — a reboot, a transient
+RPC failure — is picked up on the next one instead of shifting the whole series.
 
 The age comes from the **record**, not a stored cursor. A cursor is a second
-source of truth that drifts the first time a tick is inserted by anything else,
-and this project has already retired one table that existed to hold exactly
-that (`service_state`, migration 0028).
+source of truth that drifts the first time a decision is written by anything else
+— the manual endpoint, a backfill — and this project has already retired one
+table that existed to hold exactly that (`service_state`, migration 0028).
 
 ## Human participants are skipped, and the format is retired
 
@@ -130,10 +176,13 @@ hour so a person could submit. **A four-hourly clock running through the night
 is not a format a person participates in** — six decisions a day, two of them
 while they are asleep.
 
-So the cadence skips human-managed agents with one log line, rather than
-calling the engine and counting the resulting 422 as a failure. That would have
-printed an error every four hours forever for a system behaving exactly as
-designed — the permanent noise that teaches people to stop reading the journal.
+So human-managed agents are never asked. **Since 2026-09-20 they are excluded by
+the query that finds who is due** (`agents/cadence.ts`) rather than skipped one
+HTTP call at a time inside a tick — the pacer never lists them, so the 422 that
+used to be counted as a skip is not produced at all. Calling the engine and
+counting that 422 as a failure would have printed an error every four hours
+forever for a system behaving exactly as designed: the permanent noise that
+teaches people to stop reading the journal.
 
 **Nothing was deleted.** The human agent in the running competition is a live
 participant with a real record; the manual decision endpoint still exists and

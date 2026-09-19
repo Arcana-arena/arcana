@@ -67,6 +67,11 @@ echo "==> pausing the cadence timers for the length of this deploy"
 # would raise the same false alarm.
 sudo systemctl stop 'arcana-cadence*.timer' 2>/dev/null || true
 sudo systemctl reset-failed 'arcana-cadence*.service' 2>/dev/null || true
+# The pacer for the same reason, and it matters more: it fires every minute and
+# calls BOTH agent-service and the decision engine, so a deploy that restarts
+# either one lands on it almost every time.
+sudo systemctl stop 'arcana-pace.timer' 2>/dev/null || true
+sudo systemctl reset-failed 'arcana-pace.service' 2>/dev/null || true
 
 echo "==> making job wrapper executable"
 chmod +x "$REPO/infra/systemd/arca-job.sh"
@@ -96,6 +101,13 @@ mkdir -p "$BIN_DIR"
 # which is the same rule that held the six §10 files through phase 4a.
 echo "==> building cadence binary"
 (cd "$REPO/services/decision-engine" && /usr/local/go/bin/go build -ldflags "$LDFLAGS" -o "$BIN_DIR/cadence" ./cmd/cadence)
+
+# The pacer: each agent decides on ITS OWN cadence (migration 0054). This is the
+# only caller of the decision engine now — the cadence units mark the window the
+# leaderboard reads and no longer decide for anybody, because two callers would
+# double every agent's decisions and its fees.
+echo "==> building pacer binary"
+(cd "$REPO/services/decision-engine" && /usr/local/go/bin/go build -ldflags "$LDFLAGS" -o "$BIN_DIR/pace" ./cmd/pace)
 
 # The position guard: take-profit and stop-loss between decision ticks.
 #

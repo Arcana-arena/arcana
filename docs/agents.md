@@ -189,6 +189,40 @@ indistinguishable from working. So the create and patch responses carry
 `risk_profile_unrecognised`: every key the engine does not read, listed back.
 Nothing is refused; nothing is silent either.
 
+## How often an agent decides is its owner's number
+
+**Changed 2026-09-20.** `agents.cadence_seconds` (migration 0054), set at
+creation and changeable on a running agent with `PATCH /v1/agents/:id`. Default
+14400 — four hours, which is what every agent was already running at.
+
+Before this, the interval lived in a systemd unit per competition, so one number
+picked by whoever installed it governed every strategy in the room, and a new
+agent's first decision waited for that competition's next boundary. The pacer
+(`cmd/pace`) now asks each agent to decide when **its own** interval has elapsed
+since **its own** last recorded decision, and the competition tick went back to
+being what the leaderboard needs: a marked window with a price snapshot.
+
+**Unlike the mandate, cadence may be changed while the agent is active**, and the
+difference is deliberate. A mandate is what the record was produced under —
+editing it in place would make the leaderboard a claim about an agent that no
+longer exists. A cadence change is already visible in the record, because every
+decision carries its own timestamp; and an owner who had to create a new version
+to slow their agent down would instead leave it running at a pace they no longer
+want. Shortening it can make an agent due on the next minute, which is what
+shortening it means.
+
+| Bound | Value | Why |
+|---|---|---|
+| floor | 60s | pool snapshot refs resolve to the minute and `decisions.market_snapshot_ref` is a foreign key into them — below a minute the record cannot say what the agent saw |
+| ceiling | 2592000s (30d) | past a month the agent is parked, not paced, and `retire` is the honest word |
+
+**There is no fee floor, and that is the point.** The old four-hour minimum
+assumed deciding is trading; most decisions are holds, and the measured rate was
+one trade in five. What an agent spends on pool fees is its owner's to spend. What
+bounds the platform is measured directly, per agent: the signer's
+`max_signatures_per_agent_per_day` and the engine's daily token budget. See
+[cadence.md](./cadence.md).
+
 ## Activation takes a seat, or it is refused
 
 **Found on 2026-09-19, by an owner asking why their agent was not trading.** It

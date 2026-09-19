@@ -1,0 +1,58 @@
+# arcana-pace.service — every agent decides on ITS OWN cadence.
+#
+# WHAT THIS REPLACES. arcana-cadence.service used to call the decision engine
+# for every participant in a competition, so one interval — CADENCE_INTERVAL in
+# that unit, chosen by whoever installed it — governed every strategy in the
+# room. Four hours for an agent whose edge lasts an hour, four hours for one
+# that wants a weekly rebalance, and no way for either owner to say otherwise.
+# A new agent's first decision also waited for the competition's next boundary,
+# which is how a funded agent sat idle for sixteen hours on the day it was made.
+#
+# Cadence is part of a strategy, so it lives on the agent now
+# (agents.cadence_seconds, migration 0054) and this drives it. The cadence units
+# stay, and mark the window the leaderboard reads; they no longer decide for
+# anybody, so there is exactly ONE caller of the engine.
+#
+# NO COMPETITION ID, AND THAT IS THE DIFFERENCE. One unit for the whole
+# platform: it asks agent-service which agents are due — active, seated, not a
+# fixture, not human-managed, and longer than their own cadence since their LAST
+# RECORDED DECISION — and asks the engine for one decision each, all against a
+# single pool snapshot taken at the start of the run.
+#
+# A MINUTE IS THE SHORTEST CADENCE ANYONE CAN SET, so this looks every minute. A
+# run with nobody due costs one HTTP read and exits 0 saying so.
+#
+# Overlap protection is the same two layers the cadence units use: systemd will
+# not start a second instance while the first is activating, and flock covers
+# runs that never come through systemd. It matters more here: a second pacer
+# inside one minute would ask the same agents to decide again against the same
+# snapshot ref.
+[Unit]
+Description=ARCANA pacer (each agent decides on its owner's cadence)
+After=network-online.target arcana-agent.service arcana-decision.service arcana-marketdata.service
+Wants=network-online.target
+
+OnFailure=arcana-alert@%n.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+# Without this every journal line is attributed to `flock`, which is the process
+# systemd actually executes.
+SyslogIdentifier=arcana-pace
+WorkingDirectory=/home/ubuntu/arcana/services/decision-engine
+Environment=AGENT_SERVICE_URL=http://localhost:3001
+Environment=DECISION_ENGINE_URL=http://localhost:8081
+Environment=MARKET_DATA_URL=http://localhost:8083
+# INTERNAL_API_KEY comes from this file at mode 600 — never inline in a unit,
+# because `systemctl show` prints Environment= to any user.
+EnvironmentFile=-/home/ubuntu/arcana/.env.auth
+ExecStart=/usr/bin/flock -n /tmp/arcana-pace.lock /home/ubuntu/arcana/scheduler-bin/pace
+# The binary budgets 150s per due agent and runs them in sequence. This ceiling
+# is deliberately larger than a minute: a run that is still finishing when the
+# next timer fires is covered by the lock, and cutting a chain-backed agent off
+# mid-swap is worse than a late start.
+TimeoutStartSec=1800
+
+[Install]
+WantedBy=multi-user.target

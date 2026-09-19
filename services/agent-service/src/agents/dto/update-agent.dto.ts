@@ -1,5 +1,6 @@
-import { IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsInt, IsObject, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { MANDATE_MAX_CHARS } from '../mandate-templates';
+import { MAX_CADENCE_SECONDS, MIN_CADENCE_SECONDS } from '../cadence';
 
 /**
  * Descriptive edits only.
@@ -50,4 +51,27 @@ export class UpdateAgentDto {
   @IsOptional()
   @IsObject()
   mandateParams?: Record<string, unknown>;
+
+  /**
+   * How often this agent decides, in seconds. The owner's number.
+   *
+   * ALLOWED ON AN ACTIVE AGENT, unlike the mandate, and the difference is not an
+   * oversight. The mandate is what the agent is trying to do — editing it in
+   * place would make the track record a claim about an agent that no longer
+   * exists. Cadence is how often it is asked, and the record already says: every
+   * decision carries its own timestamp and its own snapshot, so a change of
+   * pace is visible in the series rather than hidden by it. An owner who has to
+   * create a new version to slow their agent down would instead leave it
+   * running at a pace they no longer want.
+   *
+   * 60 is the floor the data model imposes (snapshot refs resolve to the
+   * minute); 2592000 is a month, past which the agent is parked rather than
+   * paced and `retire` is the honest word for it. Both are also CHECK
+   * constraints (0054), so a second writer cannot get this wrong.
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(MIN_CADENCE_SECONDS)
+  @Max(MAX_CADENCE_SECONDS)
+  cadenceSeconds?: number;
 }

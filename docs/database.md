@@ -69,6 +69,13 @@ confirmation. Tables added beyond §7 (each documented in its migration file):
   stored in object storage (MinIO/S3).
 - `competition_ticks` (0013) — turn/session state for competitions
   (human_vs_ai rounds), referencing an immutable snapshot per tick.
+- `agents.cadence_seconds` (0054) — how often THIS agent is asked to decide, in
+  seconds, chosen by its owner. It replaced an interval that lived in a systemd
+  unit per competition, where one number governed every strategy in the room.
+  CHECK 60..2592000: the floor is the pool snapshot ref's minute resolution
+  (`decisions.market_snapshot_ref` is a foreign key into `market_snapshots`), not
+  a view about fees — those are the owner's, and the platform's exposure is bounded
+  by the signer's per-agent daily signature cap and the engine's token budget.
 - `competition_entries` (0053) — when each agent entered each competition, and
   after how many ticks. `competitions.participant_ids` still answers who is in
   one NOW; this answers since when, which became a question the moment entry

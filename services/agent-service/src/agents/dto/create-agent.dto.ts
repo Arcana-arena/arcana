@@ -1,5 +1,9 @@
+import { MAX_CADENCE_SECONDS, MIN_CADENCE_SECONDS } from '../cadence';
 import {
   IsIn,
+  IsInt,
+  Max,
+  Min,
   IsJSON,
   IsNotEmpty,
   IsObject,
@@ -119,4 +123,21 @@ export class CreateAgentDto {
   @IsOptional()
   @IsIn(['public', 'private'], { message: "visibility must be 'public' or 'private'." })
   visibility?: 'public' | 'private';
+
+  /**
+   * How often this agent decides, in seconds. Omitted means the platform default
+   * of four hours — what every agent ran at when the interval lived in a systemd
+   * unit, one per competition, and no owner was asked.
+   *
+   * It is the OWNER'S number, and can be changed later on a running agent
+   * (PATCH). The floor of 60 is the snapshot ref's minute resolution rather than
+   * a view about how often trading is wise: fees are the owner's to spend, and
+   * what bounds the platform is measured directly — the signer's per-agent daily
+   * signature cap and the engine's per-agent daily token budget.
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(MIN_CADENCE_SECONDS)
+  @Max(MAX_CADENCE_SECONDS)
+  cadenceSeconds?: number;
 }

@@ -15,6 +15,27 @@
 // enough TIME passed since the last decision", and it takes its prices from
 // the pool.
 //
+// # IT NO LONGER DECIDES FOR ANYBODY (2026-09-20)
+//
+// This program used to call the engine for every participant, which made the
+// interval below a property of the COMPETITION: one clock for every strategy in
+// the room, chosen by whoever wrote the unit file. Four hours for an agent whose
+// edge lasts an hour and four hours for one that wants a weekly rebalance, with
+// no way for either owner to say otherwise — and a new agent's first decision
+// waiting for the next boundary, which is how a funded agent sat idle for sixteen
+// hours on the day it was created.
+//
+// Cadence is part of a strategy, so it moved onto the agent
+// (agents.cadence_seconds, migration 0054) and cmd/pace drives it per agent,
+// measured against each one's last recorded decision.
+//
+// What remains here is the tick: a marked window carrying a pool snapshot, which
+// is what the standings and the leaderboard read. The interval below says how
+// often that window is marked, and no agent waits on it — one whose own cadence
+// is five minutes decides many times inside a four-hour tick. There is exactly
+// ONE caller of the engine, because two would double every agent's decisions and
+// its fees.
+//
 // # THE FLOOR IS TECHNICAL, AND IT USED TO BE ARITHMETIC
 //
 // It was four hours, derived from the fee schedule. The arithmetic was right and
@@ -325,59 +346,28 @@ func main() {
 	}
 	log.Printf("tick %d opened for %s on %s", opened.TickIndex, *compID, pt.Ref)
 
-	// HUMAN PARTICIPANTS ARE SKIPPED, NOT FAILED.
+	// THE TICK DOES NOT DECIDE FOR ANYBODY, and that is this version's point
+	// rather than an omission in it.
 	//
-	// Human vs AI was built around one tick per trading day that stayed open
-	// for an hour so a person could submit. A four-hourly clock running through
-	// the night is not a format a person participates in — six decisions a day,
-	// two of them while they are asleep — so this cadence does not wait for
-	// anybody and does not pretend to.
+	// What stood here was a loop over participant_ids calling the engine, plus
+	// two refusals about how many of them ran. Both are gone with it: an agent's
+	// pace is its owner's number now, cmd/pace measures it against that agent's
+	// own last decision, and a competition-wide "nobody decided" is no longer a
+	// statement about anything — the agents in it are on different clocks, and
+	// most of them are legitimately not due in any given tick.
 	//
-	// Calling the engine for a human-managed agent returns 422 telling you to
-	// use the manual endpoint. Counting that as a failure would print an error
-	// every four hours forever for a system behaving exactly as designed, which
-	// is the permanent noise that teaches people to stop reading the journal.
-	// The agent is NOT removed from the competition: it is a live participant
-	// with a real record, and deleting it is not this program's call.
-	ran, skipped, failed := 0, 0, 0
-	for _, pid := range comp.ParticipantIDs {
-		if human, err := agentIsHuman(ctx, cfg, pid); err == nil && human {
-			skipped++
-			continue
-		}
-		if err := runAgent(ctx, cfg, comp.SeasonID, pid, pt.Ref); err != nil {
-			log.Printf("agent %s failed: %v", pid, err)
-			failed++
-			continue
-		}
-		ran++
-	}
-	if skipped > 0 {
-		log.Printf("%d human-managed agent(s) skipped: a continuous cadence has no "+
-			"submission window. See docs/cadence.md.", skipped)
-	}
-	log.Printf("%d agents executed, %d skipped, %d failed", ran, skipped, failed)
-
+	// The watchdog still answers the question those refusals were reaching for,
+	// and answers it better: it asks whether a DECISION has been recorded in N
+	// hours, which catches the system stopping whoever was supposed to drive it.
+	//
+	// Human-managed agents no longer need skipping here for the same reason — the
+	// pacer never lists them, so the 422 that used to be logged as a skip is not
+	// produced at all.
 	if err := closeTick(ctx, cfg, *compID); err != nil {
 		log.Fatalf("close tick: %v", err)
 	}
-	log.Printf("tick %d closed for %s", opened.TickIndex, *compID)
-
-	// A tick where NOTHING ran is a fault, not a quiet success. It means every
-	// agent errored, and exiting 0 would let OnFailure= stay silent while the
-	// competition recorded a tick in which nobody decided anything.
-	// Skipped agents do not count towards "somebody ran". A competition whose
-	// only participants are human now produces empty ticks, and that should be
-	// loud rather than quietly recorded as a tick in which nobody decided.
-	if ran == 0 && (len(comp.ParticipantIDs)-skipped) > 0 {
-		log.Fatalf("ERROR: tick %d opened and closed with NO agent executing (%d eligible participants, all failed)",
-			opened.TickIndex, len(comp.ParticipantIDs)-skipped)
-	}
-	if ran == 0 && skipped > 0 {
-		log.Fatalf("ERROR: tick %d has only human-managed participants (%d), so nothing decided. "+
-			"A continuous cadence cannot run a human-vs-AI competition; move these agents to a "+
-			"format that suits them or retire the competition.", opened.TickIndex, skipped)
-	}
+	log.Printf("tick %d closed for %s — a record of the window and its snapshot, "+
+		"not a gate on any agent (see cmd/pace)", opened.TickIndex, *compID)
 }
 
 // lastTickTime returns when the most recent tick began, or nil if there is none.
@@ -451,24 +441,11 @@ func takePoolTick(ctx context.Context, cfg config) (*poolTickResult, error) {
 	return &out, nil
 }
 
-// agentIsHuman asks agent-service whether a participant is human-managed.
-//
-// An unreadable answer is treated as NOT human, so a transient failure sends
-// the agent down the normal path and produces a real error, rather than
-// silently skipping a real AI participant and recording a tick it missed.
-func agentIsHuman(ctx context.Context, cfg config, agentID string) (bool, error) {
-	body, err := httpGet(ctx, cfg.agentServiceURL+"/v1/agents/"+agentID)
-	if err != nil {
-		return false, err
-	}
-	var a struct {
-		StrategyType *string `json:"strategyType"`
-	}
-	if err := json.Unmarshal(body, &a); err != nil {
-		return false, err
-	}
-	return a.StrategyType != nil && *a.StrategyType == "human", nil
-}
+// agentIsHuman and runAgent were removed on 2026-09-20 with the decide loop they
+// served. The pacer excludes human-managed agents in the query that finds who is
+// due (agents/cadence.ts), so the question is answered where the list is built
+// rather than one HTTP call per participant per tick, and the engine is called by
+// exactly one program.
 
 func getCompetition(ctx context.Context, cfg config, id string) (*competition, error) {
 	body, err := httpGet(ctx, cfg.agentServiceURL+"/v1/competitions/"+id)
@@ -553,32 +530,6 @@ func closeTick(ctx context.Context, cfg config, compID string) error {
 	_, err := httpPost(ctx, cfg,
 		cfg.agentServiceURL+"/internal/v1/competitions/"+compID+"/ticks/close", []byte("{}"))
 	return err
-}
-
-func runAgent(ctx context.Context, cfg config, seasonID, agentID, ref string) error {
-	payload, _ := json.Marshal(map[string]string{
-		"agent_id":            agentID,
-		"season_id":           seasonID,
-		"market_snapshot_ref": ref,
-	})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		cfg.decisionEngineURL+"/internal/v1/decisions/execute", bytes.NewReader(payload))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Internal-Key", cfg.internalKey)
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer res.Body.Close()
-	body, _ := io.ReadAll(res.Body)
-	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return upstream.From(http.MethodPost, cfg.decisionEngineURL+"/internal/v1/decisions/execute",
-			res.StatusCode, body)
-	}
-	return nil
 }
 
 func httpGet(ctx context.Context, url string) ([]byte, error) {

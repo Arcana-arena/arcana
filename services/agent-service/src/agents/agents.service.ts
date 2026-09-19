@@ -14,6 +14,7 @@ import { EntitlementClient } from '../entitlements/entitlement.client';
 import { OwnershipService } from '../auth/ownership.service';
 import { Page, pageOf } from '../common/pagination';
 import { seatable, seatInLiveCompetition } from '../competitions/seating';
+import { DEFAULT_CADENCE_SECONDS } from './cadence';
 import { MANDATE_MAX_CHARS, MandateValidationError, renderMandate } from './mandate-templates';
 
 /**
@@ -104,6 +105,10 @@ export class AgentsService {
       provenance,
       // Chosen now because it only moves one way (migration 0047).
       visibility: dto.visibility ?? 'public',
+      // The owner's clock. Omitted means four hours — what every agent ran at
+      // while the interval lived in a competition's unit file — and unlike the
+      // mandate it can be changed later on a running agent.
+      cadenceSeconds: dto.cadenceSeconds ?? DEFAULT_CADENCE_SECONDS,
     });
     return this.agents.save(agent);
   }
@@ -301,6 +306,11 @@ export class AgentsService {
     const agent = await this.findOne(id);
     if (dto.name !== undefined) agent.name = dto.name;
     if (dto.strategyType !== undefined) agent.strategyType = dto.strategyType;
+    // CADENCE APPLIES FROM THE NEXT RUN, ACTIVE OR NOT, and it is not the
+    // mandate. The pacer measures the new number against the age of the last
+    // recorded decision, so shortening it can make an agent due immediately —
+    // which is what an owner who just shortened it is asking for.
+    if (dto.cadenceSeconds !== undefined) agent.cadenceSeconds = dto.cadenceSeconds;
 
     if (dto.mandate !== undefined || dto.mandateTemplate !== undefined || dto.mandateParams !== undefined) {
       // DRAFTS ONLY.

@@ -12,7 +12,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { CurrentWallet, JwtAuthGuard, RateLimit } from '@arcana/auth';
+import { CurrentWallet, InternalKeyGuard, JwtAuthGuard, RateLimit } from '@arcana/auth';
 import { randomUUID } from 'node:crypto';
 import { AgentsService } from './agents.service';
 import { AgentOverviewService } from './overview.service';
@@ -32,6 +32,7 @@ import { MANDATE_TEMPLATES, MANDATE_MAX_CHARS } from './mandate-templates';
 import { AgentLifecycleService } from './lifecycle.service';
 import { AgentTriggersService } from './triggers.service';
 import { AgentWalletViewService } from './wallet-view.service';
+import { AgentPacingService } from './pacing.service';
 import { PauseAgentDto, SetRiskDto } from './dto/lifecycle.dto';
 import { parsePage } from '../common/pagination';
 import { ambiguousRiskKeys, unrecognisedRiskKeys } from './risk-profile';
@@ -554,5 +555,39 @@ export class AgentsController {
         quantity: dto.trade.quantity ?? 0,
       },
     });
+  }
+}
+
+/**
+ * ⚙️ Machine tier — the pacer asking whose clock has come round.
+ *
+ * WHY IT IS A SERVICE ENDPOINT AND NOT SQL IN THE BINARY. The question "who is
+ * due" is four joins over agents, competitions, seasons and decisions, and every
+ * one of its exclusions is a rule that already exists on this side: the engine
+ * refuses a draft and a verification row, a human is not paced by a clock, and a
+ * decision needs the season of the seat the agent actually holds. A second
+ * spelling of those rules in Go would drift from this one, and the drift would
+ * show up as agents quietly not deciding — which is the exact fault this whole
+ * change is about.
+ *
+ * No user session can reach it, and none should: pacing is the platform running
+ * its own clock, not somebody acting on an agent.
+ */
+@Controller('internal/v1/agents')
+@UseGuards(InternalKeyGuard)
+export class InternalAgentPacingController {
+  constructor(private readonly pacing: AgentPacingService) {}
+
+  @Get('due')
+  async due() {
+    const agents = await this.pacing.due();
+    return {
+      as_of: new Date().toISOString(),
+      count: agents.length,
+      agents,
+      note: agents.length
+        ? 'Each of these has gone longer than its own cadence_seconds since its last recorded decision.'
+        : 'No agent is due. This is the normal answer on most minutes and is not a fault.',
+    };
   }
 }

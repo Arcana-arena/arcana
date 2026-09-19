@@ -86,6 +86,28 @@ export class Agent {
   @Column({ type: 'varchar', length: 10, default: 'public' })
   visibility: 'public' | 'private';
 
+  /**
+   * How often this agent is asked to decide, in seconds, chosen by its OWNER.
+   *
+   * WHY IT IS HERE AND NOT ON THE COMPETITION. It used to live in a systemd
+   * unit, one per competition, so every participant shared one interval an
+   * operator picked — four hours for an agent whose strategy is hourly and four
+   * hours for one whose strategy is weekly. Timing is part of a strategy, so it
+   * belongs next to the strategy.
+   *
+   * The pacer measures this against the age of the agent's LAST RECORDED
+   * DECISION, never against a schedule or a stored cursor, so a missed run is
+   * picked up on the next minute instead of shifting the whole series.
+   *
+   * 60s floor, one month ceiling (migration 0054). The floor is the snapshot
+   * ref's minute resolution, not a policy about fees: what the agent spends on
+   * fees is the owner's, and what bounds the platform is measured directly — the
+   * signer's per-agent daily signature cap and the engine's per-agent daily
+   * token budget.
+   */
+  @Column({ name: 'cadence_seconds', type: 'int', default: 14400 })
+  cadenceSeconds: number;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 }
