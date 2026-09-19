@@ -84,6 +84,21 @@ number through the side door.
 **Windows are 24 hours to 365 days.** Shorter is a coin flip dressed as a
 forecast; longer outlives the agent it names.
 
+**An absent measurement is never compared as a measurement.** An agent with no
+NAV points and an agent that ended exactly where it started both produce 0.0,
+and against a benchmark the two compare identically. The first run of
+`thesis-verify` caught this in the worst possible form: a fixture agent had no
+portfolio, so a thesis written to FAIL came back PROVEN, because nothing-at-all
+beat a market that had fallen. So each side of the comparison now carries
+`measurable` beside its value:
+
+- **benchmark unmeasurable** → the thesis is *not* resolved. That is our data
+  gap, it says nothing about the claim, and resolution happens once and for
+  good. The row stays pending and the next hourly run tries again.
+- **agent unmeasurable** → `not_proven`, with the reason stored. A claim whose
+  agent produced no readable NAV over the whole window was not demonstrated.
+  Voiding it would be the same escape hatch a pause must not be.
+
 **The denominator is every thesis ever published**, pending ones included. Ten
 theses with three proven must not read like three with three. The counters are
 maintained by trigger, never by application code: a counter the service can set

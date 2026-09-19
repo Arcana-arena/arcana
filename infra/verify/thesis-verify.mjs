@@ -28,7 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { privateKeyToAccount, generatePrivateKey } from 'viem/accounts';
 import { suite } from './lib/sections.mjs';
-import { signIn as sharedSignIn, SIWE_DOMAIN, SIWE_URI } from './lib/rate-aware.mjs';
+import { signIn as sharedSignIn, SIWE_DOMAIN, SIWE_URI, VERIFICATION_HEADER } from './lib/rate-aware.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const AGENT = process.env.AGENT_URL || 'http://127.0.0.1:3001';
@@ -119,7 +119,9 @@ try {
   }
   token = s.body.access_token;
 
-  const c = await api('/v1/creators', { method: 'POST', body: { handle: TAG } });
+  const c = await api('/v1/creators', {
+    method: 'POST', body: { handle: TAG }, headers: VERIFICATION_HEADER,
+  });
   creatorId = c.body?.id ?? null;
   if (!creatorId) {
     check('a fixture creator is made', false, `status ${c.status} ${JSON.stringify(c.body)}`);
@@ -128,14 +130,23 @@ try {
 
   /** Two agents built from one literal, so "identical" is not a claim. */
   const AGENT_SPEC = {
-    creatorId,
     strategyType: 'momentum',
-    assetUniverse: 'stock_tokens',
-    mandate: 'Follow momentum across the listed symbols and hold at most one position.',
-    riskProfile: { cash_floor_pct: 0.05, trade_size_pct: 0.5, max_position_pct: 1, rebalance_band_pct: 0.0002 },
+    assetUniverse: 'us_equities',
+    visibility: 'public',
+    // NO MANDATE, because a built-in strategy never reads one and the endpoint
+    // refuses the pair rather than storing text it would ignore. It suits this
+    // comparison anyway: with no mandate there is not even a field a thesis
+    // could have leaked into.
+    // A JSON STRING, which is what the endpoint takes — parsed into jsonb on
+    // persist. Passing the object gets "riskProfile must be a json string".
+    riskProfile: JSON.stringify({
+      cash_floor_pct: 0.05, trade_size_pct: 0.5, max_position_pct: 1, rebalance_band_pct: 0.0002,
+    }),
   };
   for (const name of [`${TAG}_bound`, `${TAG}_twin`]) {
-    const a = await api('/v1/agents', { method: 'POST', body: { ...AGENT_SPEC, name } });
+    const a = await api('/v1/agents', {
+      method: 'POST', headers: VERIFICATION_HEADER, body: { ...AGENT_SPEC, name },
+    });
     if (!a.body?.id) {
       check(`fixture agent ${name} is made`, false, `status ${a.status} ${JSON.stringify(a.body)}`);
       throw new Error('cannot continue without two agents');
@@ -216,15 +227,28 @@ try {
 
     // AND STRUCTURALLY. The behavioural check above can only ever sample one
     // tick; this one says there is no wire to carry a thesis at all.
-    const engineHits = execFileSync('grep', [
-      '-rlE', 'public_theses|thesis_id|linked_agent_id',
-      `${ROOT}/services/decision-engine`, '--include=*.go',
-    ], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    // grep exits 1 when it finds nothing, which is the outcome this check
+    // WANTS. Letting execFileSync throw on it turned the passing case into a
+    // section that blew up.
+    let engineHits = '';
+    try {
+      engineHits = execFileSync('grep', [
+        '-rlE', 'public_theses|thesis_id|linked_agent_id',
+        `${ROOT}/services/decision-engine`, '--include=*.go',
+      ], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    } catch (e) {
+      if (e.status !== 1) throw e; // 1 = no matches; anything else is a real failure
+    }
     check('the decision engine source contains no reference to the thesis tables',
       engineHits === '', `matched in:\n${engineHits}`);
 
-    const mandateBefore = sql1(`SELECT md5(mandate || risk_profile::text) FROM agents WHERE id = '${boundAgent}'`);
-    const mandateTwin = sql1(`SELECT md5(mandate || risk_profile::text) FROM agents WHERE id = '${twinAgent}'`);
+    // coalesce, because a built-in strategy agent has no mandate at all and
+    // `NULL || anything` is NULL — which would have compared two nothings and
+    // passed.
+    const hash = (id) =>
+      sql1(`SELECT md5(coalesce(mandate, '<none>') || risk_profile::text) FROM agents WHERE id = '${id}'`);
+    const mandateBefore = hash(boundAgent);
+    const mandateTwin = hash(twinAgent);
     check('publishing a thesis left the agent\'s mandate and risk profile byte-identical to the twin\'s',
       mandateBefore === mandateTwin, `${mandateBefore} vs ${mandateTwin}`);
   });
@@ -235,15 +259,23 @@ try {
     // the market and one whose agent did not. The benchmark is whatever the
     // real market actually did over that window — it is not fabricated, only
     // the agent's NAV is.
-    const ticks = sql(`SELECT tick_time FROM market_snapshots ORDER BY tick_time DESC LIMIT 12`)
-      .split('\n').filter(Boolean);
-    if (ticks.length < 3) {
-      check('there are enough market ticks to measure a window over', false,
-        `only ${ticks.length} market snapshots exist`);
+    // AT LEAST 25 HOURS APART, because the table refuses a window under 24 and
+    // "the last twelve ticks" is not a duration — at a two-hour cadence twelve
+    // of them are 22 hours and the insert is rejected.
+    const to = sql1(`SELECT max(tick_time) FROM market_snapshots`);
+    const from = sql1(
+      `SELECT tick_time FROM market_snapshots
+        WHERE tick_time <= (SELECT max(tick_time) FROM market_snapshots) - interval '25 hours'
+        ORDER BY tick_time DESC LIMIT 1`);
+    const mid = sql1(
+      `SELECT tick_time FROM market_snapshots
+        WHERE tick_time > '${from}'::timestamptz AND tick_time < '${to}'::timestamptz
+        ORDER BY tick_time ASC LIMIT 1`);
+    if (!to || !from || !mid) {
+      check('the market has 25 hours of ticks to measure a window over', false,
+        `from=${from} mid=${mid} to=${to}`);
       return;
     }
-    const to = ticks[0];
-    const from = ticks[ticks.length - 1];
 
     const mkThesis = async (agentId, winning) => {
       const id = sql1(
@@ -255,13 +287,26 @@ try {
                  '${from}'::timestamptz, '${to}'::timestamptz)
          RETURNING id`);
       thesisIds.push(id);
-      const portfolioId = sql1(
+      // A FRESH AGENT HAS NO PORTFOLIO until it is entered into a season, and
+      // that is exactly what made the first run of this suite meaningless: with
+      // no portfolio there were no NAV rows, both theses measured nothing, and
+      // the one written to FAIL came back PROVEN. One is created here so the
+      // winning and losing cases are really different.
+      let portfolioId = sql1(
         `SELECT id FROM portfolios WHERE agent_id = '${agentId}' ORDER BY created_at LIMIT 1`);
+      if (!portfolioId) {
+        // seasons has no created_at — it is ordered by start_at.
+        const seasonId = sql1(`SELECT id FROM seasons ORDER BY start_at DESC LIMIT 1`);
+        if (!seasonId) return { id, portfolioId: null };
+        portfolioId = sql1(
+          `INSERT INTO portfolios (agent_id, season_id, initial_capital)
+           VALUES ('${agentId}', '${seasonId}', 100) RETURNING id`);
+      }
       if (!portfolioId) return { id, portfolioId: null };
       // A NAV that doubles, or one that halves. Nothing in between: the verdict
       // must not depend on how the market happened to move that week.
       const navs = winning ? [100, 150, 200] : [100, 70, 50];
-      const stamps = [from, ticks[Math.floor(ticks.length / 2)], to];
+      const stamps = [from, mid, to];
       for (let i = 0; i < navs.length; i++) {
         sql(`INSERT INTO portfolio_snapshots (portfolio_id, ts, holdings, nav, cash)
              VALUES ('${portfolioId}', '${stamps[i]}'::timestamptz, '{}'::jsonb, ${navs[i]}, ${navs[i]})
@@ -272,6 +317,9 @@ try {
 
     const winner = await mkThesis(agentIds[0], true);
     const loser = await mkThesis(agentIds[1], false);
+    check('both fixture agents have a portfolio to measure over',
+      winner.portfolioId !== null && loser.portfolioId !== null,
+      `winner=${winner.portfolioId} loser=${loser.portfolioId}`);
 
     const run = await api('/internal/v1/theses/resolve', {
       method: 'POST', headers: { 'x-internal-key': INTERNAL_KEY },
@@ -305,11 +353,39 @@ try {
     const stillProven = statusOf(winner.id);
     check('and the first verdict is unchanged afterwards', stillProven === 'proven', `got ${stillProven}`);
 
+    // A THESIS WITH NOTHING TO MEASURE MUST NOT COME BACK PROVEN. This is the
+    // case that failed on the first run: an agent with no NAV rows produced a
+    // return of 0.0, which beat a market that had fallen. An absent measurement
+    // and a return of zero are not the same fact and must not compare alike.
+    const orphan = sql1(
+      `INSERT INTO public_theses
+         (creator_id, linked_agent_id, claim_text, benchmark_ref, criteria, created_at, resolves_at)
+       VALUES ('${creatorId}', '${agentIds[0]}',
+               'This claim has no portfolio data behind it at all.',
+               '{"kind":"arcana_index"}'::jsonb, '{"comparison":"gt","margin_pct":0}'::jsonb,
+               '${from}'::timestamptz, '${to}'::timestamptz)
+       RETURNING id`);
+    thesisIds.push(orphan);
+    // Measured over a window with no NAV rows in it: the agent's snapshots sit
+    // inside [from, to], so the window is moved off them entirely.
+    sql(`ALTER TABLE public_theses DISABLE TRIGGER public_theses_immutable;
+         UPDATE public_theses
+            SET created_at = '${from}'::timestamptz - interval '60 days',
+                resolves_at = '${from}'::timestamptz - interval '30 days'
+          WHERE id = '${orphan}';
+         ALTER TABLE public_theses ENABLE TRIGGER public_theses_immutable;`);
+    await api('/internal/v1/theses/resolve', {
+      method: 'POST', headers: { 'x-internal-key': INTERNAL_KEY },
+    });
+    const orphanStatus = sql1(`SELECT status FROM public_theses WHERE id = '${orphan}'`);
+    check('a thesis with no NAV data behind it never resolves PROVEN',
+      orphanStatus !== 'proven', `got ${orphanStatus}`);
+
     // The creator's record counts everything, not only the win.
     const counters = sql1(
       `SELECT theses_published || '/' || theses_proven FROM creators WHERE id = '${creatorId}'`);
     check('the creator record counts every thesis published, not only the proven ones',
-      counters.startsWith('3/'), `published/proven = ${counters}`);
+      counters.startsWith('4/'), `published/proven = ${counters}`);
   });
 
   // =====================================================================

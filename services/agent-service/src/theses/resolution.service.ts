@@ -42,6 +42,17 @@ const DEFAULT_DECIMALS = 18;
 export interface Measurement {
   agent_return: number;
   benchmark_return: number;
+  /**
+   * Whether each side is a measurement at all.
+   *
+   * SEPARATE FROM THE VALUE, because the value cannot carry it. An agent with
+   * no NAV points and an agent that ended exactly where it started both produce
+   * 0.0, and against a benchmark the two compare identically — which is how a
+   * thesis written to fail came back PROVEN in verification: nothing-at-all beat
+   * a market that had fallen.
+   */
+  agent_measurable: boolean;
+  benchmark_measurable: boolean;
   agent_status: string;
   detail: Record<string, unknown>;
 }
@@ -87,7 +98,7 @@ export class ThesisResolutionService {
     to: Date,
     ticks: Map<string, MarketTick>,
     source: string,
-  ): Promise<{ value: number; detail: Record<string, unknown> }> {
+  ): Promise<{ value: number; measurable: boolean; detail: Record<string, unknown> }> {
     // The same join the public NAV series uses, so the thesis is measured over
     // exactly the curve a reader can pull up beside it.
     const navRows: Array<{ ts: Date; nav: string }> = await this.db.query(
@@ -101,12 +112,17 @@ export class ThesisResolutionService {
     const nav: NavPoint[] = navRows.map((r) => ({ ts: r.ts, nav: Number(r.nav) }));
 
     if (nav.length < 2) {
-      // NOT ZERO. Zero is a measurement meaning "it did not move"; this is the
-      // absence of one, and a thesis resolved from it would be a verdict on
-      // nothing. The caller records not_proven with this reason attached, which
-      // is the honest outcome: the claim was never actually put to a test.
+      // `measurable: false`, NOT a return of 0.
+      //
+      // Zero is a measurement meaning "it did not move". This is the absence of
+      // one, and the two compare identically against a benchmark — which is
+      // exactly how thesis-verify caught it: a fixture agent with no portfolio
+      // produced 0, the market had fallen, and a thesis written to FAIL
+      // resolved PROVEN because nothing-at-all beat a negative number. The flag
+      // is what stops the caller ever comparing it.
       return {
         value: 0,
+        measurable: false,
         detail: {
           nav_points: nav.length,
           insufficient_data:
@@ -146,6 +162,7 @@ export class ThesisResolutionService {
 
     return {
       value: factor - 1,
+      measurable: true,
       detail: {
         method: 'time-weighted return, external flows removed',
         nav_points: nav.length,
@@ -232,7 +249,7 @@ export class ThesisResolutionService {
     to: Date,
     ticks: Map<string, MarketTick>,
     source: string,
-  ): { value: number; detail: Record<string, unknown> } {
+  ): { value: number; measurable: boolean; detail: Record<string, unknown> } {
     const window = [...ticks.values()]
       .filter((t) => t.source === source && t.tickTime >= from && t.tickTime <= to)
       .sort((a, b) => a.tickTime.getTime() - b.tickTime.getTime());
@@ -240,6 +257,7 @@ export class ThesisResolutionService {
     if (window.length < 2) {
       return {
         value: 0,
+        measurable: false,
         detail: { ticks: window.length, source,
                   insufficient_data: 'fewer than two market ticks inside the window' },
       };
@@ -253,6 +271,7 @@ export class ThesisResolutionService {
       for (let i = 1; i < window.length; i++) factor *= 1 + window[i].marketReturn;
       return {
         value: factor - 1,
+        measurable: true,
         detail: {
           kind: 'arcana_index', source, ticks: window.length,
           anchor: window[0].ref, final: window[window.length - 1].ref,
@@ -274,6 +293,7 @@ export class ThesisResolutionService {
     if (priced.length === 0) {
       return {
         value: 0,
+        measurable: false,
         detail: { kind: ref.kind, source, legs,
                   insufficient_data: 'no benchmark symbol could be priced at both ends of the window' },
       };
@@ -285,6 +305,7 @@ export class ThesisResolutionService {
     const value = priced.reduce((s, l) => s + l.return, 0) / priced.length;
     return {
       value,
+      measurable: true,
       detail: {
         kind: ref.kind, source, anchor: first.ref, final: last.ref,
         weighting: 'equal, held from anchor to final',
@@ -331,6 +352,8 @@ export class ThesisResolutionService {
     return {
       agent_return: agent.value,
       benchmark_return: benchmark.value,
+      agent_measurable: agent.measurable,
+      benchmark_measurable: benchmark.measurable,
       agent_status: agentStatus,
       detail: {
         window: { from: thesis.created_at, to: thesis.resolves_at },
@@ -371,7 +394,7 @@ export class ThesisResolutionService {
    * unreadable snapshot freezing every other creator's record.
    */
   async resolveDue(now: Date = new Date()): Promise<{
-    considered: number; resolved: number; failed: number;
+    considered: number; resolved: number; failed: number; skipped: number;
     results: Array<{ id: string; status: string }>;
   }> {
     const due: Array<{
@@ -387,12 +410,32 @@ export class ThesisResolutionService {
 
     const results: Array<{ id: string; status: string }> = [];
     let failed = 0;
+    let skipped = 0;
 
     for (const t of due) {
       try {
         const m = await this.measure(t);
-        const status = ThesisResolutionService.verdict(
-          m.agent_return, m.benchmark_return, t.criteria);
+
+        // AN UNMEASURABLE BENCHMARK IS OUR GAP, NOT THE CREATOR'S. The market
+        // data for the window could not be read, which says nothing about the
+        // claim. The row stays pending and the next hourly run tries again —
+        // resolution happens once and for good, so a verdict reached on data
+        // we could not read is one nobody can take back.
+        if (!m.benchmark_measurable) {
+          skipped++;
+          this.logger.warn(
+            `thesis ${t.id} stays pending: the benchmark could not be measured over its window ` +
+            `(${JSON.stringify((m.detail as Record<string, unknown>).benchmark)})`);
+          continue;
+        }
+
+        // AN UNMEASURABLE AGENT IS NOT. A claim whose agent produced no
+        // readable NAV over the whole window was never demonstrated, and
+        // not_proven is what "not demonstrated" means here. Voiding it would
+        // be an escape hatch of exactly the kind a pause must not be either.
+        const status = m.agent_measurable
+          ? ThesisResolutionService.verdict(m.agent_return, m.benchmark_return, t.criteria)
+          : 'not_proven';
         const updated = await this.db.query(
           `UPDATE public_theses
               SET status = $2, result_performance = $3, result_benchmark = $4,
@@ -411,6 +454,6 @@ export class ThesisResolutionService {
       }
     }
 
-    return { considered: due.length, resolved: results.length, failed, results };
+    return { considered: due.length, resolved: results.length, failed, skipped, results };
   }
 }

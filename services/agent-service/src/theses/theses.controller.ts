@@ -46,8 +46,8 @@ export class ThesesController {
    * the past wearing the clothes of a prediction.
    */
   @Post()
-  @UseGuards(JwtAuthGuard)
   @RateLimit({ limit: 10, windowSeconds: 3600, byWallet: true })
+  @UseGuards(JwtAuthGuard)
   async create(@Body() dto: CreateThesisDto, @CurrentWallet() wallet: string) {
     const agentOwner = await this.ownership.assertOwnsAgent(wallet, dto.linked_agent_id);
     const creatorId = await this.ownership.creatorIdForWallet(wallet);
@@ -92,8 +92,8 @@ export class ArticlesController {
   ) {}
 
   @Post()
-  @UseGuards(JwtAuthGuard)
   @RateLimit({ limit: 30, windowSeconds: 3600, byWallet: true })
+  @UseGuards(JwtAuthGuard)
   async create(@Body() dto: CreateArticleDto, @CurrentWallet() wallet: string) {
     const creatorId = await this.ownership.creatorIdForWallet(wallet);
     return this.theses.createArticle(creatorId!, dto);
