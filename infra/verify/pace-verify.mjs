@@ -76,15 +76,32 @@ process.on('exit', () => {
     psql(`DELETE FROM competitions WHERE id = '${ARENA}'`);
     psql(`DELETE FROM seasons WHERE id = '${SEASON}'`);
     for (const r of LIVE_ROWS) {
-      // Portfolios first: a portfolio references the agent, and the engine
-      // creates one the moment an agent decides. The first run's cleanup died on
-      // that foreign key and left the row behind.
-      psql(`DELETE FROM portfolio_snapshots WHERE portfolio_id IN
-              (SELECT id FROM portfolios WHERE agent_id = '${r.agentId}')`);
-      psql(`DELETE FROM portfolios WHERE agent_id = '${r.agentId}'`);
-      psql(`DELETE FROM decisions WHERE agent_id = '${r.agentId}'`);
-      psql(`DELETE FROM agents WHERE id = '${r.agentId}'`);
-      if (r.creatorId) psql(`DELETE FROM creators WHERE id = '${r.creatorId}'`);
+      // RETIRED FIRST, DELETED IF POSSIBLE — and the order is the point.
+      //
+      // A live fixture that is active and seated gets paced by PRODUCTION within
+      // the minute, and once it has decided it owns a portfolio whose snapshots
+      // are SEALED: portfolio_snapshot_is_sealed() refuses the delete, correctly,
+      // because a sealed valuation is evidence. The second run of this suite left
+      // exactly that behind — an active live agent whose arena had just been
+      // deleted, which is an agent with no seat, which is what
+      // competition-entry-verify fails on. The suite would have manufactured a
+      // failure for its neighbour.
+      //
+      // Retiring is the honest fallback: the history cannot be erased, so the row
+      // stands down instead. A retired agent is paced by nothing and counted by
+      // nothing.
+      psql(`UPDATE agents SET status = 'retired' WHERE id = '${r.agentId}'`);
+      try {
+        psql(`DELETE FROM portfolio_snapshots WHERE portfolio_id IN
+                (SELECT id FROM portfolios WHERE agent_id = '${r.agentId}')`);
+        psql(`DELETE FROM portfolios WHERE agent_id = '${r.agentId}'`);
+        psql(`DELETE FROM decisions WHERE agent_id = '${r.agentId}'`);
+        psql(`DELETE FROM agents WHERE id = '${r.agentId}'`);
+        if (r.creatorId) psql(`DELETE FROM creators WHERE id = '${r.creatorId}'`);
+      } catch {
+        console.log(`      note: ${r.agentId.slice(0, 8)} has sealed history and could not be ` +
+          'deleted; it is retired instead');
+      }
     }
   } catch { /* the summary matters more than this line */ }
 });
@@ -322,7 +339,7 @@ await section('The due list is machine tier, and the pacer refuses a verificatio
     out = execFileSync(resolve(BIN), {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, ARCANA_VERIFICATION: '1', INTERNAL_API_KEY },
+      env: { ...process.env, ARCANA_VERIFICATION: '1', INTERNAL_API_KEY: INTERNAL_KEY },
     });
   } catch (e) {
     code = e.status ?? 1;
