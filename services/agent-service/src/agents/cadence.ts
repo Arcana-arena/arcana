@@ -59,6 +59,25 @@ export const MAX_CADENCE_SECONDS = 2592000;
  */
 export const DEFAULT_CADENCE_SECONDS = MIN_CADENCE_SECONDS;
 
+/**
+ * How early an agent counts as due, and why it is not a fudge.
+ *
+ * WITHOUT IT, EVERY CADENCE ROUNDS UP TO THE NEXT TIMER TICK. Measured on
+ * 2026-09-20, an hour after per-agent cadence shipped: agents set to 60 seconds
+ * were deciding every TWO minutes. The pacer fires at :01, reaches the agent and
+ * writes its decision at :04 — so at the next fire the age is 57 seconds, three
+ * short, and the agent waits a whole further minute. A one-minute cadence became
+ * two, a five-minute cadence would become six, and nothing in the record would
+ * have said why: every decision was correctly spaced by more than its cadence.
+ *
+ * So the question is not "has the cadence elapsed" but "will it have elapsed by
+ * the time this run reaches the agent". Ten seconds is the run's own latency with
+ * room — today's runs take three to five seconds for the whole field — and it is
+ * deliberately far below the sixty-second floor, so it can never make two
+ * decisions land inside one minute and claim the same snapshot ref.
+ */
+export const DUE_GRACE_SECONDS = 10;
+
 export interface DueAgent {
   agent_id: string;
   season_id: string;
@@ -132,7 +151,8 @@ export async function dueAgents(db: Querier, now = new Date()): Promise<DueAgent
        FROM seat
        JOIN last ON last.agent_id = seat.agent_id
       WHERE last.last_ts IS NULL
-         OR $1::timestamptz - last.last_ts >= make_interval(secs => seat.cadence_seconds)
+         OR $1::timestamptz + make_interval(secs => ${DUE_GRACE_SECONDS}) - last.last_ts
+            >= make_interval(secs => seat.cadence_seconds)
       ORDER BY last.last_ts NULLS FIRST, seat.agent_id`,
     [now.toISOString()],
   )) as Array<{
