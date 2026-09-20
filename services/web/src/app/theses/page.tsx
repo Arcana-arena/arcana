@@ -23,7 +23,7 @@ export const metadata: Metadata = {
 };
 
 export default async function ThesesPage() {
-  const r = await agent<ThesisList>('/v1/theses/recent?limit=25');
+  const r = await agent<ThesisList>('/v1/theses/recent?page_size=25');
 
   return (
     <div className="page">
