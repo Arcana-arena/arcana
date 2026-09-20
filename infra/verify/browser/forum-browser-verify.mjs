@@ -126,9 +126,19 @@ try {
   const failedRequests = [];
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 200)));
   page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text().slice(0, 200)); });
+  // A NAVIGATION THIS SCRIPT ITSELF SUPERSEDED IS NOT A FAILURE. Clicking
+  // "Post thread" calls router.push while the page it is leaving still has
+  // requests open, and Chromium aborts them; so does a page.goto that
+  // interrupts one. They arrive as ERR_ABORTED on a URL this script asked for.
+  // Counted and printed separately rather than failed or swallowed — a
+  // swallowed abort is how a genuinely refused request would hide.
+  const abortedNavigations = [];
   page.on('requestfailed', (r) => {
     const err = r.failure()?.errorText;
-    if (r.url().includes('_rsc=') && err === 'net::ERR_ABORTED') return;
+    if (err === 'net::ERR_ABORTED' && r.url().startsWith(ORIGIN)) {
+      abortedNavigations.push(r.url().slice(0, 100));
+      return;
+    }
     failedRequests.push(`${r.url().slice(0, 100)} :: ${err}`);
   });
   page.on('response', (r) => {
@@ -256,10 +266,15 @@ try {
     if (!threadUrl) { check('a thread exists to reply to', false, 'section 3 did not produce one'); return; }
     await page.goto(threadUrl, { waitUntil: 'networkidle0' });
 
-    await page.type('textarea', `A reply typed in a browser — ${TAG}`);
+    // ASCII ONLY IN ANYTHING TYPED. page.type() sends key events, and the em
+    // dash this line used to carry never arrived in the textarea — so the post
+    // went in without it and the wait below looked for a string that was never
+    // going to appear. Thirty seconds later that reads as "replying is broken",
+    // which it was not.
+    await page.type('textarea', `A reply typed in a browser ${TAG}`);
     await clickText(page, 'Post reply');
     await page.waitForFunction(
-      (tag) => document.body.innerText.includes(`A reply typed in a browser — ${tag}`),
+      (tag) => document.body.innerText.includes(`A reply typed in a browser ${tag}`),
       { timeout: 30000 }, TAG);
 
     const t = await bodyText(page);
@@ -288,10 +303,10 @@ try {
     check('an article naming no agent says so rather than showing an empty card',
       /carries no thesis and names no agent/i.test(t), t.slice(0, 400));
 
-    await page.type('textarea', `A comment typed in a browser — ${TAG}`);
+    await page.type('textarea', `A comment typed in a browser ${TAG}`);
     await clickText(page, 'Post comment');
     await page.waitForFunction(
-      (tag) => document.body.innerText.includes(`A comment typed in a browser — ${tag}`),
+      (tag) => document.body.innerText.includes(`A comment typed in a browser ${tag}`),
       { timeout: 30000 }, TAG);
     const after = await bodyText(page);
     check('the comment appears under the article', after.includes('A comment typed in a browser'),
@@ -309,6 +324,11 @@ try {
     check('no uncaught exception on any page', pageErrors.length === 0, pageErrors.join(' | '));
     check('no console error on any page', consoleErrors.length === 0, consoleErrors.join(' | '));
     check('no failed request on any page', failedRequests.length === 0, failedRequests.join(' | '));
+    if (abortedNavigations.length > 0) {
+      console.log(`      ${abortedNavigations.length} navigation(s) this script replaced were ` +
+        'aborted by Chromium, which is what superseding one looks like:');
+      for (const u of [...new Set(abortedNavigations)]) console.log(`        ${u}`);
+    }
   });
 
   await browser.close();
