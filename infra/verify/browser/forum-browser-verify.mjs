@@ -272,10 +272,35 @@ try {
     // going to appear. Thirty seconds later that reads as "replying is broken",
     // which it was not.
     await page.type('textarea', `A reply typed in a browser ${TAG}`);
+    const typed = await page.evaluate(() => document.querySelector('textarea')?.value ?? null);
+    check('the text reached the textarea React is controlling',
+      (typed ?? '').includes('A reply typed in a browser'), `textarea held: ${String(typed).slice(0, 80)}`);
+
     await clickText(page, 'Post reply');
-    await page.waitForFunction(
-      (tag) => document.body.innerText.includes(`A reply typed in a browser ${tag}`),
-      { timeout: 30000 }, TAG);
+
+    // TWO DIFFERENT FAILURES HIDE BEHIND ONE TIMEOUT, so they are separated
+    // here rather than left as "waiting failed". Either the write never
+    // happened, or it happened and the page did not show it — and the database
+    // is the only thing that can tell them apart.
+    let appeared = true;
+    try {
+      await page.waitForFunction(
+        (tag) => document.body.innerText.includes(`A reply typed in a browser ${tag}`),
+        { timeout: 20000 }, TAG);
+    } catch {
+      appeared = false;
+    }
+
+    const stored = sql(
+      `SELECT count(*) FROM forum_posts p JOIN creators c ON c.id = p.creator_id
+        WHERE c.handle LIKE '${TAG}%' AND p.thread_id IS NOT NULL`);
+    check('the reply reached the database', stored === '1', `forum_posts rows=${stored}`);
+    if (!appeared) {
+      const shown = await bodyText(page);
+      check('the reply appears without a manual reload', false,
+        `not on the page after 20s. Page said: ${shown.replace(/\s+/g, ' ').slice(0, 400)}`);
+      return;
+    }
 
     const t = await bodyText(page);
     check('the reply appears without a manual reload', t.includes('A reply typed in a browser'),
