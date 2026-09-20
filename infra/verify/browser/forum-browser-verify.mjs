@@ -62,11 +62,21 @@ function purge(handleLike) {
 purge('verify_fbrowse_%');
 process.on('exit', () => purge(`${TAG}%`));
 
-/** Click the first button whose visible text contains `text`. */
+/**
+ * Click the first BUTTON whose visible text contains `text`, falling back to a
+ * link styled as one only when no button matched.
+ *
+ * THE ORDER MATTERS AND COST A RUN. Searching 'button, a.btn' together returns
+ * document order, and the header's own 'Sign in' link sits above the sign-in
+ * form's button — so the first attempt clicked the link, navigated back to the
+ * page it was already on, and waited 45 seconds for a sign-in nobody had asked
+ * for. A real control is a button here; a link is the fallback.
+ */
 async function clickText(page, text) {
   const done = await page.evaluate((t) => {
-    const el = [...document.querySelectorAll('button, a.btn')].find((b) =>
-      (b.innerText || '').toLowerCase().includes(t.toLowerCase()));
+    const matches = (b) => (b.innerText || '').toLowerCase().includes(t.toLowerCase());
+    const el = [...document.querySelectorAll('button')].find(matches)
+      ?? [...document.querySelectorAll('a.btn')].find(matches);
     if (!el) return false;
     el.click();
     return true;
@@ -167,7 +177,7 @@ try {
         `the page refuses to sign at ${ORIGIN} — set ORIGIN to the configured AUTH_SIWE_DOMAIN`);
       throw new Error('cannot exercise the writing paths without a session');
     }
-    await clickText(page, 'Sign in');
+    await clickText(page, 'Sign in with your wallet');
     await page.waitForFunction(() => !/^\/signin/.test(location.pathname), { timeout: 45000 });
     await new Promise((r) => setTimeout(r, 800));
     check('signing in lands on the dashboard', new URL(page.url()).pathname === '/me',
