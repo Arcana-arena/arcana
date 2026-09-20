@@ -331,6 +331,26 @@ export function LandingFooter({ chainId, latestBlock }: { chainId: string; lates
               <img src="/brand/arcana-logo-512.png" alt="" width={30} height={26} style={{ display: 'block' }} />
               <span className="px-wordmark">ARCANA</span>
             </div>
+            {/*
+              UNDER THE WORDMARK, NOT IN A COLUMN. The three columns below map
+              over FOOTER and render every entry as a next/link to an internal
+              route; an outward link dropped in there would be prefetched as
+              though it were one of ours. It also belongs beside the brand
+              rather than under "About" — it is the brand speaking elsewhere.
+
+              rel="noopener" is the part that matters: without it the opened
+              page can reach back through window.opener and navigate this tab.
+            */}
+            <a
+              href="https://x.com/Arcana_Arena"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-foot-link"
+              title="ARCANA on X"
+              style={{ display: 'inline-block', marginTop: 14, fontSize: 12.5 }}
+            >
+              @Arcana_Arena on X
+            </a>
           </div>
           {FOOTER.map(([heading, links]) => (
             <div key={heading}>
