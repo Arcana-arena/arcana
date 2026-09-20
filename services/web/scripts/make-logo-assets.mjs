@@ -25,7 +25,7 @@
  * come from" has an answer that is not a memory.
  */
 import sharp from 'sharp';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -34,6 +34,26 @@ const REPO = resolve(HERE, '..', '..', '..');
 const SRC = resolve(REPO, 'web example/Assets/arcana logo.png');
 const OUT = resolve(HERE, '..', 'public');
 const APP = resolve(HERE, '..', 'src', 'app');
+
+/**
+ * THE INPUT IS NOT IN THE REPOSITORY, ON PURPOSE, and this says so rather than
+ * throwing ENOENT with a path in it.
+ *
+ * `web example/` is local to the design machine (see .gitignore). What this
+ * script PRODUCES is committed — public/arcana-mark.png, public/brand/* and
+ * the app icon — so a clone builds and serves the brand correctly; what it
+ * cannot do is regenerate them. That is a deliberate trade, and the difference
+ * between it and a broken checkout is exactly what this message carries.
+ */
+if (!existsSync(SRC)) {
+  console.error(
+    `The logo source is not here: ${SRC}\n\n` +
+      'This is expected on any machine that is not the design machine. The assets this script\n' +
+      'writes are committed, so nothing is missing from the site — only the ability to rebuild\n' +
+      'them from the original. Copy "web example/Assets/arcana logo.png" into place to run it.',
+  );
+  process.exit(1);
+}
 
 const { data, info } = await sharp(SRC).raw().toBuffer({ resolveWithObject: true });
 const { width, height, channels } = info;

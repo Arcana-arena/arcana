@@ -143,10 +143,26 @@ services/*/backfill
 # so a failure that did not repeat could not be looked at afterwards.
 /.verify-logs/
 
-# Landing-page media supplied with the mockups. Kept OUT of git deliberately:
-# 20 MB of video and photographs that no mockup references, and git history is
-# permanent — `git rm` later does not shrink anybody's clone. They stay on the
-# design machine; if the landing ever uses one it is deployed as an asset, not
-# committed as source.
-web example/Assets/*.mp4
-web example/Assets/*.jpg
+# The design mockups and their media, local-only in full.
+#
+# WHY THE WHOLE FOLDER AND NOT JUST THE MEDIA. The narrower rules that used to
+# sit here kept 20 MB of video and photographs out while leaving seven mockup
+# HTML files and a logo PNG in. The owner's decision on 2026-09-21 is that the
+# design source stays on the design machine: it is an input to the frontend,
+# not part of it, and the frontend it specifies is what ships.
+#
+# WHAT THIS COSTS, so nobody rediscovers it as a bug: the outputs of
+# services/web/scripts/make-logo-assets.mjs ARE committed
+# (public/arcana-mark.png, public/brand/*), but its INPUT is
+# `web example/Assets/arcana logo.png` and now is not. The script refuses with
+# a sentence saying so rather than an ENOENT stack. Regenerating the brand
+# assets needs the design machine.
+#
+# Git history is permanent — these files remain in every clone made before
+# this commit, and `git rm` does not shrink them. This stops new ones.
+#
+# Per-machine editor and tool directories are NOT listed here. They are one
+# person's setup, not a project decision, so they belong in that person's
+# .git/info/exclude — which is local and never committed. A shared ignore file
+# that names one contributor's tooling is a decision made on everybody's behalf.
+/web example/
