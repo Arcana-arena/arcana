@@ -91,6 +91,13 @@ export class AuthController {
   /**
    * Who the caller is, and whether that wallet has a creator profile yet.
    * `creator_id: null` is a normal state — signing in does not create one.
+   *
+   * `is_operator` TELLS A CALLER ABOUT ITSELF, which is why publishing it here
+   * is not a leak: the wallet is already theirs and AUTH_ADMIN_WALLETS is not
+   * disclosed, only membership of it. It exists so the web can render the
+   * moderation controls to somebody who can actually use them. THE UI IS NOT
+   * THE CHECK — every moderation route asks AdminGuard or ModerationService
+   * again, and a control that is merely absent has never stopped anybody.
    */
   @Get('me')
   @UseGuards(JwtAuthGuard)
@@ -98,6 +105,7 @@ export class AuthController {
     return {
       wallet_address: wallet,
       creator_id: await this.ownership.creatorIdForWallet(wallet),
+      is_operator: this.auth.isOperator(wallet),
     };
   }
 }

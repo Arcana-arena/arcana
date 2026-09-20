@@ -23,9 +23,27 @@ import { addr, int, num, score as fmtScore, utc, utcDate } from '@/lib/format';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { Key, Lbl, Num, StatusTag } from '@/components/ds/primitives';
-import { Callout, Empty, Failed } from '@/components/ds/states';
+import { Callout, Empty, Failed, Unavailable } from '@/components/ds/states';
 
 export const dynamic = 'force-dynamic';
+
+/** A creator's article, as GET /v1/creators/:id/articles lists it. */
+type CreatorArticle = {
+  id: string;
+  title: string;
+  thesis_id: string | null;
+  agent: { id: string; name: string | null } | null;
+  created_at: string;
+  comment_count: number;
+};
+
+type CreatorThread = {
+  id: string;
+  title: string;
+  created_at: string;
+  reply_count: number;
+  board?: { slug: string; name: string };
+};
 
 type Creator = {
   id: string;
@@ -81,10 +99,15 @@ type Reputation = {
 export default async function CreatorPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   // In the order destructured below.
-  const [profileR, agentsR, repR] = await Promise.all([
+  const [profileR, agentsR, repR, articlesR, threadsR] = await Promise.all([
     agent<Creator>(`/v1/creators/${id}`),
     agent<AgentsPage>(`/v1/creators/${id}/agents?page_size=100`),
     agent<Reputation>(`/v1/creators/${id}/reputation`),
+    // The writing half of a profile. Both fail softly: a creator page that
+    // would not render because the forum was unreachable would be an outage in
+    // the social layer taking down the record, which is the wrong dependency.
+    agent<{ items: CreatorArticle[] }>(`/v1/creators/${id}/articles`),
+    agent<{ items: CreatorThread[] }>(`/v1/creators/${id}/threads?page_size=10`),
   ]);
 
   if (!profileR.ok && profileR.status === 404) notFound();
@@ -365,6 +388,71 @@ export default async function CreatorPage({ params }: { params: Promise<{ id: st
             </table>
           </div>
         )}
+      </div>
+
+      <div className="sec" style={{ paddingBottom: 40, borderBottom: 'none' }}>
+        <div className="sec-hd" style={{ paddingLeft: 0, paddingRight: 0 }}>
+          <h2>Writing</h2>
+        </div>
+        <p className="m3" style={{ fontSize: 11.5, marginTop: -4, marginBottom: 12, maxWidth: 680, lineHeight: 1.55 }}>
+          Articles and forum threads. This is the social layer — none of it is an input to any
+          score on this page.
+        </p>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 20 }}>
+          <div>
+            <Key>Articles</Key>
+            {!articlesR.ok ? (
+              <Unavailable reason={articlesR.reason} />
+            ) : articlesR.data.items.length === 0 ? (
+              <div className="m3" style={{ fontSize: 12, marginTop: 8 }}>
+                Nothing published.
+              </div>
+            ) : (
+              <ul style={{ listStyle: 'none', padding: 0, margin: '8px 0 0' }}>
+                {articlesR.data.items.slice(0, 10).map((a) => (
+                  <li key={a.id} style={{ padding: '7px 0', borderBottom: '1px solid var(--color-divider)' }}>
+                    <Link href={`/articles/${a.id}`} style={{ fontSize: 13 }}>
+                      {a.title}
+                    </Link>
+                    <div className="m3" style={{ fontSize: 10.5, marginTop: 2 }}>
+                      <span className="mono">{utcDate(a.created_at)}</span>
+                      {a.thesis_id ? ' · carries a thesis' : ''}
+                      {a.agent ? ` · ${a.agent.name ?? 'linked agent'}` : ''}
+                      {a.comment_count > 0 ? ` · ${a.comment_count} comments` : ''}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div>
+            <Key>Threads</Key>
+            {!threadsR.ok ? (
+              <Unavailable reason={threadsR.reason} />
+            ) : threadsR.data.items.length === 0 ? (
+              <div className="m3" style={{ fontSize: 12, marginTop: 8 }}>
+                None started.
+              </div>
+            ) : (
+              <ul style={{ listStyle: 'none', padding: 0, margin: '8px 0 0' }}>
+                {threadsR.data.items.map((t) => (
+                  <li key={t.id} style={{ padding: '7px 0', borderBottom: '1px solid var(--color-divider)' }}>
+                    <Link href={`/forum/thread/${t.id}`} style={{ fontSize: 13 }}>
+                      {t.title}
+                    </Link>
+                    <div className="m3" style={{ fontSize: 10.5, marginTop: 2 }}>
+                      {t.board ? `${t.board.name} · ` : ''}
+                      <span className="mono">{utcDate(t.created_at)}</span> · {t.reply_count}{' '}
+                      {t.reply_count === 1 ? 'reply' : 'replies'}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
       </div>
 
       <Footer />

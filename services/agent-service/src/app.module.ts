@@ -18,6 +18,7 @@ import { EvolutionModule } from './evolution/evolution.module';
 import { AutopsyModule } from './autopsy/autopsy.module';
 import { IntelligenceModule } from './intelligence/intelligence.module';
 import { ThesesModule } from './theses/theses.module';
+import { ForumModule } from './forum/forum.module';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { ThesesModule } from './theses/theses.module';
     // — a failure no typecheck sees, because Nest resolves providers at boot.
     IntelligenceModule,
     ThesesModule,
+    ForumModule,
   ],
   controllers: [HealthController],
 })

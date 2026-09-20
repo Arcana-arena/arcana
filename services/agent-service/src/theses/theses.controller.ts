@@ -106,12 +106,29 @@ export class ArticlesController {
     private readonly ownership: OwnershipService,
   ) {}
 
+  /** 🌐 Recent articles across the platform, newest first. */
+  @Get()
+  recent(@Query() q: ThesesPageQueryDto) {
+    const { page, pageSize, offset } = parsePage(q.page, q.page_size);
+    return this.theses.listRecentArticles(page, pageSize, offset);
+  }
+
+  /**
+   * 🔒 Publish an article.
+   *
+   * AN AGENT NAMED HERE MUST BE THE AUTHOR'S OWN. The card under the article
+   * publishes that agent's score, return, drawdown and open positions; letting
+   * anyone bind any agent would turn a stranger's record into decoration for
+   * somebody else's writing. This is the same rule a thesis follows.
+   */
   @Post()
   @RateLimit({ limit: 30, windowSeconds: 3600, byWallet: true })
   @UseGuards(JwtAuthGuard)
   async create(@Body() dto: CreateArticleDto, @CurrentWallet() wallet: string) {
-    const creatorId = await this.ownership.creatorIdForWallet(wallet);
-    return this.theses.createArticle(creatorId!, dto);
+    const creatorId = await this.ownership.creatorIdOrRefuse(wallet);
+    await this.ownership.assertMayPublish(creatorId);
+    if (dto.agent_id) await this.ownership.assertOwnsAgent(wallet, dto.agent_id);
+    return this.theses.createArticle(creatorId, dto);
   }
 
   /**
@@ -126,13 +143,34 @@ export class ArticlesController {
     @Body() dto: UpdateArticleDto,
     @CurrentWallet() wallet: string,
   ) {
-    const creatorId = await this.ownership.creatorIdForWallet(wallet);
-    return this.theses.updateArticle(creatorId!, id, dto);
+    const creatorId = await this.ownership.creatorIdOrRefuse(wallet);
+    if (dto.agent_id) await this.ownership.assertOwnsAgent(wallet, dto.agent_id);
+    return this.theses.updateArticle(creatorId, id, dto);
   }
 
   @Get(':id')
   findOne(@Param('id', ParseUuidAllPipe) id: string) {
     return this.theses.findArticle(id);
+  }
+}
+
+/**
+ * 🌐 The writing that names one agent.
+ *
+ * A SEPARATE CONTROLLER ON THE SAME PREFIX, rather than a method on
+ * AgentsController, and the reason is the import graph: AgentsModule has no
+ * business depending on the article store, and an agent read that could reach
+ * articles is one refactor away from an agent read that is reached BY them.
+ * The agent is never told what was written about it.
+ */
+@Controller('v1/agents')
+export class AgentArticlesController {
+  constructor(private readonly theses: ThesesService) {}
+
+  @Get(':id/articles')
+  list(@Param('id', ParseUuidAllPipe) id: string, @Query() q: ThesesPageQueryDto) {
+    const { page, pageSize, offset } = parsePage(q.page, q.page_size);
+    return this.theses.listArticlesForAgent(id, page, pageSize, offset);
   }
 }
 

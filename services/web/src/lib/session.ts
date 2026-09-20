@@ -29,6 +29,16 @@ export type Session = {
   wallet_address: string;
   /** null is a normal state: signing in does not create a creator profile. */
   creator_id: string | null;
+  /**
+   * Whether this wallet is in AUTH_ADMIN_WALLETS.
+   *
+   * Used only to decide which controls are worth rendering. IT IS NOT A
+   * PERMISSION: every operator route checks AdminGuard on the server, and a
+   * button that is merely absent has never stopped anyone. Optional because a
+   * service deployed before this field existed simply omits it, and `false` is
+   * the right reading of "did not say".
+   */
+  is_operator?: boolean;
 };
 
 export type SessionState =

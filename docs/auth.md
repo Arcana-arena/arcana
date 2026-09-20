@@ -116,7 +116,19 @@ intended: it stops a live nonce being used as an oracle to grind signatures.
 `sub` is the **wallet**, not a creator id: the wallet is what was proven, and a
 wallet may hold a valid session before it has ever created a creator profile
 (`GET /v1/auth/me` returns `creator_id: null` in that case, which is a normal
-state, not an error).
+state, not an error). It also returns `is_operator`, which says only whether
+the CALLING wallet is in `AUTH_ADMIN_WALLETS` — the list itself is never
+published. It exists so the web can render moderation controls to somebody who
+can use them, and it is not a permission: every operator route still asks
+`AdminGuard`, because a control that is merely absent has never stopped anyone.
+
+**A signed-in wallet is not yet an author.** Everything published here —
+agents, articles, forum threads, replies — belongs to a creator profile, so the
+write routes marked "+ creator profile" refuse a profile-less wallet with `403
+creator_profile_required` and name the form that makes one. That refusal exists
+because the alternative was a 500: `creatorIdForWallet(...)!` asserted non-null
+over a value that is null for every wallet that has signed in and stopped
+there, and the insert then failed on a NOT NULL constraint.
 
 JWT verification is written directly on `node:crypto` rather than pulled from a
 library, so the three classic failures are visible and closed in one file:
@@ -165,7 +177,8 @@ keep working when auth is misconfigured (§5).
 | `GET /v1/agents/:id/passport` · `/dna` · `/dna/similar` · `/evolution` · `/autopsy` | 🌐 |
 | `GET /v1/agents/:id/series/score` · `/series/nav` · `/decisions` | 🌐 (see docs/series-endpoints.md) |
 | `GET /v1/creators`, `GET /v1/creators/:id`, `GET /v1/creators/:id/agents` | 🌐 |
-| `GET /v1/theses/recent` · `GET /v1/theses/:id` · `GET /v1/creators/:id/theses` · `GET /v1/creators/:id/articles` · `GET /v1/articles/:id` | 🌐 (see docs/theses.md) |
+| `GET /v1/theses/recent` · `GET /v1/theses/:id` · `GET /v1/creators/:id/theses` · `GET /v1/creators/:id/articles` · `GET /v1/articles` · `GET /v1/articles/:id` · `GET /v1/agents/:id/articles` | 🌐 (see docs/theses.md) |
+| `GET /v1/forum/boards` · `/boards/:slug/threads` · `/threads/:id` · `/threads/:id/posts` · `GET /v1/articles/:id/comments` · `GET /v1/creators/:id/threads` | 🌐 (see docs/forum.md) |
 | `GET /v1/seasons`, `/:id` | 🌐 |
 | `GET /v1/competitions`, `/:id`, `/:id/ticks`, `/:id/tick/open` | 🌐 |
 | `GET /v1/auth/nonce` · `POST /v1/auth/verify` · `/refresh` · `/logout` | 🌐 (they are how you sign in) |
@@ -179,8 +192,16 @@ keep working when auth is misconfigured (§5).
 | `POST /v1/agents/:id/retire` | 🔒 |
 | `POST /v1/agents/:id/decisions` | 🔒 |
 | `POST /v1/theses` | 🔒 owner of `linked_agent_id`, 10/hour per wallet |
-| `POST /v1/articles` | 🔑 30/hour per wallet |
+| `POST /v1/articles` | 🔑 + creator profile, 30/hour per wallet |
 | `PATCH /v1/articles/:id` | 🔒 author |
+| `POST /v1/forum/threads` | 🔑 + creator profile, 10/hour per wallet |
+| `POST /v1/forum/threads/:id/posts` · `POST /v1/articles/:id/comments` | 🔑 + creator profile, 60/hour per wallet |
+| `PATCH /v1/forum/threads/:id` · `PATCH /v1/forum/posts/:id` | 🔒 author |
+| `POST`/`DELETE` `/v1/forum/threads/:id/reactions/:kind` · `/v1/articles/:id/reactions/:kind` | 🔑 + creator profile, 300/hour per wallet |
+| `POST /v1/forum/threads/:id/reports` · `/posts/:id/reports` · `/v1/articles/:id/reports` | 🔑 + creator profile, 30/hour per wallet |
+| `POST …/hide` · `…/unhide` on a thread, post or article | 🔒 operator **or** the author it sits under (see docs/forum.md) |
+| `GET /v1/me/reactions` · `/v1/me/saved` · `/v1/me/threads` | 🔑 + creator profile |
+| `GET /v1/moderation/reports` | 👑 |
 | `POST /v1/seasons` · `PATCH /v1/seasons/:id` | 👑 |
 | `POST /v1/competitions` · `POST /v1/competitions/:id/complete` | 👑 |
 | `POST /internal/v1/competitions/:id/ticks` · `/ticks/close` | ⚙️ |

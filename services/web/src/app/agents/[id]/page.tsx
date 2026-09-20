@@ -24,6 +24,7 @@ import { Callout, Failed } from '@/components/ds/states';
 import { Tabs } from '@/components/ds/nav';
 import type { Passport } from './shapes';
 import { OverviewTab } from './tabs/Overview';
+import { WrittenAbout } from './tabs/WrittenAbout';
 import { DecisionsTab } from './tabs/Decisions';
 import { DnaTab } from './tabs/Dna';
 import { AutopsyTab } from './tabs/Autopsy';
@@ -239,7 +240,12 @@ export default async function AgentPage({
 
       <div className="sec" style={{ paddingTop: 22, paddingBottom: 44, borderBottom: 'none' }}>
         {tab === 'overview' ? (
-          <OverviewTab id={id} p={p} passportError={passportR.ok ? null : passportR} mandate={a?.mandate ?? null} intelligence={a?.intelligence ?? null} />
+          <>
+            <OverviewTab id={id} p={p} passportError={passportR.ok ? null : passportR} mandate={a?.mandate ?? null} intelligence={a?.intelligence ?? null} />
+            {/* Reads articles bound to this agent. The relationship is one-way
+                and the block says so: the agent is never told. */}
+            <WrittenAbout id={id} />
+          </>
         ) : null}
         {tab === 'decisions' ? (
           <DecisionsTab id={id} p={p} page={page} open={open} filters={filters} hrefFor={hrefFor} />

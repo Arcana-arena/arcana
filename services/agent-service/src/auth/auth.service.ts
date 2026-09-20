@@ -37,6 +37,18 @@ export class AuthService {
     private readonly siwe: SiweVerifier,
   ) {}
 
+  /**
+   * Is this wallet an operator?
+   *
+   * The same list AdminGuard reads, asked as a question rather than enforced as
+   * a gate, so `/v1/auth/me` can tell a caller about itself and the web can
+   * render moderation controls to somebody who can use them. It answers only
+   * about the wallet that asked; the list itself is never published.
+   */
+  isOperator(wallet: string): boolean {
+    return this.cfg.adminWallets.includes(wallet.toLowerCase());
+  }
+
   private assertSignInPossible(): void {
     if (!this.cfg.signingKey) {
       throw authUnavailable(this.cfg.signingKeyProblem ?? 'no signing key configured');

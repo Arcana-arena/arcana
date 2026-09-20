@@ -142,6 +142,20 @@ export function sweepFixtures({ quiet = false } = {}) {
     DELETE FROM subscriptions        WHERE agent_id IN (SELECT id FROM doomed);
     DELETE FROM custody_drift        WHERE agent_id IN (SELECT id FROM doomed);
     DELETE FROM agent_execution_leases WHERE agent_id IN (SELECT id FROM doomed);
+    -- articles.agent_id is RESTRICT (0056), so an article naming a doomed agent
+    -- would fail the DELETE below and roll back this entire sweep -- taking
+    -- every suite's cleanup with it, for one fixture nobody thought about.
+    --
+    -- ONLY A FIXTURE AUTHOR'S ARTICLE IS REMOVED. An article by a real creator
+    -- bound to a marked agent is left alone deliberately: it then blocks the
+    -- sweep, the sweep says so, and that is the correct noise to make. The
+    -- alternative is a sweep that deletes a person's writing because something
+    -- it was about was marked as a fixture.
+    -- Comments, likes and reports under these articles go with them: every one
+    -- of those references articles ON DELETE CASCADE (0056), so they need no
+    -- line of their own here.
+    DELETE FROM articles WHERE agent_id IN (SELECT id FROM doomed)
+       AND creator_id IN (SELECT id FROM creators WHERE provenance = 'verification');
     DELETE FROM portfolio_snapshots
      WHERE portfolio_id IN (SELECT id FROM portfolios WHERE agent_id IN (SELECT id FROM doomed));
     DELETE FROM portfolios           WHERE agent_id IN (SELECT id FROM doomed);

@@ -359,59 +359,225 @@ export class ThesesService {
       }
     }
 
+    // The agent, if one is named. OWNERSHIP IS CHECKED BY THE CONTROLLER
+    // (assertOwnsAgent) before this runs; what is checked here is that the row
+    // exists at all, so a typo'd id fails as a 404 rather than as a foreign key
+    // violation the caller cannot read.
+    if (dto.agent_id) await this.assertAgentExists(dto.agent_id);
+
     const rows = await this.db.query(
-      `INSERT INTO articles (creator_id, title, body, thesis_id)
-       VALUES ($1, $2, $3, $4) RETURNING id, created_at`,
-      [creatorId, dto.title.trim(), dto.body, dto.thesis_id ?? null],
+      `INSERT INTO articles (creator_id, title, body, thesis_id, agent_id)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at`,
+      [creatorId, dto.title.trim(), dto.body, dto.thesis_id ?? null, dto.agent_id ?? null],
     );
-    return { id: rows[0].id, created_at: rows[0].created_at, thesis_id: dto.thesis_id ?? null };
+    return {
+      id: rows[0].id,
+      created_at: rows[0].created_at,
+      thesis_id: dto.thesis_id ?? null,
+      agent_id: dto.agent_id ?? null,
+    };
+  }
+
+  private async assertAgentExists(agentId: string) {
+    const rows = await this.db.query(`SELECT id FROM agents WHERE id = $1`, [agentId]);
+    if (rows.length === 0) throw new NotFoundException(`Agent ${agentId} not found`);
   }
 
   async updateArticle(creatorId: string, id: string, dto: UpdateArticleDto) {
-    const rows = await this.db.query(`SELECT creator_id FROM articles WHERE id = $1`, [id]);
+    const rows = await this.db.query(
+      `SELECT creator_id, agent_id, hidden_at FROM articles WHERE id = $1`, [id]);
     if (rows.length === 0) throw new NotFoundException(`Article ${id} not found`);
     if (rows[0].creator_id !== creatorId) {
       throw new ConflictException({
         error: { code: 'article_not_yours', message: 'only the author can edit an article' },
       });
     }
+    if (rows[0].hidden_at) {
+      throw new ConflictException({
+        error: {
+          code: 'content_hidden',
+          message:
+            'this article has been hidden by moderation and cannot be edited; editing it would ' +
+            'change what was acted on while the record still says it was acted on',
+        },
+      });
+    }
+
+    // THE AGENT BINDING IS A FIRST SETTING, NEVER A MOVE. The trigger in 0056
+    // refuses the move as well, and refusing here too is what turns it into a
+    // sentence: a bare trigger error names a constraint, not a reason.
+    if (dto.agent_id !== undefined && rows[0].agent_id && dto.agent_id !== rows[0].agent_id) {
+      throw new ConflictException({
+        error: {
+          code: 'article_agent_fixed',
+          message:
+            `this article already names agent ${rows[0].agent_id}. Its Linked Agent card ` +
+            'publishes that agent\'s score and returns, so the binding cannot be moved to ' +
+            'another — an article re-pointed at an agent that later did well is a track record ' +
+            'nobody wrote about.',
+        },
+      });
+    }
+    if (dto.agent_id) await this.assertAgentExists(dto.agent_id);
+
     await this.db.query(
       `UPDATE articles
-          SET title = coalesce($2, title), body = coalesce($3, body)
+          SET title = coalesce($2, title), body = coalesce($3, body),
+              agent_id = coalesce(agent_id, $4)
         WHERE id = $1`,
-      [id, dto.title?.trim() ?? null, dto.body ?? null],
+      [id, dto.title?.trim() ?? null, dto.body ?? null, dto.agent_id ?? null],
     );
     return this.findArticle(id);
   }
 
-  /** 🌐 One article, with its thesis inlined when it carries one. */
+  /**
+   * 🌐 One article, with its thesis inlined when it carries one.
+   *
+   * THE AGENT IS AN IDENTITY, NOT A SNAPSHOT. `agent` carries the id, the name,
+   * and the two facts that decide how honest a card can be — its lifecycle
+   * status and whether it is public. It carries NO score, NO return and NO
+   * drawdown: those are read live by the card from the agent's own endpoints,
+   * which is the whole reason the card and the agent page cannot disagree.
+   *
+   * A HIDDEN ARTICLE ANSWERS 200 WITH NO BODY, like a hidden thread. "Removed,
+   * and here is why" and "never existed" are different facts.
+   */
   async findArticle(id: string) {
     const rows = await this.db.query(
-      `SELECT a.*, c.handle AS creator_handle FROM articles a
+      `SELECT a.*, c.handle AS creator_handle,
+              ag.name AS agent_name, ag.status AS agent_status, ag.visibility AS agent_visibility
+         FROM articles a
          JOIN creators c ON c.id = a.creator_id
+         LEFT JOIN agents ag ON ag.id = a.agent_id
         WHERE a.id = $1`,
       [id],
     );
     if (rows.length === 0) throw new NotFoundException(`Article ${id} not found`);
     const a = rows[0];
+    const hidden = a.hidden_at
+      ? { at: a.hidden_at, reason: a.hidden_reason ?? 'no reason recorded' }
+      : null;
+
     return {
       id: a.id,
       creator: { id: a.creator_id, handle: a.creator_handle },
-      title: a.title,
-      body: a.body,
+      title: hidden ? null : a.title,
+      body: hidden ? null : a.body,
       created_at: a.created_at,
       updated_at: a.updated_at,
-      thesis: a.thesis_id ? await this.findOne(a.thesis_id) : null,
+      thesis: a.thesis_id && !hidden ? await this.findOne(a.thesis_id) : null,
+      agent: a.agent_id
+        ? {
+            id: a.agent_id,
+            name: a.agent_name,
+            status_now: a.agent_status,
+            visibility: a.agent_visibility,
+          }
+        : null,
+      like_count: Number(a.like_count ?? 0),
+      save_count: Number(a.save_count ?? 0),
+      comment_count: Number(a.comment_count ?? 0),
+      hidden,
     };
   }
 
-  /** 🌐 A creator's articles, newest first. */
+  /** 🌐 A creator's articles, newest first. Hidden ones are not listed. */
   async listArticles(creatorId: string) {
     const rows = await this.db.query(
-      `SELECT id, title, thesis_id, created_at, updated_at
-         FROM articles WHERE creator_id = $1 ORDER BY created_at DESC`,
+      `SELECT a.id, a.title, a.thesis_id, a.agent_id, a.created_at, a.updated_at,
+              a.like_count, a.save_count, a.comment_count,
+              ag.name AS agent_name
+         FROM articles a
+         LEFT JOIN agents ag ON ag.id = a.agent_id
+        WHERE a.creator_id = $1 AND a.hidden_at IS NULL
+        ORDER BY a.created_at DESC`,
       [creatorId],
     );
-    return { creator_id: creatorId, items: rows };
+    return { creator_id: creatorId, items: rows.map((r: Record<string, any>) => this.articleCard(r)) };
+  }
+
+  /** 🌐 Recent articles across the platform, newest first. */
+  async listRecentArticles(page: number, pageSize: number, offset: number) {
+    const [rows, totalRow] = await Promise.all([
+      this.db.query(
+        `SELECT a.id, a.title, a.thesis_id, a.agent_id, a.created_at, a.updated_at,
+                a.like_count, a.save_count, a.comment_count,
+                c.id AS creator_id, c.handle AS creator_handle, ag.name AS agent_name
+           FROM articles a
+           JOIN creators c ON c.id = a.creator_id
+           LEFT JOIN agents ag ON ag.id = a.agent_id
+          WHERE a.hidden_at IS NULL
+          ORDER BY a.created_at DESC
+          LIMIT $1 OFFSET $2`,
+        [pageSize, offset],
+      ),
+      this.db.query(`SELECT count(*)::int AS n FROM articles WHERE hidden_at IS NULL`),
+    ]);
+    const total: number = totalRow[0]?.n ?? 0;
+    return {
+      page,
+      page_size: pageSize,
+      total,
+      has_more: offset + rows.length < total,
+      items: rows.map((r: Record<string, any>) => ({
+        ...this.articleCard(r),
+        creator: { id: r.creator_id, handle: r.creator_handle },
+      })),
+    };
+  }
+
+  /**
+   * 🌐 The articles written about one agent.
+   *
+   * WHAT THIS IS NOT: an input to anything. It is a read, by the agent's own
+   * page, of writing that names it. The agent is never told, exactly as it is
+   * never told about a thesis — see 0052 and infra/verify/forum-verify.mjs.
+   */
+  async listArticlesForAgent(agentId: string, page: number, pageSize: number, offset: number) {
+    await this.assertAgentExists(agentId);
+    const [rows, totalRow] = await Promise.all([
+      this.db.query(
+        `SELECT a.id, a.title, a.thesis_id, a.agent_id, a.created_at, a.updated_at,
+                a.like_count, a.save_count, a.comment_count,
+                c.id AS creator_id, c.handle AS creator_handle
+           FROM articles a
+           JOIN creators c ON c.id = a.creator_id
+          WHERE a.agent_id = $1 AND a.hidden_at IS NULL
+          ORDER BY a.created_at DESC
+          LIMIT $2 OFFSET $3`,
+        [agentId, pageSize, offset],
+      ),
+      this.db.query(
+        `SELECT count(*)::int AS n FROM articles WHERE agent_id = $1 AND hidden_at IS NULL`,
+        [agentId],
+      ),
+    ]);
+    const total: number = totalRow[0]?.n ?? 0;
+    return {
+      agent_id: agentId,
+      page,
+      page_size: pageSize,
+      total,
+      has_more: offset + rows.length < total,
+      items: rows.map((r: Record<string, any>) => ({
+        ...this.articleCard(r),
+        creator: { id: r.creator_id, handle: r.creator_handle },
+      })),
+    };
+  }
+
+  /** One article as a list entry. No body, and no number this file worked out. */
+  private articleCard(r: Record<string, any>) {
+    return {
+      id: r.id,
+      title: r.title,
+      thesis_id: r.thesis_id ?? null,
+      agent: r.agent_id ? { id: r.agent_id, name: r.agent_name ?? null } : null,
+      created_at: r.created_at,
+      updated_at: r.updated_at,
+      like_count: Number(r.like_count ?? 0),
+      save_count: Number(r.save_count ?? 0),
+      comment_count: Number(r.comment_count ?? 0),
+    };
   }
 }

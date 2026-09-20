@@ -5,6 +5,7 @@ import { Article } from './article.entity';
 import { MarketModule } from '../market/market.module';
 import { AuthModule } from '../auth/auth.module';
 import {
+  AgentArticlesController,
   ArticlesController,
   CreatorThesesController,
   InternalThesesController,
@@ -27,6 +28,7 @@ import { ThesisResolutionService } from './resolution.service';
     ThesesController,
     CreatorThesesController,
     ArticlesController,
+    AgentArticlesController,
     InternalThesesController,
   ],
   providers: [ThesesService, ThesisResolutionService],

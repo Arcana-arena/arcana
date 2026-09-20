@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import {
   assertAgentOwnership,
   authUnavailable,
+  forbidden,
   forbiddenLegacyReadonly,
   forbiddenNotOwner,
   resolveAgentOwnership,
@@ -76,6 +77,57 @@ export class OwnershipService {
       throw new NotFoundException(`Agent ${agentId} not found`);
     }
     return assertAgentOwnership(ownership, wallet, agentId);
+  }
+
+  /**
+   * The creator row a wallet drives, refusing when it has none.
+   *
+   * WHY THIS EXISTS SEPARATELY FROM creatorIdForWallet. Every write that
+   * publishes something — an article, a thesis, a thread, a reply — needs a
+   * creator, and `creatorIdForWallet(...)!` was the shape in use: a non-null
+   * assertion over a value that is null for every wallet that has signed in
+   * without making a profile. The insert then failed on a NOT NULL constraint
+   * and the caller got a 500 for the one situation the product has a page for.
+   *
+   * 403 and not 401: they ARE signed in. The thing they lack is a profile, and
+   * the message names the form that makes one.
+   */
+  async creatorIdOrRefuse(wallet: string): Promise<string> {
+    const id = await this.creatorIdForWallet(wallet);
+    if (!id) {
+      throw forbidden(
+        'creator_profile_required',
+        'This wallet is signed in but has no creator profile yet, and everything ' +
+          'published here — agents, articles, threads, replies — belongs to one. ' +
+          'Create a profile at /me and try again.',
+      );
+    }
+    return id;
+  }
+
+  /**
+   * Throws unless the creator may publish at all.
+   *
+   * A suspended or banned profile keeps reading — nothing published here is
+   * withdrawn by a suspension, because the record is the product — and stops
+   * writing. Read and write are separate questions and this only answers the
+   * second one.
+   */
+  async assertMayPublish(creatorId: string): Promise<void> {
+    let rows: Array<{ status: string }>;
+    try {
+      rows = await this.db.query(`SELECT status FROM creators WHERE id = $1`, [creatorId]);
+    } catch (e) {
+      throw this.lookupFailed('creator status lookup', e);
+    }
+    if (rows.length === 0) throw new NotFoundException(`Creator ${creatorId} not found`);
+    if (rows[0].status !== 'active') {
+      throw forbidden(
+        'creator_not_active',
+        `This creator profile is ${rows[0].status} and cannot publish. Existing posts stay ` +
+          'readable: a suspension stops new writing, it does not erase what was said.',
+      );
+    }
   }
 
   /** Throws unless `wallet` is the verified owner of `creatorId`. */
