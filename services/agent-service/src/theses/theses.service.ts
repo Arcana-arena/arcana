@@ -215,6 +215,14 @@ export class ThesesService {
    * from the page: a proven rate computed over whatever rows this page happens
    * to hold would shrink as you page forward, which is the one number on here
    * that must not move.
+   *
+   * `, t.id` IS THE WHOLE PAGINATION. Ordering by created_at alone leaves ties
+   * unordered, and Postgres is free to break them differently on two identical
+   * queries — so page 1 and page 2 could both contain the same row while a
+   * third was never returned at all. thesis-verify caught exactly that on
+   * 2026-09-20 ("page 2 is a different set of rows"), reproducibly, as soon as
+   * two of a creator's theses shared a timestamp. Every paged list in this file
+   * and in forum.service.ts carries the tiebreak for the same reason.
    */
   async listForCreator(creatorId: string, page: number, pageSize: number, offset: number) {
     const rows = await this.db.query(
@@ -225,7 +233,7 @@ export class ThesesService {
          JOIN agents a ON a.id = t.linked_agent_id
          LEFT JOIN articles ar ON ar.thesis_id = t.id
         WHERE t.creator_id = $1
-        ORDER BY t.created_at DESC
+        ORDER BY t.created_at DESC, t.id
         LIMIT $2 OFFSET $3`,
       [creatorId, pageSize, offset],
     );
@@ -266,7 +274,7 @@ export class ThesesService {
            JOIN creators c ON c.id = t.creator_id
            JOIN agents a ON a.id = t.linked_agent_id
          LEFT JOIN articles ar ON ar.thesis_id = t.id
-          ORDER BY t.created_at DESC
+          ORDER BY t.created_at DESC, t.id
           LIMIT $1 OFFSET $2`,
         [pageSize, offset],
       ),
@@ -490,7 +498,7 @@ export class ThesesService {
          FROM articles a
          LEFT JOIN agents ag ON ag.id = a.agent_id
         WHERE a.creator_id = $1 AND a.hidden_at IS NULL
-        ORDER BY a.created_at DESC`,
+        ORDER BY a.created_at DESC, a.id`,
       [creatorId],
     );
     return { creator_id: creatorId, items: rows.map((r: Record<string, any>) => this.articleCard(r)) };
@@ -507,7 +515,7 @@ export class ThesesService {
            JOIN creators c ON c.id = a.creator_id
            LEFT JOIN agents ag ON ag.id = a.agent_id
           WHERE a.hidden_at IS NULL
-          ORDER BY a.created_at DESC
+          ORDER BY a.created_at DESC, a.id
           LIMIT $1 OFFSET $2`,
         [pageSize, offset],
       ),
@@ -543,7 +551,7 @@ export class ThesesService {
            FROM articles a
            JOIN creators c ON c.id = a.creator_id
           WHERE a.agent_id = $1 AND a.hidden_at IS NULL
-          ORDER BY a.created_at DESC
+          ORDER BY a.created_at DESC, a.id
           LIMIT $2 OFFSET $3`,
         [agentId, pageSize, offset],
       ),

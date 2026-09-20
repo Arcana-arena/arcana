@@ -331,7 +331,7 @@ export class ForumService {
          JOIN creators c ON c.id = t.creator_id
          JOIN forum_boards b ON b.id = t.board_id
         WHERE t.creator_id = $1 AND t.hidden_at IS NULL
-        ORDER BY t.created_at DESC
+        ORDER BY t.created_at DESC, t.id
         LIMIT $2 OFFSET $3`,
       [creatorId, pageSize, offset],
     );
