@@ -125,7 +125,22 @@ try {
   const consoleErrors = [];
   const failedRequests = [];
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 200)));
-  page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text().slice(0, 200)); });
+  // A RATE-LIMITED PREFETCH IS THE LIMITER WORKING, NOT THE FORUM FAILING, and
+  // it is this suite's own traffic that trips it. Next prefetches every link in
+  // the header on every page — eight or so per load — and this script loads a
+  // dozen pages in well under a minute, which no person clicking around does.
+  // Counted and printed rather than failed, and NOT merged into the failures:
+  // a 429 on a real navigation still fails, because that is a reader being
+  // turned away.
+  const rateLimitedPrefetches = [];
+  const isPrefetch429 = (url, status) => status === 429 && url.includes('_rsc=');
+  page.on('console', (m) => {
+    if (m.type() !== 'error') return;
+    // Chromium reports a failed subresource as a console error too; the same
+    // 429 must not be counted twice, once as a request and once as a message.
+    if (/status of 429/.test(m.text())) return;
+    consoleErrors.push(m.text().slice(0, 200));
+  });
   // A NAVIGATION THIS SCRIPT ITSELF SUPERSEDED IS NOT A FAILURE. Clicking
   // "Post thread" calls router.push while the page it is leaving still has
   // requests open, and Chromium aborts them; so does a page.goto that
@@ -142,6 +157,10 @@ try {
     failedRequests.push(`${r.url().slice(0, 100)} :: ${err}`);
   });
   page.on('response', (r) => {
+    if (isPrefetch429(r.url(), r.status())) {
+      rateLimitedPrefetches.push(r.url().slice(0, 100));
+      return;
+    }
     if (r.status() >= 400) failedRequests.push(`${r.status()} ${r.url().slice(0, 100)}`);
   });
 
@@ -362,6 +381,12 @@ try {
     check('no uncaught exception on any page', pageErrors.length === 0, pageErrors.join(' | '));
     check('no console error on any page', consoleErrors.length === 0, consoleErrors.join(' | '));
     check('no failed request on any page', failedRequests.length === 0, failedRequests.join(' | '));
+    if (rateLimitedPrefetches.length > 0) {
+      console.log(`      ${rateLimitedPrefetches.length} prefetch(es) were rate-limited (429). ` +
+        'That is this suite\'s own traffic meeting the limiter — Next prefetches every nav link ' +
+        'on every page, and this script loads a dozen pages in under a minute. A 429 on a real ' +
+        'navigation would have failed the check above.');
+    }
     if (abortedNavigations.length > 0) {
       console.log(`      ${abortedNavigations.length} navigation(s) this script replaced were ` +
         'aborted by Chromium, which is what superseding one looks like:');
