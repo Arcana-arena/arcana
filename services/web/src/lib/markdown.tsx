@@ -78,7 +78,24 @@ function inline(text: string, keyPrefix: string): ReactNode[] {
     } else if (tok.startsWith('*')) {
       out.push(<em key={key}>{tok.slice(1, -1)}</em>);
     } else if (tok.startsWith('_')) {
-      out.push(<em key={key}>{tok.slice(1, -1)}</em>);
+      // AN UNDERSCORE INSIDE A WORD IS NOT EMPHASIS, and leaving that out was a
+      // real bug rather than a nicety. `verify_fbrowse_4d5ba29f` rendered as
+      // "verifyfbrowse4d5ba29f" — the underscores did not just lose their
+      // meaning, they DISAPPEARED, because the text between them became an
+      // <em>. On a platform where people paste snake_case identifiers, column
+      // names, env vars and file names, that silently rewrites what somebody
+      // said, and they cannot see it happening as they type.
+      //
+      // This is CommonMark's rule and the reason it exists. `*` still works
+      // intraword; `_` needs a boundary on both sides. Checked against the
+      // neighbouring characters rather than with a lookbehind in the pattern,
+      // because a lookbehind throws a SyntaxError at parse time on Safari
+      // before 16.4 — and this file runs in the browser too, for the preview.
+      const beforeChar = m.index > 0 ? text[m.index - 1] : '';
+      const afterChar = text[m.index + tok.length] ?? '';
+      const wordy = (c: string) => /[A-Za-z0-9]/.test(c);
+      if (wordy(beforeChar) || wordy(afterChar)) out.push(tok);
+      else out.push(<em key={key}>{tok.slice(1, -1)}</em>);
     } else {
       const split = tok.indexOf('](');
       const label = tok.slice(1, split);

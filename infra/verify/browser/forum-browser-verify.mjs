@@ -311,6 +311,14 @@ try {
     check('the reply appears without a manual reload', t.includes('A reply typed in a browser'),
       t.slice(0, 300));
     check('and the thread now counts one reply', /1 reply\b/.test(t), t.slice(0, 300));
+
+    // THE TAG IS THE REGRESSION TEST, and it is one because it caught this.
+    // `verify_fbrowse_xxxx` came back as `verifyfbrowsexxxx`: the markdown
+    // renderer read `_fbrowse_` as emphasis and ate both underscores, silently
+    // rewriting what somebody typed. Any snake_case identifier would have gone
+    // the same way. Asserted by name so the next failure says what broke.
+    check('an underscore inside a word survives — it is not emphasis',
+      t.includes(TAG), `the page shows the tag as: ${(t.match(/verify\w*/) ?? ['(not found)'])[0]}`);
   });
 
   // =====================================================================
