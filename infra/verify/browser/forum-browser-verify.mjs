@@ -297,8 +297,13 @@ try {
     check('the reply reached the database', stored === '1', `forum_posts rows=${stored}`);
     if (!appeared) {
       const shown = await bodyText(page);
+      // The whole replies region, not a 400-character prefix of the page. The
+      // first version of this dump cut off before the replies and made a
+      // rendering question look like a missing row.
+      const region = shown.replace(/\s+/g, ' ');
+      const at = region.indexOf('Replies');
       check('the reply appears without a manual reload', false,
-        `not on the page after 20s. Page said: ${shown.replace(/\s+/g, ' ').slice(0, 400)}`);
+        `not on the page after 20s. From "Replies": ${region.slice(at >= 0 ? at : 0, (at >= 0 ? at : 0) + 900)}`);
       return;
     }
 
