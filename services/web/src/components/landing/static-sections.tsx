@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { Hint } from '@/components/ds/hint';
+import { XLink } from '@/components/layout/XLink';
 
 /**
  * The sections of the landing page that are prose.
@@ -337,20 +338,10 @@ export function LandingFooter({ chainId, latestBlock }: { chainId: string; lates
               route; an outward link dropped in there would be prefetched as
               though it were one of ours. It also belongs beside the brand
               rather than under "About" — it is the brand speaking elsewhere.
-
-              rel="noopener" is the part that matters: without it the opened
-              page can reach back through window.opener and navigate this tab.
             */}
-            <a
-              href="https://x.com/Arcana_Arena"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-foot-link"
-              title="ARCANA on X"
-              style={{ display: 'inline-block', marginTop: 14, fontSize: 12.5 }}
-            >
-              @Arcana_Arena on X
-            </a>
+            <div style={{ marginTop: 16 }}>
+              <XLink size={17} />
+            </div>
           </div>
           {FOOTER.map(([heading, links]) => (
             <div key={heading}>

@@ -10,6 +10,7 @@
  * itself rather than from the clock on this machine.
  */
 import Link from 'next/link';
+import { XLink } from './XLink';
 
 /**
  * THE STAMP IS LABELLED BY WHOEVER PASSES IT, and that is a correction.
@@ -40,23 +41,8 @@ export function Footer({
       </span>
       <Link href="/docs">Docs</Link>
       <Link href="/status">Status</Link>
-      {/*
-        THE ONE LINK ON THIS SITE THAT LEAVES IT, so it is the one that carries
-        rel="noopener noreferrer": without `noopener` the page it opens can
-        reach back through window.opener and navigate this tab somewhere else.
-        A plain <a>, not next/link, because there is no route here to prefetch.
-
-        The handle is written out rather than labelled "X" — somebody deciding
-        whether to follow an account wants to see which account it is.
-      */}
-      <a
-        href="https://x.com/Arcana_Arena"
-        target="_blank"
-        rel="noopener noreferrer"
-        title="ARCANA on X"
-      >
-        @Arcana_Arena
-      </a>
+      {/* The mark, not the handle spelled out. See components/layout/XLink. */}
+      <XLink />
       <span className="mono m3" style={{ marginLeft: 'auto', fontSize: 10.5, textAlign: 'right' }}>
         {/* No house style note by default. "this page reads; it computes
             nothing" is a thing the authors say to each other, and a footer is

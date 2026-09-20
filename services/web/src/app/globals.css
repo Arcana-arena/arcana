@@ -1206,6 +1206,12 @@ select.input { padding-right: 24px; }
 .px-wordmark { font-weight: 700; font-size: 17px; letter-spacing: .16em; }
 .px-foot-link { color: var(--ink-2); }
 .px-foot-link:hover { color: var(--color-accent); text-decoration: none; }
+
+/* ---- the X mark (components/layout/XLink), in both footers.
+   An icon link has no text to underline, so hover has to be the colour; left
+   at the footer's muted ink it would read as decoration rather than a control. */
+.x-link { color: var(--ink-3); transition: color .12s ease; }
+.x-link:hover, .x-link:focus-visible { color: var(--color-accent); text-decoration: none; }
 .px-foot-bar { display: flex; align-items: center; gap: 10px 24px; flex-wrap: wrap; padding-block: 22px; margin-top: 32px; border-top: 1px solid var(--px-line); }
 
 /* ---- hint (components/ds/hint.tsx): a meaning, on request */
