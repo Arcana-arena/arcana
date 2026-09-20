@@ -21,6 +21,10 @@
     "services/marketplace": {
       "tests": 0,
       "why": "32 files, no unit tests. Listings and subscription discovery; the subscription side is exercised by subscription-verify.mjs and subscription-chain-verify.mjs against real rows and real transactions."
+    },
+    "services/web": {
+      "tests": 0,
+      "why": "98 source files, no unit tests and NO TEST SCRIPT AT ALL — `npm test` does not enter this workspace, so it is the one entry here that is not even reached by the runner. It was also missing from this ledger entirely until 2026-09-20, which made `npm test` fail with 'a workspace nobody has decided about is one nobody is measuring'. That failure was correct and it is what put this row here. What covers it instead is infra/verify/web-verify.mjs, which fetches every page server-side and requires the rendered HTML to contain the API's own values IN THE API'S ORDER — 134 checks, and the reason a page that re-sorted a list or printed a zero where the API sent null is caught. The browser pass (infra/verify/browser/browser-check.mjs, signin-verify.mjs) drives the pages in a real browser. Both run against a deployed VPS, so like the other rows here: not covered on a laptop, and not in CI. The specific gap neither reaches is client-component logic that never renders server-side — lib/markdown.tsx is the sharpest example, since it is the one file turning other people's text into markup."
     }
   }
 }

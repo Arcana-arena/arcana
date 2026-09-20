@@ -85,6 +85,10 @@ let strangerCreatorId = null;
 const agentIds = [];
 const threadIds = [];
 const articleIds = [];
+/** The article bound to agentIds[0]. Sections 8 and 11 both need exactly that
+ *  one, and `articleIds[last]` stopped being it the moment section 9 added a
+ *  private agent's article after them. */
+let boundArticleId = null;
 
 /**
  * Remove what a run made.
@@ -373,13 +377,31 @@ try {
     const badReason = await call(`/v1/forum/posts/${spamId}/reports`, { method: 'POST', body: { reason: 'because' } });
     check('an unknown report reason is refused', badReason.status === 400, `status ${badReason.status}`);
 
+    // WHO MAY NOT HIDE, TESTED ON THE RIGHT ROW. An earlier version of this
+    // check asked the stranger to hide the stranger's own spam and expected a
+    // refusal — but authors may always hide their own writing, so the only
+    // thing it could have caught was the 500 it did catch. The refusal belongs
+    // on a post the stranger neither wrote nor owns the thread of: one of the
+    // author's own replies, inside the author's own thread.
+    const authorsOwn = await call(`/v1/forum/threads/${threadId}/posts`, {
+      method: 'POST', body: { body: `the author's own reply — ${TAG}` } });
+    const authorsOwnId = authorsOwn.body?.id;
+    check('the thread author can reply in their own thread', authorsOwn.status < 300,
+      `status ${authorsOwn.status}`);
+
+    if (authorsOwnId) {
+      const strangerTries = await call(`/v1/forum/posts/${authorsOwnId}/hide`, {
+        method: 'POST', body: { reason: 'I do not like it' } }, strangerToken);
+      check('somebody who owns neither the post nor the thread it sits in cannot hide it',
+        strangerTries.status === 403,
+        `status ${strangerTries.status} ${JSON.stringify(strangerTries.body)}`);
+      check('and is told to report it instead',
+        /report/i.test(JSON.stringify(strangerTries.body)), JSON.stringify(strangerTries.body));
+    }
+
     // THE AUTHOR OF THE THREAD MAY HIDE A REPLY IN IT. This is the second
     // moderation tier and the sharp one: it is what lets spam go in minutes
     // rather than when an operator next looks.
-    const strangerTries = await call(`/v1/forum/posts/${spamId}/hide`, {
-      method: 'POST', body: { reason: 'I do not like it' } }, strangerToken);
-    check('somebody who owns neither the post nor the thread cannot hide it',
-      strangerTries.status === 403, `status ${strangerTries.status} ${JSON.stringify(strangerTries.body)}`);
 
     const hidden = await call(`/v1/forum/posts/${spamId}/hide`, {
       method: 'POST', body: { reason: 'Advertising, repeated' } });
@@ -435,6 +457,7 @@ try {
     const id = bound.body?.id;
     if (!id) return;
     articleIds.push(id);
+    boundArticleId = id;
 
     const read = await anon(`/v1/articles/${id}`);
     check('the binding reads back', read.body?.agent?.id === agentIds[0], JSON.stringify(read.body?.agent));
@@ -474,7 +497,7 @@ try {
 
   // =====================================================================
   await section('8. The linked agent card shows the agent page\'s own numbers', async () => {
-    const id = articleIds[articleIds.length - 1];
+    const id = boundArticleId;
     const agentId = agentIds[0];
     if (!id) { nothingToCheck('no agent-bound article was created earlier in this run'); return; }
 
@@ -511,30 +534,58 @@ try {
 
   // =====================================================================
   await section('9. A private agent gets an honest card, not a row of dashes', async () => {
-    const id = articleIds[articleIds.length - 1];
-    const agentId = agentIds[0];
-    if (!id) { nothingToCheck('no agent-bound article was created earlier in this run'); return; }
+    // A THIRD AGENT, PRIVATE FROM BIRTH, because visibility moves ONE WAY.
+    // Migration 0047 refuses public -> private at the database, in those words:
+    // "what it published has already been read, and hiding it now would only
+    // make the record look as though it never said it". So this cannot be done
+    // by flipping the agent the earlier sections used — neither through the API
+    // nor by direct SQL — and an agent that is private from the start is the
+    // only shape of this test that can exist.
+    const made = await call('/v1/agents', {
+      method: 'POST', headers: VERIFICATION_HEADER, body: {
+        name: `${TAG}_private`,
+        strategyType: 'momentum',
+        assetUniverse: 'us_equities',
+        visibility: 'private',
+        riskProfile: JSON.stringify({
+          cash_floor_pct: 0.05, trade_size_pct: 0.5, max_position_pct: 1, rebalance_band_pct: 0.0002,
+        }),
+      } });
+    const privateAgent = made.body?.id;
+    check('an agent can be created private', Boolean(privateAgent),
+      `status ${made.status} ${JSON.stringify(made.body)}`);
+    if (!privateAgent) return;
+    agentIds.push(privateAgent);
 
-    // DIRECT SQL, and deliberately. Visibility is settable at creation and on
-    // evolve, and evolving MAKES A NEW AGENT — which would give this section a
-    // different id than the article is bound to, and prove nothing about the
-    // binding under test. The column is what the endpoints read, so setting it
-    // puts the row in exactly the state a private agent's row is in.
-    sql(`UPDATE agents SET visibility = 'private' WHERE id = '${agentId}'`);
+    const stored = sql1(`SELECT visibility FROM agents WHERE id = '${privateAgent}'`);
+    check('and the row really is private', stored === 'private', `visibility=${stored}`);
 
-    const privatePage = await page(`/articles/${id}`);
-    const pt = text(privatePage.html);
-    check('the article still renders when its agent is private', privatePage.status === 200,
-      `status ${privatePage.status}`);
-    check('and the card says the agent is private rather than drawing withheld numbers as dashes',
-      /private/i.test(pt) && /withholds|not only here|made it private/i.test(pt),
-      'the private card does not explain itself');
+    // AN ARTICLE MAY NAME A PRIVATE AGENT. A thesis may not — resolving one
+    // would publish the withheld number through a side door — but an article
+    // makes no claim and publishes nothing the card does not withhold itself.
+    const art = await call('/v1/articles', { method: 'POST', body: {
+      title: `${TAG} writing about an agent I keep private`,
+      body: 'The card under this should say so rather than drawing four dashes.',
+      agent_id: privateAgent,
+    }});
+    check('an article can name it', art.status < 300, `status ${art.status} ${JSON.stringify(art.body)}`);
+    const id = art.body?.id;
+    if (!id) return;
+    articleIds.push(id);
 
     const apiRead = await anon(`/v1/articles/${id}`);
     check('the API reports the visibility rather than omitting it',
       apiRead.body?.agent?.visibility === 'private', `visibility=${apiRead.body?.agent?.visibility}`);
 
-    sql(`UPDATE agents SET visibility = 'public' WHERE id = '${agentId}'`);
+    const privatePage = await page(`/articles/${id}`);
+    const pt = text(privatePage.html);
+    check('the article renders', privatePage.status === 200, `status ${privatePage.status}`);
+    check('and the card says the agent is private rather than drawing withheld numbers as dashes',
+      /private/i.test(pt) && /withholds|not only here|made it private/i.test(pt),
+      'the private card does not explain itself');
+    check('and it does not print a score, a return or a drawdown for it',
+      !/ARCANA Score/i.test(pt.slice(pt.indexOf('LINKED AGENT'))),
+      'the private card rendered the performance cells anyway');
   });
 
   // =====================================================================
@@ -632,7 +683,7 @@ try {
   // have left section 10 comparing a refusal against a decision, which proves
   // nothing about either.
   await section('11. A retired agent\'s card says so, instead of reading as live', async () => {
-    const id = articleIds[articleIds.length - 1];
+    const id = boundArticleId;
     const agentId = agentIds[0];
     if (!id) { nothingToCheck('no agent-bound article was created earlier in this run'); return; }
 

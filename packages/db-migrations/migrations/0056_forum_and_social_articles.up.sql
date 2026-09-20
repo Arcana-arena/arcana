@@ -358,6 +358,13 @@ CREATE TRIGGER content_reactions_rollup
 
 -- updated_at on the two writable social tables. Editing prose is allowed --
 -- these are posts, not records -- and the page says when it happened.
+--
+-- SUPERSEDED BY 0057, and left here as written. The shared function below
+-- reads as though the TG_TABLE_NAME test guards the NEW.title reference beside
+-- it; it does not, because PL/pgSQL resolves a record field whenever it
+-- evaluates the expression. Every UPDATE on forum_posts therefore failed with
+-- `record "new" has no field "title"`, which surfaced as a 500 on every
+-- moderation call. 0057 replaces it with one function per table.
 CREATE OR REPLACE FUNCTION forum_touch_updated_at() RETURNS trigger AS $$
 BEGIN
   IF NEW.body IS DISTINCT FROM OLD.body
