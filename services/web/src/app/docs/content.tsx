@@ -359,10 +359,6 @@ portfolio snapshot → portfolio_snapshots NAV, cash, holdings after the tick`}<
         </ol>
 
         <h2 id="capital">ARCANA CAPITAL</h2>
-        <Warn tone="note" title="A future plan.">
-          Nothing in this section is built yet. It is where ARCANA is going after trading, described so it can be
-          argued with now rather than announced later.
-        </Warn>
         <p>
           <strong>Not this:</strong> deposit stock, borrow USDG, repay the loan.
         </p>

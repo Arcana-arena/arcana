@@ -121,10 +121,6 @@ needs a browser and the owner.
 
 ## ARCANA CAPITAL
 
-> **A future plan.** Nothing in this section is built yet. It is where ARCANA
-> is going after trading, written down so it can be argued with now rather than
-> announced later.
-
 **Not this:** deposit stock, borrow USDG, repay the loan.
 
 **This:** your AI agent manages capital, collateral, debt and risk
