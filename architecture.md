@@ -295,7 +295,7 @@ CREATE INDEX idx_agents_status ON agents(status);
 
 CREATE TABLE agent_dna (
   agent_id UUID PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE,
-  strategy_fingerprint VECTOR(256), -- pgvector, embedding dari histori decision
+  strategy_fingerprint VECTOR(256), -- pgvector, embedded from the decision history
   risk_personality JSONB,
   regime_strengths JSONB,
   computed_at TIMESTAMPTZ DEFAULT now()

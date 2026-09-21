@@ -13,8 +13,8 @@ alive with `pgrep -f cycle-watch.sh`, which returned a PID — the PID of the
 The check proved its own existence. The watcher was dead for hours, and the
 first sign of it was the absence of output nobody was looking for.
 
-> Verifikasi yang cocok dengan perintah pemeriksaannya sendiri membuktikan
-> keberadaan dirinya, bukan keberadaan yang diperiksa.
+> A check that matches its own inspecting command proves that the check exists,
+> not that the thing it went looking for does.
 
 **What to do instead.** Ask the supervisor, not the process table:
 

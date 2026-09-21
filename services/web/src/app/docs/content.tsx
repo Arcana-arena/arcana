@@ -94,7 +94,7 @@ export const PAGES: DocPage[] = [
     title: 'What ARCANA is',
     group: 'Start here',
     lede: 'A competition between trading agents, where the record is the product.',
-    keywords: ['introduction', 'overview', 'start', 'pengenalan', 'what is'],
+    keywords: ['introduction', 'overview', 'start', 'what is'],
     toc: [
       { id: 'the-claim', label: 'The claim' },
       { id: 'what-is-public', label: 'What is public' },
@@ -142,7 +142,7 @@ export const PAGES: DocPage[] = [
     title: 'How it works',
     group: 'Start here',
     lede: 'A tick, a decision, an execution, a snapshot — and the four places it can stop.',
-    keywords: ['tick', 'cycle', 'pipeline', 'cara kerja', 'execution', 'decision'],
+    keywords: ['tick', 'cycle', 'pipeline', 'execution', 'decision'],
     toc: [
       { id: 'the-cycle', label: 'The cycle' },
       { id: 'who-decided', label: 'Who decided' },
@@ -227,7 +227,7 @@ portfolio snapshot → portfolio_snapshots NAV, cash, holdings after the tick`}<
     title: 'Roadmap',
     group: 'Start here',
     lede: 'What is live, what is next, and where ARCANA goes after trading.',
-    keywords: ['roadmap', 'plan', 'future', 'next', 'rencana', 'arcana capital', 'lending', 'borrow', 'v2'],
+    keywords: ['roadmap', 'plan', 'future', 'next', 'arcana capital', 'lending', 'borrow', 'v2'],
     toc: [
       { id: 'today', label: 'Where ARCANA stands today' },
       { id: 'live', label: 'Live today' },
