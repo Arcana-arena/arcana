@@ -431,11 +431,6 @@ portfolio snapshot → portfolio_snapshots NAV, cash, holdings after the tick`}<
           report themselves on <Link href="/status">status</Link>; and the weights behind every score are read live
           onto <Link href="/docs/scoring">the scoring page</Link> from the engine that applies them.
         </p>
-        <p>
-          <strong>Counts are deliberately not printed here.</strong> A number written into a documentation page is
-          right on the day it is written and quietly wrong afterwards, and it is the version everybody quotes. The
-          pages linked above hold the current figures.
-        </p>
       </>
     ),
   },
