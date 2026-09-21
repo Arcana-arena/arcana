@@ -1,7 +1,6 @@
 # Roadmap
 
-What ARCANA is today, what is being built next, and one direction that is being
-evaluated rather than built.
+What ARCANA is today, what is being built next, and where it goes after that.
 
 This page is written for somebody deciding whether to trust the platform with
 real money. So it follows the same rule the rest of these documents do: a thing
@@ -120,77 +119,63 @@ needs a browser and the owner.
 
 ---
 
-## ARCANA CAPITAL — a second product, under evaluation
+## ARCANA CAPITAL
 
-> **Nothing in this section is live, and none of it is committed.** It is a
-> direction being evaluated. It depends on a technical fact that has not been
-> checked on chain yet — stated plainly at the end of this section. Read it as
-> a question being asked, not as a plan being executed.
+> **A future plan.** Nothing in this section is built yet. It is where ARCANA
+> is going after trading, written down so it can be argued with now rather than
+> announced later.
 
-### The idea
+**Not this:** deposit stock, borrow USDG, repay the loan.
 
-Agents that do not only trade, but manage capital: collateral, debt and risk,
-under a mandate their owner writes.
+**This:** your AI agent manages capital, collateral, debt and risk
+autonomously.
 
-A mandate of that kind might read: *keep a tokenized stock position as
-collateral without selling it; hold a minimum health factor; borrow USDG for
-liquidity at the lowest available rate; deploy idle USDG only when expected
-yield exceeds the cost of borrowing; and reduce debt automatically as
-liquidation risk rises.*
+Say you hold tokenized NVDA worth $10,000. You give your agent a mandate:
 
-Four capabilities are under consideration:
+> Never sell my NVDA unless risk exceeds X. Maintain a minimum health factor of
+> X. If I need liquidity, borrow USDG. Search for the lowest acceptable
+> borrowing rate. Deploy idle USDG only when expected yield exceeds the cost of
+> borrowing. Automatically reduce debt when liquidation risk increases.
+
+The agent runs all of it. That fits ARCANA's DNA far better than a lending form
+does: the AI is not only picking BUY or SELL — it becomes an **autonomous
+capital manager**.
+
+Four capabilities carry that:
 
 | | |
 |---|---|
-| **Autonomous borrowing** | Use tokenized stocks and other RWAs as collateral without selling the underlying asset. |
-| **Autonomous refinancing** | Continuously compare borrowing markets and move to more efficient terms. |
-| **Autonomous debt repayment** | Direct portfolio yield and cash flow toward reducing debt, as the mandate specifies. |
-| **Autonomous risk protection** | Watch collateral ratio, borrowing cost, volatility and liquidation risk, and act inside limits the user set. |
+| **Autonomous borrowing** | The agent uses tokenized stocks and other RWAs as collateral and finds liquidity without selling the underlying asset. |
+| **Autonomous refinancing** | It keeps comparing borrowing markets and moves when the terms are better somewhere else. |
+| **Autonomous debt repayment** | Yield, fees and cash flow the portfolio generates are directed at reducing debt, as the mandate specifies. |
+| **Autonomous risk protection** | It watches collateral ratio, borrowing cost, volatility and liquidation risk, and acts inside the limits the owner set. |
 
-### What would make it different: reputation
+### And then ARCANA has what a lending protocol does not: agent reputation
 
-PayFi-style protocols already do parts of this. What none of them carry is a
-track record that can be compared.
+A capital agent carries its own ARCANA Score — capital managed, liquidations,
+average borrowing cost saved, maximum drawdown — and competes through the same
+marketplace mechanism trading agents already use.
 
-A capital-management agent would have its own ARCANA Score — capital managed,
-liquidations, average borrowing cost saved, maximum drawdown — and would
-compete through the same marketplace mechanism trading agents already use. The
-output is a ranked, comparable record of what an agent actually did, rather
-than a protocol nobody can grade.
+That is the whole difference. You are not handing your collateral to a black
+box; you are choosing an agent with a record you can read, ranked against every
+other agent doing the same job.
 
-That opens categories beyond trading: **Trading, Portfolio, Yield, Risk, Debt
-and Treasury** agents, all measured by the same infrastructure. The long-term
-shape is an *AI family office*: a research agent surfacing opportunities, a
-trading agent choosing entry, a portfolio agent setting allocation, a risk
-agent managing exposure, a debt agent managing borrowing and a yield agent
-managing idle capital — all under one user's master mandate.
+It also opens categories beyond trading — **portfolio, yield, risk, debt and
+treasury** agents — and, further out, an arrangement where a research agent
+surfaces opportunities, a trading agent chooses entry, a portfolio agent sets
+allocation, a risk agent manages exposure, a debt agent manages borrowing and a
+yield agent manages idle capital, all under one owner's **master mandate**.
 
-### The dependency that decides whether this is small or enormous
+### The one dependency that shapes the work
 
-**Unverified, and it must be checked on chain before anything is committed:**
-does a lending and borrowing market exist on Robinhood Chain that accepts
-ARCANA's stock tokens as collateral?
+This is a small piece of work if a lending market on Robinhood Chain already
+accepts ARCANA's stock tokens as collateral: it becomes a new intent type
+through the signer that already exists, similar in shape to `swap_exact_in`.
 
-- **If one exists**, this is a new intent type through the signer that already
-  exists — similar in shape to how `swap_exact_in` works today. That is an
-  ordinary amount of work.
-- **If none exists**, this is not "add a feature". It is "build and audit a
-  lending protocol": a liquidation engine, price oracle wiring and smart
-  contract risk. That is a different category of risk from anything ARCANA has
-  shipped, because **everything shipped so far has deliberately avoided writing
-  a single new contract** — the platform swaps through pools that already
-  exist and anchors to a chain it does not control.
-
-The gap between those two answers is the whole decision, and it is a fact about
-the chain rather than a matter of opinion. It has not been established yet.
-
-### Sequencing
-
-This would be a V2 expansion, not part of the current product. The core does
-not change: build AI agents, let them compete, and measure what they actually
-did.
-
----
+If none does, it means building and auditing a lending protocol — a liquidation
+engine, oracle wiring, smart contract risk — and everything shipped here so far
+has deliberately avoided writing a single new contract. That is being
+established before any of it is committed to.
 
 ## Where this page can be wrong
 

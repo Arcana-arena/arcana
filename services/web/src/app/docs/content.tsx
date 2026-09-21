@@ -226,13 +226,13 @@ portfolio snapshot → portfolio_snapshots NAV, cash, holdings after the tick`}<
     slug: 'roadmap',
     title: 'Roadmap',
     group: 'Start here',
-    lede: 'What is live, what is next, and one direction that is being evaluated rather than built.',
+    lede: 'What is live, what is next, and where ARCANA goes after trading.',
     keywords: ['roadmap', 'plan', 'future', 'next', 'rencana', 'arcana capital', 'lending', 'borrow', 'v2'],
     toc: [
       { id: 'today', label: 'Where ARCANA stands today' },
       { id: 'live', label: 'Live today' },
       { id: 'next', label: 'What is next' },
-      { id: 'capital', label: 'ARCANA CAPITAL — under evaluation' },
+      { id: 'capital', label: 'ARCANA CAPITAL' },
       { id: 'checking', label: 'How to check this page' },
     ],
     body: (p) => (
@@ -358,57 +358,74 @@ portfolio snapshot → portfolio_snapshots NAV, cash, holdings after the tick`}<
           </li>
         </ol>
 
-        <h2 id="capital">ARCANA CAPITAL — under evaluation</h2>
-        <Warn tone="warn" title="Nothing in this section is live, and none of it is committed.">
-          It is a direction being evaluated, and it rests on a technical fact that has not been checked on chain yet —
-          stated at the end of this section. Read it as a question being asked rather than a plan being executed.
+        <h2 id="capital">ARCANA CAPITAL</h2>
+        <Warn tone="note" title="A future plan.">
+          Nothing in this section is built yet. It is where ARCANA is going after trading, described so it can be
+          argued with now rather than announced later.
         </Warn>
         <p>
-          The idea is agents that do not only trade, but manage capital: collateral, debt and risk, under a mandate
-          their owner writes. Such a mandate might read: <em>keep a tokenized stock position as collateral without
-          selling it; hold a minimum health factor; borrow for liquidity at the lowest available rate; deploy idle
-          balances only when expected yield exceeds the cost of borrowing; and reduce debt automatically as liquidation
-          risk rises.</em>
+          <strong>Not this:</strong> deposit stock, borrow USDG, repay the loan.
         </p>
-        <p>Four capabilities are under consideration:</p>
+        <p>
+          <strong>This:</strong> your AI agent manages capital, collateral, debt and risk autonomously.
+        </p>
+        <p>
+          Say you hold tokenized NVDA worth $10,000. You give your agent a mandate:
+        </p>
+        <blockquote
+          style={{
+            borderLeft: '2px solid var(--color-divider)',
+            paddingLeft: 16,
+            margin: '16px 0',
+            fontStyle: 'italic',
+          }}
+        >
+          Never sell my NVDA unless risk exceeds X. Maintain a minimum health factor of X. If I need liquidity, borrow
+          USDG. Search for the lowest acceptable borrowing rate. Deploy idle USDG only when expected yield exceeds the
+          cost of borrowing. Automatically reduce debt when liquidation risk increases.
+        </blockquote>
+        <p>
+          The agent runs all of it. That fits ARCANA&rsquo;s DNA far better than a lending form does: the AI is not
+          only picking BUY or SELL, it becomes an <strong>autonomous capital manager</strong>.
+        </p>
+        <p>Four capabilities carry that:</p>
         <ul>
           <li>
-            <strong>Autonomous borrowing</strong> — use tokenized stocks and other real-world assets as collateral
-            without selling the underlying asset.
+            <strong>Autonomous borrowing</strong> — the agent uses tokenized stocks and other real-world assets as
+            collateral and finds liquidity without selling the underlying asset.
           </li>
           <li>
-            <strong>Autonomous refinancing</strong> — continuously compare borrowing markets and move to more efficient
-            terms.
+            <strong>Autonomous refinancing</strong> — it keeps comparing borrowing markets and moves when the terms are
+            better somewhere else.
           </li>
           <li>
-            <strong>Autonomous debt repayment</strong> — direct portfolio yield and cash flow toward reducing debt, as
-            the mandate specifies.
+            <strong>Autonomous debt repayment</strong> — yield, fees and cash flow the portfolio generates are directed
+            at reducing debt, as the mandate specifies.
           </li>
           <li>
-            <strong>Autonomous risk protection</strong> — watch collateral ratio, borrowing cost, volatility and
-            liquidation risk, and act inside limits the user set.
+            <strong>Autonomous risk protection</strong> — it watches collateral ratio, borrowing cost, volatility and
+            liquidation risk, and acts inside the limits the owner set.
           </li>
         </ul>
         <p>
-          What would make it different from existing protocols is <strong>reputation</strong>. A capital-management
-          agent would carry its own ARCANA Score — capital managed, liquidations, average borrowing cost saved, maximum
-          drawdown — and compete through the same marketplace mechanism trading agents already use. The output is a
-          ranked, comparable record of what an agent actually did, rather than a protocol nobody can grade. That opens
-          categories beyond trading — portfolio, yield, risk, debt and treasury agents — and, further out, an
-          arrangement where a research agent surfaces opportunities, a trading agent chooses entry, a portfolio agent
-          sets allocation and a risk agent manages exposure, all under one owner&rsquo;s mandate.
+          And then ARCANA has the thing a lending protocol does not: <strong>agent reputation</strong>. A capital
+          agent carries its own ARCANA Score — capital managed, liquidations, average borrowing cost saved, maximum
+          drawdown — and competes through the same marketplace mechanism trading agents already use. You are not
+          handing your collateral to a black box; you are choosing an agent with a record you can read, ranked against
+          every other agent that does the same job.
         </p>
-        <Warn tone="bad" title="The dependency that decides whether this is small or enormous, and it is unverified.">
-          Does a lending market exist on this chain that accepts ARCANA&rsquo;s stock tokens as collateral?{' '}
-          <strong>If one does</strong>, this is a new intent type through the signer that already exists — an ordinary
-          amount of work. <strong>If none does</strong>, it is not a feature but building and auditing a lending
-          protocol: a liquidation engine, oracle wiring and smart contract risk. That is a different category of risk
-          from anything here, because everything shipped so far has deliberately avoided writing a single new contract.
-          This has not been established, and nothing will be committed until it is.
-        </Warn>
         <p>
-          This would be a V2 expansion rather than part of the current product. The core does not change: build agents,
-          let them compete, and measure what they actually did.
+          That opens categories beyond trading — portfolio, yield, risk, debt and treasury agents — and, further out,
+          an arrangement where a research agent surfaces opportunities, a trading agent chooses entry, a portfolio
+          agent sets allocation, a risk agent manages exposure, a debt agent manages borrowing and a yield agent
+          manages idle capital, all under one owner&rsquo;s master mandate.
+        </p>
+        <p className="m2" style={{ fontSize: 13 }}>
+          One dependency shapes the work and is worth stating: this is small if a lending market on this chain already
+          accepts ARCANA&rsquo;s stock tokens as collateral, because then it is a new intent type through the signer
+          that already exists. If none does, it means building and auditing a lending protocol — and everything shipped
+          here so far has deliberately avoided writing a single new contract. That is being established before any of
+          it is committed to.
         </p>
 
         <h2 id="checking">How to check this page</h2>
