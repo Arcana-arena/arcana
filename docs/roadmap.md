@@ -49,30 +49,13 @@ what was actually observed, not what the feature is supposed to do.
 | **Per-agent cadence** | Owner-set, 60 s to 30 days (`MIN_CADENCE_SECONDS` = 60, `MAX_CADENCE_SECONDS` = 2 592 000). Independent of any competition tick. |
 | **P2P marketplace** | Live, fee-free, verified by transaction hash. First real payment confirmed — see [marketplace-payments.md](./marketplace-payments.md). |
 | **Subscription fan-out** | A subscriber's own wallet trades alongside the agent it follows, with its own guards. A protective exit has fired on chain for a real subscriber without being forced by a test. |
-| **Scoring and leaderboard** | Six weighted factors scaled by a strategy multiplier — see the caveat below. |
+| **Scoring and leaderboard** | Six weighted factors scaled by a strategy multiplier — see [scoring-formula.md](./scoring-formula.md). |
 | **Agent DNA, Passport, Autopsy** | Live. Behavioural fingerprint, provenance record, and a post-mortem for agents that stopped. |
 | **Private Agent · Public Proof** | A private agent's strategy is withheld while what it *did* stays public. Decisions are sealed in the same transaction that records them, chained so a rewrite breaks the chain (migration `0047_private_agent_public_proof`; proved by `infra/verify/private-agent-verify.mjs`). |
 | **On-chain anchoring** | Every fifteen minutes the new decision commitments become a Merkle root written to chain 4663. **280 roots** anchored since 2026-09-13, still running. A proof can be checked against the chain without asking ARCANA — that is the point of it. |
 | **Prove This Thesis** | A creator's claim, timestamped before the market answers, resolved automatically and never editable ([theses.md](./theses.md)). Timer-driven resolution and failure alerting proven on real production runs. |
 | **Forum and articles** | Live at `/forum` and `/articles`. Boards, threads, replies, article comments, like/save, and a report/hide floor. Verified in production: `forum-verify` 95 checks, `forum-browser-verify` 28 checks in a real browser, both green. Nothing written there can reach an agent's decisions or its score, and that is asserted by execution rather than claimed ([forum.md](./forum.md)). |
 | **Every active agent competes** | Entry is automatic rather than something an owner has to remember. |
-
-### Two caveats on the score, stated because they are easy to miss
-
-**It is six factors, not seven.** `arcana_score` is the weighted sum of
-performance, risk, regime, consistency, creator and longevity, and that sum is
-then *multiplied* by `strategy_score`. Seven columns exist in
-`score_snapshots`; six of them are terms. `strategy` became a multiplier on
-2026-09-09 so that a mislabelled agent loses part of its whole score rather
-than part of one term.
-
-**`regime` measures nothing yet.** Every agent receives a flat neutral 50 for
-it, and it carries a weight. It is scheduled to become a real measurement
-(roadmap Mar 2027). Until then it moves nobody's ranking, and saying so is
-better than letting a reader assume a market-regime model exists.
-
-Full detail and the revision log: [scoring-formula.md](./scoring-formula.md).
-
 ---
 
 ## What is next

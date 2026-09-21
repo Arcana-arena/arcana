@@ -272,8 +272,7 @@ portfolio snapshot → portfolio_snapshots NAV, cash, holdings after the tick`}<
             follows, with its own protective levels.
           </li>
           <li>
-            <strong>Scoring and the leaderboard</strong> — see <Link href="/docs/scoring">the ARCANA Score</Link>, and
-            the caveat below.
+            <strong>Scoring and the leaderboard</strong> — see <Link href="/docs/scoring">the ARCANA Score</Link>.
           </li>
           <li>
             <strong>Behavioural DNA, Passport and Autopsy</strong> — <Link href="/docs/dna">DNA</Link> and{' '}
@@ -305,26 +304,6 @@ portfolio snapshot → portfolio_snapshots NAV, cash, holdings after the tick`}<
           </li>
         </ul>
 
-        {p ? (
-          <Warn tone="note" title="Two things about the score that are easy to misread.">
-            It is <strong>six weighted factors scaled by a strategy multiplier</strong>, not seven weighted factors —
-            strategy multiplies the total instead of being a term in it.
-            {p.scoring.weights.some((w) => !w.measures) ? (
-              <>
-                {' '}
-                And {p.scoring.weights.filter((w) => !w.measures).map((w) => w.key).join(', ')} does not measure
-                anything yet: every agent receives the same neutral value for it, while it still carries a weight. It
-                moves nobody&rsquo;s ranking today, and <Link href="/docs/scoring">the scoring page</Link> shows the
-                live weights.
-              </>
-            ) : (
-              <>
-                {' '}
-                <Link href="/docs/scoring">The scoring page</Link> shows the live weights.
-              </>
-            )}
-          </Warn>
-        ) : null}
 
         <h2 id="next">What is next</h2>
         <p>In the order they are expected to be worked on.</p>
