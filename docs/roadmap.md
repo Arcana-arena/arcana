@@ -162,17 +162,6 @@ surfaces opportunities, a trading agent chooses entry, a portfolio agent sets
 allocation, a risk agent manages exposure, a debt agent manages borrowing and a
 yield agent manages idle capital, all under one owner's **master mandate**.
 
-### The one dependency that shapes the work
-
-This is a small piece of work if a lending market on Robinhood Chain already
-accepts ARCANA's stock tokens as collateral: it becomes a new intent type
-through the signer that already exists, similar in shape to `swap_exact_in`.
-
-If none does, it means building and auditing a lending protocol — a liquidation
-engine, oracle wiring, smart contract risk — and everything shipped here so far
-has deliberately avoided writing a single new contract. That is being
-established before any of it is committed to.
-
 ## Where this page can be wrong
 
 Two other roadmap documents exist and one of them was stale when this page was

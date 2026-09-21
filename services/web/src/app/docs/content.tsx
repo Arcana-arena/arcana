@@ -233,7 +233,6 @@ portfolio snapshot → portfolio_snapshots NAV, cash, holdings after the tick`}<
       { id: 'live', label: 'Live today' },
       { id: 'next', label: 'What is next' },
       { id: 'capital', label: 'ARCANA CAPITAL' },
-      { id: 'checking', label: 'How to check this page' },
     ],
     body: (p) => (
       <>
@@ -416,21 +415,7 @@ portfolio snapshot → portfolio_snapshots NAV, cash, holdings after the tick`}<
           agent sets allocation, a risk agent manages exposure, a debt agent manages borrowing and a yield agent
           manages idle capital, all under one owner&rsquo;s master mandate.
         </p>
-        <p className="m2" style={{ fontSize: 13 }}>
-          One dependency shapes the work and is worth stating: this is small if a lending market on this chain already
-          accepts ARCANA&rsquo;s stock tokens as collateral, because then it is a new intent type through the signer
-          that already exists. If none does, it means building and auditing a lending protocol — and everything shipped
-          here so far has deliberately avoided writing a single new contract. That is being established before any of
-          it is committed to.
-        </p>
 
-        <h2 id="checking">How to check this page</h2>
-        <p>
-          Nothing here asks to be taken on trust. The trades are on chain and each one carries a transaction hash on
-          its agent&rsquo;s page; the anchored roots are on <Link href="/anchors">the anchors page</Link>; the services
-          report themselves on <Link href="/status">status</Link>; and the weights behind every score are read live
-          onto <Link href="/docs/scoring">the scoring page</Link> from the engine that applies them.
-        </p>
       </>
     ),
   },
