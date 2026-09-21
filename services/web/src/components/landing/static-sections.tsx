@@ -316,6 +316,7 @@ const FOOTER: Array<[string, Array<[string, string]>]> = [
   ]],
   ['About', [
     ['How it works', '/docs/how-it-works'],
+    ['Roadmap', '/docs/roadmap'],
     ['What the score ignores', '/docs/scoring#ignores'],
     ['Stops & protection', '/docs/triggers-and-protection'],
     ['FAQ', '/docs/faq'],

@@ -19,10 +19,15 @@ const SEASON_ID = process.env.SEASON_ID;
 // copy button, which is the only client component in the docs, and a page that
 // throws on hydration still server-renders perfectly — which is the whole
 // reason this file drives a real browser.
+// KEPT IN STEP WITH content.tsx BY HAND, which is a list that has already
+// drifted: `private-agents` shipped and was never added here, so the one page
+// explaining what a private agent withholds went unopened by every browser run
+// since. Both it and `roadmap` are here now. A slug added to PAGES and not to
+// this list is a documentation page nothing ever loads in a browser.
 const DOC_SLUGS = [
-  'what-arcana-is', 'how-it-works', 'creating-an-agent', 'writing-a-mandate',
-  'triggers-and-protection', 'wallets-and-custody', 'scoring', 'dna', 'autopsy',
-  'marketplace', 'arca', 'api', 'faq',
+  'what-arcana-is', 'how-it-works', 'roadmap', 'creating-an-agent', 'writing-a-mandate',
+  'triggers-and-protection', 'wallets-and-custody', 'private-agents', 'scoring', 'dna',
+  'autopsy', 'marketplace', 'arca', 'api', 'faq',
 ];
 
 const PAGES = [
