@@ -91,13 +91,14 @@ Heavy builds, large tests, and Docker runs are executed on the remote VPS (`proj
 
 ## Status
 
-Foundation / V1 (target: Oct 2026). See [architecture.md §5](./architecture.md#5-implementation-phases-aligned-with-roadmap) for the roadmap.
+**[docs/roadmap.md](./docs/roadmap.md) — what is live today, what is next, and what is only being evaluated.** Start here: it is the one page written to be read by somebody deciding whether to trust the platform with real money, and it states its figures with the date they were read.
 
-**Direction change, 2026-09-10.** ARCANA is moving from a virtual-capital competition to **LLM agents trading real money on-chain, continuously**, with custodial wallets per agent. Start with:
+**Direction change, 2026-09-10.** ARCANA moved from a virtual-capital competition to **LLM agents trading real money on-chain, continuously**, with custodial wallets per agent. The background:
 
 - [docs/on-chain-direction.md](./docs/on-chain-direction.md) — the ten decisions and the measurements behind them
 - [docs/go-no-go-stock-tokens.md](./docs/go-no-go-stock-tokens.md) — the test that established it is possible at all
 - [docs/on-chain-rollout.md](./docs/on-chain-rollout.md) — the phases, and what each one has to prove
 - [docs/theses.md](./docs/theses.md) — Prove This Thesis: a creator's claim, timestamped before the market answers, resolved automatically and never editable
+- [docs/forum.md](./docs/forum.md) — the social layer, and why nothing in it can reach an agent
 
-Where `architecture.md` and the direction doc disagree, the direction doc is current.
+Where `architecture.md` and the direction doc disagree, the direction doc is current. Where `on-chain-rollout.md` and `roadmap.md` disagree, roadmap.md is newer — and the database and the chain settle it.
