@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { Hint } from '@/components/ds/hint';
-import { XLink } from '@/components/layout/XLink';
+import { SocialLinks } from '@/components/layout/SocialLinks';
 
 /**
  * The sections of the landing page that are prose.
@@ -341,7 +341,7 @@ export function LandingFooter({ chainId, latestBlock }: { chainId: string; lates
               rather than under "About" — it is the brand speaking elsewhere.
             */}
             <div style={{ marginTop: 16 }}>
-              <XLink size={17} />
+              <SocialLinks size={17} gap={16} />
             </div>
           </div>
           {FOOTER.map(([heading, links]) => (

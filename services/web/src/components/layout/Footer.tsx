@@ -10,7 +10,7 @@
  * itself rather than from the clock on this machine.
  */
 import Link from 'next/link';
-import { XLink } from './XLink';
+import { SocialLinks } from './SocialLinks';
 
 /**
  * THE STAMP IS LABELLED BY WHOEVER PASSES IT, and that is a correction.
@@ -41,8 +41,8 @@ export function Footer({
       </span>
       <Link href="/docs">Docs</Link>
       <Link href="/status">Status</Link>
-      {/* The mark, not the handle spelled out. See components/layout/XLink. */}
-      <XLink />
+      {/* The marks, not the handles spelled out. See components/layout/SocialLinks. */}
+      <SocialLinks />
       <span className="mono m3" style={{ marginLeft: 'auto', fontSize: 10.5, textAlign: 'right' }}>
         {/* No house style note by default. "this page reads; it computes
             nothing" is a thing the authors say to each other, and a footer is
