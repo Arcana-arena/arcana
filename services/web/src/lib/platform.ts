@@ -9,8 +9,16 @@ export type PlatformStats = {
   agents: { total: number; active: number; retired: number; draft: number };
   creators: { total: number };
   decisions: { total: number; last_24h: number; trades: number; last_at: string | null };
-  executions: { settled: number; blocked: number; reverted: number; total: number };
-  volume: { usdg: number; basis: string; legs_without_usdg: number };
+  executions: {
+    settled: number;
+    blocked: number;
+    reverted: number;
+    total: number;
+    /** Optional: a service deployed before this field existed omits it, and
+     *  undefined must render as a dash rather than as a quiet zero. */
+    settled_24h?: number;
+  };
+  volume: { usdg: number; usdg_24h?: number; basis: string; legs_without_usdg: number };
   chain: {
     id: number;
     last_block_seen: number | null;

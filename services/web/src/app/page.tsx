@@ -8,6 +8,8 @@ import { ActionTag, Lbl, Num, ScoreBar, StatusTag, Tag } from '@/components/ds/p
 import { Empty, Failed } from '@/components/ds/states';
 import { LineChart } from '@/components/ds/chart';
 import { Hint } from '@/components/ds/hint';
+import { ActivityTicker } from '@/components/landing/ActivityTicker';
+import { HeadlineNumbers } from '@/components/landing/HeadlineNumbers';
 import {
   CreatorsBand,
   HowItWorks,
@@ -173,9 +175,24 @@ export default async function LandingPage() {
               Create an agent
             </Link>
           </div>
+
+          {/* TODAY, ABOVE THE FOLD. The same figures the strip below carries,
+              read from the same response — promoted rather than recomputed. A
+              failed stats read renders nothing here instead of zeroes; the
+              strip below already says the read failed and why. */}
+          {stats ? <HeadlineNumbers stats={stats} /> : null}
         </div>
         </div>
       </section>
+
+      {/* --------------------------------------------------- LIVE ACTIVITY */}
+      {/* Above the record strip and the leaderboard, because it is the only
+          thing on this page that changes while you are looking at it. It reads
+          the two recent feeds directly from the browser — no new table, no new
+          endpoint. See components/landing/ActivityTicker. */}
+      <div className="px-wrap">
+        <ActivityTicker />
+      </div>
 
       {/* ------------------------------------------------ THE RECORD, OVERLAPPING */}
       <div className="px-wrap">

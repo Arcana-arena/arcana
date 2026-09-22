@@ -69,6 +69,11 @@ export class StatsService {
         SELECT count(*) FILTER (WHERE e.status = 'mined')::int    AS settled,
                count(*) FILTER (WHERE e.status = 'blocked')::int  AS blocked,
                count(*) FILTER (WHERE e.status = 'reverted')::int AS reverted,
+               -- The same settled count over the last day. A FILTER on the
+               -- query that already runs, not a second query and certainly not
+               -- a subtraction done in the browser.
+               count(*) FILTER (WHERE e.status = 'mined'
+                                  AND e.ts > now() - interval '24 hours')::int AS settled_24h,
                count(*)::int AS total
           FROM executions e
           JOIN agents a ON a.id = e.agent_id AND a.provenance = 'live'
@@ -87,6 +92,18 @@ export class StatsService {
                    WHEN lower(e.token_out) = lower($1) THEN e.filled_out
                  END
                ) / power(10, $2), 0)::float8 AS usdg,
+               -- THE SAME SUM OVER THE LAST DAY, on the same rows and the same
+               -- basis. The landing page wants to say what settled today, and
+               -- the alternative was the page subtracting yesterday's figure
+               -- from today's — arithmetic in a browser, against two reads
+               -- taken at different moments.
+               coalesce(sum(
+                 CASE
+                   WHEN e.ts <= now() - interval '24 hours' THEN 0
+                   WHEN lower(e.token_in)  = lower($1) THEN e.amount_in
+                   WHEN lower(e.token_out) = lower($1) THEN e.filled_out
+                 END
+               ) / power(10, $2), 0)::float8 AS usdg_24h,
                count(*) FILTER (
                  WHERE lower(e.token_in) <> lower($1) AND lower(e.token_out) <> lower($1)
                )::int AS legs_without_usdg
@@ -119,6 +136,7 @@ export class StatsService {
       executions: executions[0],
       volume: {
         usdg: Number(volume[0]?.usdg ?? 0),
+        usdg_24h: Number(volume[0]?.usdg_24h ?? 0),
         // Said plainly, because "volume" with no basis is a number anyone can
         // read as whatever flatters them.
         basis:
