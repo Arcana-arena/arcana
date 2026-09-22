@@ -1344,3 +1344,29 @@ select.input { padding-right: 24px; }
 .px-ticker-settled .px-ticker-detail { color: var(--color-accent); }
 .px-ticker-refused .px-ticker-detail { color: var(--amber); }
 .px-ticker-age { color: var(--ink-3); }
+
+/* ---- the $ARCA contract address (components/layout/ContractAddress)
+   SHOWN WHOLE, unlike every other address on this site. People arrive looking
+   for it and paste it into something that spends money; a truncated token
+   address is a shape a lookalike contract can match. It wraps rather than
+   overflowing, because a footer that clips the last characters of a contract
+   address is worse than one that is two lines tall. */
+.px-ca {
+  display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 11px; min-width: 0;
+}
+.px-ca-label {
+  font-family: var(--font-mono), monospace; font-size: 9.5px; letter-spacing: .14em;
+  color: var(--ink-3); white-space: nowrap;
+}
+.px-ca-value {
+  font-size: 11px; color: var(--ink-2); word-break: break-all;
+  background: none; border: none; padding: 0;
+}
+.px-ca-copy {
+  font-family: var(--font-mono), monospace; font-size: 9.5px; letter-spacing: .1em;
+  color: var(--ink-3); background: none; cursor: pointer;
+  border: 1px solid var(--color-divider); padding: 2px 6px;
+}
+.px-ca-copy:hover, .px-ca-copy:focus-visible { color: var(--color-accent); border-color: var(--color-accent); }
+.px-ca-compact .px-ca-value { font-size: 10.5px; }

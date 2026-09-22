@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Hint } from '@/components/ds/hint';
 import { SocialLinks } from '@/components/layout/SocialLinks';
+import { ContractAddress } from '@/components/layout/ContractAddress';
 
 /**
  * The sections of the landing page that are prose.
@@ -342,6 +343,12 @@ export function LandingFooter({ chainId, latestBlock }: { chainId: string; lates
             */}
             <div style={{ marginTop: 16 }}>
               <SocialLinks size={17} gap={16} />
+            </div>
+            {/* The contract address, whole. Beside the brand rather than in a
+                column: it is not a page anyone navigates to, it is a string
+                people came here to copy. */}
+            <div style={{ marginTop: 16, maxWidth: 300 }}>
+              <ContractAddress />
             </div>
           </div>
           {FOOTER.map(([heading, links]) => (

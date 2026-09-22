@@ -11,6 +11,7 @@
  */
 import Link from 'next/link';
 import { SocialLinks } from './SocialLinks';
+import { ContractAddress } from './ContractAddress';
 
 /**
  * THE STAMP IS LABELLED BY WHOEVER PASSES IT, and that is a correction.
@@ -43,6 +44,7 @@ export function Footer({
       <Link href="/status">Status</Link>
       {/* The marks, not the handles spelled out. See components/layout/SocialLinks. */}
       <SocialLinks />
+      <ContractAddress compact />
       <span className="mono m3" style={{ marginLeft: 'auto', fontSize: 10.5, textAlign: 'right' }}>
         {/* No house style note by default. "this page reads; it computes
             nothing" is a thing the authors say to each other, and a footer is
