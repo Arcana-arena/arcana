@@ -1300,11 +1300,17 @@ select.input { padding-right: 24px; }
 .px-headline-unit { font-size: .46em; letter-spacing: .04em; color: var(--ink-2); margin-left: 4px; }
 /* An absent figure is a dash in the muted ink, never a zero in the bright one. */
 .px-headline-absent { color: var(--ink-3); }
+/* Wide enough that the qualifier sits on its own line WHOLE. At 26ch the
+   labels broke as "settled swaps / only" and "53 all / time" — an orphan that
+   reads as a rendering fault and pulls the eye off the figure above it. */
 .px-headline-label {
-  font-size: 11.5px; line-height: 1.45; margin-top: 7px; color: var(--ink-2);
-  letter-spacing: .02em; max-width: 26ch;
+  font-size: 11.5px; line-height: 1.5; margin-top: 8px; color: var(--ink-2);
+  letter-spacing: .02em; max-width: 30ch;
 }
-.px-headline-note { color: var(--ink-3); }
+/* The qualifier is a second line on purpose: "settled swaps only" is the part
+   that keeps the big number honest, and it should not be a fragment trailing
+   off the end of the label it qualifies. */
+.px-headline-note { display: block; color: var(--ink-3); }
 .px-headline-sep { width: 1px; align-self: stretch; background: var(--px-line); margin-block: 4px; }
 
 @media (max-width: 720px) {
