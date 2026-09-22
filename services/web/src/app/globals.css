@@ -1390,3 +1390,21 @@ select.input { padding-right: 24px; }
 .px-ca-buy:hover, .px-ca-buy:focus-visible {
   background: #5cf0a6; border-color: #5cf0a6; color: #04110a; text-decoration: none;
 }
+
+/* ---- landing: the $ARCA band (components/landing/static-sections TokenBand) */
+.px-token { padding: 30px 32px; }
+.px-token-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; flex-wrap: wrap; }
+.px-token-supply { text-align: right; }
+.px-token-supply-v {
+  font-size: clamp(20px, 2.2vw, 28px); letter-spacing: -.02em; color: #f4f7f5;
+  font-variant-numeric: tabular-nums; margin-top: 4px;
+}
+.px-token-lede { max-width: 62ch; margin-top: 18px; font-size: 14px; line-height: 1.65; color: var(--ink-2); }
+.px-token-ca { margin-top: 20px; display: inline-flex; padding: 10px 14px; border: 1px solid var(--px-line); border-radius: 8px; max-width: 100%; }
+/* The caveat is not a footnote. It is the half of this section that stops it
+   being a promise, so it is boxed and it is amber. */
+.px-token-note {
+  margin-top: 20px; padding: 12px 14px; font-size: 12.5px; line-height: 1.6;
+  color: var(--ink-2); border-left: 2px solid var(--amber); background: var(--amber-dim);
+  max-width: 72ch;
+}

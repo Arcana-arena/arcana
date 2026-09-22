@@ -17,6 +17,7 @@ import {
   LandingFooter,
   OnTheRecord,
   PrivateProof,
+  TokenBand,
   type PrivateExample,
 } from '@/components/landing/static-sections';
 
@@ -655,6 +656,11 @@ export default async function LandingPage() {
           )}
         </div>
       </section>
+
+      {/* The token, and what it does not do yet. After the record and before
+          the creators band: somebody who has read what the platform proves is
+          the right reader for what the token gates. */}
+      <TokenBand />
 
       <OnTheRecord />
 

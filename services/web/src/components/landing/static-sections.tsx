@@ -383,3 +383,56 @@ export function LandingFooter({ chainId, latestBlock }: { chainId: string; lates
     </footer>
   );
 }
+
+/**
+ * $ARCA — the token, and what it does NOT do yet.
+ *
+ * WHY THE SECOND HALF IS THE POINT. A token section on a landing page is
+ * usually a list of utilities written in the future tense with the tense
+ * quietly removed. This one carries the contract, the supply and where to buy,
+ * and then says plainly that the gates are not switched on — because they are
+ * not: ARCA_TOKEN_ADDRESS is unset on the service, so every entitlement check
+ * still admits everyone, and somebody buying on the strength of "unlocks
+ * premium arenas" would be buying something that does not work yet.
+ *
+ * NO PRICE, NO MARKET CAP, NO HOLDER COUNT. Nothing here reads a market, so
+ * printing one would be this page inventing a number — the one thing the rest
+ * of the site refuses to do. The launchpad has all three and is one click
+ * away.
+ */
+export function TokenBand() {
+  return (
+    <section className="px-wrap px-sec" id="arca">
+      <div className="px-card px-token">
+        <div className="px-token-head">
+          <div>
+            <div className="px-eyebrow">The token</div>
+            <h2 className="px-h2">$ARCA</h2>
+          </div>
+          <div className="px-token-supply">
+            <div className="lbl">TOTAL SUPPLY</div>
+            <div className="px-token-supply-v mono">1,000,000,000</div>
+            <div className="m3" style={{ fontSize: 10.5 }}>18 decimals · Robinhood Chain</div>
+          </div>
+        </div>
+
+        <p className="px-token-lede">
+          A balance to hold, not a fee to pay. $ARCA gates what a creator may do on ARCANA — activate an agent,
+          enter a competition, evolve one, or take a seat in a Premium Arena. A gate reads a balance and never
+          takes it; nothing is spent by passing one.
+        </p>
+
+        <div className="px-token-ca">
+          <ContractAddress buy />
+        </div>
+
+        <div className="px-token-note">
+          <strong>The gates are not switched on yet.</strong> The contract is live and can be bought, but the
+          platform has not been pointed at it — every entitlement check still admits everyone, so holding $ARCA
+          unlocks nothing here today. What it takes to change that, and the three states a gate can be in, are in{' '}
+          <Link href="/docs/arca">the $ARCA documentation</Link>.
+        </div>
+      </div>
+    </section>
+  );
+}

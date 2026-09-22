@@ -11,9 +11,18 @@ Implemented in `services/arca-service/src/entitlements/` (the authority) and
 
 ## Status today: wired, not enforcing
 
-**The $ARCA token has not launched.** `ARCA_TOKEN_ADDRESS` and `ARCA_RPC_URL`
-are deliberately empty in production, so no balance can be read and **every
-entitlement check passes**.
+**The token is live; the gates are not.** $ARCA is deployed on Robinhood Chain
+at `0xc00c26b09d602a04a83e6d7f8224affa3ecc4ca7` — verified on chain: `name()`
+ARCANA, `symbol()` ARCA, 18 decimals, one billion supply — and it can be
+bought. What has not happened is the platform being pointed at it:
+`ARCA_TOKEN_ADDRESS` and `ARCA_RPC_URL` are still empty in production, so no
+balance can be read and **every entitlement check passes**.
+
+Those are two different facts, and this section used to collapse them into
+"the token has not launched". That sentence is now simply false, and leaving it
+would have told a holder the gates were waiting on a launch that had already
+happened. Holding $ARCA unlocks nothing here yet, and the reason is a setting
+on this side.
 
 That is the correct behaviour — operations must keep working — and it is the
 single most dangerous thing about this feature. A gate that waves everyone

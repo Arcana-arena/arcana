@@ -2,6 +2,7 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { CodeBlock, ParamTable, Warn } from '@/components/docs/kit';
 import { num } from '@/lib/format';
+import { ARCA_CONTRACT } from '@/components/layout/ContractAddress';
 import type { DocParams } from './shapes';
 
 /**
@@ -326,9 +327,11 @@ portfolio snapshot → portfolio_snapshots NAV, cash, holdings after the tick`}<
             and it is not what should hold funds at scale. See <Link href="/docs/wallets-and-custody">wallets and custody</Link>.
           </li>
           <li>
-            <strong>$ARCA launch.</strong> The token has not launched, so every entitlement check currently passes
-            without reading a balance — a pass by default, not a verified entitlement. The launch is what turns those
-            gates from decorative into real. See <Link href="/docs/arca">$ARCA</Link>.
+            <strong>Switching the $ARCA gates on.</strong> The token is live and can be bought; what has not happened
+            is the platform being pointed at it. Every entitlement check still passes without reading a balance — a
+            pass by default, not a verified entitlement — so holding $ARCA unlocks nothing here yet. Turning that on
+            means choosing how much each gate asks for, which is a decision about who can use the platform rather
+            than a configuration detail. See <Link href="/docs/arca">$ARCA</Link>.
           </li>
           <li>
             <strong>Full machine reputation</strong> — anchor scores per snapshot, publish the formula and its weights
@@ -1170,7 +1173,15 @@ agents.strategy_fingerprint                          a pgvector embedding`}</Cod
                 name: '$ARCA',
                 about:
                   'What a creator must HOLD to create, compete, evolve, or enter a premium arena. It is a balance check, not a transfer.',
-                value: 'not launched',
+                // THE CONTRACT IS LIVE, THE GATE IS NOT, and those are two
+                // different facts that this table used to collapse into "not
+                // launched". The address below is on chain — name() ARCANA,
+                // symbol() ARCA, 18 decimals, 1,000,000,000 supply — while
+                // ARCA_TOKEN_ADDRESS is still unset on the service, so no gate
+                // reads a balance yet. Saying "launched" alone would imply the
+                // gates bite; saying "not launched" is now simply false.
+                value: `${ARCA_CONTRACT.slice(0, 10)}…`,
+                why: `${ARCA_CONTRACT} — deployed on Robinhood Chain. The gates do not read it yet; see "The state today" below.`,
               },
             ]}
           />
@@ -1186,9 +1197,17 @@ agents.strategy_fingerprint                          a pgvector embedding`}</Cod
           </p>
 
           <h2 id="today">The state today</h2>
+          <Warn tone="note" title="The token is live. The gates are not.">
+            The $ARCA contract is deployed on Robinhood Chain at{' '}
+            <code className="mono">{ARCA_CONTRACT}</code> — one billion supply, eighteen decimals — and it can be
+            bought. What has <em>not</em> happened is the platform being pointed at it:{' '}
+            <code>ARCA_TOKEN_ADDRESS</code> is unset on the service, so every gate still admits everyone. Holding
+            $ARCA does not yet unlock anything here, and a page that implied otherwise would be selling a utility that
+            is not switched on.
+          </Warn>
           <p>
-            $ARCA is not launched, so the gates are wired and read no balance: every registration passes. This is
-            reported honestly wherever it matters, in <strong>three</strong> states rather than two:
+            So the gates are wired and read no balance: every registration passes. This is reported honestly wherever
+            it matters, in <strong>three</strong> states rather than two:
           </p>
           <ul>
             <li>
