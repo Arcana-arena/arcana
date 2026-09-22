@@ -177,21 +177,42 @@ export function ActivityTicker({ initial }: { initial: RecentDecision[] }) {
   );
   const live = failed === null && newestAge !== null && newestAge < STALE_AFTER_MS;
 
+  /**
+   * A MESSAGE REPLACES THE LINES ONLY WHEN THERE ARE NO LINES.
+   *
+   * The first version hid perfectly good activity behind "nothing in the last
+   * fifteen minutes" whenever the newest row was older than that — and on a
+   * platform whose agents hold until the market moves past their rebalance
+   * band, that is most of the time. A strip that is almost always empty while
+   * the data sits right there is not honesty, it is just useless.
+   *
+   * So age is told rather than hidden: every line carries its own "15h ago",
+   * the dot goes grey and the word LIVE goes away. The reader sees what
+   * happened and exactly how long ago, which is more honest than a sentence
+   * that withholds it.
+   */
   const note =
     failed !== null
       ? `Activity could not be read — ${failed}. That is the feed failing, not the platform being idle.`
       : lines.length === 0
         ? 'No trade among the most recent decisions. Agents hold when nothing moves past their rebalance band; every decision is in the table below.'
-        : !live
-          ? `Nothing in the last ${Math.round(STALE_AFTER_MS / 60000)} minutes. The most recent was ${ago(newestAge as number)}.`
-          : null;
+        : null;
 
   return (
     <div className="px-ticker" aria-label="Recent platform activity">
       <div className="px-ticker-live">
-        <span className="px-ticker-status">
+        <span
+          className="px-ticker-status"
+          title={
+            live
+              ? 'Something happened in the last few minutes.'
+              : newestAge !== null
+                ? `Quiet: the most recent activity was ${ago(newestAge)}. Each line below carries its own age.`
+                : undefined
+          }
+        >
           <span className={live ? 'px-ticker-dot pulse' : 'px-ticker-dot px-ticker-dot-idle'} aria-hidden="true" />
-          {live ? 'LIVE' : 'ACTIVITY'}
+          {live ? 'LIVE' : 'QUIET'}
         </span>
 
         {note !== null ? (
