@@ -171,7 +171,7 @@ export class LeaderboardService {
            -- FIXTURES ARE NOT AGENTS, and this line was missing. The facet
            -- query further down has always carried it, so the filter options
            -- were computed over real agents while the ROWS were not: on
-           -- 2026-09-22 seven verification agents named `verify-llm-agent`
+           -- 2026-09-22 seven verification agents named verify-llm-agent
            -- held ranks 2 through 8 of the public leaderboard. /v1/stats
            -- filtered them correctly, which is why the two surfaces disagreed
            -- about how many agents exist.
