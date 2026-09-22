@@ -998,9 +998,34 @@ await section('Every entry in the landing footer leads somewhere', async () => {
   check('the footer has links', hrefs.length >= 15, `${hrefs.length} link(s)`);
   check('and no entry is plain text standing in for a link',
     !/<span class="m3">[^<]+<\/span>/.test(block), 'a muted text entry is still in the footer');
-  for (const href of [...new Set(hrefs)]) {
+  // AN OUTWARD LINK IS CHECKED DIFFERENTLY, AND NOT BY FETCHING IT.
+  //
+  // This loop prepended WEB to every href, which was right while every entry
+  // was a route on this site. The X account was the first that is not, and the
+  // loop turned it into `http://127.0.0.1:3000https://x.com/...` and threw.
+  //
+  // It is not fetched instead. A verifier that reaches a third party fails
+  // when that third party rate-limits, blocks a datacentre IP or has an
+  // outage — none of which is a fact about this footer, and all of which would
+  // be reported as one. What IS this footer's business is that the link is a
+  // well-formed absolute https URL and opens safely, so that is what is
+  // asserted.
+  const internal = [...new Set(hrefs)].filter((h) => h.startsWith('/'));
+  const external = [...new Set(hrefs)].filter((h) => !h.startsWith('/'));
+
+  for (const href of internal) {
     const r = await page(href.split('#')[0]);
     check(`footer link ${href} answers`, r.status === 200, `status ${r.status}`);
+  }
+
+  for (const href of external) {
+    check(`outward footer link ${href} is absolute https`, /^https:\/\/[^\s"]+$/.test(href),
+      'an outward link must be an absolute https URL');
+    // Without `noopener` the opened page can reach back through window.opener
+    // and navigate this tab. The footer is the only place this site links out.
+    const anchor = block.slice(Math.max(0, block.indexOf(href) - 300), block.indexOf(href) + 300);
+    check(`and ${href} opens with rel="noopener"`, /noopener/.test(anchor),
+      'target=_blank without rel=noopener hands the opened page window.opener');
   }
 });
 
