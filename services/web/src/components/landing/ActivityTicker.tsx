@@ -218,6 +218,11 @@ export function ActivityTicker({ initial }: { initial: RecentDecision[] }) {
         {note !== null ? (
           <span className="px-ticker-quiet">{note}</span>
         ) : (
+          // THE RAIL IS WHAT KEEPS THE MOVING PART OFF THE STATUS PILL. The
+          // track is `width: max-content` and slides left; with both as
+          // siblings in one flex row it travelled straight under the pill and
+          // the two rendered on top of each other. The rail clips it instead.
+          <div className="px-ticker-rail">
           <div className="px-ticker-track">
             {/* Two copies make a seamless loop; the second is hidden from
                 assistive technology so each line is announced once. */}
@@ -239,6 +244,7 @@ export function ActivityTicker({ initial }: { initial: RecentDecision[] }) {
                 ))}
               </div>
             ))}
+          </div>
           </div>
         )}
       </div>

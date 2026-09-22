@@ -1325,11 +1325,16 @@ select.input { padding-right: 24px; }
    a static strip never had: whether it is current, and what it says when it
    is not. */
 .px-ticker-status {
+  position: relative; z-index: 2; background: #111d17;
   display: inline-flex; align-items: center; gap: 7px; padding: 12px 18px;
   flex: 0 0 auto; border-right: 1px solid rgba(228, 237, 231, .06);
   font-family: var(--font-mono), monospace; font-size: 10px; letter-spacing: .16em; color: var(--ink-2);
 }
-.px-ticker-live { display: flex; align-items: center; }
+.px-ticker-live { display: flex; align-items: center; min-width: 0; }
+/* The clip the moving track lives inside. Without it the track, which is
+   width:max-content and slides left, travels straight under the status pill
+   and the two render on top of each other. */
+.px-ticker-rail { flex: 1 1 auto; min-width: 0; overflow: hidden; }
 .px-ticker-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-accent); display: block; }
 /* Idle is a different COLOUR, not a stopped animation: a still green dot reads
    as live-but-quiet, which is the claim the stale branch exists to avoid. */
