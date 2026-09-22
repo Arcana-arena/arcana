@@ -572,10 +572,20 @@ export class DnaService {
    */
   async similar(agentId: string, limit: number) {
     const rows = await this.db.query(
+      // FIXTURES ARE NOT NEIGHBOURS. On 2026-09-22 a real agent's list came
+      // back with two verification agents in it, at the same similarity as a
+      // real one — they have DNA like anything else that decides enough times.
+      //
+      // FILTERED HERE BY DEFAULT, unlike findAll in agents.service, and the
+      // difference is the caller. That endpoint takes `?provenance=` and its
+      // comment says the default stays open so sweeps can still find what they
+      // are meant to remove. This one takes no such parameter and answers a
+      // recommendation — "which agents behave like this one" — so there is
+      // nobody to opt out and nothing a fixture in the answer could be for.
       `SELECT a.id AS agent_id, a.name AS agent_name, a.strategy_type,
               1 - (d.strategy_fingerprint <=> ref.strategy_fingerprint) AS similarity
        FROM agent_dna d
-       JOIN agents a ON a.id = d.agent_id
+       JOIN agents a ON a.id = d.agent_id AND a.provenance = 'live'
        CROSS JOIN (SELECT strategy_fingerprint FROM agent_dna WHERE agent_id = $1) ref
        WHERE d.agent_id <> $1
        ORDER BY d.strategy_fingerprint <=> ref.strategy_fingerprint ASC
