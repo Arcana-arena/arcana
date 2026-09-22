@@ -167,6 +167,15 @@ export class LeaderboardService {
            -- below ranks the filtered set. Filtering after ranking would leave
            -- gaps — rows 1, 4, 9 — and a reader would reasonably conclude the
            -- missing ones had been hidden rather than never matched.
+           --
+           -- FIXTURES ARE NOT AGENTS, and this line was missing. The facet
+           -- query further down has always carried it, so the filter options
+           -- were computed over real agents while the ROWS were not: on
+           -- 2026-09-22 seven verification agents named `verify-llm-agent`
+           -- held ranks 2 through 8 of the public leaderboard. /v1/stats
+           -- filtered them correctly, which is why the two surfaces disagreed
+           -- about how many agents exist.
+           AND a.provenance = 'live'
            AND ($3::text IS NULL OR a.name ILIKE '%' || $3 || '%'
                                  OR c.handle ILIKE '%' || $3 || '%')
            AND ($4::text IS NULL OR a.asset_universe = $4)
