@@ -1370,3 +1370,12 @@ select.input { padding-right: 24px; }
 }
 .px-ca-copy:hover, .px-ca-copy:focus-visible { color: var(--color-accent); border-color: var(--color-accent); }
 .px-ca-compact .px-ca-value { font-size: 10.5px; }
+
+/* The contract address in the hero. Boxed, so it reads as a thing to take
+   rather than as another line of the lede, and held to a width that keeps it
+   on one line on a desktop while still wrapping on a phone. */
+.px-hero-ca {
+  margin-top: 22px; display: inline-flex; max-width: 100%;
+  padding: 8px 12px; border: 1px solid var(--px-line); border-radius: 8px;
+  background: rgba(0, 0, 0, .35); backdrop-filter: blur(2px);
+}

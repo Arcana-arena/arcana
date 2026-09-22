@@ -10,6 +10,7 @@ import { LineChart } from '@/components/ds/chart';
 import { Hint } from '@/components/ds/hint';
 import { ActivityTicker } from '@/components/landing/ActivityTicker';
 import { HeadlineNumbers } from '@/components/landing/HeadlineNumbers';
+import { ContractAddress } from '@/components/layout/ContractAddress';
 import {
   CreatorsBand,
   HowItWorks,
@@ -181,6 +182,16 @@ export default async function LandingPage() {
               failed stats read renders nothing here instead of zeroes; the
               strip below already says the read failed and why. */}
           {stats ? <HeadlineNumbers stats={stats} /> : null}
+
+          {/* THE CONTRACT ADDRESS, ABOVE THE FOLD. It is in both footers too,
+              and it is here as well because the two audiences are different:
+              a reader who scrolls to the end is looking for the project, and
+              somebody arriving for the token wants the string without hunting
+              for it. Whole and copyable — see components/layout/ContractAddress
+              for why it is not truncated like every other address on the site. */}
+          <div className="px-hero-ca">
+            <ContractAddress />
+          </div>
         </div>
         </div>
       </section>
