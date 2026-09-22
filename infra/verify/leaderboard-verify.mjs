@@ -210,9 +210,17 @@ await section('An unranked agent is absent, not last', async () => {
   // one, and it may happen to hold no withheld agent. Any season with one will
   // prove the withholding, and which season that is gets printed rather than
   // quietly assumed.
+  // AND LOOK WHERE THE ENDPOINT LOOKS. This probe used to search every scored
+  // agent, including verification fixtures, while the endpoint it then
+  // questioned shows only provenance='live'. On 2026-09-22 that gap made the
+  // suite fail with "0 -> 0": it found a season whose only withheld agents
+  // were fixtures, asked the API for them, and was correctly given nothing.
+  // A probe that searches a wider set than the surface under test reports the
+  // difference between the two as a fault in the surface.
   const UNSEASON = psql(`
     SELECT l.season_id::text FROM (SELECT DISTINCT ON (agent_id, season_id) *
       FROM score_snapshots ORDER BY agent_id, season_id, ts DESC) l
+      JOIN agents a ON a.id = l.agent_id AND a.provenance = 'live'
      WHERE l.arcana_score IS NULL GROUP BY l.season_id ORDER BY count(*) DESC LIMIT 1`);
   const unrankedInDb = UNSEASON ? 1 : 0;
   if (unrankedInDb === 0) {
