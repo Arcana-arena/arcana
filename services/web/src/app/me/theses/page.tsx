@@ -141,14 +141,16 @@ export default async function MyThesesPage({
                 ))}
               </div>
             )}
-            <Pager
-              page={r.data.page}
-              pageSize={r.data.page_size}
-              total={r.data.total}
-              hasMore={r.data.has_more}
-              hrefFor={(p) => `/me/theses${qs({ page: p > 1 ? p : null })}`}
-              unit="theses"
-            />
+            {r.data.total > 0 ? (
+              <Pager
+                page={r.data.page}
+                pageSize={r.data.page_size}
+                total={r.data.total}
+                hasMore={r.data.has_more}
+                hrefFor={(p) => `/me/theses${qs({ page: p > 1 ? p : null })}`}
+                unit="theses"
+              />
+            ) : null}
           </>
         )}
       </div>

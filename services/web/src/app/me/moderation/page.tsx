@@ -189,7 +189,7 @@ export default async function ModerationPage({
             </div>
           </>
         )}
-        {r.ok ? (
+        {r.ok && r.data.total > 0 ? (
           <Pager
             page={r.data.page}
             pageSize={r.data.page_size}
