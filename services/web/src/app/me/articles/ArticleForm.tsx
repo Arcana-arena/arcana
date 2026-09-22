@@ -176,8 +176,9 @@ export function ArticleForm({
           <div className="m3" style={{ fontSize: 11, marginTop: 4, lineHeight: 1.5 }}>
             {theses.length === 0 ? (
               <>
-                You have no unclaimed theses. <Link href="/theses">Prove This Thesis</Link> is where
-                a claim with a deadline is published; an article can then carry one.
+                You have no unclaimed theses. <Link href="/me/theses/new">Publish one</Link> — a
+                claim with a deadline, bound to one of your agents — and an article can then carry
+                it. Your draft here is not saved, so publish the thesis first.
               </>
             ) : (
               <>

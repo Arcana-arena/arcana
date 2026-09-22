@@ -7,10 +7,12 @@
  */
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { agent } from '@/lib/api';
+import { agent, qs } from '@/lib/api';
+import { getSession } from '@/lib/session';
 import { fracAsPct, utc } from '@/lib/format';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
+import { Pager } from '@/components/ds/nav';
 import { Empty, Failed } from '@/components/ds/states';
 import type { ThesisList } from './shapes';
 import { VerdictTag, benchmarkLabel } from './shapes';
@@ -22,19 +24,41 @@ export const metadata: Metadata = {
   description: 'Market claims published before the outcome was known, and how they turned out.',
 };
 
-export default async function ThesesPage() {
-  const r = await agent<ThesisList>('/v1/theses/recent?page_size=25');
+type PagedTheses = ThesisList & { page: number; page_size: number; total: number; has_more: boolean };
+
+export default async function ThesesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
+  const { page: pageRaw } = await searchParams;
+  const page = Number(pageRaw) > 0 ? Math.floor(Number(pageRaw)) : 1;
+
+  const [r, s] = await Promise.all([
+    agent<PagedTheses>(`/v1/theses/recent${qs({ page, page_size: 25 })}`),
+    getSession(),
+  ]);
+  const canPublish = s.state === 'signed_in' && s.session.creator_id !== null;
 
   return (
     <div className="page">
       <Header />
 
       <div className="sec" style={{ paddingTop: 32, paddingBottom: 20, borderBottom: 'none' }}>
-        <h1>Prove this thesis</h1>
-        <div className="m2" style={{ fontSize: 12.5, marginTop: 6, maxWidth: 700, lineHeight: 1.55 }}>
-          A creator states what they think the market will do, binds it to one of their agents, and
-          ARCANA timestamps it. When the deadline passes the result is attached automatically.
-          Nothing here can be edited or taken down afterwards.
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+          <div>
+            <h1>Prove this thesis</h1>
+            <div className="m2" style={{ fontSize: 12.5, marginTop: 6, maxWidth: 700, lineHeight: 1.55 }}>
+              A creator states what they think the market will do, binds it to one of their agents,
+              and ARCANA timestamps it. When the deadline passes the result is attached
+              automatically. Nothing here can be edited or taken down afterwards.
+            </div>
+          </div>
+          {canPublish ? (
+            <Link href="/me/theses/new" className="btn btn-primary" style={{ alignSelf: 'start' }}>
+              Publish a thesis
+            </Link>
+          ) : null}
         </div>
       </div>
 
@@ -42,9 +66,15 @@ export default async function ThesesPage() {
         {!r.ok ? (
           <Failed what="Recent theses" error={r} />
         ) : r.data.items.length === 0 ? (
-          <Empty title="No thesis has been published yet">
-            The first one will appear here the moment it is, deadline and all.
-          </Empty>
+          page > 1 ? (
+            <Empty title="Nothing on this page">
+              <Link href="/theses">Back to the first page</Link>
+            </Empty>
+          ) : (
+            <Empty title="No thesis has been published yet">
+              The first one will appear here the moment it is, deadline and all.
+            </Empty>
+          )
         ) : (
           <div style={{ border: '1px solid var(--color-divider)' }}>
             {r.data.items.map((t) => (
@@ -83,6 +113,16 @@ export default async function ThesesPage() {
             ))}
           </div>
         )}
+        {r.ok ? (
+          <Pager
+            page={r.data.page}
+            pageSize={r.data.page_size}
+            total={r.data.total}
+            hasMore={r.data.has_more}
+            hrefFor={(p) => `/theses${qs({ page: p > 1 ? p : null })}`}
+            unit="theses"
+          />
+        ) : null}
       </div>
 
       <Footer />

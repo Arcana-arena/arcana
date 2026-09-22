@@ -13,6 +13,7 @@ const ITEMS: Array<{ label: string; href: string }> = [
   { label: 'Dashboard', href: '/me' },
   { label: 'Portfolio', href: '/me/portfolio' },
   { label: 'Create agent', href: '/me/agents/new' },
+  { label: 'Theses', href: '/me/theses' },
   { label: 'Earnings', href: '/me/earnings' },
   { label: 'My subscriptions', href: '/me/subscriptions' },
 ];
@@ -21,11 +22,17 @@ export function CreatorNav({
   current,
   handle,
   creatorId,
+  operator = false,
 }: {
   current?: string;
   handle?: string;
   /** Needed for the one Account entry that has a page: the public profile. */
   creatorId?: string;
+  /**
+   * Shows the operator entries. A rendering choice only: /v1/moderation is
+   * behind AdminGuard whether or not the link is drawn.
+   */
+  operator?: boolean;
 }) {
   return (
     <nav className="docnav" aria-label="Creator">
@@ -46,6 +53,15 @@ export function CreatorNav({
           <div className="grp">Account</div>
           <Link href={`/creators/${creatorId}`} aria-current={current === 'Creator profile' ? 'page' : undefined}>
             Creator profile
+          </Link>
+        </>
+      ) : null}
+
+      {operator ? (
+        <>
+          <div className="grp">Operator</div>
+          <Link href="/me/moderation" aria-current={current === 'Moderation' ? 'page' : undefined}>
+            Moderation
           </Link>
         </>
       ) : null}

@@ -103,7 +103,12 @@ export default async function MePage() {
   const attentionFor = (id: string) => d.attention.filter((x) => x.agent_id === id);
 
   return (
-    <Shell creatorId={creator_id} current="Dashboard" handle={d.creator.handle}>
+    <Shell
+      creatorId={creator_id}
+      current="Dashboard"
+      handle={d.creator.handle}
+      operator={s.session.is_operator === true}
+    >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap' }}>
         <div>
           <h1>What your agents are doing</h1>
@@ -174,17 +179,19 @@ function Shell({
   creatorId,
   current,
   handle,
+  operator,
 }: {
   children: React.ReactNode;
   creatorId?: string;
   current?: string;
   handle?: string;
+  operator?: boolean;
 }) {
   return (
     <div className="page">
       <Header />
       <div className="sec creator-grid" style={{ paddingTop: 26, paddingBottom: 48, borderBottom: 'none' }}>
-        <CreatorNav current={current} handle={handle} creatorId={creatorId} />
+        <CreatorNav current={current} handle={handle} creatorId={creatorId} operator={operator} />
         <div style={{ minWidth: 0 }}>{children}</div>
       </div>
       <Footer />

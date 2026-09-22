@@ -102,6 +102,27 @@ export async function updateArticle(
   );
 }
 
+// ------------------------------------------------------------------- theses
+
+export type ThesisBenchmarkInput =
+  | { kind: 'symbol'; symbols: [string] }
+  | { kind: 'basket'; symbols: string[] }
+  | { kind: 'arcana_index' };
+
+export async function createThesis(input: {
+  linked_agent_id: string;
+  claim_text: string;
+  benchmark_ref: ThesisBenchmarkInput;
+  criteria: { comparison: 'gt'; margin_pct: number };
+  resolves_at: string;
+}) {
+  return write<{ id: string; status: string; created_at: string; resolves_at: string; note: string }>(
+    '/v1/theses',
+    { method: 'POST', body: input },
+    ['/theses', '/me/theses', '/me/articles/new'],
+  );
+}
+
 // ---------------------------------------------------------------- reactions
 
 /**

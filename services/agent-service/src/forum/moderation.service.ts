@@ -76,16 +76,33 @@ export class ModerationService {
     return { recorded: true, already_reported: false, id: rows[0].id, created_at: rows[0].created_at, subject };
   }
 
-  /** 👑 The queue. Operator-only: a report names a reporter, and that is theirs. */
+  /**
+   * 👑 The queue. Operator-only: a report names a reporter, and that is theirs.
+   *
+   * A REPORTED POST CARRIES WHERE IT LIVES. The report row holds only post_id,
+   * and a post has no page of its own — without its thread or article the
+   * queue could name what was reported but not link to it. The titles and
+   * hidden state come along so an operator can see what a report is about, and
+   * whether it has already been dealt with, before opening anything.
+   */
   async listReports(status: string | undefined, page: number, pageSize: number, offset: number) {
     const where = status ? `WHERE r.status = $3` : '';
     const params: unknown[] = status ? [pageSize, offset, status] : [pageSize, offset];
     const rows = await this.db.query(
       `SELECT r.id, r.reason, r.detail, r.status, r.created_at, r.reviewed_at,
               r.thread_id, r.post_id, r.article_id,
-              c.handle AS reporter_handle
+              c.handle AS reporter_handle,
+              p.thread_id AS post_thread_id, p.article_id AS post_article_id,
+              COALESCE(t.title, pt.title) AS thread_title,
+              COALESCE(a.title, pa.title) AS article_title,
+              COALESCE(t.hidden_at, p.hidden_at, a.hidden_at) AS subject_hidden_at
          FROM content_reports r
          JOIN creators c ON c.id = r.reporter_id
+         LEFT JOIN forum_threads t ON t.id = r.thread_id
+         LEFT JOIN articles a ON a.id = r.article_id
+         LEFT JOIN forum_posts p ON p.id = r.post_id
+         LEFT JOIN forum_threads pt ON pt.id = p.thread_id
+         LEFT JOIN articles pa ON pa.id = p.article_id
          ${where}
         ORDER BY r.created_at DESC
         LIMIT $1 OFFSET $2`,
