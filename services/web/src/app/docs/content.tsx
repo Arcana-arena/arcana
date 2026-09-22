@@ -2,7 +2,7 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { CodeBlock, ParamTable, Warn } from '@/components/docs/kit';
 import { num } from '@/lib/format';
-import { ARCA_CONTRACT } from '@/components/layout/ContractAddress';
+import { ARCA_CONTRACT } from '@/lib/arca';
 import type { DocParams } from './shapes';
 
 /**

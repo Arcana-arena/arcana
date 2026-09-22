@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Hint } from '@/components/ds/hint';
 import { SocialLinks } from '@/components/layout/SocialLinks';
 import { ContractAddress } from '@/components/layout/ContractAddress';
+import { ARCA_DECIMALS, ARCA_SUPPLY } from '@/lib/arca';
 
 /**
  * The sections of the landing page that are prose.
@@ -411,8 +412,8 @@ export function TokenBand() {
           </div>
           <div className="px-token-supply">
             <div className="lbl">TOTAL SUPPLY</div>
-            <div className="px-token-supply-v mono">1,000,000,000</div>
-            <div className="m3" style={{ fontSize: 10.5 }}>18 decimals · Robinhood Chain</div>
+            <div className="px-token-supply-v mono">{ARCA_SUPPLY}</div>
+            <div className="m3" style={{ fontSize: 10.5 }}>{ARCA_DECIMALS} decimals · Robinhood Chain</div>
           </div>
         </div>
 
