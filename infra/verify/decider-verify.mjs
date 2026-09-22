@@ -230,11 +230,23 @@ try {
   agentId = randomUUID();
   seasonId = sql(`SELECT id FROM seasons ORDER BY start_at DESC LIMIT 1`);
   ref = sql(`SELECT ref FROM market_snapshots WHERE ingest_mode='live' ORDER BY tick_time DESC LIMIT 1`);
-  sql(`INSERT INTO creators (id, handle, status) VALUES ('${creatorId}', '${TAG}-${creatorId.slice(0, 8)}', 'active')`);
-  sql(`INSERT INTO agents (id, creator_id, name, version, strategy_type, risk_profile, asset_universe, status, mandate)
+  // PROVENANCE IS SET EXPLICITLY, and leaving it out was a real leak rather
+  // than an untidiness. The column defaults to 'live', so seven of this
+  // suite's agents ended up indistinguishable from real ones: they took rank 2
+  // through rank 8 of the PUBLIC leaderboard, and 7,183 of the 16,571
+  // decisions the landing page reported for one day were theirs.
+  //
+  // Every surface that hides fixtures — the leaderboard, /v1/stats, the sweep
+  // in lib/fixtures.mjs — keys on this column, and every one of them was
+  // working correctly. They were told these were real agents. The trigger in
+  // 0042 freezes the value at insert, so this is the only moment it can be
+  // said.
+  sql(`INSERT INTO creators (id, handle, status, provenance) VALUES ('${creatorId}', '${TAG}-${creatorId.slice(0, 8)}', 'active', 'verification')`);
+  sql(`INSERT INTO agents (id, creator_id, name, version, strategy_type, risk_profile, asset_universe, status, mandate, provenance)
        VALUES ('${agentId}', '${creatorId}', '${TAG}', 1, 'llm',
                '{"max_position_pct":0.35,"trade_size_pct":0.2,"cash_floor_pct":0.05,"rebalance_band_pct":0.0001}'::jsonb,
-               'us_equity', 'active', 'Buy weakness in large caps you already understand. Avoid trading on noise.')`);
+               'us_equity', 'active', 'Buy weakness in large caps you already understand. Avoid trading on noise.',
+               'verification')`);
   console.log(`  agent ${agentId}\n  season ${seasonId}\n  snapshot ${ref}\n`);
 
   // === 1. a working second provider ======================================

@@ -319,8 +319,10 @@ try {
   const priceHuman = (Number(real.value) / 1e6 / 2).toFixed(8);   // half of what was paid
   sql(`INSERT INTO creators (id, handle, wallet_address, status)
        VALUES ('${creatorId}', '${TAG}-${creatorId.slice(0, 8)}', '${real.to}', 'active')`);
-  sql(`INSERT INTO agents (id, creator_id, name, version, strategy_type, risk_profile, asset_universe, status)
-       VALUES ('${agentId}', '${creatorId}', '${TAG}', 1, 'llm', '{}'::jsonb, 'us_equity', 'active')`);
+  // provenance='verification' EXPLICITLY — see access-flow-verify for what the
+  // default cost: seven unmarked fixtures on the public leaderboard.
+  sql(`INSERT INTO agents (id, creator_id, name, version, strategy_type, risk_profile, asset_universe, status, provenance)
+       VALUES ('${agentId}', '${creatorId}', '${TAG}', 1, 'llm', '{}'::jsonb, 'us_equity', 'active', 'verification')`);
   for (const id of [listingId, listingId2]) {
     sql(`INSERT INTO marketplace_listings (id, agent_id, access_type, arca_gate_amount, active)
          VALUES ('${id}', '${agentId}', 'subscription', ${priceHuman}, true)`);

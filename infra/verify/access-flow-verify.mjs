@@ -98,8 +98,13 @@ try {
     const wallet = '0x' + 'ac'.repeat(20);
     sql(`INSERT INTO creators (id, handle, wallet_address, status)
          VALUES ('${creatorId}', '${TAG}-${creatorId.slice(0, 8)}', '${wallet}', 'active')`);
-    sql(`INSERT INTO agents (id, creator_id, name, version, strategy_type, risk_profile, asset_universe, status)
-         VALUES ('${agentId}', '${creatorId}', '${TAG}', 1, 'llm', '{}'::jsonb, 'us_equity', 'active')`);
+    // provenance='verification' EXPLICITLY. The column defaults to 'live', and
+    // a fixture that inherits that default is indistinguishable from a real
+    // agent to the leaderboard, to /v1/stats and to the fixture sweep — all
+    // three key on this column. decider-verify left it out and seven of its
+    // agents reached the public leaderboard. 0042 freezes the value at insert.
+    sql(`INSERT INTO agents (id, creator_id, name, version, strategy_type, risk_profile, asset_universe, status, provenance)
+         VALUES ('${agentId}', '${creatorId}', '${TAG}', 1, 'llm', '{}'::jsonb, 'us_equity', 'active', 'verification')`);
     sql(`INSERT INTO marketplace_listings (id, agent_id, access_type, arca_gate_amount, active)
          VALUES ('${newListing}', '${agentId}', 'subscription', 1.00000000, true)`);
     ownFixture = { creatorId, agentId, listingId: newListing };
