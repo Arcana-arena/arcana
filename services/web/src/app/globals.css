@@ -1379,3 +1379,14 @@ select.input { padding-right: 24px; }
   padding: 8px 12px; border: 1px solid var(--px-line); border-radius: 8px;
   background: rgba(0, 0, 0, .35); backdrop-filter: blur(2px);
 }
+
+/* BUY is the one control on this site that leads to money, so it is the one
+   thing in the address row that is filled rather than outlined. */
+.px-ca-buy {
+  font-family: var(--font-mono), monospace; font-size: 9.5px; letter-spacing: .1em;
+  padding: 3px 8px; white-space: nowrap;
+  background: var(--color-accent); border: 1px solid var(--color-accent); color: #04110a;
+}
+.px-ca-buy:hover, .px-ca-buy:focus-visible {
+  background: #5cf0a6; border-color: #5cf0a6; color: #04110a; text-decoration: none;
+}

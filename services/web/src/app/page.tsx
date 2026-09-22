@@ -190,7 +190,7 @@ export default async function LandingPage() {
               for it. Whole and copyable — see components/layout/ContractAddress
               for why it is not truncated like every other address on the site. */}
           <div className="px-hero-ca">
-            <ContractAddress />
+            <ContractAddress buy />
           </div>
         </div>
         </div>

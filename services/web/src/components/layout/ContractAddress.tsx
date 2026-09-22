@@ -24,7 +24,19 @@ import { useState } from 'react';
 
 export const ARCA_CONTRACT = '0xc00c26b09d602a04a83e6d7f8224affa3ecc4ca7';
 
-export function ContractAddress({ compact = false }: { compact?: boolean }) {
+/**
+ * Where the token can be bought.
+ *
+ * THE ADDRESS IN THIS URL IS THE ADDRESS ABOVE, and that is the only reason
+ * this link is safe to put on the page: a buy button pointing at a different
+ * contract than the one displayed beside it is how somebody ends up holding a
+ * lookalike. Checked when it was added — the launchpad answered 200 and titled
+ * the page "ARCANA ($ARCA)". If the contract ever changes, both constants move
+ * together or neither does.
+ */
+const BUY_URL = `https://www.ponsfamily.com/launchpad/${ARCA_CONTRACT}`;
+
+export function ContractAddress({ compact = false, buy = false }: { compact?: boolean; buy?: boolean }) {
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
@@ -48,6 +60,21 @@ export function ContractAddress({ compact = false }: { compact?: boolean }) {
       <button type="button" className="px-ca-copy" onClick={copy} aria-label="Copy the $ARCA contract address">
         {copied ? 'COPIED' : 'COPY'}
       </button>
+      {buy ? (
+        <a
+          href={BUY_URL}
+          target="_blank"
+          // It leaves the site and it leads to money. noopener stops the opened
+          // page reaching back through window.opener to navigate this tab —
+          // which is the shape of a swap-the-page-under-you attack, and this is
+          // the one link here where that would pay.
+          rel="noopener noreferrer"
+          className="px-ca-buy"
+          aria-label="Buy $ARCA on the pons launchpad"
+        >
+          BUY ↗
+        </a>
+      ) : null}
     </span>
   );
 }
