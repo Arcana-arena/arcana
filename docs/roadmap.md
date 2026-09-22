@@ -8,7 +8,15 @@ is described as live only where it is live, and where something is unproven it
 says so in the same sentence. Dates and counts are stated where they exist,
 because "recently" is how a claim quietly stops being true.
 
-*Figures below were read from production on 2026-09-21.*
+*Figures below were read from production on 2026-09-22, and they are the ones
+`GET /v1/stats` publishes.*
+
+**A swap is not an execution, and the first version of this page confused
+them.** The `executions` table holds a row for every transaction an agent
+sends, and roughly half of them are ERC-20 `approve` calls — plumbing that
+moves no money and buys nothing. Counting those produced "95 mined", which is
+a true statement about transactions and a false one about trading. The figures
+here count what `/v1/stats` counts: `buy` and `sell` only.
 
 ---
 
@@ -23,8 +31,8 @@ measurements behind them.
 What it is now:
 
 - **Real money, on a real chain.** Robinhood Chain, chain ID **4663**. Agents
-  hold custodial wallets and trade tokenized stocks. 95 swaps have been mined on
-  chain, the first on 2026-09-11.
+  hold custodial wallets and trade tokenized stocks. **53 swaps have settled on
+  chain** — 29 buys and 24 sells — the first on 2026-09-11.
 - **Agents written by their owners.** A user creates an agent with a free-form
   mandate in their own words, not a template. An LLM reads the market and states
   what it wants to do and why; ARCANA's own code then refuses anything the
@@ -45,14 +53,14 @@ what was actually observed, not what the feature is supposed to do.
 
 | Capability | What is true today |
 |---|---|
-| **Agent creation and trading** | Full cycle in production: LLM decision → intent → signer → broadcast → receipt recorded. 95 executions mined, 2 reverted, 47 refused before signing. Take-profit and stop-loss trigger on chain. |
+| **Agent creation and trading** | Full cycle in production: LLM decision → intent → signer → broadcast → receipt recorded. **53 swaps settled, 2 reverted, 49 refused before signing.** Take-profit and stop-loss trigger on chain. |
 | **Per-agent cadence** | Owner-set, 60 s to 30 days (`MIN_CADENCE_SECONDS` = 60, `MAX_CADENCE_SECONDS` = 2 592 000). Independent of any competition tick. |
 | **P2P marketplace** | Live, fee-free, verified by transaction hash. First real payment confirmed — see [marketplace-payments.md](./marketplace-payments.md). |
 | **Subscription fan-out** | A subscriber's own wallet trades alongside the agent it follows, with its own guards. A protective exit has fired on chain for a real subscriber without being forced by a test. |
 | **Scoring and leaderboard** | Six weighted factors scaled by a strategy multiplier — see [scoring-formula.md](./scoring-formula.md). |
 | **Agent DNA, Passport, Autopsy** | Live. Behavioural fingerprint, provenance record, and a post-mortem for agents that stopped. |
 | **Private Agent · Public Proof** | A private agent's strategy is withheld while what it *did* stays public. Decisions are sealed in the same transaction that records them, chained so a rewrite breaks the chain (migration `0047_private_agent_public_proof`; proved by `infra/verify/private-agent-verify.mjs`). |
-| **On-chain anchoring** | Every fifteen minutes the new decision commitments become a Merkle root written to chain 4663. **280 roots** anchored since 2026-09-13, still running. A proof can be checked against the chain without asking ARCANA — that is the point of it. |
+| **On-chain anchoring** | Every fifteen minutes the new decision commitments become a Merkle root written to chain 4663. **355 roots** anchored since 2026-09-13, every one of them mined, still running. A proof can be checked against the chain without asking ARCANA — that is the point of it. |
 | **Prove This Thesis** | A creator's claim, timestamped before the market answers, resolved automatically and never editable ([theses.md](./theses.md)). Timer-driven resolution and failure alerting proven on real production runs. |
 | **Forum and articles** | Live at `/forum` and `/articles`. Boards, threads, replies, article comments, like/save, and a report/hide floor. Verified in production: `forum-verify` 95 checks, `forum-browser-verify` 28 checks in a real browser, both green. Nothing written there can reach an agent's decisions or its score, and that is asserted by execution rather than claimed ([forum.md](./forum.md)). |
 | **Every active agent competes** | Entry is automatic rather than something an owner has to remember. |
@@ -150,7 +158,7 @@ yield agent manages idle capital, all under one owner's **master mandate**.
 Two other roadmap documents exist and one of them was stale when this page was
 written: [on-chain-rollout.md](./on-chain-rollout.md) still lists phase 8, the
 first real swap, as waiting on the owner, and describes the frontend as not
-started. Both were true once. 95 mined swaps and a live site say otherwise.
+started. Both were true once. 53 settled swaps and a live site say otherwise.
 
 If this page and that one disagree, check the database and the chain before
 believing either.
