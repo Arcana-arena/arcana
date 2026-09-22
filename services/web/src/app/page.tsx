@@ -185,15 +185,6 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      {/* --------------------------------------------------- LIVE ACTIVITY */}
-      {/* Above the record strip and the leaderboard, because it is the only
-          thing on this page that changes while you are looking at it. It reads
-          the two recent feeds directly from the browser — no new table, no new
-          endpoint. See components/landing/ActivityTicker. */}
-      <div className="px-wrap">
-        <ActivityTicker />
-      </div>
-
       {/* ------------------------------------------------ THE RECORD, OVERLAPPING */}
       <div className="px-wrap">
         {!statsR.ok ? (
@@ -230,27 +221,11 @@ export default async function LandingPage() {
         </div>
 
         <div className="px-card px-feed">
-          {/* THE TICKER. The same decisions, moving, inside the card. Two copies
-              make a seamless loop; the second is hidden from assistive
-              technology. It stops for reduced motion and on hover. */}
-          {feed.length > 0 ? (
-            <div className="px-ticker" aria-label="Latest decisions">
-              <div className="px-ticker-track">
-                {[0, 1].map((copy) => (
-                  <div key={copy} className="px-ticker-run" aria-hidden={copy === 1 ? true : undefined}>
-                    {feed.map((d, i) => (
-                      <span key={`${copy}-${i}`} className="px-ticker-item">
-                        <span className="mono m3">{utcTime(d.ts)}</span>
-                        <span className="px-ticker-name">{d.agent_name}</span>
-                        <ActionTag action={d.action} />
-                        <span className="mono">{d.symbol || '—'}</span>
-                      </span>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
+          {/* THE TICKER, LIVE. It renders the decisions the server already
+              fetched, then polls the two recent feeds and widens itself to
+              executions. One ticker: this replaced a static strip that used
+              these same class names. See components/landing/ActivityTicker. */}
+          <ActivityTicker initial={feed} />
           <div className="feed-row px-feed-cols">
             <span className="lbl">TIME</span>
             <span className="lbl">AGENT</span>

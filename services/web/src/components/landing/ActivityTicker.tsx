@@ -5,43 +5,52 @@ import Link from 'next/link';
 import type { Feed, RecentDecision, RecentExecution } from '@/lib/platform';
 
 /**
- * What the platform has just done, as one running strip.
+ * The landing page's ticker, now live.
  *
- * NO EVENT TABLE, AND THERE IS NOT GOING TO BE ONE. Every line here is derived
- * from `/v1/decisions/recent` and `/v1/executions/recent`, which already exist
- * and which the landing page already reads. An events table would be a second
- * record of things the decisions and executions tables have recorded properly
- * for months, and the first time the two disagreed the newer one would win for
- * no reason other than being newer.
+ * IT REPLACES THE STATIC ONE RATHER THAN SITTING BESIDE IT. A strip of the
+ * latest decisions already existed here, server-rendered once per page load
+ * and never updated. A second ticker was built next to it by mistake and the
+ * two shared class names, so the new CSS restyled the old element — which is
+ * how the duplication was noticed. There is one ticker again; this is it.
  *
- * IT POLLS THE API DIRECTLY, from the browser, because nginx already proxies
- * `/v1/` on this origin. No Next route was added to stand in the middle: a
- * passthrough that only forwards a GET is a second thing to keep in step with
- * the endpoint it forwards.
+ * NO EVENT TABLE. Every line comes from `/v1/decisions/recent` and
+ * `/v1/executions/recent`, which already existed. An events table would be a
+ * second record of what those two have held correctly for months, and the
+ * first time they disagreed the newer one would win for no reason but being
+ * newer. It polls `/v1/` straight from the browser, since nginx already
+ * proxies it on this origin.
  *
- * THE HARD PART IS THE EMPTY STATE, and it is the reason this file is longer
- * than the animation it drives. These endpoints return the most recent N rows
- * WHATEVER THEIR AGE — ask on a quiet Sunday and you get last Thursday's
+ * IT RENDERS BEFORE IT POLLS. `initial` is the decision feed the page already
+ * fetched on the server, so the strip has content in the first paint and for
+ * anyone without JavaScript. The poll then widens it to executions and keeps
+ * it current.
+ *
+ * THE HARD PART IS THE EMPTY STATE. These endpoints return the most recent N
+ * rows WHATEVER THEIR AGE — ask on a quiet Sunday and you get Thursday's
  * trades, with nothing in the response saying they are stale. A ticker is a
- * claim about NOW. So the newest row's age is checked against STALE_AFTER_MS,
- * and past it the strip stops presenting itself as live and says how long it
- * has actually been quiet. Scrolling old rows under a pulsing dot would be the
- * exact lie this site is built to avoid: an absence dressed as activity.
+ * claim about NOW, so the newest row's age is checked, and past STALE_AFTER_MS
+ * the strip stops calling itself live and says how long it has been quiet.
+ * Four outcomes are kept apart that a lazier strip would merge into one blank
+ * bar: the read failed, nothing has been recorded at all, nothing has happened
+ * recently, and all is well.
  */
 
 /** How old the newest line may be before the strip stops calling itself live. */
 const STALE_AFTER_MS = 15 * 60 * 1000;
 /** How often to ask. Short enough to feel live, long enough not to be rude. */
 const POLL_MS = 15_000;
-const LIMIT = 12;
+/** One of the values the endpoint accepts — it validates against a whitelist,
+ *  and an arbitrary number is a 400 the page then has to explain. */
+const LIMIT = '15';
 
 type Line = {
   key: string;
   ts: string;
   agentId: string;
   agentName: string;
-  /** The verb, already decided — the component does no interpreting below. */
-  text: string;
+  action: string;
+  symbol: string | null;
+  verb: string;
   detail: string | null;
   tone: 'settled' | 'refused' | 'decided';
 };
@@ -57,64 +66,75 @@ const ago = (ms: number): string => {
 };
 
 /**
- * An execution becomes a line. A REFUSAL BECOMES ONE TOO, and deliberately:
- * a strip that showed only what went through would describe a platform that
- * never refuses anything, which is the opposite of what this one sells.
+ * An execution becomes a line. A REFUSAL BECOMES ONE TOO, deliberately: a
+ * strip showing only what went through would describe a platform that never
+ * refuses anything, which is the opposite of what this one sells.
  */
 function fromExecution(e: RecentExecution): Line | null {
   if (!e.action || e.action === 'approve') return null; // an approval is plumbing
-  const verb = e.action.toUpperCase();
-  const sym = e.symbol ?? '';
+  const common = {
+    ts: e.ts,
+    agentId: e.agent_id,
+    agentName: e.agent_name,
+    action: e.action,
+    symbol: e.symbol,
+  };
   if (e.status === 'mined') {
     return {
+      ...common,
       key: `x:${e.tx_hash ?? `${e.agent_id}:${e.ts}`}`,
-      ts: e.ts,
-      agentId: e.agent_id,
-      agentName: e.agent_name,
-      text: `executed ${verb}${sym ? ` ${sym}` : ''}`,
+      verb: 'executed',
       detail: e.notional_usdg !== null ? `${e.notional_usdg.toFixed(2)} USDG` : null,
       tone: 'settled',
     };
   }
   return {
+    ...common,
     key: `x:${e.agent_id}:${e.ts}`,
-    ts: e.ts,
-    agentId: e.agent_id,
-    agentName: e.agent_name,
-    // "blocked" is a refusal the platform made on purpose; "reverted" is the
-    // chain refusing. Both are named rather than merged into "failed".
-    text: `${e.status === 'blocked' ? 'was refused' : 'reverted'} ${verb}${sym ? ` ${sym}` : ''}`,
+    // "blocked" is a refusal ARCANA made on purpose; "reverted" is the chain
+    // refusing. Both are named rather than merged into "failed".
+    verb: e.status === 'blocked' ? 'refused' : 'reverted',
     detail: e.refusal_code,
     tone: 'refused',
   };
 }
 
 /**
- * A decision becomes a line only when it is a trade intent.
+ * A decision becomes a line only when it is a trade intent that has not
+ * settled — the execution feed describes the settled ones better.
  *
- * HOLDS ARE LEFT OUT, and this is the one editorial choice in the file. Most
- * decisions are holds — by design, since an agent that does not see a move
- * beyond its band does nothing — and a strip of "held, held, held" would bury
- * the two lines a reader came for. They are not hidden: /agents and every
- * agent's own page list every decision including holds, and the strip's own
- * footer says where.
+ * HOLDS ARE LEFT OUT, and it is the one editorial choice here. Most decisions
+ * are holds by design, since an agent that sees no move beyond its band does
+ * nothing, and a strip reading "held, held, held" buries the two lines a
+ * reader came for. They are not hidden: the table directly under this strip
+ * lists every decision including holds.
  */
 function fromDecision(d: RecentDecision): Line | null {
   if (!d.action || d.action === 'hold') return null;
-  if (d.tx_hash) return null; // it settled; the execution feed says it better
+  if (d.tx_hash) return null;
   return {
     key: `d:${d.agent_id}:${d.ts}`,
     ts: d.ts,
     agentId: d.agent_id,
     agentName: d.agent_name,
-    text: `decided ${d.action.toUpperCase()}${d.symbol ? ` ${d.symbol}` : ''}`,
-    detail: d.execution_status === null ? 'not settled yet' : d.execution_status,
+    action: d.action,
+    symbol: d.symbol,
+    verb: 'decided',
+    detail: d.execution_status ?? 'not settled yet',
     tone: 'decided',
   };
 }
 
-export function ActivityTicker() {
-  const [lines, setLines] = useState<Line[] | null>(null);
+const merge = (xs: RecentExecution[], ds: RecentDecision[]): Line[] => {
+  const all = [...xs.map(fromExecution), ...ds.map(fromDecision)]
+    .filter((l): l is Line => l !== null)
+    .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime());
+  const seen = new Set<string>();
+  return all.filter((l) => (seen.has(l.key) ? false : (seen.add(l.key), true))).slice(0, Number(LIMIT));
+};
+
+export function ActivityTicker({ initial }: { initial: RecentDecision[] }) {
+  const [lines, setLines] = useState<Line[]>(() => merge([], initial));
   const [failed, setFailed] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const mounted = useRef(true);
@@ -130,25 +150,13 @@ export function ActivityTicker() {
         if (!dR.ok || !xR.ok) throw new Error(`the service answered ${dR.status}/${xR.status}`);
         const d: Feed<RecentDecision> = await dR.json();
         const x: Feed<RecentExecution> = await xR.json();
-
-        // MERGED AND SORTED ONCE, newest first, with a key that dedupes a
-        // decision against the execution it produced.
-        const merged = [
-          ...x.items.map(fromExecution),
-          ...d.items.map(fromDecision),
-        ].filter((l): l is Line => l !== null)
-          .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime());
-
-        const seen = new Set<string>();
-        const unique = merged.filter((l) => (seen.has(l.key) ? false : (seen.add(l.key), true)));
-
         if (!mounted.current) return;
-        setLines(unique.slice(0, LIMIT));
+        setLines(merge(x.items, d.items));
         setFailed(null);
         setNow(Date.now());
       } catch (e) {
         if (!mounted.current) return;
-        // A FAILED READ IS NOT AN EMPTY PLATFORM. The strip says which it is.
+        // A FAILED READ IS NOT AN EMPTY PLATFORM, and the strip says which.
         setFailed(e instanceof Error ? e.message : String(e));
       }
     };
@@ -163,51 +171,49 @@ export function ActivityTicker() {
     };
   }, []);
 
-  const newestAge = useMemo(() => {
-    if (!lines || lines.length === 0) return null;
-    return now - new Date(lines[0].ts).getTime();
-  }, [lines, now]);
+  const newestAge = useMemo(
+    () => (lines.length === 0 ? null : now - new Date(lines[0].ts).getTime()),
+    [lines, now],
+  );
+  const live = failed === null && newestAge !== null && newestAge < STALE_AFTER_MS;
 
-  const live = newestAge !== null && newestAge < STALE_AFTER_MS;
+  const note =
+    failed !== null
+      ? `Activity could not be read — ${failed}. That is the feed failing, not the platform being idle.`
+      : lines.length === 0
+        ? 'No trade among the most recent decisions. Agents hold when nothing moves past their rebalance band; every decision is in the table below.'
+        : !live
+          ? `Nothing in the last ${Math.round(STALE_AFTER_MS / 60000)} minutes. The most recent was ${ago(newestAge as number)}.`
+          : null;
 
   return (
     <div className="px-ticker" aria-label="Recent platform activity">
-      <div className="px-ticker-head">
-        <span className={live ? 'px-ticker-dot pulse' : 'px-ticker-dot px-ticker-dot-idle'} aria-hidden="true" />
-        <span className="px-ticker-label">{live ? 'LIVE' : 'ACTIVITY'}</span>
-      </div>
+      <div className="px-ticker-live">
+        <span className="px-ticker-status">
+          <span className={live ? 'px-ticker-dot pulse' : 'px-ticker-dot px-ticker-dot-idle'} aria-hidden="true" />
+          {live ? 'LIVE' : 'ACTIVITY'}
+        </span>
 
-      <div className="px-ticker-rail">
-        {failed !== null ? (
-          <span className="px-ticker-quiet">
-            Activity could not be read — {failed}. This is the feed failing, not the platform being idle.
-          </span>
-        ) : lines === null ? (
-          <span className="px-ticker-quiet">Reading the record…</span>
-        ) : lines.length === 0 ? (
-          <span className="px-ticker-quiet">
-            No trade in the most recent {LIMIT} decisions. Agents hold when nothing moves past their rebalance band —{' '}
-            <Link href="/agents">every decision, including holds</Link>.
-          </span>
-        ) : !live ? (
-          <span className="px-ticker-quiet">
-            No activity in the last {Math.round(STALE_AFTER_MS / 60000)} minutes. The most recent was{' '}
-            {ago(newestAge as number)} — <Link href="/agents">the full record</Link>.
-          </span>
+        {note !== null ? (
+          <span className="px-ticker-quiet">{note}</span>
         ) : (
-          // Duplicated once so the marquee can loop without a gap. The copy is
-          // aria-hidden: a screen reader should hear each line once.
           <div className="px-ticker-track">
+            {/* Two copies make a seamless loop; the second is hidden from
+                assistive technology so each line is announced once. */}
             {[0, 1].map((copy) => (
-              <div className="px-ticker-run" key={copy} aria-hidden={copy === 1 ? 'true' : undefined}>
+              <div className="px-ticker-run" key={copy} aria-hidden={copy === 1 ? true : undefined}>
                 {lines.map((l) => (
                   <span className={`px-ticker-item px-ticker-${l.tone}`} key={`${copy}:${l.key}`}>
-                    <Link href={`/agents/${l.agentId}`} className="px-ticker-agent">
+                    <Link href={`/agents/${l.agentId}`} className="px-ticker-name">
                       {l.agentName}
-                    </Link>{' '}
-                    {l.text}
-                    {l.detail ? <span className="px-ticker-detail"> · {l.detail}</span> : null}
-                    <span className="px-ticker-age"> · {ago(now - new Date(l.ts).getTime())}</span>
+                    </Link>
+                    <span>{l.verb}</span>
+                    <span className="mono">
+                      {l.action.toUpperCase()}
+                      {l.symbol ? ` ${l.symbol}` : ''}
+                    </span>
+                    {l.detail ? <span className="px-ticker-detail">{l.detail}</span> : null}
+                    <span className="px-ticker-age">{ago(now - new Date(l.ts).getTime())}</span>
                   </span>
                 ))}
               </div>

@@ -1307,46 +1307,29 @@ select.input { padding-right: 24px; }
 .px-headline-note { color: var(--ink-3); }
 .px-headline-sep { width: 1px; align-self: stretch; background: var(--px-line); margin-block: 4px; }
 
-/* ---- landing: activity ticker (components/landing/ActivityTicker) */
-.px-ticker {
-  display: flex; align-items: center; gap: 14px; overflow: hidden;
-  border: 1px solid var(--px-line); border-radius: var(--px-radius);
-  background: var(--px-glass); padding: 0 16px; height: 46px; margin-bottom: 18px;
-}
-.px-ticker-head { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
-.px-ticker-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-accent); display: block; }
-/* Idle is a different COLOUR, not a stopped animation: a still green dot reads
-   as live-but-quiet, which is the claim the stale branch exists to avoid. */
-.px-ticker-dot-idle { background: var(--ink-3); }
-.px-ticker-label {
-  font-family: var(--font-mono), monospace; font-size: 10px; letter-spacing: .16em; color: var(--ink-2);
-}
-.px-ticker-rail { flex: 1 1 auto; min-width: 0; overflow: hidden; position: relative; }
-.px-ticker-quiet { font-size: 12px; color: var(--ink-3); white-space: nowrap; }
-.px-ticker-track { display: flex; width: max-content; animation: arcTicker 48s linear infinite; }
-.px-ticker:hover .px-ticker-track { animation-play-state: paused; }
-.px-ticker-run { display: flex; gap: 30px; padding-right: 30px; }
-.px-ticker-item { font-size: 12.5px; color: var(--ink-2); white-space: nowrap; }
-.px-ticker-agent { color: #f4f7f5; }
-.px-ticker-agent:hover { color: var(--color-accent); text-decoration: none; }
-.px-ticker-settled .px-ticker-detail { color: var(--color-accent); }
-.px-ticker-refused .px-ticker-detail { color: var(--amber); }
-.px-ticker-detail { color: var(--ink-2); }
-.px-ticker-age { color: var(--ink-3); }
-
-@keyframes arcTicker {
-  from { transform: translateX(0); }
-  to   { transform: translateX(-50%); }
-}
-
-/* MOTION IS A PREFERENCE, AND THE STRIP IS STILL READABLE WITHOUT IT. The
-   track stops and scrolls by hand instead of animating past. */
-@media (prefers-reduced-motion: reduce) {
-  .px-ticker-track { animation: none; }
-  .px-ticker-rail { overflow-x: auto; }
-}
-
 @media (max-width: 720px) {
   .px-headline-sep { display: none; }
   .px-headline { gap: 20px 24px; }
 }
+
+/* ---- landing: what the ticker gained when it went live
+   THE TICKER ITSELF IS NOT RESTYLED. `.px-ticker`, `-track`, `-run`, `-item`
+   and `-name` are the rules that were already here; the live version reuses
+   them so there is one ticker with one appearance. These are only the states
+   a static strip never had: whether it is current, and what it says when it
+   is not. */
+.px-ticker-status {
+  display: inline-flex; align-items: center; gap: 7px; padding: 12px 18px;
+  flex: 0 0 auto; border-right: 1px solid rgba(228, 237, 231, .06);
+  font-family: var(--font-mono), monospace; font-size: 10px; letter-spacing: .16em; color: var(--ink-2);
+}
+.px-ticker-live { display: flex; align-items: center; }
+.px-ticker-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-accent); display: block; }
+/* Idle is a different COLOUR, not a stopped animation: a still green dot reads
+   as live-but-quiet, which is the claim the stale branch exists to avoid. */
+.px-ticker-dot-idle { background: var(--ink-3); }
+.px-ticker-quiet { padding: 12px 22px; font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+.px-ticker-detail { color: var(--ink-2); }
+.px-ticker-settled .px-ticker-detail { color: var(--color-accent); }
+.px-ticker-refused .px-ticker-detail { color: var(--amber); }
+.px-ticker-age { color: var(--ink-3); }
