@@ -271,3 +271,17 @@ func ParseHexAmount(s string) (*big.Int, error) {
 	}
 	return v, nil
 }
+
+// EncodeRepayShares builds repay(market, 0, shares, self, ""): the whole debt,
+// by shares, so no rounding of an asset amount can overshoot what is owed.
+func EncodeRepayShares(m MarketParams, shares *big.Int, self string) []byte {
+	sel, _ := hex.DecodeString(selRepay)
+	out := append([]byte{}, sel...)
+	out = append(out, m.words()...)
+	out = append(out, padUint(big.NewInt(0))...)
+	out = append(out, padUint(shares)...)
+	out = append(out, padAddress(self)...)
+	out = append(out, emptyBytesOffset(9)...)
+	out = append(out, padUint(big.NewInt(0))...)
+	return out
+}

@@ -341,3 +341,19 @@ func wordAt(hexResult string, i int) (*big.Int, error) {
 	}
 	return v, nil
 }
+
+// BorrowSharesOf is the wallet's borrow shares in a Morpho market. A full
+// repay is made BY SHARES: repaying the debt's asset value rounded up converts
+// to one share more than is owed and reverts with an arithmetic underflow —
+// which is what the first live repay did on 2026-09-24. Never cached.
+func (c *Client) BorrowSharesOf(ctx context.Context, morpho, marketID, wallet string) (*big.Int, error) {
+	id := strings.TrimPrefix(strings.ToLower(marketID), "0x")
+	if len(id) != 64 {
+		return nil, fmt.Errorf("market id %q is not 32 bytes", marketID)
+	}
+	pos, err := c.call(ctx, morpho, selPosition+id+strings.Repeat("0", 24)+strings.TrimPrefix(strings.ToLower(wallet), "0x"))
+	if err != nil {
+		return nil, err
+	}
+	return wordAt(pos, 1)
+}

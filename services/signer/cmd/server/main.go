@@ -210,9 +210,12 @@ func (s *server) handleWallet(w http.ResponseWriter, r *http.Request) {
 // that thinks it is asking for something else is told it is wrong instead of
 // quietly getting something it did not ask for.
 type signRequest struct {
-	Intent    string `json:"intent"` // approve | swap_exact_in | lending_approve | lending_supply | lending_borrow | lending_repay
-	AgentID   string `json:"agent_id"`
-	MarketID  string `json:"market_id"` // lending only: an allowlisted Morpho market
+	Intent   string `json:"intent"` // approve | swap_exact_in | lending_approve | lending_supply | lending_borrow | lending_repay
+	AgentID  string `json:"agent_id"`
+	MarketID string `json:"market_id"` // lending only: an allowlisted Morpho market
+	// RepayAll repays the WHOLE debt by shares, read from the chain here, rather
+	// than an asset amount. `amount` is still required and bounds nothing else.
+	RepayAll  bool   `json:"repay_all"`
 	TokenIn   string `json:"token_in"`
 	TokenOut  string `json:"token_out"` // swap only
 	Router    string `json:"router"`
@@ -372,7 +375,23 @@ func (s *server) handleSign(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		to = morpho
-		data = tx.EncodeRepay(marketParams(m), amount, wallet)
+		if req.RepayAll {
+			// The shares are read here, from the chain, never taken from the
+			// caller: a caller-supplied share count could repay someone else's
+			// idea of the debt. Unreadable refuses.
+			shares, serr := s.chain.BorrowSharesOf(ctx, morpho, req.MarketID, wallet)
+			if serr != nil {
+				refuse(w, policy.CodeChainUnverifiable, "the borrow shares to repay could not be read: "+serr.Error())
+				return
+			}
+			if shares.Sign() == 0 {
+				refuse(w, policy.CodeAmountNotPositive, "there is no debt in this market to repay")
+				return
+			}
+			data = tx.EncodeRepayShares(marketParams(m), shares, wallet)
+		} else {
+			data = tx.EncodeRepay(marketParams(m), amount, wallet)
+		}
 
 	default:
 		// The allowlist principle, stated at the door: an intent nobody

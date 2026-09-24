@@ -32,6 +32,7 @@ type SignRequest struct {
 	Intent    string `json:"intent"`
 	AgentID   string `json:"agent_id"`
 	MarketID  string `json:"market_id,omitempty"` // lending intents only
+	RepayAll  bool   `json:"repay_all,omitempty"` // lending_repay: the whole debt, by shares
 	TokenIn   string `json:"token_in"`
 	TokenOut  string `json:"token_out,omitempty"`
 	Router    string `json:"router"`

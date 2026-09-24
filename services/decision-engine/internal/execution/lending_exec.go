@@ -62,6 +62,34 @@ func (b *Broker) ExecuteCapital(ctx context.Context, agentID, wallet string, m L
 		return res
 	}
 
+	// A REPAY THAT COVERS THE WHOLE DEBT GOES BY SHARES. Repaying the debt's
+	// asset value, rounded up the way Morpho values debt, converts to one share
+	// more than is owed and reverts with an arithmetic underflow — the first
+	// live repay did exactly that on 2026-09-24. So when the amount reaches the
+	// debt, the signer is asked for repay_all (it reads the shares itself) and
+	// the allowance and balance are checked against the full rounded-up debt.
+	repayAll := false
+	if kind == "repay" {
+		pos, perr := b.ReadPosition(ctx, m, wallet)
+		if perr != nil {
+			res.Note = "could not read the debt: " + perr.Error()
+			return res
+		}
+		ms, merr := b.ReadMarketState(ctx, m, time.Now())
+		if merr != nil {
+			res.Note = "could not read the market: " + merr.Error()
+			return res
+		}
+		debt := DebtBaseUp(pos, ms)
+		if debt.Sign() == 0 {
+			res.Note = "there is no debt in this market to repay"
+			return res
+		}
+		if units.Cmp(debt) >= 0 {
+			repayAll, units = true, debt
+		}
+	}
+
 	// What leaves the wallet must be in it. Borrow moves nothing out.
 	if token != "" {
 		have, err := b.rpc.TokenBalance(ctx, token, wallet)
@@ -103,7 +131,7 @@ func (b *Broker) ExecuteCapital(ctx context.Context, agentID, wallet string, m L
 	}
 
 	b.sendAndWait(ctx, SignRequest{Intent: intent, AgentID: agentID, MarketID: m.ID,
-		TokenIn: token, Amount: units.String()}, wallet, res, false)
+		TokenIn: token, Amount: units.String(), RepayAll: repayAll}, wallet, res, false)
 	return res
 }
 

@@ -230,17 +230,7 @@ type Reading struct {
 
 // Value turns a raw position into the figures a person reads.
 func Value(p LendingPosition, s MarketState) Reading {
-	// Debt in loan base units, rounded up: shares * (A + 1) / (S + 1e6).
-	debt := new(big.Int)
-	if p.BorrowShares.Sign() > 0 {
-		num := new(big.Int).Mul(p.BorrowShares, new(big.Int).Add(s.TotalBorrowAssets, big.NewInt(1)))
-		den := new(big.Int).Add(s.TotalBorrowShares, big.NewInt(1_000000))
-		q, r := new(big.Int).QuoRem(num, den, new(big.Int))
-		if r.Sign() > 0 {
-			q.Add(q, big.NewInt(1))
-		}
-		debt = q
-	}
+	debt := DebtBaseUp(p, s)
 	// Collateral value in loan base units: collateral * price / 1e36.
 	value := new(big.Int).Mul(p.Collateral, s.OraclePrice)
 	value.Quo(value, pow10i(36))
@@ -306,3 +296,20 @@ func word(hexResult string, i int) (*big.Int, error) {
 
 // ToWhole converts base units to whole units with the given decimals.
 func ToWhole(v *big.Int, decimals int) float64 { return toFloat(v, decimals) }
+
+// DebtBaseUp is the debt in loan base units, ROUNDED UP the way Morpho values
+// it: shares * (A + 1) / (S + 1e6). It is what a full repay must be able to
+// pay — and it is exactly the amount that must NOT be repaid by assets, since
+// it converts back to one share more than is owed (see ExecuteCapital).
+func DebtBaseUp(p LendingPosition, s MarketState) *big.Int {
+	if p.BorrowShares == nil || p.BorrowShares.Sign() == 0 {
+		return new(big.Int)
+	}
+	num := new(big.Int).Mul(p.BorrowShares, new(big.Int).Add(s.TotalBorrowAssets, big.NewInt(1)))
+	den := new(big.Int).Add(s.TotalBorrowShares, big.NewInt(1_000000))
+	q, r := new(big.Int).QuoRem(num, den, new(big.Int))
+	if r.Sign() > 0 {
+		q.Add(q, big.NewInt(1))
+	}
+	return q
+}

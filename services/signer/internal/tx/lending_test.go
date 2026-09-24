@@ -63,3 +63,21 @@ func TestEncodeRepayMatchesViem(t *testing.T) {
 		t.Fatalf("repay calldata differs from viem's\n got %s\nwant %s", got, want)
 	}
 }
+
+// A full repay by SHARES: assets 0, the share count, the agent. This is the
+// call that succeeded in simulation on 2026-09-24 against JohndoeAgent's real
+// position after the same debt repaid by its rounded-up asset value reverted
+// with an arithmetic underflow.
+func TestEncodeRepaySharesPutsTheSharesInTheSharesSlot(t *testing.T) {
+	shares, _ := new(big.Int).SetString("1963991696653", 10)
+	want := "20b76e81" + tuple +
+		"0000000000000000000000000000000000000000000000000000000000000000" + // assets
+		"000000000000000000000000000000000000000000000000000001c94707050d" + // shares
+		selfWord +
+		"0000000000000000000000000000000000000000000000000000000000000120" +
+		"0000000000000000000000000000000000000000000000000000000000000000"
+	got := hex.EncodeToString(EncodeRepayShares(market, shares, self))
+	if got != want {
+		t.Fatalf("repay-by-shares calldata\n got %s\nwant %s", got, want)
+	}
+}
