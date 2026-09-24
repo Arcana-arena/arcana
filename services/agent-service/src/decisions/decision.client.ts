@@ -58,6 +58,33 @@ export class DecisionClient {
   }
 
   /**
+   * One supply, borrow or repay the agent's OWNER asked for. The engine
+   * applies the same rules as the mandate and answers with the outcome —
+   * including a refusal, which is a 200 with status "refused", not an error.
+   */
+  async capitalManual(payload: { agent_id: string; kind: string; amount: number }): Promise<unknown> {
+    if (!this.authCfg.internalKey) {
+      throw authUnavailable(
+        'INTERNAL_API_KEY is not set, so agent-service cannot call the decision engine',
+      );
+    }
+    let res: Response;
+    try {
+      res = await fetch(`${this.engineUrl}/internal/v1/capital/manual`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Internal-Key': this.authCfg.internalKey },
+        body: JSON.stringify(payload),
+      });
+    } catch (e) {
+      throw this.upstream(`decision engine unreachable: ${String(e)}`, null);
+    }
+    if (!res.ok) {
+      throw this.upstream(await res.text(), res.status);
+    }
+    return res.json();
+  }
+
+  /**
    * The engine's own code, when it named one.
    *
    * The engine emits `{error:{code,message}}` and, since the market-data client

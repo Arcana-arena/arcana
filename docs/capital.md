@@ -19,8 +19,8 @@ Plan: architecture.md §17. Evidence for the market chosen:
 | Capital cycle | `services/decision-engine/internal/engine/capital_cycle.go`, after each trading decision |
 | Execution | `services/decision-engine/internal/execution/lending_exec.go` |
 | Tables | `capital_positions` (0058); `capital_mandates` and `capital_actions` (0059) |
-| API | `GET /v1/agents/:id/capital` 🌐; `GET`/`PUT /v1/agents/:id/capital/mandate`, `POST …/activate`, `POST …/stop` 🔒 |
-| Pages | agent Positions tab → *Capital*; `/me/agents/:id` → *Capital mandate* |
+| API | `GET /v1/agents/:id/capital` 🌐; `GET`/`PUT /v1/agents/:id/capital/mandate`, `POST …/activate`, `POST …/stop`, `POST /v1/agents/:id/capital/manual` 🔒 |
+| Pages | `/me/capital` (every agent's position, decisions and manual controls); agent Positions tab → *Capital*; `/me/agents/:id` → *Capital mandate* |
 | Proof | `infra/verify/lending-verify.mjs`, `infra/verify/capital-verify.mjs`, Go tests in both services |
 
 ---
@@ -123,6 +123,20 @@ capital decision is a `capital_actions` row with its own evidence: the mandate
 and position it was taken on, the rule's reason, and what `Validate` and the
 signer said. It is not part of the decision commitment chain or the on-chain
 anchors. A hold is written only when its reason changes.
+
+## By hand
+
+`POST /v1/agents/:id/capital/manual` with `{kind: supply | borrow | repay, amount}`
+in whole units, owner only, 20 an hour. It runs through the same
+`capital.Validate`, lease, execution and signer as the mandate, and is recorded
+in `capital_actions` with decider `owner`. The owner chooses the amount, not
+the rules: with a mandate, its floor, cap and rate apply; without one, the
+platform's per-agent cap and a floor of 1.5. A retired agent may repay and
+nothing else. The answer is the outcome — `mined`, or `refused` with the rule
+and nothing signed.
+
+An active mandate keeps running after a manual action and may reverse it on its
+next cycle; `/me/capital` says so beside the controls.
 
 ## Not yet
 

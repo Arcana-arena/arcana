@@ -81,6 +81,14 @@ func (r *Refusal) Error() string { return r.Code + ": " + r.Detail }
 // Smallest action worth a transaction. Below this the gas is the trade.
 const minActionUSDG = 1.0
 
+// floorMargin keeps a borrow a hair inside the floor rather than exactly on it.
+// Decide and Validate compute the health factor in different orders, and a
+// borrow sized to land exactly on 2.0 came back 1.9999999999999998 in
+// Validate often enough to matter: the first live borrow, on 2026-09-24, was
+// sized to the edge and got through by rounding luck. 0.1% is below any price
+// move that matters and far above float error.
+const floorMargin = 0.999
+
 // repayTargetMargin puts a repay that restores the floor a little above it,
 // so the next tick does not immediately find the position back under.
 const repayTargetMargin = 1.1
@@ -108,7 +116,7 @@ func (s State) HealthAt(collateral, debt float64) float64 {
 func debtCeiling(m Mandate, s State, collateral float64) float64 {
 	c := math.Min(m.MaxBorrowUSDG, s.PlatformDebtCapUSDG)
 	if m.MinHealthFactor > 0 {
-		c = math.Min(c, collateral*s.worstPrice()*s.LLTV/m.MinHealthFactor)
+		c = math.Min(c, collateral*s.worstPrice()*s.LLTV/m.MinHealthFactor*floorMargin)
 	}
 	return c
 }

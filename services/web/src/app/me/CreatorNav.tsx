@@ -14,6 +14,7 @@ const ITEMS: Array<{ label: string; href: string }> = [
   { label: 'Portfolio', href: '/me/portfolio' },
   { label: 'Create agent', href: '/me/agents/new' },
   { label: 'Theses', href: '/me/theses' },
+  { label: 'Capital', href: '/me/capital' },
   { label: 'Earnings', href: '/me/earnings' },
   { label: 'My subscriptions', href: '/me/subscriptions' },
 ];

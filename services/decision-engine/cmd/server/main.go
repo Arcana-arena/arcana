@@ -376,6 +376,7 @@ func main() {
 	})
 	mux.HandleFunc("POST /internal/v1/decisions/execute", guard.Wrap(srv.handleExecute))
 	mux.HandleFunc("POST /internal/v1/decisions/manual", guard.Wrap(srv.handleManual))
+	mux.HandleFunc("POST /internal/v1/capital/manual", guard.Wrap(srv.handleCapitalManual))
 
 	log.Printf("decision-engine listening on :%s", port)
 	// Loopback only: layer one of the two protecting the machine tier (the
@@ -429,6 +430,38 @@ func (s *server) handleExecute(w http.ResponseWriter, r *http.Request) {
 		"status":      "recorded",
 		"capital":     capOut,
 	})
+}
+
+// handleCapitalManual carries out one supply, borrow or repay the agent's OWNER
+// asked for. Ownership is checked by agent-service before this is called; the
+// rules — Validate, the platform caps, the signer — are applied here exactly as
+// for the mandate. The answer is the outcome, including a refusal.
+func (s *server) handleCapitalManual(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), s.executeTimeout)
+	defer cancel()
+	var req struct {
+		AgentID string  `json:"agent_id"`
+		Kind    string  `json:"kind"`
+		Amount  float64 `json:"amount"`
+	}
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	switch req.Kind {
+	case "supply", "borrow", "repay":
+	default:
+		writeError(w, http.StatusBadRequest, "invalid_request", "kind must be supply, borrow or repay")
+		return
+	}
+	out, err := s.engine.CapitalManual(ctx, req.AgentID, req.Kind, req.Amount)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "capital_unavailable", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // handleManual records a human-submitted trade for a human_vs_ai session.

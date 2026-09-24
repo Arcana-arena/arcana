@@ -205,6 +205,26 @@ try {
     check('but not why, which carries its mandate\'s levels', pa?.why === null && pa?.evidence === 'withheld',
       JSON.stringify(pa));
   });
+  // =====================================================================
+  await section('7. A manual action is the owner\'s, and is refused before anything is signed', async () => {
+    const manual = (body, token = owner) => api(token, `/v1/agents/${id}/capital/manual`, { method: 'POST', body });
+    const s = await manual({ kind: 'borrow', amount: 1 }, stranger);
+    check('a second wallet cannot borrow on it', s.status === 403, `status ${s.status}`);
+    const anon = await manual({ kind: 'borrow', amount: 1 }, null);
+    check('nor can anyone signed out', anon.status === 401, `status ${anon.status}`);
+    const k = await manual({ kind: 'withdraw', amount: 1 });
+    check('an action that is not supply, borrow or repay is refused by the shape check', k.status === 400, `status ${k.status}`);
+    const z = await manual({ kind: 'borrow', amount: 0 });
+    check('and so is an amount of zero', z.status === 400, `status ${z.status}`);
+    const n = await manual({ kind: 'borrow', amount: -5 });
+    check('and a negative one', n.status === 400, `status ${n.status}`);
+    const before = sql(`SELECT count(*) FROM capital_actions WHERE agent_id = '${id}'`);
+    const w = await manual({ kind: 'borrow', amount: 1 });
+    check('the owner of an agent with no wallet is answered, not signed for',
+      w.status >= 400 && /wallet/i.test(JSON.stringify(w.body)), `${w.status} ${JSON.stringify(w.body).slice(0, 200)}`);
+    check('and nothing reached the capital log', sql(`SELECT count(*) FROM capital_actions WHERE agent_id = '${id}'`) === before,
+      'a row was written');
+  });
 } catch (e) {
   check('the suite ran to completion', false, e?.message ?? String(e));
 }

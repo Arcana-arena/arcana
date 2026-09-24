@@ -41,7 +41,7 @@ func TestBorrowIsBoundedByTheFloorOnTheWorstPrice(t *testing.T) {
 	s.DebtUSDG = 120 // ceiling 137.5 on the pool price, not 139.4 on the oracle
 	s.WalletCollateral = 0
 	a := Decide(mandate, s)
-	near(t, "borrow", a.Amount, 17.5)
+	near(t, "borrow", a.Amount, 137.5*0.999-120) // the ceiling keeps 0.1% inside the floor
 }
 
 func TestSuppliesCollateralWhenTheFloorLeavesNoRoom(t *testing.T) {
@@ -168,5 +168,27 @@ func TestNeverSell(t *testing.T) {
 	}
 	if r := NeverSellRefusal(m, "SELL", "AAPL"); r != nil {
 		t.Fatalf("an unlisted sell was refused: %v", r)
+	}
+}
+
+// THE LIVE EDGE CASE, swept: whatever Decide sizes a borrow to, Validate must
+// accept it. Without floorMargin, borrows sized exactly to the floor came
+// back a float ulp under it and were refused by the rule they were sized to.
+func TestDecidedBorrowAlwaysPassesValidate(t *testing.T) {
+	for _, coll := range []float64{0.028049313660672240, 0.0536, 0.5, 1, 2.333, 7.77} {
+		for _, price := range []float64{99.99, 211.3, 224.14, 224.4126, 333.33} {
+			for _, hf := range []float64{1.5, 1.73, 2, 2.5, 3.1} {
+				m := Mandate{MinHealthFactor: hf, MaxBorrowRateBps: 800, LiquidityTriggerUSDG: 200, MaxBorrowUSDG: 250}
+				s := State{CollateralQty: coll, LLTV: 0.625, OraclePrice: price, PoolPrice: price,
+					WalletUSDG: 1, BorrowRateBps: 3, AvailableUSDG: 1e6, PlatformDebtCapUSDG: 250, PlatformTxCapUSDG: 100}
+				a := Decide(m, s)
+				if a.Kind != Borrow {
+					continue
+				}
+				if r := Validate(a, m, s); r != nil {
+					t.Errorf("coll=%v price=%v floor=%v: Decide proposed %v and Validate refused it: %v", coll, price, hf, a.Amount, r)
+				}
+			}
+		}
 	}
 }

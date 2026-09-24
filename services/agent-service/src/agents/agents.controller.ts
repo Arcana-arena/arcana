@@ -37,6 +37,7 @@ import { AgentWalletViewService } from './wallet-view.service';
 import { AgentPacingService } from './pacing.service';
 import { PauseAgentDto, SetRiskDto } from './dto/lifecycle.dto';
 import { CapitalMandateDto } from './dto/capital-mandate.dto';
+import { CapitalManualDto } from './dto/capital-manual.dto';
 import { CapitalMandateService } from './capital-mandate.service';
 import { parsePage } from '../common/pagination';
 import { ambiguousRiskKeys, unrecognisedRiskKeys } from './risk-profile';
@@ -276,6 +277,27 @@ export class AgentsController {
   async activateCapitalMandate(@Param('id', ParseUuidAllPipe) id: string, @CurrentWallet() wallet: string) {
     await this.ownership.assertOwnsAgent(wallet, id);
     return this.capitalMandates.activate(id);
+  }
+
+  /**
+   * 🔒 One supply, borrow or repay, by the owner's hand.
+   *
+   * The same rules as the mandate — capital.Validate, the platform's caps, the
+   * signer — applied in the engine; the owner picks the amount, not the limits.
+   * The answer is the outcome, a refusal included, and it is recorded in the
+   * agent's capital log with decider "owner". Rate limited: every call can
+   * sign up to two transactions.
+   */
+  @Post(':id/capital/manual')
+  @RateLimit({ limit: 20, windowSeconds: 3600, byWallet: true })
+  @UseGuards(JwtAuthGuard)
+  async capitalManual(
+    @Param('id', ParseUuidAllPipe) id: string,
+    @Body() dto: CapitalManualDto,
+    @CurrentWallet() wallet: string,
+  ) {
+    await this.ownership.assertOwnsAgent(wallet, id);
+    return this.decisions.capitalManual({ agent_id: id, kind: dto.kind, amount: dto.amount });
   }
 
   /** 🔒 Stop the mandate. The position stays watched (§17.4). */
