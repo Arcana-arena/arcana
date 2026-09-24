@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -215,6 +216,30 @@ type Position struct {
 	CashUnits *big.Int
 	Holdings  map[string]float64
 	Cash      float64
+
+	// ARCANA CAPITAL. Units and Holdings include collateral POSTED in a lending
+	// market, and CashUnits and Cash are net of DEBT, so the book is the agent's
+	// economic position — wallet plus posted, minus owed. Without this, posting
+	// NVDA read as the NVDA leaving and borrowing USDG read as a deposit: NAV
+	// fell by the collateral, the score moved, and custody drift recorded the
+	// agent's own capital actions as funds moved outside ARCANA.
+	//
+	// Posted is the part of Units that is NOT in the wallet and cannot be sold
+	// or sent: anything that moves tokens out of the wallet must subtract it.
+	Posted    map[string]*big.Int
+	DebtUnits *big.Int
+}
+
+// WalletUnits is what the wallet itself holds of a symbol: Units less Posted.
+func (p *Position) WalletUnits(symbol string) *big.Int {
+	u := p.Units[symbol]
+	if u == nil {
+		return nil
+	}
+	if posted := p.Posted[symbol]; posted != nil && posted.Sign() > 0 {
+		return new(big.Int).Sub(u, posted)
+	}
+	return u
 }
 
 // Read takes one complete reading of the wallet.
@@ -239,7 +264,63 @@ func (b *Broker) Read(ctx context.Context, wallet string) (*Position, error) {
 			p.Holdings[t.Symbol] = unitsToFloat(v, t.Decimals)
 		}
 	}
+	if err := b.addLending(ctx, wallet, p); err != nil {
+		return nil, err
+	}
 	return p, nil
+}
+
+// addLending folds the wallet's lending positions into the reading: posted
+// collateral into Units and Holdings, debt out of cash. An unreadable position
+// fails the whole reading — a NAV that silently left out a debt would be a NAV
+// that is wrong in the owner's favour.
+func (b *Broker) addLending(ctx context.Context, wallet string, p *Position) error {
+	for _, m := range b.CapitalMarkets() {
+		pos, err := b.ReadPosition(ctx, m, wallet)
+		if err != nil {
+			return fmt.Errorf("read lending position: %w", err)
+		}
+		if pos.Empty() {
+			continue
+		}
+		if pos.Collateral.Sign() > 0 {
+			tok, terr := b.tokenByAddress(m.CollateralToken)
+			if terr != nil {
+				return terr
+			}
+			if p.Posted == nil {
+				p.Posted = map[string]*big.Int{}
+			}
+			p.Posted[tok.Symbol] = new(big.Int).Add(orZero(p.Posted[tok.Symbol]), pos.Collateral)
+			total := new(big.Int).Add(orZero(p.Units[tok.Symbol]), pos.Collateral)
+			p.Units[tok.Symbol] = total
+			p.Holdings[tok.Symbol] = unitsToFloat(total, tok.Decimals)
+		}
+		if pos.BorrowShares.Sign() > 0 {
+			raw, err := b.rpc.hexString(ctx, "eth_call", []any{map[string]string{
+				"to": b.cfg.Lending.Morpho, "data": "0x5c60e39a" + strings.TrimPrefix(strings.ToLower(m.ID), "0x")}, "latest"})
+			if err != nil {
+				return fmt.Errorf("read lending market: %w", err)
+			}
+			ta, e1 := word(raw, 2)
+			ts, e2 := word(raw, 3)
+			if e1 != nil || e2 != nil {
+				return fmt.Errorf("read lending market: unreadable totals")
+			}
+			debt := DebtBaseUp(pos, MarketState{TotalBorrowAssets: ta, TotalBorrowShares: ts})
+			p.DebtUnits = new(big.Int).Add(orZero(p.DebtUnits), debt)
+			p.CashUnits = new(big.Int).Sub(p.CashUnits, debt)
+			p.Cash = unitsToFloat(p.CashUnits, b.cfg.QuoteToken.Decimals)
+		}
+	}
+	return nil
+}
+
+func orZero(v *big.Int) *big.Int {
+	if v == nil {
+		return new(big.Int)
+	}
+	return v
 }
 
 // ApproveRecord is the ERC-20 approval the broker sent before a swap.

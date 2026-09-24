@@ -925,7 +925,7 @@ GET  /v1/agents/:id/decisions/:d/anchor          the root containing a decision,
               },
               {
                 name: 'Never sell',
-                about: 'The agent’s trading will never sell a ticked symbol. Posting it as collateral is still allowed.',
+                about: 'The agent’s trading will never sell a ticked symbol. Posting it as collateral is still allowed. Under the floor, deleverage may sell collateral to repay: a liquidation would sell it anyway, at a penalty.',
                 value: 'NVDA',
               },
             ]}
@@ -934,7 +934,7 @@ GET  /v1/agents/:id/decisions/:d/anchor          the root containing a decision,
             An active mandate takes <strong>one step per decision</strong>, on the agent&rsquo;s own cadence — a
             fifteen-minute agent moves every fifteen minutes. With cash under the trigger and nothing posted, it posts
             collateral first and borrows on the next step. It repays when cash is well over the trigger, when the rate
-            is too high, or when the health factor falls under the floor. Every step, and every refusal, is listed
+            is too high, or when the health factor falls under the floor. Between those steps the position guard watches it every minute: if the worst-case health factor falls under the floor, it <strong>deleverages</strong> on its own — repaying from the wallet, then selling collateral the wallet holds, then taking some collateral back to sell — one step a minute, even while the agent is paused. Every step, and every refusal, is listed
             under <em>Capital decisions</em> with the figures it was taken on.
           </p>
           <p>

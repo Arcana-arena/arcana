@@ -149,7 +149,7 @@ export function CapitalMandatePanel({
           ))}
         </div>
         <span className="m3" style={{ fontSize: 10.5 }}>
-          a sell of a ticked symbol is refused whatever the trading decider answers. Posting it as collateral is not a sale.
+          a sell of a ticked symbol is refused whatever the trading decider answers. Posting it as collateral is not a sale. One exception: under your health-factor floor the guard deleverages, and may sell collateral to repay — a liquidation would sell it anyway, at a penalty.
         </span>
       </div>
 

@@ -72,3 +72,22 @@ func TestDebtRoundsUp(t *testing.T) {
 		t.Fatalf("debt %v, want 0.000002 (2 base units, rounded up)", r.Debt)
 	}
 }
+
+// The book counts posted collateral as the agent's; the wallet can only sell
+// what it actually holds.
+func TestWalletUnitsExcludesPostedCollateral(t *testing.T) {
+	p := &Position{
+		Units:  map[string]*big.Int{"NVDA": bi("53569864393204191")},
+		Posted: map[string]*big.Int{"NVDA": bi("28049313660672240")},
+	}
+	if got := p.WalletUnits("NVDA"); got.String() != "25520550732531951" {
+		t.Fatalf("wallet units %s, want 25520550732531951", got)
+	}
+	if got := p.WalletUnits("AAPL"); got != nil {
+		t.Fatalf("a symbol not held returned %v", got)
+	}
+	q := &Position{Units: map[string]*big.Int{"AAPL": bi("7")}}
+	if got := q.WalletUnits("AAPL"); got.String() != "7" {
+		t.Fatalf("with nothing posted the wallet holds everything, got %s", got)
+	}
+}

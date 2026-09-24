@@ -41,7 +41,7 @@ type CapitalPosition = {
 type CapitalAction = {
   id: number;
   ts: string;
-  kind: 'hold' | 'supply' | 'borrow' | 'repay' | 'deleverage';
+  kind: 'hold' | 'supply' | 'borrow' | 'repay' | 'withdraw' | 'deleverage';
   amount: number;
   status: string;
   reason_code: string;
@@ -58,6 +58,17 @@ type CapitalResp = {
   agent_id: string;
   positions: CapitalPosition[];
   mandate: { status: string; activated_at: string | null } | null;
+  record?: {
+    borrowed_usdg: number;
+    repaid_usdg: number;
+    owed_usdg: number;
+    interest_usdg: number;
+    lowest_health_factor_worst: number | null;
+    deleverage_steps: number;
+    since: string | null;
+    liquidations: number | null;
+    liquidations_note: string;
+  };
   actions: CapitalAction[];
   acting: boolean;
   note: string;
@@ -146,6 +157,17 @@ export async function CapitalBlock({ id }: { id: string }) {
           <p className="m3" style={{ marginTop: 8, fontSize: 11.5 }}>{d.note}</p>
         </>
       )}
+
+      {/* THE CAPITAL RECORD: beside the ARCANA Score, never inside it (§17.3). */}
+      {d.record && d.record.since ? (
+        <p className="mono m3" style={{ marginTop: 10, fontSize: 11 }}>
+          since {utc(d.record.since)} · borrowed {money(d.record.borrowed_usdg)} · repaid {money(d.record.repaid_usdg)} ·
+          owed {money(d.record.owed_usdg)} · interest {money(d.record.interest_usdg)}
+          {d.record.lowest_health_factor_worst !== null ? ` · lowest worst-case HF ${num(d.record.lowest_health_factor_worst, 2)}` : ''}
+          {` · deleverage steps ${d.record.deleverage_steps}`}
+          <span title={d.record.liquidations_note}> · liquidations: not detected yet</span>
+        </p>
+      ) : null}
 
       {/* THE CAPITAL DECISION LOG. Every action the mandate chose and every
           refusal, newest first, with the reason and the inputs it was taken on

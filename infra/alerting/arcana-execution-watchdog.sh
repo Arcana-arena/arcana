@@ -257,7 +257,14 @@ while IFS='|' read -r name addr custody agent; do
       exit 1
     fi
     NONCE=$(( NONCE_HEX ))
-    ROWS=$(psql "SELECT count(*) FROM executions WHERE agent_id = '${agent}' AND tx_hash IS NOT NULL")
+    # EVERY TRANSACTION ARCANA SIGNED FOR THIS WALLET: trades and their
+    # approvals in executions, and ARCANA CAPITAL's supplies, borrows,
+    # repays, withdrawals, deleverage swaps and their approvals in
+    # capital_actions. Counting executions alone made every capital
+    # transaction look unrecorded — reported on a shared-custody wallet, and an
+    # ALARM on a platform-only one.
+    ROWS=$(psql "SELECT (SELECT count(*) FROM executions WHERE agent_id = '${agent}' AND tx_hash IS NOT NULL)
+                      + (SELECT count(tx_hash) + count(approve_tx_hash) FROM capital_actions WHERE agent_id = '${agent}')")
     if [ -z "$ROWS" ]; then
       echo "execution-watchdog: could not count executions for ${agent}" >&2
       exit 1

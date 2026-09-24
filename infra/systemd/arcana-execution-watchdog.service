@@ -38,7 +38,9 @@ Environment=FAIL_WINDOW_HOURS=24
 Environment=EXECUTION_MAX_FEE_WEI=1000000000
 Environment=EXECUTION_GAS_LIMIT=250000
 Environment=GAS_WARN_MULTIPLE=4
-Environment=EXECUTION_RPC_URL=https://robinhood-rpc.publicnode.com
+# NO EXECUTION_RPC_URL HERE. Setting it replaced the script's fallback list
+# with one endpoint, so the 2026-09-24 fix for a slow provider never ran in
+# production. The script's own list, official endpoint included, is used.
 EnvironmentFile=-/home/ubuntu/arcana/.env.alerts
 ExecStart=/usr/bin/flock -n /tmp/arcana-execution-watchdog.lock /home/ubuntu/arcana/infra/alerting/arcana-execution-watchdog.sh
 TimeoutStartSec=300

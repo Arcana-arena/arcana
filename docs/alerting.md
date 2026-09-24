@@ -40,6 +40,7 @@ Seventeen units declare `OnFailure=arcana-alert@%n.service`:
 | `arcana-cadence-b75adb8d` | the same cadence for the second Season 2 competition; alerts on the same conditions, and opens nothing while nobody has entered |
 | `arcana-decision-watchdog` | asks whether a DECISION has been recorded in the last twelve hours. Replaces the tick watchdog's question, which was about a market calendar that no longer exists |
 | `arcana-execution-watchdog` | asks whether the money is MOVING or just burning: repeated trade failures, a wallet that can no longer pay for gas, transactions the record has no row for. The decision watchdog cannot see any of these — the agent decides on time, the transaction reverts, and decisions keep being recorded |
+| `arcana-capital-watchdog` | asks whether any BORROWING position is close to liquidation: under its floor, under 1.2, or no longer being read. The page colours it; this says it to somebody who is not looking at the page |
 | `arcana-guard` | the take-profit / stop-loss watcher itself. It refuses to start without a signer rather than run as a process that can see a level cross and do nothing, so a failure to start is an alert and not a restart loop nobody reads |
 | `arcana-guard-watchdog` | asks whether that watcher is still WATCHING, by reading the heartbeat it writes on every scan. A stop loss is protection an owner stops thinking about, so the moment it stops working nothing changes visibly |
 | `arcana-signer` | the isolated key-custody service |

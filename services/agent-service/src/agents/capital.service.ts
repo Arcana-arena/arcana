@@ -98,11 +98,43 @@ export class AgentCapitalService {
               refusal_code, refusal_detail, tx_hash, approve_tx_hash, decider
          FROM capital_actions WHERE agent_id = $1 ORDER BY ts DESC, id DESC LIMIT 50`, [agentId]);
 
+    // THE CAPITAL RECORD, beside the ARCANA Score and never inside it (§17.3).
+    // Only what the rows prove: what was borrowed and repaid through ARCANA,
+    // the interest that costs (repaid plus still owed, less borrowed), the
+    // lowest worst-case health factor any reading saw, and how often the guard
+    // had to deleverage. A liquidation is not detected yet, and the record says
+    // so rather than printing a zero.
+    const rec = await this.db.query(
+      `SELECT coalesce(sum(amount) FILTER (WHERE kind = 'borrow' AND status = 'mined'), 0)::float8 AS borrowed,
+              coalesce(sum(amount) FILTER (WHERE kind = 'repay' AND status = 'mined'), 0)::float8 AS repaid,
+              coalesce(sum(amount) FILTER (WHERE kind = 'deleverage' AND reason_code = 'deleverage_repay' AND status = 'mined'), 0)::float8 AS deleverage_repaid,
+              count(*) FILTER (WHERE kind = 'deleverage' AND status = 'mined')::int AS deleverage_steps,
+              min(ts) FILTER (WHERE status = 'mined') AS first_action_at
+         FROM capital_actions WHERE agent_id = $1`, [agentId]);
+    const low = await this.db.query(
+      `SELECT min(health_factor_worst)::float8 AS lowest FROM capital_positions
+        WHERE agent_id = $1 AND health_factor_worst IS NOT NULL`, [agentId]);
+    const owed = positions.reduce((s: number, p: any) => s + (p.debt_usdg ?? 0), 0);
+    const r0 = rec[0] ?? {};
+    const repaidTotal = (r0.repaid ?? 0) + (r0.deleverage_repaid ?? 0);
+    const record = {
+      borrowed_usdg: r0.borrowed ?? 0,
+      repaid_usdg: repaidTotal,
+      owed_usdg: owed,
+      interest_usdg: Math.max(0, repaidTotal + owed - (r0.borrowed ?? 0)),
+      lowest_health_factor_worst: low[0]?.lowest ?? null,
+      deleverage_steps: r0.deleverage_steps ?? 0,
+      since: r0.first_action_at ?? null,
+      liquidations: null,
+      liquidations_note: 'Not detected yet: a liquidation by a third party leaves no ARCANA row, and reading it from the chain is not built.',
+    };
+
     const acting = mandate[0]?.status === 'active';
     return {
       agent_id: agentId,
       positions,
       mandate: mandate[0] ? { status: mandate[0].status, activated_at: mandate[0].activated_at } : null,
+      record,
       actions: actions.map((a: any) => ({
         id: Number(a.id), ts: a.ts, kind: a.kind, amount: a.amount, status: a.status,
         reason_code: a.reason_code, decider: a.decider,

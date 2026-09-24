@@ -96,6 +96,29 @@ const floorMargin = 0.999
 // so the next tick does not immediately find the position back under.
 const repayTargetMargin = 1.1
 
+// priceDivergenceBand is how far the pool may sit from the oracle before no
+// new borrow is made: the same 2% market-data uses to dispute a pool against
+// its Chainlink feed, set from measured deviations of 0.04%–0.24%
+// (services/market-data/config/robinhood-chain.json). go-no-go-lending.md
+// condition 4: with no sequencer-uptime feed on this chain, a divergence is
+// the only signal that one of the two prices has stopped describing the
+// market, and it must stop new borrowing.
+const priceDivergenceBand = 0.02
+
+// divergence reports why the prices cannot be trusted to borrow on, or "".
+// An unreadable pool is a reason too: could not check is not the same as fine.
+func (s State) divergence() string {
+	if s.PoolPrice <= 0 {
+		return "the pool price could not be read, so the oracle cannot be checked against the market"
+	}
+	d := math.Abs(s.PoolPrice-s.OraclePrice) / s.OraclePrice
+	if d > priceDivergenceBand {
+		return fmt.Sprintf("the pool (%.4f) and the oracle (%.4f) differ by %.2f%%, over the %.0f%% band",
+			s.PoolPrice, s.OraclePrice, d*100, priceDivergenceBand*100)
+	}
+	return ""
+}
+
 // worstPrice is the lower of the oracle and the pool (go-no-go-lending.md
 // condition 3). An unreadable pool leaves the oracle alone.
 func (s State) worstPrice() float64 {
@@ -164,6 +187,9 @@ func Decide(m Mandate, s State) Action {
 	if s.WalletUSDG < m.LiquidityTriggerUSDG {
 		if s.OracleUntrusted {
 			return Action{Hold, 0, "oracle_untrusted", "cash is under the trigger, but " + s.OracleWhy}
+		}
+		if why := s.divergence(); why != "" {
+			return Action{Hold, 0, "price_divergence", "cash is under the trigger, but " + why}
 		}
 		want := m.LiquidityTriggerUSDG - s.WalletUSDG
 		room := debtCeiling(m, s, s.CollateralQty) - s.DebtUSDG
@@ -240,6 +266,9 @@ func Validate(a Action, m Mandate, s State) *Refusal {
 	case Borrow:
 		if s.OracleUntrusted {
 			return refuse("oracle_untrusted", "%s", s.OracleWhy)
+		}
+		if why := s.divergence(); why != "" {
+			return refuse("price_divergence", "%s", why)
 		}
 		if s.BorrowRateBps > float64(m.MaxBorrowRateBps) {
 			return refuse("rate_above_mandate", "the rate is %.0f bps a year and the mandate allows %d", s.BorrowRateBps, m.MaxBorrowRateBps)

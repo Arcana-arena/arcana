@@ -344,7 +344,9 @@ func (e *Engine) exitUnits(intent tradeIntent, before *execution.Position) *big.
 	if intent.Action != "sell" || before == nil {
 		return nil
 	}
-	return exitAmount(before.Units[intent.Symbol], intent.Quantity, e.broker.DecimalsOf(intent.Symbol))
+	// The WALLET's units: collateral posted in a lending market is in Units
+	// (it is the agent's) but cannot be sold from the wallet.
+	return exitAmount(before.WalletUnits(intent.Symbol), intent.Quantity, e.broker.DecimalsOf(intent.Symbol))
 }
 
 // exitAmount is the arithmetic, separated from the plumbing so it can be driven

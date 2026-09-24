@@ -250,3 +250,6 @@ func (b *Broker) WalletBalances(ctx context.Context, wallet string, m LendingMar
 	}
 	return toFloat(c, coll.Decimals), toFloat(u, b.cfg.QuoteToken.Decimals), nil
 }
+
+// TokenByAddress is the allowlisted token at an address.
+func (b *Broker) TokenByAddress(addr string) (TokenCfg, error) { return b.tokenByAddress(addr) }

@@ -1,4 +1,4 @@
-# ARCANA CAPITAL — what exists after day 6
+# ARCANA CAPITAL — what exists after day 7
 
 **Status:** a mandate can be written, activated and stopped in a browser; an
 active mandate's decider runs on the agent's cadence and records every action
@@ -151,11 +151,49 @@ and nothing signed.
 An active mandate keeps running after a manual action and may reverse it on its
 next cycle; `/me/capital` says so beside the controls.
 
+## Day 7: protection
+
+**Deleverage, between ticks.** The position guard reads every position once a
+minute. When the worst-case health factor of a position with an ACTIVE mandate
+is under the mandate's floor — agent active or paused — it takes one step per
+scan: repay from the wallet's USDG; otherwise sell collateral the wallet holds;
+otherwise take collateral back (never below a health factor of 1.05) to sell on
+the next scan. Each step is a `capital_actions` row with decider `deleverage`;
+a position where no step is possible is recorded as `deleverage_stuck`. It may
+sell a never-sell symbol: under the owner's floor a liquidation would sell it
+anyway, at a penalty. With a stopped or absent mandate the guard watches and
+alerts, and does not act.
+
+**Price divergence stops borrowing.** A pool more than 2% from the oracle (the
+same band market-data disputes pools with), or a pool that cannot be read,
+refuses a borrow with `price_divergence` — go-no-go-lending.md condition 4.
+Repaying is never stopped by it.
+
+**Alerts.** `arcana-capital-watchdog` runs every five minutes and alerts on a
+position under its floor, under 1.2 (near liquidation), or unread for ten
+minutes; an unchanged set of findings is not re-sent. Proved by
+`infra/verify/capital-watchdog-verify.sh`.
+
+**NAV includes the position.** The wallet reading the engine prices a book from
+now adds posted collateral to holdings and subtracts debt from cash, so posting,
+borrowing, repaying and withdrawing no longer move NAV or read as custody drift.
+Selling uses the wallet's own units, never the posted ones.
+
+**The execution watchdog counts capital transactions**, so a wallet's supplies,
+borrows, repays, withdrawals and their approvals are no longer reported as
+unrecorded.
+
+**The capital record** on `GET /v1/agents/:id/capital` — borrowed, repaid, still
+owed, interest, the lowest worst-case health factor seen, deleverage steps — is
+written beside the ARCANA Score and never into it. Liquidations are not
+detected yet, and the record says so.
+
 ## Not yet
 
 - **Enabling the signer.** A reviewed commit flipping `enabled`, and a funded
   wallet with gas, are what turn a recorded refusal into a real borrow.
-- **Deleverage.** Selling collateral to restore the floor, in the guard loop
-  between ticks, is day 7.
+- **Liquidation detection.** A third party's liquidation leaves no ARCANA row.
+- **A browser suite** for the mandate form and the /me/capital controls; they
+  are proved server-side only.
 - **A real transaction.** Everything above was proved by simulation against
   live state; nothing has been broadcast.

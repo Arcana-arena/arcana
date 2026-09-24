@@ -239,3 +239,31 @@ func TestDecideNeverWithdraws(t *testing.T) {
 		}
 	}
 }
+
+// go-no-go-lending.md condition 4: a pool and an oracle that disagree by more
+// than the band stop new borrowing — and so does a pool nobody can read.
+// Repaying is never stopped by it: reducing risk needs no trusted price.
+func TestPriceDivergenceStopsBorrowingOnly(t *testing.T) {
+	far := base()
+	far.PoolPrice = 223 * 0.97 // 3% under the oracle
+	if a := Decide(mandate, far); a.Kind != Hold || a.Reason != "price_divergence" {
+		t.Fatalf("a 3%% divergence should hold the borrow, got %+v", a)
+	}
+	if r := Validate(Action{Kind: Borrow, Amount: 5}, mandate, far); r == nil || r.Code != "price_divergence" {
+		t.Fatalf("Validate should refuse a borrow on a 3%% divergence, got %v", r)
+	}
+	blind := base()
+	blind.PoolPrice = 0
+	if r := Validate(Action{Kind: Borrow, Amount: 5}, mandate, blind); r == nil || r.Code != "price_divergence" {
+		t.Fatalf("Validate should refuse a borrow with no pool price, got %v", r)
+	}
+	near := base()
+	near.PoolPrice = 223 * 0.985 // 1.5%, inside the band
+	if r := Validate(Action{Kind: Borrow, Amount: 5}, mandate, near); r != nil {
+		t.Fatalf("1.5%% is inside the band and was refused: %v", r)
+	}
+	far.DebtUSDG, far.WalletUSDG = 40, 30
+	if r := Validate(Action{Kind: Repay, Amount: 30}, mandate, far); r != nil {
+		t.Fatalf("a repay was refused over a divergence: %v", r)
+	}
+}

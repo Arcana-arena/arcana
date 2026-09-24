@@ -90,6 +90,12 @@ func (e *Engine) CapitalScan(ctx context.Context) (written int, firstErr error) 
 				continue
 			}
 			written++
+			// Under the floor, the guard acts between ticks (capital_deleverage.go).
+			if r.Debt > 0 {
+				if derr := e.deleverage(ctx, h.w, m); derr != nil {
+					note(fmt.Errorf("deleverage %s: %w", h.w.AgentID, derr))
+				}
+			}
 		}
 	}
 	return written, firstErr

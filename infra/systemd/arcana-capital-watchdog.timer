@@ -1,0 +1,16 @@
+# arcana-capital-watchdog.timer — every five minutes.
+#
+# A health factor moves with the market, not with a cadence. Five minutes is
+# five readings of the capital reader, so a position crossing its floor is
+# reported within one reading of the guard starting to deleverage it, and an
+# unchanged finding is not re-sent (see the script).
+[Unit]
+Description=Run the ARCANA capital watchdog every five minutes
+
+[Timer]
+OnCalendar=*:0/5
+RandomizedDelaySec=30
+Persistent=true
+
+[Install]
+WantedBy=timers.target

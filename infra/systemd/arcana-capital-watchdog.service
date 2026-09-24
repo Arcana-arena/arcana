@@ -1,0 +1,22 @@
+# arcana-capital-watchdog.service — is any borrowing position close to liquidation?
+#
+# The page colours a health factor near the floor; this says it to somebody
+# who is not looking at the page. READ-ONLY. Exit 1 means the check could not
+# be performed, so this unit carries OnFailure= like the ones it sits beside.
+[Unit]
+Description=ARCANA capital watchdog (health factor under the floor, near liquidation, unread)
+After=network-online.target docker.service
+Wants=network-online.target
+OnFailure=arcana-alert@%n.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+SyslogIdentifier=arcana-capital-watchdog
+WorkingDirectory=/home/ubuntu/arcana
+EnvironmentFile=-/home/ubuntu/arcana/.env.alerts
+ExecStart=/usr/bin/flock -n /tmp/arcana-capital-watchdog.lock /home/ubuntu/arcana/infra/alerting/arcana-capital-watchdog.sh
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
