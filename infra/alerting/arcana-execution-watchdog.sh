@@ -57,7 +57,31 @@ NOTIFY="${ARCANA_NOTIFY:-${ARCANA_DIR}/infra/alerting/arcana-notify.sh}"
 PG_CONTAINER="${PG_CONTAINER:-arcana-postgres}"
 PG_USER="${PG_USER:-arcana}"
 PG_DB="${PG_DB:-arcana}"
-RPC_URL="${EXECUTION_RPC_URL:-https://robinhood-rpc.publicnode.com}"
+# SEVERAL ENDPOINTS, tried in order. One free provider with a slow hour turned
+# two runs on 2026-09-24 into "the check was NOT performed" while three others
+# answered in under a second. Same list as the chain guard. EXECUTION_RPC_URL
+# still overrides it with one endpoint, which is how the verifier proves that
+# an unreachable RPC exits 1.
+DEFAULT_RPC_URLS='https://robinhood-rpc.publicnode.com,https://rpc.mainnet.chain.robinhood.com,https://rpc-robinhood.blockmachine.io,https://robinhood.api.pocket.network'
+RPC_URLS="${EXECUTION_RPC_URLS:-${EXECUTION_RPC_URL:-$DEFAULT_RPC_URLS}}"
+
+# rpc_result METHOD ADDRESS — the hex "result" from the first endpoint that
+# gives one, or nothing (and status 1) when every endpoint failed.
+rpc_result() {
+  local method="$1" addr="$2" url out
+  local IFS=','
+  for url in $RPC_URLS; do
+    out=$(curl -s --max-time 10 -X POST "$url" \
+      -H 'content-type: application/json' \
+      -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"${method}\",\"params\":[\"${addr}\",\"latest\"]}" \
+      | grep -oP '(?<="result":")[^"]*')
+    if [ -n "$out" ]; then
+      echo "$out"
+      return 0
+    fi
+  done
+  return 1
+}
 
 # How many failures inside the window count as a pattern, and how wide the
 # window is. Settable so a different cadence can be watched by the same script.
@@ -187,10 +211,7 @@ while IFS='|' read -r name addr custody agent; do
   if [ -n "$FORCE_BALANCE" ]; then
     BAL_DEC="$FORCE_BALANCE"
   else
-    BAL_HEX=$(curl -s --max-time 20 -X POST "$RPC_URL" \
-      -H 'content-type: application/json' \
-      -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getBalance\",\"params\":[\"${addr}\",\"latest\"]}" \
-      | grep -oP '(?<="result":")[^"]*')
+    BAL_HEX=$(rpc_result eth_getBalance "$addr")
     if [ -z "$BAL_HEX" ]; then
       # AN UNREADABLE BALANCE IS NOT A HEALTHY ONE. Refusing to report is the
       # only honest answer, and exit 1 makes OnFailure= say so out loud.
@@ -230,10 +251,7 @@ while IFS='|' read -r name addr custody agent; do
   # the key too and is entitled to send their own transactions, which raise the
   # nonce and correctly have no ARCANA row.
   if [ -z "$FORCE_BALANCE" ]; then
-    NONCE_HEX=$(curl -s --max-time 20 -X POST "$RPC_URL" \
-      -H 'content-type: application/json' \
-      -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getTransactionCount\",\"params\":[\"${addr}\",\"latest\"]}" \
-      | grep -oP '(?<="result":")[^"]*')
+    NONCE_HEX=$(rpc_result eth_getTransactionCount "$addr")
     if [ -z "$NONCE_HEX" ]; then
       echo "execution-watchdog: could not read the nonce of ${addr}; the check was NOT performed" >&2
       exit 1

@@ -62,12 +62,19 @@ const components = [
     urls: extractGoList(join(REPO, 'services/signer/cmd/server/main.go'), 'rpcs := strings.Split(envOr("SIGNER_RPC_URLS"'),
     methods: ['eth_call'],
   },
+  {
+    name: 'execution watchdog',
+    urls: extractList(join(REPO, 'infra/alerting/arcana-execution-watchdog.sh'), "DEFAULT_RPC_URLS='"),
+    methods: ['eth_getBalance', 'eth_getTransactionCount'],
+  },
 ];
 
 const params = {
   eth_chainId: [],
   eth_call: [{ to: PROBE_TO, data: '0x313ce567' }, 'latest'], // decimals()
   eth_getStorageAt: [PROBE_TO, '0x0', 'latest'],
+  eth_getBalance: [PROBE_TO, 'latest'],
+  eth_getTransactionCount: [PROBE_TO, 'latest'],
 };
 
 let pass = 0, fail = 0;
