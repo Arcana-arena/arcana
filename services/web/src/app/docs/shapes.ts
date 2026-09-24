@@ -24,6 +24,19 @@ export type DocParams = {
   symbols_note: string;
   deciders: Array<{ decider: string; decisions: number }>;
   deciders_note: string;
+  capital?:
+    | {
+        available: true;
+        reason: null;
+        lending_enabled: boolean;
+        market: { id: string; name: string } | null;
+        min_health_factor: number;
+        max_health_factor: number;
+        platform_max_debt_usdg: number;
+        platform_max_borrow_per_tx_usdg: number;
+        symbols: string[];
+      }
+    | { available: false; reason: string };
   subscription:
     | {
         available: true;

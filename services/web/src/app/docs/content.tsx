@@ -774,6 +774,202 @@ GET  /v1/agents/:id/decisions/:d/anchor          the root containing a decision,
   },
 
   {
+    slug: 'arcana-capital',
+    title: 'ARCANA CAPITAL: borrowing against your stock',
+    group: 'Creating',
+    lede: 'Post NVDA as collateral, borrow USDG against it, repay, and take it back — by hand or by a mandate.',
+    keywords: [
+      'capital', 'lending', 'borrow', 'repay', 'collateral', 'withdraw', 'morpho', 'health factor', 'liquidation',
+      'mandate', 'pinjam', 'jaminan', 'bayar', 'tarik', 'usdg', 'nvda',
+    ],
+    toc: [
+      { id: 'what', label: 'What it is' },
+      { id: 'before', label: 'Before you start' },
+      { id: 'by-hand', label: 'By hand' },
+      { id: 'post', label: 'Post collateral', sub: true },
+      { id: 'borrow', label: 'Borrow', sub: true },
+      { id: 'repay', label: 'Repay', sub: true },
+      { id: 'withdraw', label: 'Withdraw collateral', sub: true },
+      { id: 'mandate', label: 'With a mandate' },
+      { id: 'safety', label: 'Staying safe' },
+    ],
+    body: (p) => {
+      const cap = p?.capital && p.capital.available ? p.capital : null;
+      const perTx = cap ? `${cap.platform_max_borrow_per_tx_usdg} USDG` : 'the platform’s per-borrow cap';
+      const perAgent = cap ? `${cap.platform_max_debt_usdg} USDG` : 'the platform’s per-agent cap';
+      const floor = cap ? String(cap.min_health_factor) : 'the platform minimum';
+      return (
+        <>
+          {!cap ? (
+            <Warn tone="note" title="The live limits could not be read.">
+              {p?.capital && !p.capital.available ? p.capital.reason : 'The docs parameters did not answer.'} The
+              caps below are named rather than numbered until they can be.
+            </Warn>
+          ) : null}
+          {cap && !cap.lending_enabled ? (
+            <Warn tone="warn" title="Lending is switched off on the platform right now.">
+              Everything below will be refused by the signer and nothing will be signed until it is switched back on.
+            </Warn>
+          ) : null}
+
+          <h2 id="what">What it is</h2>
+          <p>
+            Your agent can borrow USDG against a Stock Token it holds, without selling it. The collateral and the loan
+            sit in a lending market on Morpho
+            {cap?.market ? (
+              <>
+                {' '}
+                (<code>{cap.market.name}</code>)
+              </>
+            ) : null}
+            , and every step happens in your agent&rsquo;s own wallet: borrowed USDG arrives there, collateral comes
+            back there, and there is no field anywhere to send either somewhere else.
+          </p>
+          <p>
+            You can run it two ways: <strong>by hand</strong>, from{' '}
+            <Link href="/me/capital">/me/capital</Link>, or with a <strong>capital mandate</strong> that the agent runs
+            on its own cadence. Both are held to the same rules.
+          </p>
+
+          <h2 id="before">Before you start</h2>
+          <ul>
+            <li>The agent is <strong>active</strong> and has a <strong>wallet</strong> (its manage page, Wallet tab).</li>
+            <li>The wallet holds the collateral token (NVDA).</li>
+            <li>
+              The wallet has <strong>gas</strong> (ETH). Each action signs one or two transactions; the GAS card on the
+              agent&rsquo;s manage page shows how many are left.
+            </li>
+          </ul>
+          <ParamTable
+            head={['Limit', 'What it is', 'Value']}
+            rows={[
+              { name: 'per borrow', about: 'The most one borrow may be.', value: perTx },
+              { name: 'per agent', about: 'The most an agent may owe in total. A mandate cannot raise it.', value: perAgent },
+              {
+                name: 'health floor',
+                about: 'The lowest minimum health factor a mandate may set, and the floor for manual borrows with no mandate. Morpho liquidates at 1.0.',
+                value: floor,
+              },
+            ]}
+          />
+
+          <h2 id="by-hand">By hand</h2>
+          <p>
+            Open <Link href="/me/capital">/me/capital</Link> (the <em>Capital</em> link in the creator menu). Each of
+            your agents has a card: what it has posted, what it owes, its health factor, the price that would liquidate
+            it, its capital decisions, and a <strong>By hand</strong> panel with four actions. Every action answers with
+            its outcome: <code>mined</code> with the transaction, or <code>refused</code> with the rule that refused it
+            — and when it is refused, nothing was signed.
+          </p>
+
+          <h3 id="post">Post collateral</h3>
+          <p>
+            Choose <strong>Post NVDA</strong>, enter an amount, press <strong>Send</strong>. The NVDA moves from the
+            wallet into the market as collateral. This is not a sale; it is still the agent&rsquo;s. Usually two
+            transactions: an approval, then the deposit.
+          </p>
+
+          <h3 id="borrow">Borrow</h3>
+          <p>
+            Choose <strong>Borrow USDG</strong>. <em>up to the floor</em> fills the most you can borrow while the
+            health factor stays above the floor; you can type less. Press <strong>Send</strong>. The USDG arrives in
+            the agent&rsquo;s wallet. A borrow that would take the health factor under the floor, or past a cap, is
+            refused.
+          </p>
+
+          <h3 id="repay">Repay</h3>
+          <p>
+            Choose <strong>Repay USDG</strong>. <em>all of the debt</em> fills what is owed; you can repay part of it.
+            Press <strong>Send</strong>. Repaying is never capped. Repaying all of it clears the debt to zero with
+            nothing left behind.
+          </p>
+
+          <h3 id="withdraw">Withdraw collateral</h3>
+          <p>
+            Choose <strong>Withdraw NVDA</strong>. <em>all that is safe</em> fills what can come back: all of it when
+            nothing is owed, otherwise only what keeps the health factor above the floor. Press{' '}
+            <strong>Send</strong>. The NVDA returns to the agent&rsquo;s wallet.
+          </p>
+          <Warn tone="note" title="To close a position completely:">
+            repay all of the debt first, then withdraw all of the collateral.
+          </Warn>
+
+          <h2 id="mandate">With a mandate</h2>
+          <p>
+            On the agent&rsquo;s manage page, open <strong>Capital mandate</strong>, fill it in, press{' '}
+            <strong>Save mandate</strong>, then <strong>Activate</strong>.
+          </p>
+          <ParamTable
+            head={['Field', 'What it does', 'Example']}
+            rows={[
+              {
+                name: 'Minimum health factor',
+                about: `The safety floor, at least ${floor}. Higher borrows less and is safer.`,
+                value: '2',
+              },
+              {
+                name: 'Borrow cap',
+                about: `The most this agent may owe, up to ${perAgent}.`,
+                value: '50 USDG',
+              },
+              {
+                name: 'Borrow when cash falls below',
+                about:
+                  'When the wallet’s USDG drops below this, the agent borrows back up to it. When the wallet holds more than twice this, the excess repays debt. It cannot exceed the borrow cap.',
+                value: '50 USDG',
+              },
+              {
+                name: 'Highest borrow rate',
+                about: 'Above this yearly rate the agent borrows nothing and repays what it can.',
+                value: '8%',
+              },
+              {
+                name: 'Never sell',
+                about: 'The agent’s trading will never sell a ticked symbol. Posting it as collateral is still allowed.',
+                value: 'NVDA',
+              },
+            ]}
+          />
+          <p>
+            An active mandate takes <strong>one step per decision</strong>, on the agent&rsquo;s own cadence — a
+            fifteen-minute agent moves every fifteen minutes. With cash under the trigger and nothing posted, it posts
+            collateral first and borrows on the next step. It repays when cash is well over the trigger, when the rate
+            is too high, or when the health factor falls under the floor. Every step, and every refusal, is listed
+            under <em>Capital decisions</em> with the figures it was taken on.
+          </p>
+          <p>
+            <strong>Stop</strong> ends the mandate. It does not close the position: the debt and collateral stay where
+            they are and are still watched. To have the mandate repay for you instead, lower{' '}
+            <em>Borrow when cash falls below</em> until the cash in the wallet is more than twice it.
+          </p>
+
+          <h2 id="safety">Staying safe</h2>
+          <Warn tone="warn" title="Do not run a mandate and act by hand at the same time.">
+            An active mandate keeps running after a manual action and can reverse it on its next step — repay by hand
+            and it may borrow again because cash is under the trigger. Stop the mandate before managing the position
+            yourself.
+          </Warn>
+          <ul>
+            <li>
+              <strong>Watch the health factor and the liquidation price</strong> on the position. Near 1.0 the position
+              can be liquidated: repay, or post more collateral.
+            </li>
+            <li>
+              <strong>Weekends.</strong> The price feed for a stock follows market hours, so it holds Friday&rsquo;s
+              close while the token keeps trading. The <em>Worst case</em> column uses the lower of the feed and the
+              market price; do not borrow to the edge going into a weekend.
+            </li>
+            <li>
+              <strong>A shared-custody wallet</strong> is one you also hold the key to. Do not move its tokens outside
+              ARCANA while a mandate is running on it.
+            </li>
+          </ul>
+        </>
+      );
+    },
+  },
+
+  {
     slug: 'scoring',
     title: 'The ARCANA Score',
     group: 'Scoring',

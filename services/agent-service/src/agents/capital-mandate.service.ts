@@ -47,6 +47,25 @@ function allowlist(): Allowlist {
   return JSON.parse(readFileSync(path, 'utf8'));
 }
 
+/**
+ * What a mandate may be and what the platform allows, read from the signer's
+ * allowlist. Shared with the docs parameters, so the page that explains
+ * ARCANA CAPITAL quotes the same numbers the form enforces and the signer caps.
+ */
+export function capitalLimits() {
+  const a = allowlist();
+  const l = a.lending;
+  return {
+    lending_enabled: l?.enabled === true,
+    market: l?.markets?.[0] ? { id: l.markets[0].id, name: l.markets[0].name } : null,
+    min_health_factor: MIN_HEALTH_FACTOR,
+    max_health_factor: MAX_HEALTH_FACTOR,
+    platform_max_debt_usdg: l ? Number(l.limits.max_debt_per_agent_usdg) : 0,
+    platform_max_borrow_per_tx_usdg: l ? Number(l.limits.max_borrow_per_tx_usdg) : 0,
+    symbols: a.tokens.map((t) => t.symbol),
+  };
+}
+
 const refuse = (code: string, message: string) => new BadRequestException({ code, message });
 
 @Injectable()
@@ -55,17 +74,7 @@ export class CapitalMandateService {
 
   /** What a mandate may be, for the form to show before anyone types. */
   limits() {
-    const a = allowlist();
-    const l = a.lending;
-    return {
-      lending_enabled: l?.enabled === true,
-      market: l?.markets?.[0] ? { id: l.markets[0].id, name: l.markets[0].name } : null,
-      min_health_factor: MIN_HEALTH_FACTOR,
-      max_health_factor: MAX_HEALTH_FACTOR,
-      platform_max_debt_usdg: l ? Number(l.limits.max_debt_per_agent_usdg) : 0,
-      platform_max_borrow_per_tx_usdg: l ? Number(l.limits.max_borrow_per_tx_usdg) : 0,
-      symbols: a.tokens.map((t) => t.symbol),
-    };
+    return capitalLimits();
   }
 
   async get(agentId: string) {

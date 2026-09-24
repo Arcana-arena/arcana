@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { MIN_DECISIONS, REGIME_WEIGHT_NOTE, SCORE_WEIGHTS, STRATEGY_NOTE } from '../common/ranking';
+import { capitalLimits } from '../agents/capital-mandate.service';
 
 /**
  * Every number the documentation quotes, read from the values in force.
@@ -115,8 +116,21 @@ export class DocsService {
         'Who made each decision. `protective` does not mean a level fired: most protective rows are a ' +
         'level that was crossed and an exit that was NOT taken.',
       subscription: terms,
+      capital: this.capital(),
       as_of: new Date().toISOString(),
     };
+  }
+
+  /**
+   * ARCANA CAPITAL's limits, from the signer's allowlist. An unreadable file is
+   * reported as unavailable rather than filled with round numbers.
+   */
+  private capital() {
+    try {
+      return { available: true as const, reason: null, ...capitalLimits() };
+    } catch (e) {
+      return { available: false as const, reason: `the lending allowlist could not be read (${e instanceof Error ? e.message : String(e)})` };
+    }
   }
 
   /**
