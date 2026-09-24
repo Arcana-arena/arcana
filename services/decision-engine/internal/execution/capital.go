@@ -28,7 +28,29 @@ type LendingCfg struct {
 	Enabled bool               `json:"enabled"`
 	Morpho  string             `json:"morpho"`
 	Markets []LendingMarketCfg `json:"markets"`
+	// The platform caps, in whole USDG, exactly as the signer reads them. The
+	// signer enforces them in base units; the decider needs them to know what
+	// it may propose.
+	Limits struct {
+		MaxBorrowPerTxUSDG  string `json:"max_borrow_per_tx_usdg"`
+		MaxDebtPerAgentUSDG string `json:"max_debt_per_agent_usdg"`
+	} `json:"limits"`
 }
+
+// PlatformCaps returns the per-transaction and per-agent caps in whole USDG,
+// or zeros when they are absent — which makes every borrow refuse.
+func (b *Broker) PlatformCaps() (perTx, perAgent float64) {
+	if b.cfg.Lending == nil {
+		return 0, 0
+	}
+	fmt.Sscanf(b.cfg.Lending.Limits.MaxBorrowPerTxUSDG, "%g", &perTx)
+	fmt.Sscanf(b.cfg.Lending.Limits.MaxDebtPerAgentUSDG, "%g", &perAgent)
+	return perTx, perAgent
+}
+
+// LendingEnabled is the allowlist's switch. The signer enforces it; the engine
+// reads it only to say so on the record instead of discovering it as a refusal.
+func (b *Broker) LendingEnabled() bool { return b.cfg.Lending != nil && b.cfg.Lending.Enabled }
 
 type LendingMarketCfg struct {
 	Name            string `json:"name"`
@@ -83,8 +105,12 @@ func (b *Broker) ReadPosition(ctx context.Context, m LendingMarketCfg, wallet st
 // MarketState is everything about a market that is the same for every wallet
 // in it, read once per scan.
 type MarketState struct {
+	TotalSupplyAssets *big.Int
 	TotalBorrowAssets *big.Int
 	TotalBorrowShares *big.Int
+	LastUpdate        *big.Int
+	Fee               *big.Int
+	BorrowRateBps     float64  // annual; -1 when the IRM could not be read
 	OraclePrice       *big.Int // Morpho oracle scale
 	PoolPrice         float64  // USDG per collateral token; 0 when unreadable
 	BaseFeedAge       *int     // seconds; nil when unreadable
@@ -118,11 +144,27 @@ func (b *Broker) ReadMarketState(ctx context.Context, m LendingMarketCfg, now ti
 	if err != nil {
 		return s, fmt.Errorf("market(%s): %w", m.Name, err)
 	}
-	if s.TotalBorrowAssets, err = word(raw, 2); err != nil {
-		return s, fmt.Errorf("market(%s): %w", m.Name, err)
+	words := make([]*big.Int, 6)
+	for i := range words {
+		if words[i], err = word(raw, i); err != nil {
+			return s, fmt.Errorf("market(%s): %w", m.Name, err)
+		}
 	}
-	if s.TotalBorrowShares, err = word(raw, 3); err != nil {
-		return s, fmt.Errorf("market(%s): %w", m.Name, err)
+	s.TotalSupplyAssets, s.TotalBorrowAssets, s.TotalBorrowShares = words[0], words[2], words[3]
+	s.LastUpdate, s.Fee = words[4], words[5]
+
+	// The IRM's current rate: borrowRateView(marketParams, market), per second
+	// in WAD. Unreadable is -1, which the decider treats as above any mandate.
+	s.BorrowRateBps = -1
+	irmData := "0x8c00bf6b" + padAddr(m.LoanToken) + padAddr(m.CollateralToken) + padAddr(m.Oracle) + padAddr(m.IRM) + padUint(lltv)
+	for _, w := range words {
+		irmData += padUint(w)
+	}
+	if rr, rerr := b.rpc.hexString(ctx, "eth_call", []any{map[string]string{"to": m.IRM, "data": irmData}, "latest"}); rerr == nil {
+		if perSec, werr := word(rr, 0); werr == nil {
+			f, _ := new(big.Float).Quo(new(big.Float).SetInt(perSec), new(big.Float).SetInt(pow10i(18))).Float64()
+			s.BorrowRateBps = f * 31536000 * 10000
+		}
 	}
 
 	raw, err = b.rpc.hexString(ctx, "eth_call", []any{map[string]string{"to": m.Oracle, "data": "0xa035b1fe"}, "latest"})
@@ -261,3 +303,6 @@ func word(hexResult string, i int) (*big.Int, error) {
 	}
 	return v, nil
 }
+
+// ToWhole converts base units to whole units with the given decimals.
+func ToWhole(v *big.Int, decimals int) float64 { return toFloat(v, decimals) }

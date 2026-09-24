@@ -353,6 +353,13 @@ func (e *Engine) Execute(ctx context.Context, req ExecuteRequest) (int64, error)
 		}
 	}
 
+	// THE CAPITAL MANDATE'S NEVER-SELL LIST, applied after the answer and
+	// whoever gave it — never by prompt wording (architecture.md §17.7 day 6).
+	if held, refused := e.neverSell(ctx, req.AgentID, intent); refused {
+		intent = held
+		ev.ReasonCode = ReasonNeverSell
+	}
+
 	var action, symbol, rationale string
 	var qty *float64
 	var execID *int64

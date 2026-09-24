@@ -9,6 +9,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -35,6 +36,8 @@ import { AgentTriggersService } from './triggers.service';
 import { AgentWalletViewService } from './wallet-view.service';
 import { AgentPacingService } from './pacing.service';
 import { PauseAgentDto, SetRiskDto } from './dto/lifecycle.dto';
+import { CapitalMandateDto } from './dto/capital-mandate.dto';
+import { CapitalMandateService } from './capital-mandate.service';
 import { parsePage } from '../common/pagination';
 import { ambiguousRiskKeys, unrecognisedRiskKeys } from './risk-profile';
 import { maskAgentEntity } from '../intelligence/intelligence';
@@ -115,6 +118,7 @@ export class AgentsController {
     private readonly overviewService: AgentOverviewService,
     private readonly positionsService: AgentPositionsService,
     private readonly capitalService: AgentCapitalService,
+    private readonly capitalMandates: CapitalMandateService,
     private readonly lifecycle: AgentLifecycleService,
     private readonly triggersSvc: AgentTriggersService,
     private readonly walletView: AgentWalletViewService,
@@ -242,6 +246,44 @@ export class AgentsController {
   @Get(':id/capital')
   capital(@Param('id', ParseUuidAllPipe) id: string) {
     return this.capitalService.forAgent(id);
+  }
+
+  /**
+   * 🔒 The capital mandate and what it may be. Owner only: its levels are risk
+   * rules, the same class of fact a private agent withholds.
+   */
+  @Get(':id/capital/mandate')
+  @UseGuards(JwtAuthGuard)
+  async capitalMandate(@Param('id', ParseUuidAllPipe) id: string, @CurrentWallet() wallet: string) {
+    await this.ownership.assertOwnsAgent(wallet, id);
+    return this.capitalMandates.get(id);
+  }
+
+  /** 🔒 Save the mandate. Validated here, in the database and again in the engine. */
+  @Put(':id/capital/mandate')
+  @UseGuards(JwtAuthGuard)
+  async saveCapitalMandate(
+    @Param('id', ParseUuidAllPipe) id: string,
+    @Body() dto: CapitalMandateDto,
+    @CurrentWallet() wallet: string,
+  ) {
+    await this.ownership.assertOwnsAgent(wallet, id);
+    return this.capitalMandates.save(id, dto);
+  }
+
+  @Post(':id/capital/mandate/activate')
+  @UseGuards(JwtAuthGuard)
+  async activateCapitalMandate(@Param('id', ParseUuidAllPipe) id: string, @CurrentWallet() wallet: string) {
+    await this.ownership.assertOwnsAgent(wallet, id);
+    return this.capitalMandates.activate(id);
+  }
+
+  /** 🔒 Stop the mandate. The position stays watched (§17.4). */
+  @Post(':id/capital/mandate/stop')
+  @UseGuards(JwtAuthGuard)
+  async stopCapitalMandate(@Param('id', ParseUuidAllPipe) id: string, @CurrentWallet() wallet: string) {
+    await this.ownership.assertOwnsAgent(wallet, id);
+    return this.capitalMandates.stop(id);
   }
 
   /**

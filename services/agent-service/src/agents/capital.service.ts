@@ -27,8 +27,9 @@ export class AgentCapitalService {
   constructor(@InjectDataSource() private readonly db: DataSource) {}
 
   async forAgent(agentId: string) {
-    const agent = await this.db.query(`SELECT id FROM agents WHERE id = $1`, [agentId]);
+    const agent = await this.db.query(`SELECT id, visibility FROM agents WHERE id = $1`, [agentId]);
     if (agent.length === 0) throw new NotFoundException(`Agent ${agentId} not found`);
+    const isPrivate = agent[0].visibility === 'private';
 
     const rows = await this.db.query(
       `SELECT DISTINCT ON (market_id)
@@ -85,15 +86,40 @@ export class AgentCapitalService {
         };
       });
 
+    // THE CAPITAL DECISION LOG (capital_actions): every action the mandate
+    // chose and every refusal, with the inputs it was taken on. A private
+    // agent's reasons and evidence carry its mandate's levels, which are risk
+    // rules and are withheld; what it DID — the action, the amount, the
+    // outcome and the transaction — stays public (migration 0047).
+    const mandate = await this.db.query(
+      `SELECT status, activated_at FROM capital_mandates WHERE agent_id = $1`, [agentId]);
+    const actions = await this.db.query(
+      `SELECT id, ts, kind, amount::float8 AS amount, reason_code, why, evidence, status,
+              refusal_code, refusal_detail, tx_hash, approve_tx_hash, decider
+         FROM capital_actions WHERE agent_id = $1 ORDER BY ts DESC, id DESC LIMIT 50`, [agentId]);
+
+    const acting = mandate[0]?.status === 'active';
     return {
       agent_id: agentId,
       positions,
+      mandate: mandate[0] ? { status: mandate[0].status, activated_at: mandate[0].activated_at } : null,
+      actions: actions.map((a: any) => ({
+        id: Number(a.id), ts: a.ts, kind: a.kind, amount: a.amount, status: a.status,
+        reason_code: a.reason_code, decider: a.decider,
+        refusal_code: a.refusal_code,
+        tx_hash: a.tx_hash, approve_tx_hash: a.approve_tx_hash,
+        ...(isPrivate
+          ? { why: null, refusal_detail: null, evidence: 'withheld' }
+          : { why: a.why, refusal_detail: a.refusal_detail, evidence: a.evidence }),
+      })),
       // Said beside the numbers, because a reader who assumes otherwise is the
-      // bug: these figures are watched, and nothing acts on them yet.
-      acting: false,
-      note:
-        'Read from Morpho and its oracle by the position guard about once a minute. ' +
-        'ARCANA does not borrow, repay or deleverage on these figures yet.',
+      // bug: whether anything acts on these figures is the mandate's status.
+      acting,
+      note: acting
+        ? 'Read from Morpho by the position guard about once a minute. An active capital mandate ' +
+          'decides on this agent\'s cadence; every action and refusal is listed below.'
+        : 'Read from Morpho by the position guard about once a minute. No capital mandate is active, ' +
+          'so nothing borrows, repays or supplies on these figures.',
     };
   }
 }

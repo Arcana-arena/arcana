@@ -42,6 +42,8 @@ import {
 import { ListingPanel } from './ListingPanel';
 import { CompetitionPanel, type EntryCompetition } from './CompetitionPanel';
 import { VisibilityPanel, type VisibilityDecision } from './VisibilityPanel';
+import { CapitalMandatePanel } from './CapitalMandatePanel';
+import type { CapitalMandateView } from './actions';
 import type { Attention, Dashboard, Triggers, WalletBalances, WalletTransactions } from '../../shapes';
 import type { AgentIntelligence } from '@/lib/types';
 
@@ -194,6 +196,9 @@ export default async function ManageAgentPage({
       ? authed<Dashboard>(`/v1/creators/${s.session.creator_id}/dashboard`)
       : Promise.resolve({ ok: false as const, status: null, reason: 'no creator profile', body: null }),
   ]);
+
+  // Only on the manage tab, and after ownership is known from the reads above.
+  const capitalR = tab === 'manage' ? await authed<CapitalMandateView>(`/v1/agents/${id}/capital/mandate`) : null;
 
   if (!walletR.ok && (walletR.status === 403 || walletR.status === 404)) {
     return (
@@ -394,6 +399,21 @@ export default async function ManageAgentPage({
                 editable={a.status !== 'retired'}
               />
             </Fold>
+
+            {/* ARCANA CAPITAL. Read only on this tab, from the owner's endpoint:
+                a mandate's levels are risk rules. */}
+            {capitalR ? (
+              <Fold
+                title="Capital mandate"
+                state={capitalR.ok ? (capitalR.data.mandate?.status ?? 'none') : 'unavailable'}
+              >
+                {capitalR.ok ? (
+                  <CapitalMandatePanel agentId={id} initial={capitalR.data} editable={a.status !== 'retired'} />
+                ) : (
+                  <Failed what="The capital mandate" error={capitalR} />
+                )}
+              </Fold>
+            ) : null}
 
             <Fold
               title="Competitions"

@@ -3,10 +3,10 @@
  * to liquidation. architecture.md §17.6 acceptance 1: a person opens the agent
  * page and sees collateral, debt, health factor and liquidation price.
  *
- * WATCHED, NOT ACTED ON, and the block says so. The position guard reads these
- * from the chain about once a minute; nothing borrows, repays or deleverages on
- * them yet. A reader who assumed otherwise would trust a protection that does
- * not exist.
+ * WHETHER ANYTHING ACTS ON IT IS SAID, from the mandate's status. The guard reads these
+ * from the chain about once a minute; only an ACTIVE capital mandate borrows or
+ * repays on them, and every one of its decisions is listed. A reader who assumed
+ * otherwise would trust a protection that does not exist.
  *
  * TWO HEALTH FACTORS, printed side by side. Morpho's own is on the oracle
  * price, and it is the one liquidation is decided on. The second uses the lower
@@ -38,7 +38,30 @@ type CapitalPosition = {
   stale: boolean;
 };
 
-type CapitalResp = { agent_id: string; positions: CapitalPosition[]; acting: boolean; note: string };
+type CapitalAction = {
+  id: number;
+  ts: string;
+  kind: 'hold' | 'supply' | 'borrow' | 'repay' | 'deleverage';
+  amount: number;
+  status: string;
+  reason_code: string;
+  decider: string;
+  refusal_code: string | null;
+  tx_hash: string | null;
+  approve_tx_hash: string | null;
+  why: string | null;
+  refusal_detail: string | null;
+  evidence: Record<string, unknown> | 'withheld' | null;
+};
+
+type CapitalResp = {
+  agent_id: string;
+  positions: CapitalPosition[];
+  mandate: { status: string; activated_at: string | null } | null;
+  actions: CapitalAction[];
+  acting: boolean;
+  note: string;
+};
 
 const hf = (v: number | null) => (v === null ? '—' : num(v, 2));
 const tone = (v: number | null) => (v === null ? undefined : v < 1.1 ? 'var(--red)' : v < 1.5 ? 'var(--amber)' : undefined);
@@ -54,7 +77,7 @@ export async function CapitalBlock({ id }: { id: string }) {
     <section>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
         <Key>Capital · borrowing against the book</Key>
-        <span className="mono m3" style={{ fontSize: 10.5 }}>watched · not acted on</span>
+        <span className="mono m3" style={{ fontSize: 10.5 }}>{d.acting ? 'watched · a capital mandate is active' : 'watched · not acted on'}</span>
       </div>
 
       {d.positions.length === 0 ? (
@@ -123,6 +146,65 @@ export async function CapitalBlock({ id }: { id: string }) {
           <p className="m3" style={{ marginTop: 8, fontSize: 11.5 }}>{d.note}</p>
         </>
       )}
+
+      {/* THE CAPITAL DECISION LOG. Every action the mandate chose and every
+          refusal, newest first, with the reason and the inputs it was taken on
+          — the capital equivalent of the Decisions tab (§12). */}
+      {d.mandate || d.actions.length > 0 ? (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
+            <Key>Capital decisions</Key>
+            <span className="mono m3" style={{ fontSize: 10.5 }}>
+              mandate {d.mandate ? d.mandate.status : 'none'}
+              {d.mandate?.activated_at ? ` · since ${utc(d.mandate.activated_at)}` : ''}
+            </span>
+          </div>
+          {d.actions.length === 0 ? (
+            <p className="m3" style={{ marginTop: 8, fontSize: 12.5 }}>No capital decision has been recorded yet.</p>
+          ) : (
+            <div className="scroll-x">
+              <table className="table" style={{ marginTop: 10 }}>
+                <thead>
+                  <tr>
+                    <th style={{ width: 150 }}>When</th>
+                    <th style={{ width: 90 }}>Action</th>
+                    <th className="r" style={{ width: 110 }}>Amount</th>
+                    <th style={{ width: 110 }}>Outcome</th>
+                    <th>Why</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {d.actions.map((a) => (
+                    <tr key={a.id}>
+                      <td className="mono" style={{ fontSize: 11 }}>{utc(a.ts)}</td>
+                      <td className="mono">{a.kind}</td>
+                      <td className="r">{a.kind === 'hold' ? <span className="m3">—</span> : <Num value={num(a.amount, a.kind === 'supply' ? 6 : 2)} />}</td>
+                      <td className="mono" style={{ fontSize: 11, color: a.status === 'refused' || a.status === 'reverted' ? 'var(--red)' : undefined }}>
+                        {a.status}
+                        {a.refusal_code ? <div className="m3">{a.refusal_code}</div> : null}
+                        {a.tx_hash ? <div className="m3" title={a.tx_hash}>{a.tx_hash.slice(0, 10)}…</div> : null}
+                      </td>
+                      <td style={{ fontSize: 12 }}>
+                        <span className="mono m3" style={{ fontSize: 10.5 }}>{a.reason_code}</span>
+                        {a.why ? <div>{a.why}</div> : <div className="m3">withheld — this agent is private</div>}
+                        {a.refusal_detail ? <div className="m3" style={{ fontSize: 11 }}>refused: {a.refusal_detail}</div> : null}
+                        {a.evidence && a.evidence !== 'withheld' ? (
+                          <details style={{ marginTop: 4 }}>
+                            <summary className="m3" style={{ fontSize: 10.5, cursor: 'pointer' }}>inputs it was decided on</summary>
+                            <pre className="mono" style={{ fontSize: 10, whiteSpace: 'pre-wrap', margin: '6px 0 0' }}>
+                              {JSON.stringify(a.evidence, null, 2)}
+                            </pre>
+                          </details>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : null}
     </section>
   );
 }

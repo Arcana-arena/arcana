@@ -409,9 +409,25 @@ func (s *server) handleExecute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ARCANA CAPITAL, after the trading cycle has released its lease and on
+	// the same cadence. Its outcome is recorded in capital_actions by the
+	// cycle itself; a failure here is logged and never undoes the trade
+	// decision that was just recorded. A verification never runs it.
+	var capOut any
+	if !req.IsVerification {
+		out, cerr := s.engine.CapitalCycle(ctx, req.AgentID)
+		if cerr != nil {
+			log.Printf("agent %s: capital cycle: %v", req.AgentID, cerr)
+			capOut = map[string]any{"error": cerr.Error()}
+		} else if out != nil {
+			capOut = out
+		}
+	}
+
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"decision_id": decisionID,
 		"status":      "recorded",
+		"capital":     capOut,
 	})
 }
 

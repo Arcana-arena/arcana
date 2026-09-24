@@ -448,6 +448,7 @@ quietly.
 | `stop_loss` | position guard | a stop level was crossed and the position was exited. `decider` is `protective`: no model decided this |
 | `take_profit` | position guard | a target level was crossed and the position was exited. `decider` is `protective` |
 | `position_locked` | engine / position guard | another actor held this agent's execution lease, so this one stood down rather than turning one intent into two transactions |
+| `never_sell` | engine | the trading decider proposed selling a symbol the agent's active capital mandate lists as never-sell, or the mandate could not be read; the sell became a hold. See [capital.md](./capital.md) |
 
 Two more are written on an **execution row rather than a decision**, because
 they belong to one wallet in a fan-out rather than to the agent's tick:

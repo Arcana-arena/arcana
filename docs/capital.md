@@ -1,8 +1,10 @@
-# ARCANA CAPITAL — what exists after day 5
+# ARCANA CAPITAL — what exists after day 6
 
-**Status:** watched, not acted on. The signer can build the lending shapes and
-refuses all of them; the position guard reads every agent's Morpho position and
-records it; the agent page shows it. Nothing borrows, repays or deleverages.
+**Status:** a mandate can be written, activated and stopped in a browser; an
+active mandate's decider runs on the agent's cadence and records every action
+and refusal. The signer still ships with lending **disabled**, so every supply,
+borrow or repay the decider chooses is refused by the signer and recorded as
+refused. Nothing is signed until a reviewed commit enables it.
 
 Plan: architecture.md §17. Evidence for the market chosen:
 [go-no-go-lending.md](./go-no-go-lending.md).
@@ -13,10 +15,13 @@ Plan: architecture.md §17. Evidence for the market chosen:
 | Signer intents | `lending_approve`, `lending_supply`, `lending_borrow`, `lending_repay` in `services/signer/cmd/server/main.go` |
 | Policy | `services/signer/internal/policy/lending.go` |
 | Reader | `services/decision-engine/internal/execution/capital.go`, run by the position guard |
-| Table | `capital_positions` (migration 0058) |
-| API | `GET /v1/agents/:id/capital` 🌐 |
-| Page | Positions tab → *Capital · borrowing against the book* |
-| Proof | `infra/verify/lending-verify.mjs`, plus Go tests in both services |
+| Decider and its rule | `services/decision-engine/internal/capital` (`Decide`, `Validate`, `NeverSellRefusal`) |
+| Capital cycle | `services/decision-engine/internal/engine/capital_cycle.go`, after each trading decision |
+| Execution | `services/decision-engine/internal/execution/lending_exec.go` |
+| Tables | `capital_positions` (0058); `capital_mandates` and `capital_actions` (0059) |
+| API | `GET /v1/agents/:id/capital` 🌐; `GET`/`PUT /v1/agents/:id/capital/mandate`, `POST …/activate`, `POST …/stop` 🔒 |
+| Pages | agent Positions tab → *Capital*; `/me/agents/:id` → *Capital mandate* |
+| Proof | `infra/verify/lending-verify.mjs`, `infra/verify/capital-verify.mjs`, Go tests in both services |
 
 ---
 
@@ -81,10 +86,49 @@ Units: collateral is read in 18-decimal base units, debt in 6, the oracle price
 at Morpho's 1e36 scale, LLTV as a WAD. They stay integers until the last step,
 where each is converted once with the allowlist's decimals.
 
+## The mandate
+
+`capital_mandates`, one per agent. Every bound is enforced three times: the API
+refuses with a code and a sentence, the database refuses the same row with a
+CHECK constraint, and the engine's `capital.Validate` refuses the action.
+
+| Field | Bound | Refusal |
+|---|---|---|
+| `min_health_factor` | 1.5 – 10 | `health_floor_too_low` |
+| `max_borrow_usdg` | above 0, at most the signer's per-agent cap | `borrow_cap_not_positive`, `borrow_cap_over_platform` |
+| `liquidity_trigger_usdg` | 0 – the borrow cap | `trigger_out_of_range` |
+| `max_borrow_rate_bps` | 1 – 10000 | shape check |
+| `never_sell` | allowlisted symbols only | `never_sell_not_holdable` |
+
+Activation needs an active agent (`agent_not_active`) with a chain wallet
+(`no_wallet`). Stopping leaves the position watched.
+
+## The decider
+
+Deterministic, one action per cycle, on the **worst** of the oracle and pool
+price: repay under the floor; repay, and borrow nothing, above the rate; borrow
+up to the trigger when cash is below it, posting wallet collateral first when
+the floor leaves no room; repay cash above twice the trigger; otherwise hold.
+
+Every proposal then goes through `Validate`, which refuses a borrow over the
+mandate's cap, over the platform's caps, under the floor, above the rate, on an
+untrusted oracle (a feed past its heartbeat, or `oraclePaused()`), or beyond the
+market's liquidity. A trading SELL of a never-sell symbol becomes a hold with
+reason `never_sell`, and a mandate that cannot be read holds the sell too.
+
+**Why not the `decisions` table.** The scoring engine divides by every row of
+`decisions_counted`, and DNA, autopsy and the overview read the same view, so a
+borrow written there would move a trading score — which §17.3 forbids. A
+capital decision is a `capital_actions` row with its own evidence: the mandate
+and position it was taken on, the rule's reason, and what `Validate` and the
+signer said. It is not part of the decision commitment chain or the on-chain
+anchors. A hold is written only when its reason changes.
+
 ## Not yet
 
-- **Enabling the signer.** A reviewed commit flipping `enabled`, after day 6.
-- **Acting on a health factor.** The capital decider and the deleverage path
-  are days 6 and 7.
+- **Enabling the signer.** A reviewed commit flipping `enabled`, and a funded
+  wallet with gas, are what turn a recorded refusal into a real borrow.
+- **Deleverage.** Selling collateral to restore the floor, in the guard loop
+  between ticks, is day 7.
 - **A real transaction.** Everything above was proved by simulation against
   live state; nothing has been broadcast.

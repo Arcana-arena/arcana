@@ -31,6 +31,7 @@ func NewSignerClient(base, internalKey string, c *http.Client) *SignerClient {
 type SignRequest struct {
 	Intent    string `json:"intent"`
 	AgentID   string `json:"agent_id"`
+	MarketID  string `json:"market_id,omitempty"` // lending intents only
 	TokenIn   string `json:"token_in"`
 	TokenOut  string `json:"token_out,omitempty"`
 	Router    string `json:"router"`

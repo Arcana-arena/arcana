@@ -263,3 +263,65 @@ export async function revealDecision(
   }
   return { ok: false, status: r.status, reason: r.reason, code: codeOf(r.body) };
 }
+
+// ---------------------------------------------------------------- capital
+
+/** The mandate as the service stores it, plus what it is allowed to be. */
+export type CapitalMandateView = {
+  mandate: {
+    market_id: string;
+    min_health_factor: number;
+    max_borrow_rate_bps: number;
+    liquidity_trigger_usdg: number;
+    max_borrow_usdg: number;
+    never_sell: string[];
+    status: 'draft' | 'active' | 'stopped';
+    activated_at: string | null;
+    updated_at: string;
+  } | null;
+  limits: {
+    lending_enabled: boolean;
+    market: { id: string; name: string } | null;
+    min_health_factor: number;
+    max_health_factor: number;
+    platform_max_debt_usdg: number;
+    platform_max_borrow_per_tx_usdg: number;
+    symbols: string[];
+  };
+};
+
+export type CapitalMandateInput = {
+  min_health_factor: number;
+  max_borrow_rate_bps: number;
+  liquidity_trigger_usdg: number;
+  max_borrow_usdg: number;
+  never_sell: string[];
+};
+
+async function capitalCall(
+  agentId: string,
+  path: string,
+  method: 'PUT' | 'POST',
+  body?: unknown,
+): Promise<{ ok: true; data: CapitalMandateView } | Fail> {
+  const r = await authed<CapitalMandateView>(`/v1/agents/${agentId}/capital/mandate${path}`, { method, body });
+  if (r.ok) {
+    revalidatePath(`/me/agents/${agentId}`);
+    revalidatePath(`/agents/${agentId}`);
+    return { ok: true, data: r.data };
+  }
+  // The service's own sentence, not "could not save": each refusal names the
+  // rule it applied and what the value would have to be.
+  const msg = asRecord(r.body).message;
+  return { ok: false, status: r.status, reason: typeof msg === 'string' ? msg : r.reason, code: codeOf(r.body) };
+}
+
+export async function saveCapitalMandate(agentId: string, m: CapitalMandateInput) {
+  return capitalCall(agentId, '', 'PUT', m);
+}
+export async function activateCapitalMandate(agentId: string) {
+  return capitalCall(agentId, '/activate', 'POST', {});
+}
+export async function stopCapitalMandate(agentId: string) {
+  return capitalCall(agentId, '/stop', 'POST', {});
+}
