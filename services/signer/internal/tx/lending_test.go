@@ -81,3 +81,13 @@ func TestEncodeRepaySharesPutsTheSharesInTheSharesSlot(t *testing.T) {
 		t.Fatalf("repay-by-shares calldata\n got %s\nwant %s", got, want)
 	}
 }
+
+func TestEncodeWithdrawCollateralMatchesViem(t *testing.T) {
+	want := "8720316d" + tuple +
+		"00000000000000000000000000000000000000000000000006f05b59d3b20000" + // 0.5e18
+		selfWord + selfWord // onBehalf and receiver: the agent, both
+	got := hex.EncodeToString(EncodeWithdrawCollateral(market, new(big.Int).Div(new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil), big.NewInt(2)), self))
+	if got != want {
+		t.Fatalf("withdrawCollateral calldata differs from viem's\n got %s\nwant %s", got, want)
+	}
+}

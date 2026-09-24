@@ -129,7 +129,7 @@ func TestValidateRefusesPlausibleBreaches(t *testing.T) {
 			func(s State) State { s.DebtUSDG = 5; return s }, "repay_over_debt"},
 		{"collateral the wallet does not hold", Action{Kind: Supply, Amount: 2},
 			func(s State) State { return s }, "insufficient_collateral_in_wallet"},
-		{"an action that is not one", Action{Kind: "withdraw", Amount: 1},
+		{"an action that is not one", Action{Kind: "transfer", Amount: 1},
 			func(s State) State { return s }, "unknown_capital_action"},
 		{"a negative borrow", Action{Kind: Borrow, Amount: -5},
 			func(s State) State { return s }, "amount_not_positive"},
@@ -188,6 +188,53 @@ func TestDecidedBorrowAlwaysPassesValidate(t *testing.T) {
 				if r := Validate(a, m, s); r != nil {
 					t.Errorf("coll=%v price=%v floor=%v: Decide proposed %v and Validate refused it: %v", coll, price, hf, a.Amount, r)
 				}
+			}
+		}
+	}
+}
+
+// WITHDRAW, by the owner's hand: never more than is posted, and with debt
+// outstanding never under the floor or on a price nobody can trust.
+func TestValidateWithdraw(t *testing.T) {
+	cases := []struct {
+		name string
+		a    Action
+		s    func(State) State
+		code string
+	}{
+		{"everything, with no debt", Action{Kind: Withdraw, Amount: 2}, func(s State) State { return s }, ""},
+		{"more than is posted", Action{Kind: Withdraw, Amount: 2.0001}, func(s State) State { return s }, "withdraw_over_collateral"},
+		// 2 NVDA, 50 owed, worst 220: keeping 1 gives 1*220*0.625/50 = 2.75, fine.
+		{"half, with debt the rest still covers", Action{Kind: Withdraw, Amount: 1},
+			func(s State) State { s.DebtUSDG = 50; return s }, ""},
+		// Keeping 0.5 gives 0.5*220*0.625/50 = 1.375, under the floor of 2.
+		{"too much, with debt", Action{Kind: Withdraw, Amount: 1.5},
+			func(s State) State { s.DebtUSDG = 50; return s }, "below_health_floor"},
+		{"any amount with debt on an untrusted oracle", Action{Kind: Withdraw, Amount: 0.1},
+			func(s State) State { s.DebtUSDG = 50; s.OracleUntrusted, s.OracleWhy = true, "stale"; return s }, "oracle_untrusted"},
+		{"an untrusted oracle does not lock collateral that backs nothing", Action{Kind: Withdraw, Amount: 2},
+			func(s State) State { s.OracleUntrusted, s.OracleWhy = true, "stale"; return s }, ""},
+	}
+	for _, c := range cases {
+		r := Validate(c.a, mandate, c.s(base()))
+		got := ""
+		if r != nil {
+			got = r.Code
+		}
+		if got != c.code {
+			t.Errorf("%s: want %q, got %q (%v)", c.name, c.code, got, r)
+		}
+	}
+}
+
+// Decide never proposes a withdrawal; it is the owner's hand only.
+func TestDecideNeverWithdraws(t *testing.T) {
+	for _, debt := range []float64{0, 10, 100, 137} {
+		for _, cash := range []float64{0, 10, 60, 500} {
+			s := base()
+			s.DebtUSDG, s.WalletUSDG = debt, cash
+			if a := Decide(mandate, s); a.Kind == Withdraw {
+				t.Fatalf("Decide proposed a withdrawal at debt=%v cash=%v", debt, cash)
 			}
 		}
 	}

@@ -5,7 +5,7 @@
 // builds the transaction itself.
 //
 // THE SHAPE OF THE RULE: the signer can do the things whose shape is permitted,
-// not the things no rule forbids. There are two trading intents and four lending
+// not the things no rule forbids. There are two trading intents and five lending
 // ones, the lending ones refused until the allowlist enables them. A caller
 // cannot ask for a raw transfer because the API has no way to express one, and
 // an intent name it does not recognise is refused rather than interpreted.
@@ -210,7 +210,7 @@ func (s *server) handleWallet(w http.ResponseWriter, r *http.Request) {
 // that thinks it is asking for something else is told it is wrong instead of
 // quietly getting something it did not ask for.
 type signRequest struct {
-	Intent   string `json:"intent"` // approve | swap_exact_in | lending_approve | lending_supply | lending_borrow | lending_repay
+	Intent   string `json:"intent"` // approve | swap_exact_in | lending_approve | lending_supply | lending_borrow | lending_repay | lending_withdraw
 	AgentID  string `json:"agent_id"`
 	MarketID string `json:"market_id"` // lending only: an allowlisted Morpho market
 	// RepayAll repays the WHOLE debt by shares, read from the chain here, rather
@@ -364,6 +364,19 @@ func (s *server) handleSign(w http.ResponseWriter, r *http.Request) {
 		to = morpho
 		data = tx.EncodeBorrow(marketParams(m), amount, wallet)
 
+	case "lending_withdraw":
+		m, morpho, ref := s.allow.CheckWithdraw(req.MarketID, amount)
+		if ref != nil {
+			refuseCode(w, ref)
+			return
+		}
+		if ref := s.chainChecks(ctx, m.CollateralToken, wallet); ref != nil {
+			refuseCode(w, ref)
+			return
+		}
+		to = morpho
+		data = tx.EncodeWithdrawCollateral(marketParams(m), amount, wallet)
+
 	case "lending_repay":
 		m, morpho, ref := s.allow.CheckRepay(req.MarketID, amount)
 		if ref != nil {
@@ -398,7 +411,7 @@ func (s *server) handleSign(w http.ResponseWriter, r *http.Request) {
 		// permitted is refused, whether or not any rule forbids it.
 		refuse(w, policy.CodeUnknownIntent, fmt.Sprintf(
 			"intent %q is not one this signer can build. It knows approve and swap_exact_in, and "+
-				"lending_approve, lending_supply, lending_borrow and lending_repay while lending is "+
+				"lending_approve, lending_supply, lending_borrow, lending_repay and lending_withdraw while lending is "+
 				"enabled. An unrecognised shape is refused rather than interpreted", req.Intent))
 		return
 	}

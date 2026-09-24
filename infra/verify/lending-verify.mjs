@@ -183,6 +183,7 @@ try {
     ['lending_supply', { amount: String(10n ** 18n) }],
     ['lending_borrow', { amount: usdg(10) }],
     ['lending_repay', { amount: usdg(10) }],
+    ['lending_withdraw', { amount: String(10n ** 17n) }],
   ]) {
     const r = await sign({ intent, market_id: M.id, ...extra });
     check(`${intent} -> lending_not_enabled`, r.status === 403 && code(r) === 'lending_not_enabled',
@@ -248,6 +249,10 @@ try {
     // whole NVDA the same borrow is healthy, so the control needs the half.
     supplyHalf: { intent: 'lending_supply', amount: String(10n ** 18n / 2n) },
     borrowOver: { intent: 'lending_borrow', amount: usdg(100) },
+    // Half of the posted NVDA back to the wallet: fine with no debt, and on a
+    // 100 USDG debt against 1 NVDA it would leave ~$111 backing 100, which
+    // Morpho refuses at LLTV 62.5%.
+    withdrawHalf: { intent: 'lending_withdraw', amount: String(10n ** 18n / 2n) },
   })) {
     const s = await sign({ market_id: M.id, ...body });
     if (s.status !== 200) { check(`${k} signed`, false, `${s.status} ${JSON.stringify(s.body)}`); continue; }
@@ -255,18 +260,20 @@ try {
     const from = await viem.recoverTransactionAddress({ serializedTransaction: s.body.raw });
     signed[k] = { to: t.to, data: t.data, from };
   }
-  check('every shape was signed', Object.keys(signed).length === 7, Object.keys(signed).join(','));
+  check('every shape was signed', Object.keys(signed).length === 8, Object.keys(signed).join(','));
   check('viem recovers the derived wallet as the sender of every one',
     Object.values(signed).every((x) => x.from.toLowerCase() === wallet.toLowerCase()),
     Object.values(signed).map((x) => x.from).join(','));
-  check('supply, borrow and repay are addressed to Morpho',
-    ['supply', 'borrow', 'repay'].every((k) => signed[k]?.to?.toLowerCase() === MORPHO.toLowerCase()));
+  check('supply, borrow, repay and withdraw are addressed to Morpho',
+    ['supply', 'borrow', 'repay', 'withdrawHalf'].every((k) => signed[k]?.to?.toLowerCase() === MORPHO.toLowerCase()));
   check('the approvals are addressed to the token and name Morpho as spender',
     signed.approveNvda?.to?.toLowerCase() === NVDA.toLowerCase() &&
     signed.approveNvda?.data?.toLowerCase().includes(MORPHO.slice(2).toLowerCase()));
   const selfWord = wallet.slice(2).toLowerCase().padStart(64, '0');
   check('borrow names the agent wallet as both onBehalf and receiver',
     (signed.borrow?.data?.toLowerCase().match(new RegExp(selfWord, 'g')) ?? []).length === 2);
+  check('and so does withdraw: collateral comes back to the agent and nowhere else',
+    (signed.withdrawHalf?.data?.toLowerCase().match(new RegExp(selfWord, 'g')) ?? []).length === 2);
 
   const live = viem.createPublicClient({ transport: viem.http(LIVE_RPC, { timeout: 60_000 }) });
   const fund = { from: NVDA_POOL, to: NVDA,
@@ -284,7 +291,7 @@ try {
     return res[0].calls.map((c) => ({ ok: c.status === '0x1', why: c.error?.message ?? '' }));
   };
 
-  if (Object.keys(signed).length === 7) {
+  if (Object.keys(signed).length === 8) {
     const path = await simulate([fund, asCall('approveNvda'), asCall('supply'), asCall('borrow'), asCall('approveUsdg'), asCall('repay')]);
     check('the signed path executes on live state: approve, supply 1 NVDA, borrow 50, approve, repay 50',
       path.every((s) => s.ok), JSON.stringify(path));
@@ -297,6 +304,12 @@ try {
     const c = await simulate([fund, asCall('approveNvda'), asCall('supply'), asCall('borrow'), liquidate]);
     check('control C: a stranger cannot liquidate the healthy position',
       c[4] && !c[4].ok && /position is healthy/.test(c[4].why), JSON.stringify(c[4]));
+    const wd = await simulate([fund, asCall('approveNvda'), asCall('supply'), asCall('withdrawHalf')]);
+    check('the signed withdrawal executes on live state: supply 1 NVDA, take 0.5 back',
+      wd.every((x) => x.ok), JSON.stringify(wd));
+    const e = await simulate([fund, asCall('approveNvda'), asCall('supply'), asCall('borrowOver'), asCall('withdrawHalf')]);
+    check('control E: withdrawing collateral that still backs a debt reverts',
+      e[4] && !e[4].ok && /insufficient collateral/.test(e[4].why), JSON.stringify(e[4]));
     const d = await simulate([fund, asCall('supply')]);
     check('control D: the signed supply without its approval reverts',
       d[1] && !d[1].ok && /transferFrom reverted/.test(d[1].why), JSON.stringify(d[1]));

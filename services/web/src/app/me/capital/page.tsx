@@ -4,13 +4,15 @@
  * For each of the owner's agents: what it has posted and owes on Morpho, its
  * health factor on the oracle and on the worse of the oracle and pool, the
  * price that liquidates it, its capital decisions (the mandate's and the
- * owner's), and the three things the owner can do by hand — post collateral,
- * borrow, repay. The mandate is written on the agent's own manage page and
- * linked from here; this page is where the position is looked after.
+ * owner's), and the four things the owner can do by hand — post collateral,
+ * borrow, repay, and take collateral back. The mandate is written on the
+ * agent's own manage page and linked from here; this page is where the position
+ * is looked after.
  *
- * NOTHING HERE IS COMPUTED THAT THE ENGINE DOES NOT ALSO ENFORCE. The one
- * figure derived on this page — how much more can be borrowed before the floor
- * — is a convenience for filling the box; the engine recomputes it from the
+ * NOTHING HERE IS COMPUTED THAT THE ENGINE DOES NOT ALSO ENFORCE. The two
+ * figures derived on this page — how much more can be borrowed, and how much
+ * collateral can come back, before the floor — are conveniences for filling the
+ * box; the engine recomputes it from the
  * chain and refuses anything past it, whatever this page showed.
  */
 import type { Metadata } from 'next';
@@ -131,9 +133,12 @@ export default async function CapitalPage() {
           const floor = mandate?.min_health_factor ?? OWNER_FLOOR;
           const pos = cap.ok ? cap.data.positions[0] : undefined;
           let headroom: number | null = null;
+          let withdrawMax: number | null = null;
           if (cap.ok) {
-            if (!pos) headroom = 0;
-            else {
+            if (!pos) {
+              headroom = 0;
+              withdrawMax = 0;
+            } else {
               const worst = Math.min(pos.prices.oracle_usdg, pos.prices.pool_usdg ?? pos.prices.oracle_usdg);
               const ceiling = Math.min(
                 (pos.collateral.quantity * worst * pos.lltv) / floor * FLOOR_MARGIN,
@@ -141,6 +146,10 @@ export default async function CapitalPage() {
                 lim?.platform_max_debt_usdg ?? 0,
               );
               headroom = Math.max(0, Math.min(ceiling - pos.debt_usdg, lim?.platform_max_borrow_per_tx_usdg ?? 0));
+              // What must stay posted to keep the worst-case health factor at the
+              // floor, 0.1% over it; with no debt, nothing must stay.
+              const mustStay = pos.debt_usdg > 0 ? (pos.debt_usdg * floor) / (worst * pos.lltv) / FLOOR_MARGIN : 0;
+              withdrawMax = Math.max(0, pos.collateral.quantity - mustStay);
             }
           }
           return (
@@ -174,6 +183,7 @@ export default async function CapitalPage() {
                     debt={pos?.debt_usdg ?? 0}
                     walletUSDG={walletUSDG}
                     borrowHeadroom={headroom}
+                    withdrawMax={withdrawMax}
                     mandateActive={mandate?.status === 'active'}
                   />
                 </>

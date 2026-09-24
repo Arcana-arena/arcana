@@ -60,6 +60,9 @@ const (
 	Supply Kind = "supply"
 	Borrow Kind = "borrow"
 	Repay  Kind = "repay"
+	// Withdraw takes collateral back to the wallet. The owner's hand only:
+	// Decide never proposes it.
+	Withdraw Kind = "withdraw"
 )
 
 // Action is one proposed step. Reason is a stable code; Why is for a person.
@@ -199,9 +202,9 @@ func Validate(a Action, m Mandate, s State) *Refusal {
 	switch a.Kind {
 	case Hold:
 		return nil
-	case Supply, Borrow, Repay:
+	case Supply, Borrow, Repay, Withdraw:
 	default:
-		return refuse("unknown_capital_action", "%q is not supply, borrow, repay or hold", a.Kind)
+		return refuse("unknown_capital_action", "%q is not supply, borrow, repay, withdraw or hold", a.Kind)
 	}
 	if !(a.Amount > 0) || math.IsInf(a.Amount, 0) {
 		return refuse("amount_not_positive", "%v is not an amount", a.Amount)
@@ -211,6 +214,21 @@ func Validate(a Action, m Mandate, s State) *Refusal {
 	case Supply:
 		if a.Amount > s.WalletCollateral {
 			return refuse("insufficient_collateral_in_wallet", "supplying %.6f but the wallet holds %.6f", a.Amount, s.WalletCollateral)
+		}
+	case Withdraw:
+		if a.Amount > s.CollateralQty+1e-12 {
+			return refuse("withdraw_over_collateral", "withdrawing %.6f but %.6f is posted", a.Amount, s.CollateralQty)
+		}
+		// With debt outstanding, what stays posted must still clear the floor,
+		// on the worst price — and a price that cannot be trusted cannot say it
+		// does. With no debt, every unit posted is the owner's to take back.
+		if s.DebtUSDG > 0 {
+			if s.OracleUntrusted {
+				return refuse("oracle_untrusted", "%s; with debt outstanding, a withdrawal cannot be checked against the floor", s.OracleWhy)
+			}
+			if hf := s.HealthAt(s.CollateralQty-a.Amount, s.DebtUSDG); hf < m.MinHealthFactor {
+				return refuse("below_health_floor", "the worst-case health factor would be %.2f after the withdrawal and the floor is %.2f", hf, m.MinHealthFactor)
+			}
 		}
 	case Repay:
 		if a.Amount > s.WalletUSDG {

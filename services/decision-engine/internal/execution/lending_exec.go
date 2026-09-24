@@ -52,8 +52,17 @@ func (b *Broker) ExecuteCapital(ctx context.Context, agentID, wallet string, m L
 		intent, token, decimals = "lending_borrow", "", b.cfg.QuoteToken.Decimals
 	case "repay":
 		intent, token, decimals = "lending_repay", b.cfg.QuoteToken.Address, b.cfg.QuoteToken.Decimals
+	case "withdraw":
+		// Nothing leaves the wallet and nothing needs an allowance: the
+		// collateral comes back from the market.
+		coll, err := b.tokenByAddress(m.CollateralToken)
+		if err != nil {
+			res.Note = err.Error()
+			return res
+		}
+		intent, token, decimals = "lending_withdraw", "", coll.Decimals
 	default:
-		res.Note = fmt.Sprintf("%q is not supply, borrow or repay", kind)
+		res.Note = fmt.Sprintf("%q is not supply, borrow, repay or withdraw", kind)
 		return res
 	}
 	units := baseUnits(amount, decimals)
@@ -68,6 +77,26 @@ func (b *Broker) ExecuteCapital(ctx context.Context, agentID, wallet string, m L
 	// live repay did exactly that on 2026-09-24. So when the amount reaches the
 	// debt, the signer is asked for repay_all (it reads the shares itself) and
 	// the allowance and balance are checked against the full rounded-up debt.
+	// A WITHDRAWAL IS CLAMPED TO WHAT IS POSTED, read from the chain here. The
+	// owner's "all of it" arrives as a float whose conversion can land a base
+	// unit above the posted collateral, and Morpho reverts that with an
+	// underflow — the same shape the first repay hit. Validate has already
+	// refused anything more than a rounding error over.
+	if kind == "withdraw" {
+		pos, perr := b.ReadPosition(ctx, m, wallet)
+		if perr != nil {
+			res.Note = "could not read the posted collateral: " + perr.Error()
+			return res
+		}
+		if pos.Collateral.Sign() == 0 {
+			res.Note = "there is no collateral posted in this market to withdraw"
+			return res
+		}
+		if units.Cmp(pos.Collateral) > 0 {
+			units = new(big.Int).Set(pos.Collateral)
+		}
+	}
+
 	repayAll := false
 	if kind == "repay" {
 		pos, perr := b.ReadPosition(ctx, m, wallet)

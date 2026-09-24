@@ -216,6 +216,19 @@ func (a *Allowlist) CheckSupply(marketID string, amount *big.Int) (LendingMarket
 	return m, morpho, checkPositive(t, amount, "supply")
 }
 
+// CheckWithdraw allows collateral out, back to the agent's own wallet. It is
+// not capped here: Morpho itself refuses a withdrawal that would leave the
+// position under its LLTV, and the engine refuses one that would leave it under
+// the owner's floor before it ever asks.
+func (a *Allowlist) CheckWithdraw(marketID string, amount *big.Int) (LendingMarket, string, *Refusal) {
+	m, morpho, r := a.Market(marketID)
+	if r != nil {
+		return m, "", r
+	}
+	t, _ := a.Token(m.CollateralToken)
+	return m, morpho, checkPositive(t, amount, "withdrawal")
+}
+
 // CheckRepay allows debt down. It is not capped: repaying only reduces risk.
 func (a *Allowlist) CheckRepay(marketID string, amount *big.Int) (LendingMarket, string, *Refusal) {
 	m, morpho, r := a.Market(marketID)

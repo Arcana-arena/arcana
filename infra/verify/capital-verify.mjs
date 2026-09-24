@@ -212,8 +212,8 @@ try {
     check('a second wallet cannot borrow on it', s.status === 403, `status ${s.status}`);
     const anon = await manual({ kind: 'borrow', amount: 1 }, null);
     check('nor can anyone signed out', anon.status === 401, `status ${anon.status}`);
-    const k = await manual({ kind: 'withdraw', amount: 1 });
-    check('an action that is not supply, borrow or repay is refused by the shape check', k.status === 400, `status ${k.status}`);
+    const k = await manual({ kind: 'transfer', amount: 1 });
+    check('an action that is not supply, borrow, repay or withdraw is refused by the shape check', k.status === 400, `status ${k.status}`);
     const z = await manual({ kind: 'borrow', amount: 0 });
     check('and so is an amount of zero', z.status === 400, `status ${z.status}`);
     const n = await manual({ kind: 'borrow', amount: -5 });

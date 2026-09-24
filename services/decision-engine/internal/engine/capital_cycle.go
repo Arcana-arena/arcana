@@ -233,12 +233,13 @@ func (e *Engine) CapitalCycle(ctx context.Context, agentID string) (*CapitalOutc
 // when the agent has no mandate: the same minimum a mandate may set.
 const OwnerFloor = 1.5
 
-// CapitalManual carries out one supply, borrow or repay the OWNER asked for.
+// CapitalManual carries out one supply, borrow, repay or withdraw the OWNER
+// asked for.
 //
 // THE SAME RULE AS THE MANDATE. The owner chooses the amount; they do not get
 // past capital.Validate, the platform's caps or the signer. With a mandate, its
 // floor, cap and rate apply; without one, the platform's cap and a floor of
-// 1.5. A retired agent may still repay, and nothing else.
+// 1.5. A retired agent may still repay and withdraw, and nothing else.
 //
 // Recorded in capital_actions with decider "owner", beside the mandate's own
 // rows, so the page shows who moved what.
@@ -252,9 +253,9 @@ func (e *Engine) CapitalManual(ctx context.Context, agentID, kind string, amount
 	}
 	a := capital.Action{Kind: capital.Kind(kind), Amount: amount, Reason: "owner_request",
 		Why: fmt.Sprintf("the owner asked to %s %g", kind, amount)}
-	if agent.Status == "retired" && a.Kind != capital.Repay {
+	if agent.Status == "retired" && a.Kind != capital.Repay && a.Kind != capital.Withdraw {
 		return &CapitalOutcome{Kind: kind, Amount: amount, Status: "refused", Reason: a.Reason,
-			RefusalCode: "agent_retired", RefusalDetail: "a retired agent may repay its debt, and nothing else"}, nil
+			RefusalCode: "agent_retired", RefusalDetail: "a retired agent may repay its debt and take its collateral back, and nothing else"}, nil
 	}
 
 	mrow, err := e.store.CapitalMandate(ctx, agentID)

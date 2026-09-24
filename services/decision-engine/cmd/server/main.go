@@ -451,9 +451,9 @@ func (s *server) handleCapitalManual(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch req.Kind {
-	case "supply", "borrow", "repay":
+	case "supply", "borrow", "repay", "withdraw":
 	default:
-		writeError(w, http.StatusBadRequest, "invalid_request", "kind must be supply, borrow or repay")
+		writeError(w, http.StatusBadRequest, "invalid_request", "kind must be supply, borrow, repay or withdraw")
 		return
 	}
 	out, err := s.engine.CapitalManual(ctx, req.AgentID, req.Kind, req.Amount)

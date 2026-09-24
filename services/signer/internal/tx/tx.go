@@ -89,6 +89,7 @@ const (
 	selSupplyCollateral = "238d6579" // supplyCollateral((address,address,address,address,uint256),uint256,address,bytes)
 	selBorrow           = "50d8cd4b" // borrow((address,address,address,address,uint256),uint256,uint256,address,address)
 	selRepay            = "20b76e81" // repay((address,address,address,address,uint256),uint256,uint256,address,bytes)
+	selWithdrawColl     = "8720316d" // withdrawCollateral((address,address,address,address,uint256),uint256,address,address)
 )
 
 // MarketParams is Morpho's market tuple. It is static, so it encodes inline.
@@ -150,6 +151,19 @@ func EncodeRepay(m MarketParams, assets *big.Int, self string) []byte {
 	out = append(out, padAddress(self)...)
 	out = append(out, emptyBytesOffset(9)...) // 5 tuple words + assets + shares + onBehalf + offset
 	out = append(out, padUint(big.NewInt(0))...)
+	return out
+}
+
+// EncodeWithdrawCollateral builds withdrawCollateral(market, assets, self, self).
+// The collateral comes back to the agent's own wallet and nowhere else, for the
+// same reason a borrow has no receiver field.
+func EncodeWithdrawCollateral(m MarketParams, assets *big.Int, self string) []byte {
+	sel, _ := hex.DecodeString(selWithdrawColl)
+	out := append([]byte{}, sel...)
+	out = append(out, m.words()...)
+	out = append(out, padUint(assets)...)
+	out = append(out, padAddress(self)...)
+	out = append(out, padAddress(self)...)
 	return out
 }
 

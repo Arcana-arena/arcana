@@ -32,9 +32,10 @@ func TestLendingDisabledRefusesEverything(t *testing.T) {
 	a := load(t)
 	a.Lending.Enabled = false
 	for name, r := range map[string]*Refusal{
-		"supply": func() *Refusal { _, _, r := a.CheckSupply(marketID, big.NewInt(1)); return r }(),
-		"borrow": func() *Refusal { _, _, r := a.CheckBorrow(marketID, usdg(1), big.NewInt(0)); return r }(),
-		"repay":  func() *Refusal { _, _, r := a.CheckRepay(marketID, usdg(1)); return r }(),
+		"supply":   func() *Refusal { _, _, r := a.CheckSupply(marketID, big.NewInt(1)); return r }(),
+		"borrow":   func() *Refusal { _, _, r := a.CheckBorrow(marketID, usdg(1), big.NewInt(0)); return r }(),
+		"repay":    func() *Refusal { _, _, r := a.CheckRepay(marketID, usdg(1)); return r }(),
+		"withdraw": func() *Refusal { _, _, r := a.CheckWithdraw(marketID, big.NewInt(1)); return r }(),
 		"approve": func() *Refusal {
 			_, r := a.CheckLendingApprove(marketID, a.QuoteToken.Address, usdg(1))
 			return r

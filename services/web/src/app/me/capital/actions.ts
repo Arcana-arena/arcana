@@ -9,7 +9,7 @@ import { authed } from '@/lib/session';
  * that refused it, "reverted" with the transaction — never a bare "done".
  */
 export type ManualOutcome = {
-  kind: 'supply' | 'borrow' | 'repay';
+  kind: 'supply' | 'borrow' | 'repay' | 'withdraw';
   amount: number;
   status: string;
   reason: string;
@@ -25,7 +25,7 @@ const rec = (v: unknown): Record<string, unknown> => (v && typeof v === 'object'
 
 export async function capitalManual(
   agentId: string,
-  kind: 'supply' | 'borrow' | 'repay',
+  kind: 'supply' | 'borrow' | 'repay' | 'withdraw',
   amount: number,
 ): Promise<{ ok: true; data: ManualOutcome } | Fail> {
   const r = await authed<ManualOutcome>(`/v1/agents/${agentId}/capital/manual`, {

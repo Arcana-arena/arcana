@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Supply, borrow or repay by hand.
+ * Supply, borrow, repay or withdraw by hand.
  *
  * THE OWNER PICKS THE AMOUNT, NOT THE LIMITS. The engine applies the same rule
  * the mandate runs under — the health-factor floor (the mandate's, or 1.5
@@ -25,6 +25,7 @@ export function ManualCapitalPanel({
   debt,
   walletUSDG,
   borrowHeadroom,
+  withdrawMax,
   mandateActive,
 }: {
   agentId: string;
@@ -33,16 +34,18 @@ export function ManualCapitalPanel({
   walletUSDG: number | null;
   /** USDG that keeps the worst-case health factor at the floor; null when unknown. */
   borrowHeadroom: number | null;
+  /** Collateral that can come back without leaving the debt under the floor; null when unknown. */
+  withdrawMax: number | null;
   mandateActive: boolean;
 }) {
   const router = useRouter();
-  const [kind, setKind] = useState<'supply' | 'borrow' | 'repay'>('borrow');
+  const [kind, setKind] = useState<'supply' | 'borrow' | 'repay' | 'withdraw'>('borrow');
   const [amount, setAmount] = useState('');
   const [out, setOut] = useState<ManualOutcome | null>(null);
   const [fail, setFail] = useState<Fail | null>(null);
   const [pending, start] = useTransition();
 
-  const unit = kind === 'supply' ? collateralSymbol : 'USDG';
+  const unit = kind === 'supply' || kind === 'withdraw' ? collateralSymbol : 'USDG';
   const submit = () => {
     setOut(null);
     setFail(null);
@@ -60,7 +63,11 @@ export function ManualCapitalPanel({
     });
   };
 
-  const fill = (v: number | null) => (v !== null && v > 0 ? () => setAmount(String(Math.floor(v * 1e6) / 1e6)) : undefined);
+  // USDG is filled to 6 decimals, rounded down. Collateral is filled at full
+  // precision: rounding it down would leave dust posted, and the engine clamps
+  // a withdrawal to what is posted on chain, so full precision cannot overshoot.
+  const fill = (v: number | null, exact = false) =>
+    v !== null && v > 0 ? () => setAmount(exact ? String(v) : String(Math.floor(v * 1e6) / 1e6)) : undefined;
 
   return (
     <div className="box" style={{ marginTop: 12 }}>
@@ -75,9 +82,9 @@ export function ManualCapitalPanel({
       ) : null}
 
       <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-        {(['supply', 'borrow', 'repay'] as const).map((k) => (
+        {(['supply', 'borrow', 'repay', 'withdraw'] as const).map((k) => (
           <button key={k} className={kind === k ? 'btn btn-primary' : 'btn'} onClick={() => setKind(k)} disabled={pending}>
-            {k === 'supply' ? `Post ${collateralSymbol}` : k === 'borrow' ? 'Borrow USDG' : 'Repay USDG'}
+            {k === 'supply' ? `Post ${collateralSymbol}` : k === 'borrow' ? 'Borrow USDG' : k === 'repay' ? 'Repay USDG' : `Withdraw ${collateralSymbol}`}
           </button>
         ))}
       </div>
@@ -97,6 +104,11 @@ export function ManualCapitalPanel({
             all of the debt: {debt.toFixed(6)}
           </button>
         ) : null}
+        {kind === 'withdraw' && withdrawMax !== null ? (
+          <button className="btn btn-ghost" onClick={fill(withdrawMax, true)} disabled={pending || withdrawMax <= 0}>
+            all that is safe: {withdrawMax.toFixed(6)}
+          </button>
+        ) : null}
         <button className="btn btn-primary" onClick={submit} disabled={pending || amount === ''}>
           {pending ? 'Signing and waiting for the chain…' : 'Send'}
         </button>
@@ -107,8 +119,10 @@ export function ManualCapitalPanel({
           ? `Moves ${collateralSymbol} from the agent's wallet into the market as collateral. Posting is not a sale.`
           : kind === 'borrow'
             ? 'Borrows USDG into the agent’s own wallet — there is no other destination. Refused if it would put the worst-case health factor under the floor, or over the platform’s caps.'
-            : 'Repays USDG from the agent’s wallet. Repaying is never capped.'}{' '}
-        Up to two transactions are signed (an approval, then the action), paid from the agent&rsquo;s gas.
+            : kind === 'repay'
+              ? 'Repays USDG from the agent’s wallet. Repaying is never capped; the whole debt is repaid by shares, so nothing is left behind.'
+              : `Takes ${collateralSymbol} back from the market into the agent’s own wallet. With debt outstanding, only what keeps the health factor above the floor; with none, all of it.`}{' '}
+        {kind === 'withdraw' || kind === 'borrow' ? 'One transaction is signed' : 'Up to two transactions are signed (an approval, then the action)'}, paid from the agent&rsquo;s gas.
         {walletUSDG !== null ? ` The wallet holds ${walletUSDG.toFixed(6)} USDG.` : ''}
       </p>
 

@@ -12,7 +12,7 @@ Plan: architecture.md §17. Evidence for the market chosen:
 | Part | Where |
 |---|---|
 | Lending allowlist, caps, `enabled: false` | `services/signer/allowlist/robinhood-mainnet.json` → `lending` |
-| Signer intents | `lending_approve`, `lending_supply`, `lending_borrow`, `lending_repay` in `services/signer/cmd/server/main.go` |
+| Signer intents | `lending_approve`, `lending_supply`, `lending_borrow`, `lending_repay`, `lending_withdraw` in `services/signer/cmd/server/main.go` |
 | Policy | `services/signer/internal/policy/lending.go` |
 | Reader | `services/decision-engine/internal/execution/capital.go`, run by the position guard |
 | Decider and its rule | `services/decision-engine/internal/capital` (`Decide`, `Validate`, `NeverSellRefusal`) |
@@ -37,7 +37,8 @@ because unknown fields are.
 | `lending_approve` | `token.approve(Morpho, amount)` | token is not the market's collateral or loan token; unbounded amount |
 | `lending_supply` | `supplyCollateral(market, amount, self, "")` | — beyond the shared checks |
 | `lending_borrow` | `borrow(market, amount, 0, self, self)` | over the per-transaction cap; over the per-agent debt cap; debt unreadable |
-| `lending_repay` | `repay(market, amount, 0, self, "")` | — repay is not capped |
+| `lending_repay` | `repay(market, amount, 0, self, "")`, or with `repay_all` `repay(market, 0, shares, self, "")` — shares read by the signer | — repay is not capped |
+| `lending_withdraw` | `withdrawCollateral(market, amount, self, self)` | — Morpho refuses one under LLTV; the engine refuses one under the floor |
 
 Every one of them is refused with `lending_not_enabled` while the allowlist says
 `enabled: false`, which is how it ships. The other refusal codes are
@@ -126,13 +127,25 @@ anchors. A hold is written only when its reason changes.
 
 ## By hand
 
-`POST /v1/agents/:id/capital/manual` with `{kind: supply | borrow | repay, amount}`
+`POST /v1/agents/:id/capital/manual` with `{kind: supply | borrow | repay | withdraw, amount}`
 in whole units, owner only, 20 an hour. It runs through the same
 `capital.Validate`, lease, execution and signer as the mandate, and is recorded
 in `capital_actions` with decider `owner`. The owner chooses the amount, not
 the rules: with a mandate, its floor, cap and rate apply; without one, the
 platform's per-agent cap and a floor of 1.5. A retired agent may repay and
-nothing else. The answer is the outcome — `mined`, or `refused` with the rule
+withdraw, and nothing else.
+
+**A full repay goes by shares.** Repaying the debt's asset value, rounded up the
+way Morpho values it, converts to one share more than is owed and reverts with
+an arithmetic underflow; the first live repay did exactly that on 2026-09-24.
+When the amount reaches the debt, the engine sends `repay_all` and the signer
+repays the shares it reads from the chain.
+
+**A withdrawal is clamped to what is posted**, for the same reason. With debt
+outstanding it must leave the worst-case health factor above the floor on a
+trusted oracle (`withdraw_over_collateral`, `below_health_floor`,
+`oracle_untrusted`); with no debt, all of it can come back. The mandate never
+proposes one. The answer is the outcome — `mined`, or `refused` with the rule
 and nothing signed.
 
 An active mandate keeps running after a manual action and may reverse it on its
