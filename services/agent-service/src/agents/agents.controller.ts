@@ -17,6 +17,7 @@ import { randomUUID } from 'node:crypto';
 import { AgentsService } from './agents.service';
 import { AgentOverviewService } from './overview.service';
 import { AgentPositionsService } from './positions.service';
+import { AgentCapitalService } from './capital.service';
 import { AgentWalletsService } from './agent-wallets.service';
 import { ParseUuidAllPipe } from '../common/parse-uuid-all.pipe';
 import { CreateAgentDto } from './dto/create-agent.dto';
@@ -113,6 +114,7 @@ export class AgentsController {
     private readonly decisions: DecisionClient,
     private readonly overviewService: AgentOverviewService,
     private readonly positionsService: AgentPositionsService,
+    private readonly capitalService: AgentCapitalService,
     private readonly lifecycle: AgentLifecycleService,
     private readonly triggersSvc: AgentTriggersService,
     private readonly walletView: AgentWalletViewService,
@@ -231,6 +233,15 @@ export class AgentsController {
   @Get(':id/positions')
   positions(@Param('id', ParseUuidAllPipe) id: string) {
     return this.positionsService.forAgent(id);
+  }
+
+  /**
+   * 🌐 ARCANA CAPITAL: collateral, debt, health factor and liquidation price,
+   * as the position guard last read them from Morpho. Watched, not acted on.
+   */
+  @Get(':id/capital')
+  capital(@Param('id', ParseUuidAllPipe) id: string) {
+    return this.capitalService.forAgent(id);
   }
 
   /**

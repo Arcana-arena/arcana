@@ -130,20 +130,46 @@ func main() {
 
 	log.Printf("position guard starting: scanning every %s, build %s", interval, buildCommit)
 
+	// ARCANA CAPITAL's reader rides the same loop, every Nth scan: once a
+	// minute at the default interval. It reads and records; it never signs
+	// (architecture.md §17.7 day 5), and it reads every wallet whatever its
+	// agent's status, because pausing must not stop watching a debt (§17.4).
+	capitalEvery := envInt("CAPITAL_SCAN_EVERY", 4)
+	log.Printf("capital reader: every %d scan(s), %d lending market(s) allowlisted",
+		capitalEvery, len(broker.CapitalMarkets()))
+
 	// A scan on the way in, so a restart is visible immediately in the
 	// heartbeat rather than one interval later.
 	scan(ctx, eng, st, buildCommit)
+	capital(ctx, eng)
 
 	t := time.NewTicker(interval)
 	defer t.Stop()
-	for {
+	for n := 1; ; n++ {
 		select {
 		case <-ctx.Done():
 			log.Printf("position guard stopping")
 			return
 		case <-t.C:
 			scan(ctx, eng, st, buildCommit)
+			if capitalEvery > 0 && n%capitalEvery == 0 {
+				capital(ctx, eng)
+			}
 		}
+	}
+}
+
+// capital runs one pass of the capital reader. Its failures are logged and
+// do not touch the guard heartbeat: a lending RPC having a bad minute must not
+// make the stop-loss watcher look unhealthy, and the reverse.
+func capital(ctx context.Context, eng *engine.Engine) {
+	cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	written, err := eng.CapitalScan(cctx)
+	if err != nil {
+		log.Printf("capital: %d row(s) written, first error: %v", written, err)
+	} else if written > 0 {
+		log.Printf("capital: %d row(s) written", written)
 	}
 }
 
@@ -215,6 +241,17 @@ func mustEnv(k string) string {
 		log.Fatalf("%s is required", k)
 	}
 	return v
+}
+
+func envInt(k string, def int) int {
+	if v := os.Getenv(k); v != "" {
+		var n int
+		if _, err := fmt.Sscanf(v, "%d", &n); err == nil && n >= 0 {
+			return n
+		}
+		log.Printf("WARN: %s=%q is not a non-negative integer; using %d", k, v, def)
+	}
+	return def
 }
 
 func envDuration(k string, def time.Duration) time.Duration {

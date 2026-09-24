@@ -19,6 +19,8 @@ type Config struct {
 	QuoteToken TokenCfg   `json:"quote_token"`
 	Routers    []string   `json:"routers"`
 	Tokens     []TokenCfg `json:"tokens"`
+	// Lending is read for WATCHING only; see capital.go.
+	Lending *LendingCfg `json:"lending,omitempty"`
 
 	bySymbol map[string]TokenCfg
 }

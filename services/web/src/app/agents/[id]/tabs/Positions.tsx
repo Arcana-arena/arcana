@@ -23,6 +23,7 @@ import { agent } from '@/lib/api';
 import { frac, money, num, utc } from '@/lib/format';
 import { Key, Num, Tag } from '@/components/ds/primitives';
 import { Callout, Empty, Failed, Unavailable } from '@/components/ds/states';
+import { CapitalBlock } from './Capital';
 
 /**
  * `levels: 'withheld'` is a PRIVATE agent's armed or refused guard: which
@@ -336,6 +337,9 @@ export async function PositionsTab({ id }: { id: string }) {
           {d.prices.tick_time ? ` · snapshot taken ${utc(d.prices.tick_time)}` : ''}
         </div>
       </section>
+
+      {/* ARCANA CAPITAL: what the book is borrowed against. Watched, not acted on. */}
+      <CapitalBlock id={id} />
 
       {/* WHAT EACH FINISHED POSITION MADE. Recorded from its fills when they
           happened, not worked out on this page. */}

@@ -9,6 +9,7 @@ import { AgentsService } from './agents.service';
 import { MarketPriceClient } from '../series/market-price.client';
 import { AgentOverviewService } from './overview.service';
 import { AgentPositionsService } from './positions.service';
+import { AgentCapitalService } from './capital.service';
 import { AgentWalletsService } from './agent-wallets.service';
 import { DecisionClient } from '../decisions/decision.client';
 import { AgentLifecycleService } from './lifecycle.service';
@@ -19,7 +20,7 @@ import { AgentPacingService } from './pacing.service';
 @Module({
   imports: [TypeOrmModule.forFeature([Agent, AgentWallet]), EntitlementsModule, AuthModule],
   controllers: [AgentsController, InternalAgentPacingController],
-  providers: [AgentsService, AgentWalletsService, DecisionClient, AgentOverviewService, AgentPositionsService, MarketPriceClient, AgentLifecycleService, AgentTriggersService, AgentWalletViewService, AgentPacingService],
+  providers: [AgentsService, AgentWalletsService, DecisionClient, AgentOverviewService, AgentPositionsService, AgentCapitalService, MarketPriceClient, AgentLifecycleService, AgentTriggersService, AgentWalletViewService, AgentPacingService],
   // AgentWalletViewService is exported so the creator dashboard reads gas with
   // the wallet tab's own measurement instead of a second definition of "low".
   // AgentPositionsService is exported so the creator portfolio reads positions
