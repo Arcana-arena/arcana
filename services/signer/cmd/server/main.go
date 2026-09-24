@@ -5,9 +5,10 @@
 // builds the transaction itself.
 //
 // THE SHAPE OF THE RULE: the signer can do the things whose shape is permitted,
-// not the things no rule forbids. There are two intents. A caller cannot ask
-// for a raw transfer because the API has no way to express one, and an intent
-// name it does not recognise is refused rather than interpreted.
+// not the things no rule forbids. There are two trading intents and four lending
+// ones, the lending ones refused until the allowlist enables them. A caller
+// cannot ask for a raw transfer because the API has no way to express one, and
+// an intent name it does not recognise is refused rather than interpreted.
 //
 // IT DOES NOT BROADCAST. It returns a signed transaction and stops. Nothing in
 // this service can move funds, which is what makes it safe to prove the
@@ -164,6 +165,7 @@ func main() {
 			"status": "ok", "service": "signer", "commit": buildCommit,
 			"signer_configured":   srv.ring != nil,
 			"routers_allowlisted": len(allow.Routers), "chain_id": allow.ChainID,
+			"lending_enabled": allow.Lending != nil && allow.Lending.Enabled,
 		})
 	})
 	mux.HandleFunc("GET /internal/v1/signer/wallets/{agentId}", guard.Wrap(srv.handleWallet))
@@ -208,8 +210,9 @@ func (s *server) handleWallet(w http.ResponseWriter, r *http.Request) {
 // that thinks it is asking for something else is told it is wrong instead of
 // quietly getting something it did not ask for.
 type signRequest struct {
-	Intent    string `json:"intent"` // approve | swap_exact_in
+	Intent    string `json:"intent"` // approve | swap_exact_in | lending_approve | lending_supply | lending_borrow | lending_repay
 	AgentID   string `json:"agent_id"`
+	MarketID  string `json:"market_id"` // lending only: an allowlisted Morpho market
 	TokenIn   string `json:"token_in"`
 	TokenOut  string `json:"token_out"` // swap only
 	Router    string `json:"router"`
@@ -305,12 +308,79 @@ func (s *server) handleSign(w http.ResponseWriter, r *http.Request) {
 			Recipient: wallet, AmountIn: amount, MinOut: minOut,
 		})
 
+	// --- ARCANA CAPITAL. Refused with lending_not_enabled until the allowlist
+	// says otherwise; see policy/lending.go. The wallet is onBehalf and
+	// receiver in every one of them, and there is no field to change that.
+	case "lending_approve":
+		morpho, ref := s.allow.CheckLendingApprove(req.MarketID, req.TokenIn, amount)
+		if ref != nil {
+			refuseCode(w, ref)
+			return
+		}
+		if ref := s.chainChecks(ctx, req.TokenIn, wallet); ref != nil {
+			refuseCode(w, ref)
+			return
+		}
+		to = req.TokenIn
+		data = tx.EncodeApprove(morpho, amount)
+
+	case "lending_supply":
+		m, morpho, ref := s.allow.CheckSupply(req.MarketID, amount)
+		if ref != nil {
+			refuseCode(w, ref)
+			return
+		}
+		if ref := s.chainChecks(ctx, m.CollateralToken, wallet); ref != nil {
+			refuseCode(w, ref)
+			return
+		}
+		to = morpho
+		data = tx.EncodeSupplyCollateral(marketParams(m), amount, wallet)
+
+	case "lending_borrow":
+		// The debt is read BEFORE the cap is applied and is never cached, so
+		// the cap sees the borrow that went through a moment ago. An unreadable
+		// debt reaches CheckBorrow as nil and refuses there.
+		var current *big.Int
+		if _, morpho, ref := s.allow.Market(req.MarketID); ref == nil {
+			if d, derr := s.chain.DebtOf(ctx, morpho, req.MarketID, wallet); derr == nil {
+				current = d
+			} else {
+				log.Printf("debt unreadable for agent=%s market=%s: %v", req.AgentID, req.MarketID, derr)
+			}
+		}
+		m, morpho, ref := s.allow.CheckBorrow(req.MarketID, amount, current)
+		if ref != nil {
+			refuseCode(w, ref)
+			return
+		}
+		if ref := s.chainChecks(ctx, m.LoanToken, wallet); ref != nil {
+			refuseCode(w, ref)
+			return
+		}
+		to = morpho
+		data = tx.EncodeBorrow(marketParams(m), amount, wallet)
+
+	case "lending_repay":
+		m, morpho, ref := s.allow.CheckRepay(req.MarketID, amount)
+		if ref != nil {
+			refuseCode(w, ref)
+			return
+		}
+		if ref := s.chainChecks(ctx, m.LoanToken, wallet); ref != nil {
+			refuseCode(w, ref)
+			return
+		}
+		to = morpho
+		data = tx.EncodeRepay(marketParams(m), amount, wallet)
+
 	default:
 		// The allowlist principle, stated at the door: an intent nobody
 		// permitted is refused, whether or not any rule forbids it.
 		refuse(w, policy.CodeUnknownIntent, fmt.Sprintf(
-			"intent %q is not one this signer can build. It knows two: approve, swap_exact_in. "+
-				"An unrecognised shape is refused rather than interpreted", req.Intent))
+			"intent %q is not one this signer can build. It knows approve and swap_exact_in, and "+
+				"lending_approve, lending_supply, lending_borrow and lending_repay while lending is "+
+				"enabled. An unrecognised shape is refused rather than interpreted", req.Intent))
 		return
 	}
 
@@ -474,6 +544,11 @@ func (s *server) recordSignature(agentID string) *policy.Refusal {
 }
 
 // --- helpers ---------------------------------------------------------------
+
+func marketParams(m policy.LendingMarket) tx.MarketParams {
+	loan, coll, oracle, irm, lltv := m.Params()
+	return tx.MarketParams{LoanToken: loan, CollateralToken: coll, Oracle: oracle, IRM: irm, LLTV: lltv}
+}
 
 func refuse(w http.ResponseWriter, code, detail string) {
 	log.Printf("REFUSED %s: %s", code, detail)

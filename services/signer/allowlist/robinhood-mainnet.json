@@ -156,7 +156,13 @@
   "lending": {
     "reviewed_at": "2026-09-24",
     "reviewed_by": "day 4 go/no-go, docs/go-no-go-lending.md. Morpho Blue carries code on chain 4663; supplyCollateral, borrow, repay and withdrawCollateral were executed with eth_simulateV1 from a fresh wallet against this exact market at block 71404524, and four controls reverted with the protocol's own reasons (insufficient collateral twice, position is healthy, transferFrom reverted). Approved by the owner in conversation on 2026-09-24.",
-    "note": "INERT UNTIL THE SIGNER LEARNS IT. Nothing reads this section yet: the signer and the decision engine decode only the fields they know, so listing a market here permits nothing. It records which addresses a reviewed decision allows, so that day 5's code has one place to read them from rather than a constant of its own.",
+    "note": "DISABLED. The signer can build lending_approve, lending_supply, lending_borrow and lending_repay for the markets below, and refuses every one of them with lending_not_enabled while enabled is false. Setting it true is a reviewed, dated commit after the day-6 exit, never a runtime setting.",
+    "enabled": false,
+    "limits": {
+      "max_borrow_per_tx_usdg": "100",
+      "max_debt_per_agent_usdg": "250",
+      "note": "WHOLE USDG, converted once at load with the quote token's 6 decimals: 100 here is 100000000 base units. The beta's per-agent ceiling, which no mandate can raise (architecture.md §17.6), sized far under the 6161 USDG the market had available on 2026-09-24 so that one agent cannot become the market's borrower. Repay is not capped: it only reduces risk."
+    },
     "morpho": "0x9D53d5E3bd5E8d4Cbfa6DB1ca238AEA02E651010",
     "markets": [
       {

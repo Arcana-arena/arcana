@@ -107,6 +107,9 @@ type Allowlist struct {
 	Routers    []string `json:"routers"`
 	Tokens     []Token  `json:"tokens"`
 	Limits     Limits   `json:"limits"`
+	// Lending is ARCANA CAPITAL's section. Absent or disabled, every lending
+	// intent is refused; see lending.go.
+	Lending *Lending `json:"lending,omitempty"`
 
 	byToken  map[string]Token
 	byRouter map[string]bool
@@ -159,6 +162,9 @@ func Load(path string) (*Allowlist, error) {
 	a.byRouter = map[string]bool{}
 	for _, r := range a.Routers {
 		a.byRouter[norm(r)] = true
+	}
+	if err := a.loadLending(); err != nil {
+		return nil, err
 	}
 	return &a, nil
 }

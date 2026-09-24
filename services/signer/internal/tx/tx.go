@@ -78,6 +78,81 @@ func EncodeExactInputSingle(p SwapParams) []byte {
 	return out
 }
 
+// --- Morpho Blue: the three lending shapes ----------------------------------
+//
+// onBehalf and receiver are not parameters of these functions. They are the
+// agent's own wallet, filled in by the caller from the key it is signing with,
+// for the same reason a swap has no recipient field: a borrow whose proceeds go
+// elsewhere is a withdrawal, and repaying somebody else's debt is a transfer.
+
+const (
+	selSupplyCollateral = "238d6579" // supplyCollateral((address,address,address,address,uint256),uint256,address,bytes)
+	selBorrow           = "50d8cd4b" // borrow((address,address,address,address,uint256),uint256,uint256,address,address)
+	selRepay            = "20b76e81" // repay((address,address,address,address,uint256),uint256,uint256,address,bytes)
+)
+
+// MarketParams is Morpho's market tuple. It is static, so it encodes inline.
+type MarketParams struct {
+	LoanToken       string
+	CollateralToken string
+	Oracle          string
+	IRM             string
+	LLTV            *big.Int
+}
+
+func (m MarketParams) words() []byte {
+	var out []byte
+	out = append(out, padAddress(m.LoanToken)...)
+	out = append(out, padAddress(m.CollateralToken)...)
+	out = append(out, padAddress(m.Oracle)...)
+	out = append(out, padAddress(m.IRM)...)
+	out = append(out, padUint(m.LLTV)...)
+	return out
+}
+
+// emptyBytesOffset is the head word of a zero-length `bytes` argument: the
+// offset past a head of headWords words. Its length (0) follows in the tail.
+func emptyBytesOffset(headWords int) []byte { return padUint(big.NewInt(int64(headWords * 32))) }
+
+// EncodeSupplyCollateral builds supplyCollateral(market, assets, self, "").
+func EncodeSupplyCollateral(m MarketParams, assets *big.Int, self string) []byte {
+	sel, _ := hex.DecodeString(selSupplyCollateral)
+	out := append([]byte{}, sel...)
+	out = append(out, m.words()...)
+	out = append(out, padUint(assets)...)
+	out = append(out, padAddress(self)...)
+	out = append(out, emptyBytesOffset(8)...) // 5 tuple words + assets + onBehalf + offset
+	out = append(out, padUint(big.NewInt(0))...)
+	return out
+}
+
+// EncodeBorrow builds borrow(market, assets, 0, self, self). Borrowing by
+// assets, never by shares, so the amount the cap was checked against is the
+// amount that leaves the market.
+func EncodeBorrow(m MarketParams, assets *big.Int, self string) []byte {
+	sel, _ := hex.DecodeString(selBorrow)
+	out := append([]byte{}, sel...)
+	out = append(out, m.words()...)
+	out = append(out, padUint(assets)...)
+	out = append(out, padUint(big.NewInt(0))...)
+	out = append(out, padAddress(self)...)
+	out = append(out, padAddress(self)...)
+	return out
+}
+
+// EncodeRepay builds repay(market, assets, 0, self, "").
+func EncodeRepay(m MarketParams, assets *big.Int, self string) []byte {
+	sel, _ := hex.DecodeString(selRepay)
+	out := append([]byte{}, sel...)
+	out = append(out, m.words()...)
+	out = append(out, padUint(assets)...)
+	out = append(out, padUint(big.NewInt(0))...)
+	out = append(out, padAddress(self)...)
+	out = append(out, emptyBytesOffset(9)...) // 5 tuple words + assets + shares + onBehalf + offset
+	out = append(out, padUint(big.NewInt(0))...)
+	return out
+}
+
 // --- RLP --------------------------------------------------------------------
 
 func rlpBytes(b []byte) []byte {

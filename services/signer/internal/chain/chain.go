@@ -33,6 +33,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"net/http"
 	"strings"
 	"sync"
@@ -266,5 +267,77 @@ func (c *Client) Blocked(ctx context.Context, token, wallet string) (bool, error
 	}
 	v := nonZero(res)
 	c.remember(key, v)
+	return v, nil
+}
+
+// --- Morpho debt, for the per-agent cap --------------------------------------
+
+const (
+	selPosition = "93c52062" // position(bytes32,address) -> (supplyShares, borrowShares, collateral)
+	selMarket   = "5c60e39a" // market(bytes32) -> (totalSupplyAssets, totalSupplyShares, totalBorrowAssets, totalBorrowShares, lastUpdate, fee)
+)
+
+// Morpho's virtual offsets, from SharesMathLib. Shares convert to assets as
+// shares * (totalAssets + 1) / (totalShares + 1e6).
+var (
+	virtualShares = new(big.Int).Exp(big.NewInt(10), big.NewInt(6), nil)
+	virtualAssets = big.NewInt(1)
+)
+
+// DebtOf is the wallet's borrowed assets in a Morpho market, in the loan
+// token's base units, ROUNDED UP — the way Morpho itself values debt, so the
+// cap is never checked against a number smaller than the one owed.
+//
+// NEVER CACHED. The cap is only a cap if it sees the borrow that just happened;
+// a cached debt is the one read that can let two borrows through where one fits.
+// Interest accrued since the market's last update is not included, which makes
+// this a floor on the debt by at most that interest.
+func (c *Client) DebtOf(ctx context.Context, morpho, marketID, wallet string) (*big.Int, error) {
+	id := strings.TrimPrefix(strings.ToLower(marketID), "0x")
+	if len(id) != 64 {
+		return nil, fmt.Errorf("market id %q is not 32 bytes", marketID)
+	}
+	pos, err := c.call(ctx, morpho, selPosition+id+strings.Repeat("0", 24)+strings.TrimPrefix(strings.ToLower(wallet), "0x"))
+	if err != nil {
+		return nil, err
+	}
+	shares, err := wordAt(pos, 1)
+	if err != nil {
+		return nil, fmt.Errorf("position(): %w", err)
+	}
+	if shares.Sign() == 0 {
+		return new(big.Int), nil
+	}
+	mkt, err := c.call(ctx, morpho, selMarket+id)
+	if err != nil {
+		return nil, err
+	}
+	totalAssets, err := wordAt(mkt, 2)
+	if err != nil {
+		return nil, fmt.Errorf("market(): %w", err)
+	}
+	totalShares, err := wordAt(mkt, 3)
+	if err != nil {
+		return nil, fmt.Errorf("market(): %w", err)
+	}
+	num := new(big.Int).Mul(shares, new(big.Int).Add(totalAssets, virtualAssets))
+	den := new(big.Int).Add(totalShares, virtualShares)
+	q, r := new(big.Int).QuoRem(num, den, new(big.Int))
+	if r.Sign() > 0 {
+		q.Add(q, big.NewInt(1))
+	}
+	return q, nil
+}
+
+// wordAt reads the i-th 32-byte word of an ABI-encoded result.
+func wordAt(hexResult string, i int) (*big.Int, error) {
+	body := strings.TrimPrefix(hexResult, "0x")
+	if len(body) < (i+1)*64 {
+		return nil, fmt.Errorf("short answer: %d hex chars, wanted word %d", len(body), i)
+	}
+	v, ok := new(big.Int).SetString(body[i*64:(i+1)*64], 16)
+	if !ok {
+		return nil, fmt.Errorf("word %d is not hex", i)
+	}
 	return v, nil
 }
