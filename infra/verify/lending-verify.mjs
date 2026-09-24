@@ -5,10 +5,10 @@
  * state before it is enabled, plus the reverting control from day 4 kept as a
  * regression test". So this does three things, in this order:
  *
- *   1. THE SHIPPED FILE REFUSES. A signer started on the allowlist that
- *      actually ships must refuse every lending intent with
- *      lending_not_enabled. That is day 5's exit — no signing path is live —
- *      checked against the running code rather than read off the file.
+ *   1. THE SWITCH REFUSES. A signer started on the shipped allowlist with
+ *      `enabled` forced off must refuse every lending intent with
+ *      lending_not_enabled — checked against the running code, whichever way
+ *      the reviewed file currently sets the switch.
  *
  *   2. THE CAPS REFUSE, and name which cap. A signer started on a copy with
  *      `enabled` flipped (the only change) is asked for borrows over the
@@ -77,6 +77,10 @@ const NVDA_POOL = shipped.tokens.find((t) => t.address.toLowerCase() === NVDA.to
 // changed here would mean part 2 proves a policy that does not ship.
 const enabledPath = join(dir, 'allowlist-enabled.json');
 writeFileSync(enabledPath, JSON.stringify({ ...shipped, lending: { ...L, enabled: true } }, null, 2));
+// And the switch OFF, so part 1 proves the refusal whichever way the reviewed
+// file sets it. It was enabled on 2026-09-25 for the first live borrow.
+const disabledPath = join(dir, "allowlist-disabled.json");
+writeFileSync(disabledPath, JSON.stringify({ ...shipped, lending: { ...L, enabled: false } }, null, 2));
 
 // --- a chain that answers what the signer asks ------------------------------
 // paused() false, isBlocked() reverting with the recorded payload (what the real
@@ -169,10 +173,10 @@ try {
   execFileSync(GO, ['build', '-o', BIN, './cmd/server'], { cwd: `${REPO}/services/signer`, stdio: 'inherit' });
 
   // === 1 ====================================================================
-  console.log('\n=== 1. The shipped allowlist refuses every lending intent ===');
-  proc = start(shippedPath);
+  console.log('\n=== 1. With lending switched off, every lending intent refuses ===');
+  proc = start(disabledPath);
   const h1 = await waitUp();
-  check('the signer came up on the shipped allowlist', h1 !== null, 'never became healthy');
+  check('the signer came up with lending off', h1 !== null, 'never became healthy');
   check('and reports lending disabled on /healthz', h1?.lending_enabled === false, JSON.stringify(h1));
   for (const [intent, extra] of [
     ['lending_approve', { token_in: USDG, amount: usdg(10) }],

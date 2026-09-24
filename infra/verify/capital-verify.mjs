@@ -22,6 +22,7 @@
  *   node infra/verify/capital-verify.mjs
  */
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { privateKeyToAccount, generatePrivateKey } from 'viem/accounts';
 import { suite } from './lib/sections.mjs';
@@ -99,7 +100,8 @@ try {
     check('the market is the one allowlisted', /^0x66306c08/.test(lim.market?.id ?? ''), JSON.stringify(lim.market));
     check('the platform cap is the signer\'s 250 USDG', lim.platform_max_debt_usdg === 250, `${lim.platform_max_debt_usdg}`);
     check('the floor offered is 1.5', lim.min_health_factor === 1.5, `${lim.min_health_factor}`);
-    check('lending is reported as it ships: disabled', lim.lending_enabled === false, `${lim.lending_enabled}`);
+    const shippedEnabled = JSON.parse(readFileSync(`${process.env.REPO || '/home/ubuntu/arcana'}/services/signer/allowlist/robinhood-mainnet.json`, 'utf8')).lending?.enabled === true;
+    check('lending is reported exactly as the allowlist sets it', lim.lending_enabled === shippedEnabled, `${lim.lending_enabled} vs file ${shippedEnabled}`);
   });
 
   // =====================================================================

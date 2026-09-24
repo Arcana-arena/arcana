@@ -156,8 +156,8 @@
   "lending": {
     "reviewed_at": "2026-09-24",
     "reviewed_by": "day 4 go/no-go, docs/go-no-go-lending.md. Morpho Blue carries code on chain 4663; supplyCollateral, borrow, repay and withdrawCollateral were executed with eth_simulateV1 from a fresh wallet against this exact market at block 71404524, and four controls reverted with the protocol's own reasons (insufficient collateral twice, position is healthy, transferFrom reverted). Approved by the owner in conversation on 2026-09-24.",
-    "note": "DISABLED. The signer can build lending_approve, lending_supply, lending_borrow and lending_repay for the markets below, and refuses every one of them with lending_not_enabled while enabled is false. Setting it true is a reviewed, dated commit after the day-6 exit, never a runtime setting.",
-    "enabled": false,
+    "note": "ENABLED 2026-09-25, approved by the owner in conversation for the first live borrow (JohndoeAgent). The signer builds lending_approve, lending_supply, lending_borrow and lending_repay for the markets below, within the limits below; with enabled false every one of them is refused with lending_not_enabled. Changing it is a reviewed, dated commit, never a runtime setting.",
+    "enabled": true,
     "limits": {
       "max_borrow_per_tx_usdg": "100",
       "max_debt_per_agent_usdg": "250",

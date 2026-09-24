@@ -24,10 +24,13 @@ func load(t *testing.T) *Allowlist {
 	return a
 }
 
-// THE SHIPPED FILE KEEPS LENDING OFF. Day 5's exit is "no signing path is
-// live"; this is what holds it there until a reviewed commit changes it.
-func TestShippedLendingIsDisabled(t *testing.T) {
+// WITH `enabled` FALSE, EVERY LENDING INTENT REFUSES. Tested on the shipped
+// file with the switch forced off, so the refusal is proved whichever way the
+// reviewed file currently sets it (it was enabled on 2026-09-25 for the first
+// live borrow).
+func TestLendingDisabledRefusesEverything(t *testing.T) {
 	a := load(t)
+	a.Lending.Enabled = false
 	for name, r := range map[string]*Refusal{
 		"supply": func() *Refusal { _, _, r := a.CheckSupply(marketID, big.NewInt(1)); return r }(),
 		"borrow": func() *Refusal { _, _, r := a.CheckBorrow(marketID, usdg(1), big.NewInt(0)); return r }(),

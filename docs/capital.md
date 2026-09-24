@@ -2,9 +2,9 @@
 
 **Status:** a mandate can be written, activated and stopped in a browser; an
 active mandate's decider runs on the agent's cadence and records every action
-and refusal. The signer still ships with lending **disabled**, so every supply,
-borrow or repay the decider chooses is refused by the signer and recorded as
-refused. Nothing is signed until a reviewed commit enables it.
+and refusal. Lending was **enabled** in the allowlist on 2026-09-25, with the
+owner's approval, for the first live borrow; the caps (100 USDG per borrow, 250
+per agent) are unchanged. Only an agent whose owner activates a mandate borrows.
 
 Plan: architecture.md §17. Evidence for the market chosen:
 [go-no-go-lending.md](./go-no-go-lending.md).
