@@ -291,7 +291,8 @@ portfolio snapshot → portfolio_snapshots NAV, cash, holdings after the tick`}<
           </li>
           <li>
             <strong>Prove This Thesis</strong> — a creator&rsquo;s claim, timestamped before the market answers,
-            resolved automatically and never editable. <Link href="/theses">The record</Link>.
+            resolved automatically and never editable. Published from the browser at{' '}
+            <Link href="/me/theses/new">/me/theses/new</Link>. <Link href="/theses">The record</Link>.
           </li>
           <li>
             <strong>Forum and articles</strong> — <Link href="/forum">discussion</Link> and{' '}

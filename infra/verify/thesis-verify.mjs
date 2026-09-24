@@ -215,6 +215,38 @@ try {
   }
   const [boundAgent, twinAgent] = agentIds;
 
+  /**
+   * A fresh fixture agent for one section. The two shared agents carry section
+   * 7's custody drift and NAV curves written over "the last 25 hours", and the
+   * market ticks every minute: a tick landing between two sections shifts the
+   * window, and the new curve is chained onto the old one's points (3.98 ->
+   * 110) — which is how a 90-point margin came back proven on 2026-09-24.
+   */
+  const freshAgent = async (name, activate) => {
+    const a = await api('/v1/agents', {
+      method: 'POST', headers: VERIFICATION_HEADER, body: { ...AGENT_SPEC, name },
+    });
+    if (!a.body?.id) {
+      check(`fixture agent ${name} is made`, false, `status ${a.status} ${JSON.stringify(a.body)}`);
+      throw new Error(`cannot continue without ${name}`);
+    }
+    agentIds.push(a.body.id);
+    if (activate) await api(`/v1/agents/${a.body.id}/activate`, { method: 'POST' });
+    return a.body.id;
+  };
+  const windowTicks = () => {
+    const to = sql1(`SELECT max(tick_time) FROM market_snapshots`);
+    const from = sql1(
+      `SELECT tick_time FROM market_snapshots
+        WHERE tick_time <= (SELECT max(tick_time) FROM market_snapshots) - interval '25 hours'
+        ORDER BY tick_time DESC LIMIT 1`);
+    const mid = sql1(
+      `SELECT tick_time FROM market_snapshots
+        WHERE tick_time > '${from}'::timestamptz AND tick_time < '${to}'::timestamptz
+        ORDER BY tick_time ASC LIMIT 1`);
+    return { from, to, mid };
+  };
+
   // =====================================================================
   await section('1. Publishing a claim', async () => {
     const soon = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
@@ -638,7 +670,7 @@ try {
       `SELECT tick_time FROM market_snapshots
         WHERE tick_time > '${from}'::timestamptz AND tick_time < '${to}'::timestamptz
         ORDER BY tick_time ASC LIMIT 1`);
-    const agentId = agentIds[0];
+    const agentId = await freshAgent(`${TAG}_benchmarks`, false);
 
     // A SINGLE SYMBOL. Until now only arcana_index was ever resolved, so the
     // whole price-reading leg — two snapshot payloads, one ratio — had never
@@ -811,6 +843,81 @@ try {
       probe?.state === 'operational', `state=${probe?.state} detail=${probe?.detail}`);
     check('the probe states the threshold it judges against',
       typeof probe?.threshold === 'string' && /hours/.test(probe.threshold), `${probe?.threshold}`);
+  });
+
+  // =====================================================================
+  await section('11. Retiring the agent does not rescue the thesis either', async () => {
+    // Section 9's rule, through the other door. Retirement is permanent and
+    // also drops the agent from its competition, so it is the stronger escape
+    // of the two, and until now the one nothing had tried.
+    const { from, to, mid } = windowTicks();
+    const agentId = await freshAgent(`${TAG}_retiree`, true);
+    const id = publishBackdated({
+      agentId, claim: 'This claim is about to have its agent retired underneath it.',
+      benchmark: { kind: 'arcana_index' }, criteria: { comparison: 'gt', margin_pct: 0 },
+      from, to, navs: [100, 60, 40], stamps: [from, mid, to],
+    });
+
+    const retired = await api(`/v1/agents/${agentId}/retire`, { method: 'POST' });
+    check('the agent can be retired', retired.status === 200 || retired.status === 201,
+      `status ${retired.status}`);
+    check('and it really is retired',
+      sql1(`SELECT status FROM agents WHERE id = '${agentId}'`) === 'retired',
+      sql1(`SELECT status FROM agents WHERE id = '${agentId}'`));
+
+    await resolveNow();
+    const row = sql1(
+      `SELECT status || '|' || coalesce(agent_status_at_resolution, 'null')
+         FROM public_theses WHERE id = '${id}'`);
+    const [status, at] = row.split('|');
+    check('the thesis still resolves rather than being voided', status !== 'pending', `got ${status}`);
+    check('it resolves NOT PROVEN on the data, exactly as if the agent were still running',
+      status === 'not_proven', `got ${status}`);
+    check('and the retired state is recorded beside the verdict',
+      at === 'retired', `agent_status_at_resolution=${at}`);
+
+    const p = await page(`/theses/${id}`);
+    const t = text(p.html);
+    check('the page names the agent as retired', /retired/i.test(t), 'the page omits the state');
+    check('and says the retirement did not void it',
+      /does not void the thesis/i.test(t), 'the page omits the explanation');
+  });
+
+  // =====================================================================
+  await section('12. A sub-period from a worthless portfolio is skipped, not divided by', async () => {
+    // (cur - flow) / prev - 1 with prev = 0 is Infinity, or NaN when cur is 0
+    // too, and either would be stored as the verdict's arithmetic. The branch
+    // that refuses it had never run. 0 -> 100 -> 110: the first leg must be
+    // skipped and named, and the return is the second leg's +10% alone.
+    const { from, to, mid } = windowTicks();
+    const agentId = await freshAgent(`${TAG}_zero_nav`, false);
+    const id = publishBackdated({
+      agentId, claim: 'A portfolio that started at nothing has no first-leg return.',
+      benchmark: { kind: 'arcana_index' }, criteria: { comparison: 'gt', margin_pct: 0 },
+      from, to, navs: [0, 100, 110], stamps: [from, mid, to],
+    });
+
+    await resolveNow();
+    const status = sql1(`SELECT status FROM public_theses WHERE id = '${id}'`);
+    const perf = Number(sql1(`SELECT coalesce(result_performance::text, 'NaN') FROM public_theses WHERE id = '${id}'`));
+    const legs = measurementOf(id)?.agent?.sub_periods ?? [];
+
+    check('the thesis resolves', status !== 'pending', `got ${status}`);
+    check('the first sub-period is skipped, and says why',
+      legs[0]?.skipped === 'previous NAV was not positive', JSON.stringify(legs[0]));
+    check('and contributes no return of its own', legs[0]?.sub_return === undefined,
+      JSON.stringify(legs[0]));
+    check('the second sub-period is measured as usual',
+      legs.length === 2 && Math.abs((legs[1]?.sub_return ?? NaN) - 0.1) < 1e-9, JSON.stringify(legs[1]));
+    check('the stored return is the measured leg alone, a finite +10%',
+      Number.isFinite(perf) && Math.abs(perf - 0.1) < 1e-6, `result_performance=${perf}`);
+    check('the raw NAV return is withheld rather than divided by zero',
+      measurementOf(id)?.agent?.raw_nav_return === null,
+      `raw_nav_return=${measurementOf(id)?.agent?.raw_nav_return}`);
+
+    const p = await page(`/theses/${id}`);
+    check('the page renders the result', p.status === 200 && !/NaN|Infinity/.test(text(p.html)),
+      `status ${p.status}`);
   });
 } catch (e) {
   check('the suite ran to completion', false, e?.message ?? String(e));

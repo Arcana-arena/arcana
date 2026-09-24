@@ -15,10 +15,13 @@ attached automatically. Nothing can be edited or withdrawn afterwards.
 | Articles | `POST /v1/articles` 🔒, `PATCH /v1/articles/:id` 🔒, `GET /v1/articles/:id` 🌐 |
 | Resolution | `POST /internal/v1/theses/resolve` (X-Internal-Key) |
 | Pages | `/theses`, `/theses/:id`, `/articles/:id`, `/creators/:id/theses` |
+| Creator pages 🔒 | `/me/theses` (own record), `/me/theses/new` (publish form) |
 
 Tables: `public_theses`, `articles`, and two counters on `creators`
 (migration 0052). Job: `arcana-thesis-resolve.timer`, hourly.
-Verified by `infra/verify/thesis-verify.mjs`.
+Verified by `infra/verify/thesis-verify.mjs` (server) and
+`infra/verify/browser/thesis-article-browser-verify.mjs` (the publish form and
+`/articles/:id` in a real browser).
 
 ---
 
@@ -86,6 +89,17 @@ creator watching a claim fail an escape: pause the agent, lose the record. The
 measurement runs to the deadline regardless — an agent that stopped deciding
 simply stops moving — and `agent_status_at_resolution` is published beside the
 result so a reader can weigh it without the creator being able to use it.
+Both doors are tried by the suite, not one: section 9 pauses the agent under a
+live claim, section 11 retires it, and each resolves on the data with the state
+recorded beside it.
+
+**A sub-period that starts from a worthless portfolio is skipped, not divided
+by.** `(NAV_i - flow_i) / NAV_(i-1) - 1` with a previous NAV of zero is
+Infinity, or NaN when both are zero, and either would be stored as the
+verdict's arithmetic. The leg stays in `sub_periods` as
+`skipped: 'previous NAV was not positive'`, the return chains over the legs that
+remain, and `raw_nav_return` is `null` when the first point is zero. Section 12
+of the suite runs 0 → 100 → 110 and expects exactly +10%.
 
 **Only public agents can be bound.** Migration 0047 withholds a private agent's
 performance; resolving a public thesis against one would publish the withheld
