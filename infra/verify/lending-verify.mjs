@@ -117,7 +117,7 @@ const BIN = `/tmp/lending-verify-signer.${process.pid}`;
 let proc = null;
 const AGENT = randomUUID();
 function start(allowPath) {
-  return spawn(BIN, [], {
+  const p = spawn(BIN, [], {
     cwd: `${REPO}/services/signer`,
     env: { ...process.env, PORT: String(PORT), INTERNAL_API_KEY: KEY,
            SIGNER_MASTER_SEED_FILE: seedPath, SIGNER_ALLOWLIST_FILE: allowPath,
@@ -125,6 +125,11 @@ function start(allowPath) {
            SIGNER_SIGNATURE_COUNT_FILE: join(dir, 'signatures.json') },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+  // Drained, or a full pipe blocks the signer's log writes mid-request; see
+  // the note on start() in signer-verify.mjs.
+  p.stdout.resume();
+  p.stderr.on('data', () => {});
+  return p;
 }
 async function stop() {
   if (!proc) return;

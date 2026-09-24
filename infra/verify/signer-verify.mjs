@@ -180,8 +180,21 @@ function build() {
   });
 }
 
+/**
+ * THE PIPES ARE DRAINED, and this is why the suite used to hang.
+ *
+ * The signer logs one line per signature to stderr. Nothing read the pipe, so
+ * once its buffer (~64 KB) filled, the signer's next log write blocked inside
+ * the request handler and the request never answered. With a daily cap of 60
+ * that never happened; when the cap went to 1200 on 2026-09-20, the daily-cap
+ * loop filled the pipe a few hundred signatures in and died on a 300-second
+ * header timeout, and every section after it stopped running.
+ *
+ * The cap under test stays the one that ships. Shrinking it would have made
+ * the hang disappear by testing a different number.
+ */
 function start(extra = {}) {
-  return spawn(BIN, [], {
+  const p = spawn(BIN, [], {
     cwd: `${REPO}/services/signer`,
     env: { ...process.env, PORT: String(PORT), INTERNAL_API_KEY: KEY,
            SIGNER_MASTER_SEED_FILE: seedPath, SIGNER_ALLOWLIST_FILE: allowPath,
@@ -192,6 +205,9 @@ function start(extra = {}) {
            SIGNER_SIGNATURE_COUNT_FILE: join(dir, 'signatures.json'), ...extra },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+  p.stdout.resume();
+  p.stderr.on('data', () => {});
+  return p;
 }
 async function stop() {
   if (!proc) return;
