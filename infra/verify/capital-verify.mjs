@@ -183,8 +183,20 @@ try {
       JSON.stringify(act).slice(0, 200));
     check('the mandate status is shown beside it', pub.body?.mandate?.status === 'draft', JSON.stringify(pub.body?.mandate));
 
-    sql(`UPDATE agents SET visibility = 'private' WHERE id = '${id}'`);
-    const priv = await api(null, `/v1/agents/${id}/capital`);
+    // A SECOND AGENT, private from creation: visibility cannot be changed on an
+    // existing agent (private-agent-verify proves the database refuses it).
+    const p = await api(owner, '/v1/agents', {
+      method: 'POST', headers: VERIFICATION_HEADER,
+      body: { name: `${TAG}_private`, strategyType: 'momentum', assetUniverse: 'us_equities', visibility: 'private',
+              riskProfile: JSON.stringify({ cash_floor_pct: 0.05 }) },
+    });
+    const pid = p.body?.id;
+    check('a private fixture agent is made', !!pid, `${p.status} ${JSON.stringify(p.body).slice(0, 160)}`);
+    sql(`INSERT INTO capital_actions (agent_id, market_id, decider, kind, amount, reason_code, why, evidence, status, refusal_code, refusal_detail)
+         VALUES ('${pid}', '0x66306c08', 'deterministic', 'borrow', 40, 'liquidity_below_trigger',
+                 'the wallet holds 10.00 USDG against a trigger of 50.00; borrowing 40.00',
+                 '{"mandate":{"MinHealthFactor":2}}'::jsonb, 'refused', 'lending_not_enabled', 'lending is not enabled')`);
+    const priv = await api(null, `/v1/agents/${pid}/capital`);
     const pa = priv.body?.actions?.[0];
     check('a private agent still shows what it did', pa?.kind === 'borrow' && pa?.amount === 40 && pa?.status === 'refused',
       JSON.stringify(pa));

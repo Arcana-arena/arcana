@@ -124,8 +124,13 @@ func main() {
 		log.Printf("WARN: no continuous tick can be opened from the chain. " +
 			"Set MARKET_CHAIN_FILE to a reviewed chain description.")
 	} else {
+		// THE OFFICIAL ENDPOINT FIRST, as the signer orders it. With publicnode
+		// first, its intermittent 20-second hangs on 2026-09-24 cost 12 s each
+		// before falling through; a pool read took the full 45 s, the tick's
+		// 60 s budget ran out at the store, and no agent was paced from 21:25
+		// WIB. Every call tries the next endpoint on failure, so order is speed.
 		rpcs := strings.Split(envOr("MARKET_RPC_URLS",
-			"https://robinhood-rpc.publicnode.com,https://robinhood.api.pocket.network,https://rpc-robinhood.blockmachine.io"), ",")
+			"https://rpc.mainnet.chain.robinhood.com,https://robinhood-rpc.publicnode.com,https://robinhood.api.pocket.network,https://rpc-robinhood.blockmachine.io"), ",")
 		poolReader = service.NewPoolReader(chainCfg, chain.NewClient(rpcs))
 		log.Printf("pool prices ACTIVE: chain %d, %d symbols, quote %s, "+
 			"dispute tolerance %.2f%%, feed max age %ds (reviewed %s)",
