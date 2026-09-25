@@ -1,7 +1,8 @@
 import Link from 'next/link';
-import { utc } from '@/lib/format';
+import { ago, utc } from '@/lib/format';
 import { Markdown } from '@/lib/markdown';
 import type { PostItem } from '@/lib/social';
+import { Avatar } from './Avatar';
 import { ModerationControls } from './ModerationControls';
 
 export type Viewer = {
@@ -29,6 +30,7 @@ export function Posts({
   viewer,
   parentAuthorId,
   revalidate,
+  offset = 0,
   emptyNote = 'No replies yet.',
 }: {
   posts: PostItem[];
@@ -36,14 +38,12 @@ export function Posts({
   /** The author of the thread or article these sit under; they may hide them. */
   parentAuthorId: string | null;
   revalidate: string;
+  /** How many posts precede this page, so the #n permalinks count the whole conversation. */
+  offset?: number;
   emptyNote?: string;
 }) {
   if (posts.length === 0) {
-    return (
-      <div className="m3" style={{ fontSize: 12.5, padding: '14px 0' }}>
-        {emptyNote}
-      </div>
-    );
+    return <div className="fm-empty">{emptyNote}</div>;
   }
 
   return (
@@ -54,34 +54,20 @@ export function Posts({
         const canHide = viewer.isOperator || mine || ownsParent;
 
         return (
-          <li
-            key={p.id}
-            id={`p-${p.id}`}
-            style={{
-              borderTop: i === 0 ? '1px solid var(--color-divider)' : 'none',
-              borderBottom: '1px solid var(--color-divider)',
-              padding: '14px 0',
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                gap: 10,
-                alignItems: 'baseline',
-                flexWrap: 'wrap',
-                fontSize: 12,
-              }}
-            >
+          <li key={p.id} id={`p-${p.id}`} className="fm-post" style={{ scrollMarginTop: 16 }}>
+            <div className="fm-post-hd">
+              <Avatar handle={p.author.handle} small />
               <Link href={`/creators/${p.author.id}`}>{p.author.handle}</Link>
-              <span className="mono m3" style={{ fontSize: 11 }}>
-                {utc(p.created_at)}
+              {p.author.id === parentAuthorId ? <span className="tag tag-accent">AUTHOR</span> : null}
+              <span className="mono m3" style={{ fontSize: 11 }} title={utc(p.created_at)}>
+                {ago(p.created_at)}
               </span>
               {p.updated_at !== p.created_at && !p.hidden ? (
                 <span className="m3" style={{ fontSize: 11 }} title={`Edited ${utc(p.updated_at)}`}>
                   edited
                 </span>
               ) : null}
-              <span style={{ marginLeft: 'auto' }}>
+              <span style={{ marginLeft: 'auto', display: 'flex', gap: 12, alignItems: 'center' }}>
                 <ModerationControls
                   subject={{ kind: 'post', id: p.id }}
                   revalidate={revalidate}
@@ -90,20 +76,16 @@ export function Posts({
                   hidden={p.hidden !== null}
                   canUnhide={viewer.isOperator}
                 />
+                <a href={`#p-${p.id}`} className="fm-idx" title="Link to this reply">
+                  #{offset + i + 1}
+                </a>
               </span>
             </div>
 
             {p.hidden ? (
               <div
                 className="m3"
-                style={{
-                  fontSize: 12,
-                  marginTop: 8,
-                  padding: '10px 12px',
-                  border: '1px dashed var(--ink-3)',
-                  lineHeight: 1.55,
-                  maxWidth: 720,
-                }}
+                style={{ fontSize: 12, padding: '12px 16px', lineHeight: 1.55, borderLeft: '2px dashed var(--ink-3)' }}
               >
                 This reply was hidden by moderation on{' '}
                 <span className="mono">{utc(p.hidden.at)}</span>. Reason given:{' '}
@@ -111,8 +93,8 @@ export function Posts({
                 read as a conversation.
               </div>
             ) : (
-              <div style={{ marginTop: 6 }}>
-                <Markdown source={p.body ?? ''} />
+              <div className="fm-post-bd">
+                <Markdown source={p.body ?? ''} className="fm-body" />
               </div>
             )}
           </li>

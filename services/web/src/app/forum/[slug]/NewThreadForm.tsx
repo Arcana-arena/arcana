@@ -20,7 +20,15 @@ import { Markdown } from '@/lib/markdown';
  * creator profile (a link to the form that makes one) and the rate limit (ten
  * threads an hour, per wallet). Everything else prints what the service said.
  */
-export function NewThreadForm({ board, signedIn }: { board: string; signedIn: boolean }) {
+export function NewThreadForm({
+  board,
+  boardName,
+  signedIn,
+}: {
+  board: string;
+  boardName: string;
+  signedIn: boolean;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
@@ -31,8 +39,13 @@ export function NewThreadForm({ board, signedIn }: { board: string; signedIn: bo
 
   if (!signedIn) {
     return (
-      <div className="m3" style={{ fontSize: 12 }}>
-        <Link href="/signin">Sign in</Link> to start a thread.
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <Link href="/signin" className="btn">
+          Sign in to start a thread
+        </Link>
+        <span className="m3" style={{ fontSize: 11.5 }}>
+          Reading needs nothing; writing is published under your creator handle.
+        </span>
       </div>
     );
   }
@@ -49,8 +62,8 @@ export function NewThreadForm({ board, signedIn }: { board: string; signedIn: bo
   const okBody = body.trim().length > 0 && body.length <= 50000;
 
   return (
-    <div className="box" style={{ maxWidth: 760 }}>
-      <div className="k">New thread in {board}</div>
+    <div className="box surface" style={{ maxWidth: 760 }}>
+      <div className="k">New thread in {boardName}</div>
 
       <div className="field" style={{ marginTop: 10 }}>
         <label htmlFor="t-title">Title</label>
@@ -68,7 +81,7 @@ export function NewThreadForm({ board, signedIn }: { board: string; signedIn: bo
         <label htmlFor="t-body">Body</label>
         {preview ? (
           <div style={{ minHeight: 120, border: '1px solid var(--color-divider)', padding: 12 }}>
-            {body.trim() ? <Markdown source={body} /> : <span className="m3">Nothing to preview yet.</span>}
+            {body.trim() ? <Markdown source={body} className="fm-body" /> : <span className="m3">Nothing to preview yet.</span>}
           </div>
         ) : (
           <textarea
