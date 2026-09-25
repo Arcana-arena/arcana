@@ -110,6 +110,10 @@ Thumbs.db
 
 # --- Local tooling (never pushed to remote / VPS) ---
 /.commandcode/
+/.claude/
+# The working architecture reference. It lives on the owner's machine only;
+# the documents under docs/ that cite its sections are the public record.
+/architecture.md
 
 # Build artefacts produced on the host by infra/systemd/install.sh.
 # Untracked binaries made every deployed-version check report a dirty working
