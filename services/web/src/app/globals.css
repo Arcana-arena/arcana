@@ -1478,6 +1478,48 @@ select.input { padding-right: 24px; }
 .fm-body code { font-family: var(--font-mono), monospace; font-size: 12px; background: var(--color-neutral-200); padding: 1px 5px; }
 .fm-body h2, .fm-body h3, .fm-body h4 { color: var(--color-text); }
 
+/*
+ * Portfolio (/me/portfolio). Same vocabulary as the forum — kicker, stat
+ * strip, glyph, quiet notes — so the signed-in pages read as one place. Real
+ * money carries an amber edge everywhere it appears; virtual capital does not,
+ * because the two are never to be read as the same kind of number.
+ */
+.pf-totals { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; margin-top: 22px; }
+.pf-card { position: relative; border: 1px solid var(--color-divider); background: var(--color-bg); }
+.pf-real::before { content: ''; position: absolute; left: -1px; top: -1px; bottom: -1px; width: 3px; background: var(--amber); }
+.pf-total { padding: 16px 18px; }
+.pf-total.pf-real { background: linear-gradient(135deg, rgba(212, 162, 74, .07), transparent 60%), var(--color-bg); }
+.pf-total-v { font-family: var(--font-mono), monospace; font-size: 30px; letter-spacing: -.02em; font-variant-numeric: tabular-nums; margin: 10px 0 2px; color: var(--color-text); }
+.pf-total-ft { display: flex; gap: 6px 16px; flex-wrap: wrap; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--color-divider);
+  font-family: var(--font-mono), monospace; font-size: 11px; color: var(--ink-2); }
+.pf-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px 16px; flex-wrap: wrap; margin: 34px 0 14px; }
+.pf-head h2 { margin: 0; }
+.pf-agent-hd { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 16px 18px;
+  border-bottom: 1px solid var(--color-divider); background: var(--color-surface); }
+.pf-agent-hd .fm-title:hover { color: var(--color-accent); text-decoration: none; }
+.pf-nav { text-align: right; }
+.pf-nav-v { font-family: var(--font-mono), monospace; font-size: 22px; letter-spacing: -.02em; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.pf-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid var(--color-divider); }
+.pf-cell { padding: 11px 18px; border-right: 1px solid var(--color-divider); min-width: 0; }
+.pf-cell:last-child { border-right: none; }
+.pf-cell-v { font-family: var(--font-mono), monospace; font-size: 14px; font-variant-numeric: tabular-nums; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pf-wallet { display: flex; gap: 6px 16px; flex-wrap: wrap; align-items: center; padding: 10px 18px 0; font-size: 12px; }
+.pf-pad { padding-left: 18px; padding-right: 18px; }
+.pf-quiet { border: 1px dashed var(--color-divider); padding: 12px 14px; margin-top: 8px; font-size: 12px; color: var(--ink-2); }
+.pf-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.pf-chip { font-family: var(--font-mono), monospace; font-size: 11px; padding: 2px 7px; border: 1px solid var(--color-divider); background: var(--color-surface); white-space: nowrap; }
+
+@media (max-width: 720px) {
+  .pf-totals { grid-template-columns: minmax(0, 1fr); }
+  .pf-total-v { font-size: 26px; }
+  .pf-agent-hd { grid-template-columns: auto minmax(0, 1fr); }
+  .pf-nav { grid-column: 1 / -1; text-align: left; display: flex; align-items: baseline; gap: 10px; }
+  .pf-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pf-cell:nth-child(2) { border-right: none; }
+  .pf-cell:nth-child(-n+2) { border-bottom: 1px solid var(--color-divider); }
+  .pf-agent-hd, .pf-cell, .pf-wallet, .pf-pad { padding-left: 14px; padding-right: 14px; }
+}
+
 @media (max-width: 720px) {
   .fm-head { display: none; }
   .fm-row { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 14px 16px; }
