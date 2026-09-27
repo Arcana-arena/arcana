@@ -79,10 +79,18 @@ export class MarketIndexService {
    * including the 259 snapshots that could not possibly have changed.
    *
    * Bounded so a long-lived process cannot grow without limit; eviction is
-   * oldest-first and costs at most a re-fetch.
+   * least-recently-used and costs at most a re-fetch.
+   *
+   * THE BOUND MUST EXCEED ONE CALLER'S WORKING SET. It was 4,000 while a single
+   * continuous-cadence agent's autopsy needed ~8,800 refs: the request evicted
+   * its own prices as it fetched them, so every call re-fetched all of them
+   * over HTTP (7-9 s) and the landing page, which reads the leader's autopsy,
+   * sat on the web tier's 8 s timeout. An entry is ~10 prices (~0.5 KB), so
+   * 50,000 is ~25 MB and covers the whole table with room to grow (~1,000
+   * snapshots a day as of 2026-09).
    */
   private readonly priceCache = new Map<string, Record<string, number>>();
-  private static readonly PRICE_CACHE_MAX = 4000;
+  private static readonly PRICE_CACHE_MAX = 50_000;
 
   /** How many refs to fetch at once. Server-side throughput is the limit, not
    * latency — measured: concurrency 8 and 64 perform the same — so this is kept
@@ -156,7 +164,10 @@ export class MarketIndexService {
     for (const ref of wanted) {
       const tick = market.get(ref);
       const prices = this.priceCache.get(ref);
-      if (tick && prices) tick.prices = prices;
+      if (tick && prices) {
+        tick.prices = prices;
+        this.touch(ref, prices);
+      }
     }
   }
 
@@ -269,6 +280,12 @@ export class MarketIndexService {
       const oldest = this.priceCache.keys().next().value;
       if (oldest !== undefined) this.priceCache.delete(oldest);
     }
+    this.priceCache.set(ref, prices);
+  }
+
+  /** Move a hit to the young end, so eviction takes what nobody is reading. */
+  private touch(ref: string, prices: Record<string, number>): void {
+    this.priceCache.delete(ref);
     this.priceCache.set(ref, prices);
   }
 
