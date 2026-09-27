@@ -104,8 +104,17 @@ func (p *PoolReader) Read(ctx context.Context, now time.Time) (*PoolTick, error)
 				results[i] = r
 				return
 			}
-			feed, feedErr := p.client.FeedPrice(ctx, t.Feed)
-			v := chain.Referee(p.cfg, t, price, feed, feedErr, now)
+			var v chain.Verdict
+			refereeSource := "chainlink"
+			if t.MarketOf() == chain.MarketSecondary {
+				// No feed exists for a secondary token; its second pool referees it.
+				refereeSource = "pool"
+				ref, refErr := p.client.PoolPrice(ctx, t.RefereePoolConfig(), p.cfg.QuoteToken.Decimals)
+				v = chain.RefereeByPool(p.cfg, t, price, ref, refErr)
+			} else {
+				feed, feedErr := p.client.FeedPrice(ctx, t.Feed)
+				v = chain.Referee(p.cfg, t, price, feed, feedErr, now)
+			}
 
 			r.verdict = v
 			r.ok = true
@@ -120,6 +129,8 @@ func (p *PoolReader) Read(ctx context.Context, now time.Time) (*PoolTick, error)
 				RefereePrice:  round4(v.FeedPrice),
 				RefereeDevPct: v.DeviationPct,
 				RefereeNote:   v.Note,
+				RefereeSource: refereeSource,
+				Market:        t.MarketOf(),
 				UpdatedAt:     now.UTC().Format(time.RFC3339),
 			}
 			if !v.FeedUpdatedAt.IsZero() {

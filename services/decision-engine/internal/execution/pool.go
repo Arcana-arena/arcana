@@ -45,8 +45,8 @@ import (
 // rather than fill at a bad price. The level decides WHEN to try; the floor
 // decides whether the fill is acceptable. Each is enforced where it can be.
 
-// poolAddrs caches the factory and the pool per symbol. Both are immutable for
-// a given (token, quote, fee), so resolving them once per process is not a
+// poolAddrs caches the factory and the pool per symbol and fee tier. Both are
+// immutable for a given (token, quote, fee), so resolving them once per process is not a
 // staleness risk — a new pool at a different fee tier would be a new entry in
 // the allowlist, which is a deploy.
 type poolCache struct {
@@ -69,7 +69,14 @@ func (b *Broker) PoolPrice(ctx context.Context, symbol string) (float64, error) 
 	if err != nil {
 		return 0, err
 	}
-	pool, tokenIsToken0, err := b.poolFor(ctx, tok)
+	return b.poolPriceAt(ctx, tok, tok.PoolFee)
+}
+
+// poolPriceAt is PoolPrice for the same pair at a given fee tier, which is how
+// a secondary token's referee pool is read.
+func (b *Broker) poolPriceAt(ctx context.Context, tok TokenCfg, fee uint32) (float64, error) {
+	symbol := tok.Symbol
+	pool, tokenIsToken0, err := b.poolFor(ctx, tok, fee)
 	if err != nil {
 		return 0, err
 	}
@@ -138,12 +145,13 @@ func (b *Broker) RealizablePrice(ctx context.Context, wallet, symbol string, uni
 	return mid * (1 - float64(b.PoolFeeOf(symbol))/1e6), nil
 }
 
-func (b *Broker) poolFor(ctx context.Context, tok TokenCfg) (string, bool, error) {
+func (b *Broker) poolFor(ctx context.Context, tok TokenCfg, fee uint32) (string, bool, error) {
 	c := b.cache()
+	key := fmt.Sprintf("%s/%d", tok.Symbol, fee)
 
 	c.mu.RLock()
-	pool, ok := c.pools[tok.Symbol]
-	isT0 := c.token0[tok.Symbol]
+	pool, ok := c.pools[key]
+	isT0 := c.token0[key]
 	factory := c.factory
 	c.mu.RUnlock()
 	if ok {
@@ -166,7 +174,7 @@ func (b *Broker) poolFor(ctx context.Context, tok TokenCfg) (string, bool, error
 
 	// getPool(tokenA, tokenB, fee)
 	data := "0x1698ee82" + padAddr(tok.Address) + padAddr(b.cfg.QuoteToken.Address) +
-		padUint(new(big.Int).SetUint64(uint64(tok.PoolFee)))
+		padUint(new(big.Int).SetUint64(uint64(fee)))
 	raw, err := b.rpc.hexString(ctx, "eth_call",
 		[]any{map[string]string{"to": factory, "data": data}, "latest"})
 	if err != nil {
@@ -174,7 +182,7 @@ func (b *Broker) poolFor(ctx context.Context, tok TokenCfg) (string, bool, error
 	}
 	pool = addrFromWord(raw)
 	if pool == "" || isZeroAddr(pool) {
-		return "", false, fmt.Errorf("no pool for %s at fee %d", tok.Symbol, tok.PoolFee)
+		return "", false, fmt.Errorf("no pool for %s at fee %d", tok.Symbol, fee)
 	}
 
 	// token0() decides which way round the price is.
@@ -187,8 +195,8 @@ func (b *Broker) poolFor(ctx context.Context, tok TokenCfg) (string, bool, error
 
 	c.mu.Lock()
 	c.factory = factory
-	c.pools[tok.Symbol] = pool
-	c.token0[tok.Symbol] = isT0
+	c.pools[key] = pool
+	c.token0[key] = isT0
 	c.mu.Unlock()
 	return pool, isT0, nil
 }

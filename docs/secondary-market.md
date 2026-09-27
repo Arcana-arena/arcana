@@ -1,0 +1,128 @@
+# Secondary Market — Stock Tokens without a Chainlink feed
+
+The on-chain universe has two markets. The **primary market** is the nine
+Stock Tokens listed in 2026-09 (AAPL, NVDA, GOOGL, SPY, QQQ, TSLA, AMZN, MSFT,
+META). Each has a Chainlink feed that referees its pool price. The **secondary
+market** holds Stock Tokens that agents may trade but that Chainlink does not
+price on this chain. Its first token is **RBLX** (Roblox), listed 2026-09-27.
+
+Related: [go-no-go-stock-tokens.md](./go-no-go-stock-tokens.md) (the permission
+this rests on), [market-data.md](./market-data.md), [execution.md](./execution.md),
+[signer.md](./signer.md).
+
+---
+
+## Why a second tier and not just a tenth token
+
+Every primary price is checked twice. market-data compares the pool to
+Chainlink on each tick, and a pool more than 2% away is marked `disputed`
+([on-chain-direction.md §d](./on-chain-direction.md)). Chainlink's feed
+directory for Robinhood Chain (`feeds-robinhood-mainnet.json`, read 2026-09-27)
+lists 58 feeds, 44 of them Stock Tokens, and **none for RBLX**.
+
+Listed like a primary token, RBLX would be `unrefereed` on every tick and would
+trade anyway: whoever moved its pool would set the price every agent acted on.
+The secondary market exists to stop that without waiting for a feed.
+
+## The referee is a second pool
+
+RBLX has two live Uniswap v3 pools against USDG. They hold separate liquidity,
+so an attacker has to move both. When one pool alone shows a price, someone
+pushed it there; the market didn't move.
+
+| | Traded pool | Referee pool |
+|---|---|---|
+| Fee | 0.3% (3000) | 1% (10000) |
+| Address | `0x1bdb8e3a79cb1a7f228808739311e23098d33d43` | `0x2ef5945cd5664876b6481fdacfaa2942995a4da8` |
+| Price, 2026-09-27 | 46.5184 USDG | 46.6693 USDG |
+| Reserves | ~$118k | ~$212k |
+
+The two pools were 0.32% apart at listing, most of which is their fee
+difference. The traded pool is the 0.3% one because its fee is a third of the
+other's and its depth is enough at the sizes agents trade:
+
+| Buy size | $10 | $100 | $1,000 | $10,000 |
+|---|---|---|---|---|
+| Impact, 0.3% pool | 0.001% | 0.011% | 0.108% | 1.079% |
+
+The impact figures are a single-range estimate from in-range liquidity. The
+broker's own simulation of the exact calldata, which runs before every swap,
+has the final say. A 0.01% pool also exists and is empty.
+
+**Checked twice, like the primary market:**
+
+1. **market-data, per tick.** A secondary quote is refereed by the second pool
+   (`chain.RefereeByPool`) with the same 2% tolerance and the same three
+   answers: `agreed`, `disputed`, `unrefereed`. The quote records
+   `market: "secondary"` and `referee_source: "pool"`, so a snapshot read years
+   later still says what checked it.
+2. **decision-engine, per trade.** Immediately before an RBLX swap, the broker
+   reads both pools and refuses with nothing signed when they are more than 2%
+   apart (`price_divergence`) or when the referee pool cannot be read
+   (`referee_unreadable`). It also refuses a referee pool that the factory
+   resolves to a different address than the reviewed one. Sells are checked as
+   well as buys: selling into a pool pushed down loses as much as buying from
+   one pushed up.
+
+A primary trade is never checked by this code. Chainlink referees primary
+tokens in market-data, as before.
+
+## The token
+
+Read live on 2026-09-27, the same checks as the go/no-go test:
+
+| Check | Result |
+|---|---|
+| `name()` / `symbol()` / `decimals()` | `Roblox • Robinhood Token` / `RBLX` / 18 |
+| Address | `0xF0C4BF4C582cb3836e98394b1d4e7B7281101bE8` |
+| Beacon (EIP-1967 slot) | `0xe10b6f6b275de231345c20d14ab812db62151b00`, the same as every primary token |
+| Implementation | `0xb35490d6f9163de4f80d88dc75c3516eb64c5ae2`, 11,614 bytes, the same |
+| `paused()` | `false` |
+| `isBlocked(address)` | reverts, empty payload; `0xdeadbeef` reverts identically |
+| Pools' factory | `0x1f7d7550b1b028f7571e69a784071f0205fd2efa`, the one SwapRouter02 reports |
+
+**A copycat exists.** `0xac3D5a9c7824a091b48AD5AAB101B0586444cb07` is a
+community token also called RBLX ("Robux"). A token's symbol does not prove
+what it is; the beacon and implementation do.
+
+Because RBLX shares the beacon, the chain guard already watches the switch
+that governs it. It is in `infra/alerting/chain-baseline.json` all the same, so
+its pause state and pool are checked by name.
+
+## Where it is configured
+
+A secondary token is one entry in each of three reviewed files, and
+`infra/verify/phase10-verify.mjs` fails if the first two disagree on the
+market or the referee pool:
+
+| File | Fields |
+|---|---|
+| `services/signer/allowlist/robinhood-mainnet.json` | `market`, `referee_pool`, `referee_pool_fee`, and the evidence-carrying `blocklist_unreadable` |
+| `services/market-data/config/robinhood-chain.json` | `market`, `referee_pool`, `referee_pool_fee`; `feed` empty |
+| `infra/alerting/chain-baseline.json` | beacon, implementation, pause state, pool |
+
+Both loaders refuse a secondary token with no referee pool, one refereed by
+its own pool or fee tier, and an unknown market. market-data also refuses a
+secondary token that names a Chainlink feed, because a token with a feed
+belongs in the primary market.
+
+`GET /v1/market/chain/universe` publishes both markets from the chain
+description. The agent wizard reads it and shows the secondary market as its
+own row under *Tokenised stocks*.
+
+## What this leaves out
+
+- **Per-market caps.** The signer has no per-token trade limit, so RBLX trades
+  under the same limits as the primary market. Its pool holds ~$118k, so an
+  order in the thousands of dollars pays measurable impact (above). The
+  broker's 1% slippage floor is set against its own simulated quote, so it
+  stops the price moving between the quote and the fill. It does not cap
+  impact. If agents' sizes grow, a per-market notional cap is the next brake.
+- **A real RBLX swap.** As with the primary market before its first trade,
+  everything here was read or simulated against live state. The broker
+  simulates the exact calldata before it signs anything.
+- **Lending.** RBLX is not Morpho collateral and is not in the lending
+  allowlist.
+- **Promotion.** When Chainlink ships an RBLX feed, moving RBLX to the primary
+  market means setting `market` to `primary`, adding the `feed`, and removing
+  the referee pool, in a reviewed commit.

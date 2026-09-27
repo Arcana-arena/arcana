@@ -31,7 +31,23 @@ type TokenCfg struct {
 	Decimals int    `json:"decimals"`
 	Pool     string `json:"pool"`
 	PoolFee  uint32 `json:"pool_fee"`
+
+	// Market is "primary" (or empty) for a token Chainlink referees, and
+	// "secondary" for one it does not. See referee.go.
+	Market string `json:"market,omitempty"`
+	// RefereePoolFee names a second pool for the same pair, at a different fee
+	// tier, that referees the traded one when there is no Chainlink feed.
+	RefereePool    string `json:"referee_pool,omitempty"`
+	RefereePoolFee uint32 `json:"referee_pool_fee,omitempty"`
 }
+
+// Secondary reports whether a token trades in the secondary market.
+func (t TokenCfg) Secondary() bool { return strings.EqualFold(t.Market, MarketSecondary) }
+
+const (
+	MarketPrimary   = "primary"
+	MarketSecondary = "secondary"
+)
 
 func LoadConfig(path string) (*Config, error) {
 	raw, err := os.ReadFile(path)
@@ -53,6 +69,21 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	c.bySymbol = map[string]TokenCfg{}
 	for _, t := range c.Tokens {
+		switch strings.ToLower(t.Market) {
+		case "", MarketPrimary:
+		case MarketSecondary:
+			// A secondary token has no Chainlink feed, so the second pool is
+			// the only thing that checks its price. Without one it would trade
+			// on a number nobody questions.
+			if t.RefereePoolFee == 0 {
+				return nil, fmt.Errorf("execution config: %s is secondary and names no referee_pool_fee", t.Symbol)
+			}
+			if t.RefereePoolFee == t.PoolFee {
+				return nil, fmt.Errorf("execution config: %s referees its pool with the same fee tier, which is the same pool", t.Symbol)
+			}
+		default:
+			return nil, fmt.Errorf("execution config: %s has unknown market %q", t.Symbol, t.Market)
+		}
 		c.bySymbol[strings.ToUpper(t.Symbol)] = t
 	}
 	return &c, nil

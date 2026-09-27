@@ -47,6 +47,8 @@ export type Universe = {
   value: string;
   label: string;
   symbols: string[];
+  /** The secondary market: tokens refereed by a second pool, not Chainlink. */
+  secondary?: string[];
   note: string | null;
 };
 
@@ -410,7 +412,7 @@ export function Wizard({
                 <span>Universe</span>
                 <span className="fold-state">
                   {uni ? `${uni.label} · ${uni.value}` : 'none could be read'}
-                  {uni && uni.symbols.length > 0 ? ` · ${uni.symbols.length} symbols` : ''}
+                  {uni && uni.symbols.length > 0 ? ` · ${uni.symbols.length + (uni.secondary?.length ?? 0)} symbols` : ''}
                 </span>
               </summary>
               <div className="fold-body">
@@ -434,6 +436,16 @@ export function Wizard({
                               </span>
                             ))}
                             {u.symbols.length > 24 ? <span className="m3" style={{ fontSize: 11 }}>+{u.symbols.length - 24} more</span> : null}
+                          </div>
+                        ) : null}
+                        {u.secondary && u.secondary.length > 0 ? (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 5, marginTop: 8 }}>
+                            <span className="mono m3" style={{ fontSize: 11 }}>Secondary market</span>
+                            {u.secondary.map((sym) => (
+                              <span key={sym} className="sym">
+                                {sym}
+                              </span>
+                            ))}
                           </div>
                         ) : null}
                         {u.note ? (

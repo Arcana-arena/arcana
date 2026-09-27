@@ -50,6 +50,12 @@ func (b *Broker) Execute(ctx context.Context, req Request) (*Result, error) {
 		return res, nil
 	}
 
+	// A secondary token has no Chainlink feed; its second pool referees it.
+	if code, note := b.checkReferee(ctx, tok); code != "" {
+		res.RefusalCode, res.Note = code, note
+		return res, nil
+	}
+
 	// THE BALANCE THE CHAIN SAYS, not the balance the portfolio remembers.
 	haveIn, err := b.rpc.TokenBalance(ctx, tokenIn.Address, req.Wallet)
 	if err != nil {

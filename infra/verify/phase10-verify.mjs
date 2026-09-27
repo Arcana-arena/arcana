@@ -138,6 +138,11 @@ console.log('\n=== 2. The chain config and the signer allowlist cannot disagree 
     if (a.address.toLowerCase() !== t.address.toLowerCase()) mismatches.push(`${t.symbol}: address`);
     if (a.decimals !== t.decimals) mismatches.push(`${t.symbol}: decimals`);
     if ((a.pool ?? '').toLowerCase() !== (t.pool ?? '').toLowerCase()) mismatches.push(`${t.symbol}: pool`);
+    // The market and its referee pool too: market-data disputing one pool
+    // while the engine refuses on another would be two referees.
+    if ((a.market ?? 'primary') !== (t.market ?? 'primary')) mismatches.push(`${t.symbol}: market`);
+    if ((a.referee_pool ?? '').toLowerCase() !== (t.referee_pool ?? '').toLowerCase() ||
+        (a.referee_pool_fee ?? 0) !== (t.referee_pool_fee ?? 0)) mismatches.push(`${t.symbol}: referee pool`);
   }
   check('every priced token is the same token the signer would trade',
     mismatches.length === 0, mismatches.join(', '));
@@ -150,9 +155,13 @@ console.log('\n=== 2. The chain config and the signer allowlist cannot disagree 
 
   // A missing feed is not a validation error — the referee degrades to
   // "unrefereed" and says so — but it IS something somebody should have to
-  // decide deliberately rather than discover.
-  const noFeed = chainCfg.tokens.filter((t) => !t.feed).map((t) => t.symbol);
-  check('every token has a Chainlink feed configured', noFeed.length === 0, noFeed.join(', '));
+  // decide deliberately rather than discover. The decision is the market: a
+  // primary token has a Chainlink feed, a secondary one has a referee pool.
+  const noReferee = chainCfg.tokens
+    .filter((t) => ((t.market ?? 'primary') === 'secondary' ? !t.referee_pool : !t.feed))
+    .map((t) => t.symbol);
+  check('every primary token has a Chainlink feed, every secondary one a referee pool',
+    noReferee.length === 0, noReferee.join(', '));
 
   check('the tolerance records what was measured rather than a default',
     typeof chainCfg.dispute_tolerance_note === 'string' &&

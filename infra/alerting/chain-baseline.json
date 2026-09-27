@@ -98,6 +98,16 @@
       "paused_expected": false,
       "pool": "0x107a7cb40d8665360ba10e59471af06150a50922",
       "pool_fee_bps": 30
+    },
+    {
+      "symbol": "RBLX",
+      "address": "0xF0C4BF4C582cb3836e98394b1d4e7B7281101bE8",
+      "beacon": "0xe10b6f6b275de231345c20d14ab812db62151b00",
+      "implementation": "0xb35490d6f9163de4f80d88dc75c3516eb64c5ae2",
+      "implementation_code_size": 11614,
+      "paused_expected": false,
+      "pool": "0x1bdb8e3a79cb1a7f228808739311e23098d33d43",
+      "pool_fee_bps": 30
     }
   ],
   "note": "All nine tokens share ONE beacon and ONE implementation. A single upgrade transaction changes every Stock Token at once. That is why implementation drift is a CRITICAL alarm and not a warning."

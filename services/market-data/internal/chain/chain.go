@@ -72,6 +72,34 @@ type TokenConfig struct {
 	PoolFee  int    `json:"pool_fee"`
 	Feed     string `json:"feed"`
 	FeedName string `json:"feed_name"`
+
+	// Market is "primary" for a token Chainlink referees and "secondary" for
+	// one it does not. A secondary token has no feed, and a second pool for
+	// the same pair at another fee tier referees it instead.
+	Market         string `json:"market,omitempty"`
+	RefereePool    string `json:"referee_pool,omitempty"`
+	RefereePoolFee int    `json:"referee_pool_fee,omitempty"`
+}
+
+const (
+	MarketPrimary   = "primary"
+	MarketSecondary = "secondary"
+)
+
+// MarketOf is a token's market, with an unset one read as primary.
+func (t TokenConfig) MarketOf() string {
+	if strings.EqualFold(t.Market, MarketSecondary) {
+		return MarketSecondary
+	}
+	return MarketPrimary
+}
+
+// RefereePoolConfig is the token as seen through its referee pool, so the
+// referee pool is read by exactly the same code as the traded one.
+func (t TokenConfig) RefereePoolConfig() TokenConfig {
+	r := t
+	r.Pool, r.PoolFee = t.RefereePool, t.RefereePoolFee
+	return r
 }
 
 // Config is the chain description market-data reads prices against.
@@ -133,6 +161,23 @@ func LoadConfig(path string) (*Config, error) {
 		}
 		if seen[t.Symbol] {
 			return nil, fmt.Errorf("chain config: %s appears twice", t.Symbol)
+		}
+		switch strings.ToLower(t.Market) {
+		case "", MarketPrimary:
+		case MarketSecondary:
+			// Without a feed the referee pool is the only check on the price.
+			if t.Feed != "" {
+				return nil, fmt.Errorf("chain config: %s is secondary but names a Chainlink feed; a token "+
+					"with a feed is primary", t.Symbol)
+			}
+			if t.RefereePool == "" || t.RefereePoolFee == 0 {
+				return nil, fmt.Errorf("chain config: %s is secondary and names no referee_pool", t.Symbol)
+			}
+			if strings.EqualFold(t.RefereePool, t.Pool) || t.RefereePoolFee == t.PoolFee {
+				return nil, fmt.Errorf("chain config: %s is refereed by its own pool", t.Symbol)
+			}
+		default:
+			return nil, fmt.Errorf("chain config: %s has unknown market %q", t.Symbol, t.Market)
 		}
 		seen[t.Symbol] = true
 	}
@@ -442,6 +487,34 @@ func Referee(cfg *Config, t TokenConfig, pool float64, feed FeedAnswer, feedErr 
 		v.Note = fmt.Sprintf(
 			"pool %.6f is %.3f%% from Chainlink %.6f (tolerance %.2f%%)",
 			pool, dev, feed.Price, cfg.DisputeTolerancePct)
+		return v
+	}
+	v.Status = "agreed"
+	return v
+}
+
+// RefereeByPool compares a secondary token's pool against its referee pool.
+//
+// The same tolerance and the same three answers as Referee. A referee pool
+// that could not be read is "unrefereed", never "agreed".
+func RefereeByPool(cfg *Config, t TokenConfig, pool, referee float64, refErr error) Verdict {
+	v := Verdict{PoolPrice: pool}
+	if refErr != nil || !(referee > 0) {
+		v.Status = "unrefereed"
+		v.Note = "referee pool unreadable; the pool price is unchecked"
+		if refErr != nil {
+			v.Note = "referee pool unreadable: " + refErr.Error()
+		}
+		return v
+	}
+	v.FeedPrice = referee
+	dev := math.Abs(pool-referee) / referee * 100
+	v.DeviationPct = math.Round(dev*1000) / 1000
+	if dev > cfg.DisputeTolerancePct {
+		v.Status = "disputed"
+		v.Note = fmt.Sprintf(
+			"pool %.6f is %.3f%% from the %d fee-tier referee pool at %.6f (tolerance %.2f%%)",
+			pool, dev, t.RefereePoolFee, referee, cfg.DisputeTolerancePct)
 		return v
 	}
 	v.Status = "agreed"

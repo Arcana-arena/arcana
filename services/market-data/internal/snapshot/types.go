@@ -63,6 +63,13 @@ type Quote struct {
 	RefereeDevPct    float64 `json:"referee_deviation_pct,omitempty"`
 	RefereeUpdatedAt string  `json:"referee_updated_at,omitempty"`
 	RefereeNote      string  `json:"referee_note,omitempty"`
+	// RefereeSource says what RefereePrice came from: "chainlink" for a primary
+	// token, "pool" for a secondary one refereed by its second pool.
+	RefereeSource string `json:"referee_source,omitempty"`
+
+	// Market is "primary" or "secondary" on a pool quote. Secondary tokens have
+	// thinner pools and no Chainlink feed.
+	Market string `json:"market,omitempty"`
 }
 
 // Provenance records where a snapshot's prices came from and when they were

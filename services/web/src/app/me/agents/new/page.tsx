@@ -33,6 +33,14 @@ type UniverseDoc = {
   symbols: Array<{ symbol: string; sector?: string }>;
 };
 
+type ChainToken = { symbol: string; sector: string; market: string; referee: string };
+type ChainUniverseDoc = {
+  name: string;
+  size: number;
+  primary: ChainToken[];
+  secondary: ChainToken[];
+};
+
 export default async function NewAgentPage() {
   const s = await getSession();
   if (s.state === 'signed_out') redirect('/signin?next=%2Fme%2Fagents%2Fnew');
@@ -60,10 +68,11 @@ export default async function NewAgentPage() {
     );
   }
 
-  const [dashR, tplR, univR] = await Promise.all([
+  const [dashR, tplR, univR, chainR] = await Promise.all([
     authed<Dashboard>(`/v1/creators/${s.session.creator_id}/dashboard`),
     publicRead<MandateTemplates>('/v1/agents/mandate-templates'),
     market<UniverseDoc>('/v1/market/universe'),
+    market<ChainUniverseDoc>('/v1/market/chain/universe'),
   ]);
 
   const dash = dashR.ok ? dashR.data : null;
@@ -90,10 +99,14 @@ export default async function NewAgentPage() {
     {
       value: 'stock_tokens',
       label: 'Tokenised stocks',
-      symbols: [],
-      note:
-        'The on-chain universe. Its symbol list is not published by an endpoint this page can read, so none is ' +
-        'shown — an agent created against it trades whatever the signer’s allowlist holds.',
+      symbols: chainR.ok ? chainR.data.primary.map((x) => x.symbol) : [],
+      secondary: chainR.ok ? chainR.data.secondary.map((x) => x.symbol) : [],
+      note: chainR.ok
+        ? 'The on-chain universe on Robinhood Chain. The primary market is checked against Chainlink. The ' +
+          'secondary market has no Chainlink feed, so each token is checked against a second pool for the same ' +
+          'pair, and a trade is refused when the two disagree by more than 2%.'
+        : `The symbol list could not be read from market-data (${chainR.status ?? 'no answer'}), so none is ` +
+          'shown — an agent created against it trades whatever the signer’s allowlist holds.',
     },
   ];
 

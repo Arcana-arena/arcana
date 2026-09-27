@@ -176,6 +176,7 @@ func main() {
 	mux.HandleFunc("POST /internal/v1/market/snapshots/prices", guard.Wrap(srv.handlePriceLookup))
 	mux.HandleFunc("POST /internal/v1/market/ticks/pool", guard.Wrap(srv.handlePoolTick))
 	mux.HandleFunc("GET /v1/market/pool/latest", srv.handlePoolLatest)
+	mux.HandleFunc("GET /v1/market/chain/universe", srv.handleChainUniverse)
 
 	log.Printf("market-data listening on :%s", port)
 	// Loopback only: layer one of the two protecting the machine tier (the
@@ -529,7 +530,61 @@ func (s *server) handlePoolLatest(w http.ResponseWriter, r *http.Request) {
 		"unrefereed": tick.Unrefereed,
 		"unreadable": tick.Failed,
 		"note": "Read live and NOT stored. The pool price is what a trade would fill at; " +
-			"the referee price is Chainlink, used to decide whether to believe the pool " +
+			"the referee price is Chainlink (or, in the secondary market, a second pool), used to " +
+			"decide whether to believe the pool " +
 			"rather than as the price itself.",
+	})
+}
+
+// chainToken is one entry of the on-chain universe as published.
+type chainToken struct {
+	Symbol  string `json:"symbol"`
+	Sector  string `json:"sector"`
+	Market  string `json:"market"`
+	Address string `json:"address"`
+	Pool    string `json:"pool"`
+	PoolFee int    `json:"pool_fee"`
+	// Referee is "chainlink" or "pool", and RefereeAddress the feed or the
+	// second pool that checks this token's price.
+	Referee        string `json:"referee"`
+	RefereeAddress string `json:"referee_address"`
+}
+
+// handleChainUniverse publishes the on-chain universe from the reviewed chain
+// description: every token agents may trade, split into the primary market
+// (Chainlink-refereed) and the secondary market (refereed by a second pool).
+// Reads the file only; nothing touches the chain.
+func (s *server) handleChainUniverse(w http.ResponseWriter, _ *http.Request) {
+	if s.pool == nil || !s.pool.Configured() {
+		writeError(w, http.StatusServiceUnavailable, "pool_prices_unconfigured",
+			"No chain description is loaded.")
+		return
+	}
+	cfg := s.pool.Config()
+	primary, secondary := []chainToken{}, []chainToken{}
+	for _, t := range cfg.Tokens {
+		ct := chainToken{
+			Symbol: t.Symbol, Sector: t.Sector, Market: t.MarketOf(),
+			Address: t.Address, Pool: t.Pool, PoolFee: t.PoolFee,
+			Referee: "chainlink", RefereeAddress: t.Feed,
+		}
+		if ct.Market == chain.MarketSecondary {
+			ct.Referee, ct.RefereeAddress = "pool", t.RefereePool
+			secondary = append(secondary, ct)
+			continue
+		}
+		primary = append(primary, ct)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"name":        cfg.Name,
+		"chain_id":    cfg.ChainID,
+		"reviewed_at": cfg.ReviewedAt,
+		"quote":       cfg.QuoteToken.Symbol,
+		"size":        len(cfg.Tokens),
+		"primary":     primary,
+		"secondary":   secondary,
+		"note": "The primary market is refereed by Chainlink. The secondary market has no Chainlink " +
+			"feed, so each token is refereed by a second pool for the same pair, and a trade is " +
+			"refused when the two disagree by more than the dispute tolerance.",
 	})
 }
