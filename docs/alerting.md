@@ -84,6 +84,19 @@ last 12 log lines:
 next: journalctl -u arcana-backup-verify.service -n 50 --no-pager
 ```
 
+### One alert per unit per 30 minutes
+
+The every-minute timers fail every minute while agent-service is down. On
+2026-09-27 a 2.5-hour outage sent one alert per failure, exhausted the ntfy.sh
+daily quota, and every later alert — about any unit — was refused with 429.
+
+So `arcana-notify.sh` holds repeats: the first failure of a unit alerts at
+once, and further failures of the same unit within `ALERT_COOLDOWN_SEC`
+(default 1800) are counted in `~/.local/state/arcana-alerts/<unit>` instead of
+sent. The next alert that goes out carries a `repeats:` line saying how many
+were held. The window starts only on a delivered alert, so a failed send never
+suppresses its own retry.
+
 ---
 
 ## Layer 2 — the decision watchdog

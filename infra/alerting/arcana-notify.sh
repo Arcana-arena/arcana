@@ -106,12 +106,45 @@ unit_failed() {
     return 0
   fi
 
+  # --- cooldown: one alert per unit per window -----------------------------
+  #
+  # THE FLOOD THIS CLOSES. The every-minute timers fail every minute for as
+  # long as agent-service is down, and each failure used to send its own alert.
+  # A 2.5-hour outage on 2026-09-27 sent enough of them to exhaust the ntfy.sh
+  # daily quota — after which every later alert, including a real one about a
+  # different unit, was refused with 429. The flood silenced the alarm.
+  #
+  # The first failure still alerts at once. Repeats inside the window are
+  # counted, not dropped: the next alert that does go out says how many were
+  # held back, so a unit that kept failing never reads as a one-off.
+  local cooldown="${ALERT_COOLDOWN_SEC:-1800}"
+  local state_dir="${ALERT_STATE_DIR:-${HOME:-/home/ubuntu}/.local/state/arcana-alerts}"
+  local state="${state_dir}/${unit}"
+  local now last=0 held=0
+  now=$(date +%s)
+  mkdir -p "$state_dir" 2>/dev/null
+  if [ -r "$state" ]; then
+    read -r last held < "$state" || true
+  fi
+  last=${last:-0}; held=${held:-0}
+  if [ $((now - last)) -lt "$cooldown" ]; then
+    held=$((held + 1))
+    echo "$last $held" > "$state"
+    log "HELD: ${unit} failed again within ${cooldown}s of the last alert (${held} held so far)."
+    return 0
+  fi
+
+  local repeats=""
+  if [ "$held" -gt 0 ]; then
+    repeats=$'\n'"repeats: ${held} more failure(s) of this unit were held back since the previous alert"
+  fi
+
   local body
   body=$(cat <<EOF
 host: ${HOSTNAME_SHORT}
 unit: ${unit}
 when: ${when}
-exit: code=${exit_code:-?} (${exit_status:-?}), result=${result:-?}
+exit: code=${exit_code:-?} (${exit_status:-?}), result=${result:-?}${repeats}
 
 last ${LOG_LINES} log lines:
 ${logs}
@@ -119,7 +152,10 @@ ${logs}
 next: journalctl -u ${unit} -n 50 --no-pager
 EOF
 )
-  send "high" "🔴 ARCANA: ${unit} failed" "rotating_light" "$body"
+  # The window starts only once an alert is actually delivered: a failed send
+  # must not suppress the retry that might get through.
+  send "high" "🔴 ARCANA: ${unit} failed" "rotating_light" "$body" || return 1
+  echo "$now 0" > "$state"
 }
 
 # --- generic alert ---------------------------------------------------------
