@@ -4,7 +4,9 @@ The on-chain universe has two markets. The **primary market** is the nine
 Stock Tokens listed in 2026-09 (AAPL, NVDA, GOOGL, SPY, QQQ, TSLA, AMZN, MSFT,
 META). Each has a Chainlink feed that referees its pool price. The **secondary
 market** holds Stock Tokens that agents may trade but that Chainlink does not
-price on this chain. Its first token is **RBLX** (Roblox), listed 2026-09-27.
+price on this chain. It holds **RBLX** (Roblox), listed 2026-09-27, and **LLY**
+(Eli Lilly), listed 2026-09-29. The sections below record RBLX, the first; LLY
+has [its own section](#lly-eli-lilly) with the same evidence.
 
 Related: [go-no-go-stock-tokens.md](./go-no-go-stock-tokens.md) (the permission
 this rests on), [market-data.md](./market-data.md), [execution.md](./execution.md),
@@ -109,6 +111,42 @@ belongs in the primary market.
 `GET /v1/market/chain/universe` publishes both markets from the chain
 description. The agent wizard reads it and shows the secondary market as its
 own row under *Tokenised stocks*.
+
+## LLY (Eli Lilly)
+
+Listed 2026-09-29 with the same checks as RBLX, read live that day. Chainlink's
+feed directory for Robinhood Chain, re-read the same day, still lists 58 feeds
+and none for LLY.
+
+| Check | Result |
+|---|---|
+| `name()` / `symbol()` / `decimals()` | `Eli Lilly • Robinhood Token` / `LLY` / 18 |
+| Address | `0x8005d266423c7ea827372c9c864491e5786600ea` (its EIP-55 checksum is all lowercase) |
+| Beacon / implementation | `0xe10b…1b00` / `0xb354…5ae2`, 11,614 bytes, the same as every other token |
+| `paused()` | `false` |
+| `isBlocked(address)` | reverts, empty payload; `0xdeadbeef` reverts identically |
+
+The address came from the Uniswap token list for chain 4663. The token list
+proves nothing on its own; the name, beacon and implementation above do.
+
+LLY has three live pools against USDG, all from factory `0x1f7d…2efa` with
+USDG as token0:
+
+| | Traded pool | Referee pool | Unused |
+|---|---|---|---|
+| Fee | 0.05% (500) | 1% (10000) | 0.3% (3000) |
+| Address | `0xf212d02146a897f5f686e9d629f6a73da534324a` | `0xf4274130137eee20bad928b593d992716516ceb9` | `0xd2038788ebe1e0bfd7c0a6112f09778f3aeaeca6` |
+| Price, 2026-09-29 | 1186.9528 USDG | 1178.0038 USDG | 1185.2127 USDG |
+| Reserves | ~$330k | ~$222k | ~$40k |
+
+The traded and referee pools were 0.76% apart, inside the 2% tolerance. The
+0.05% pool is traded because it is both the cheapest and the deepest. The 1%
+pool referees it because it is the deeper of the other two, so an attacker
+would have to move about $550k of liquidity across two pools.
+
+| Buy size | $10 | $100 | $1,000 | $10,000 |
+|---|---|---|---|---|
+| Impact, 0.05% pool | 0.000% | 0.002% | 0.024% | 0.244% |
 
 ## What this leaves out
 

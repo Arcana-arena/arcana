@@ -181,6 +181,7 @@ across all ten allowlisted tokens:
 | USDG | `false` | reverts, `0x800ab12c` |
 | the nine Stock Tokens | `false` | reverts, empty payload |
 | RBLX (secondary market, measured 2026-09-27) | `false` | reverts, empty payload |
+| LLY (secondary market, measured 2026-09-29) | `false` | reverts, empty payload |
 
 So the refusal applied to every trade the platform could ever make. The signer
 was not conservative; it was inert. Nothing had noticed, because the only
