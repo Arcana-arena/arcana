@@ -23,7 +23,7 @@
  */
 import Link from 'next/link';
 import { marketplace, qs } from '@/lib/api';
-import { int, money, num, pct, score as fmtScore, tone } from '@/lib/format';
+import { ago, int, money, num, pct, score as fmtScore, tone, utc } from '@/lib/format';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { Lbl, Num, Tag } from '@/components/ds/primitives';
@@ -78,103 +78,137 @@ export default async function MarketplacePage({ searchParams }: { searchParams: 
 
   const d = r.ok ? r.data : null;
   const filtered = !!(q || strategy || universe || minScore || buyableOnly);
+  const sortLabel = SORTS.find((s) => s.key === sort)?.label ?? sort;
 
   return (
     <div className="page">
       <Header current="Marketplace" />
 
-      <div
-        className="sec"
-        style={{ paddingTop: 32, paddingBottom: 18, borderBottom: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 20, flexWrap: 'wrap' }}
-      >
-        <div>
-          <h1>Marketplace</h1>
-          <div className="m2" style={{ fontSize: 12.5, marginTop: 4, maxWidth: 720, lineHeight: 1.5 }}>
-            {d ? (
-              <>
-                <span className="mono">{int(d.counts.buyable)}</span> of{' '}
-                <span className="mono">{int(d.counts.listings)}</span> listing
-                {d.counts.listings === 1 ? '' : 's'} can be subscribed to right now. A subscribed agent also trades in{' '}
-                <em style={{ color: 'var(--color-text)', fontStyle: 'normal' }}>your own wallet</em>, sized by your own
-                limits — the creator chooses only the direction.
-              </>
-            ) : (
-              'A subscribed agent also trades in your own wallet, sized by your own limits.'
-            )}
+      <div className="sec" style={{ paddingTop: 32, paddingBottom: 20, borderBottom: 'none' }}>
+        <div className="fm-hero">
+          <div style={{ minWidth: 0 }}>
+            <div className="fm-kicker">Subscribe to an agent</div>
+            <h1 style={{ marginTop: 6 }}>Marketplace</h1>
           </div>
+          {d ? (
+            <div className="fm-stats">
+              <div className="fm-stat">
+                <div className="fm-stat-v">{int(d.counts.listings)}</div>
+                <div className="fm-stat-k">listings</div>
+              </div>
+              <div className="fm-stat">
+                <div className="fm-stat-v up">{int(d.counts.buyable)}</div>
+                <div className="fm-stat-k">open now</div>
+              </div>
+              <div className="fm-stat" title={utc(d.as_of)}>
+                <div className="fm-stat-v">{ago(d.as_of)}</div>
+                <div className="fm-stat-k">read</div>
+              </div>
+            </div>
+          ) : null}
         </div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 12 }}>
-          <span className="m3">Sort</span>
-          <Seg current={sort} tabs={SORTS.map((s) => ({ ...s, href: href({ sort: s.key }) }))} />
-        </div>
+        <p className="fm-note" style={{ marginTop: 12, fontSize: 12.5, color: 'var(--ink-2)' }}>
+          {d ? (
+            <>
+              <span className="mono">{int(d.counts.buyable)}</span> of{' '}
+              <span className="mono">{int(d.counts.listings)}</span> listing
+              {d.counts.listings === 1 ? '' : 's'} can be subscribed to right now. A subscribed agent also trades in{' '}
+              <em style={{ color: 'var(--color-text)', fontStyle: 'normal' }}>your own wallet</em>, sized by your own
+              limits — the creator chooses only the direction.
+            </>
+          ) : (
+            'A subscribed agent also trades in your own wallet, sized by your own limits.'
+          )}
+        </p>
       </div>
 
       {/* FILTERS. A GET form, so every filtered view has its own URL and the
           back button behaves. The facets come from the service and carry their
           own counts, so a filter that would match nothing says so before it is
-          clicked. */}
-      <div className="sec" style={{ paddingTop: 0, paddingBottom: 16, borderBottom: 'none' }}>
-        <form method="get" action="/marketplace" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <input type="hidden" name="sort" value={sort} />
-          <input
-            className="input mono"
-            type="search"
-            name="q"
-            defaultValue={q}
-            placeholder="agent or creator"
-            aria-label="Search the marketplace"
-            style={{ width: 190, fontSize: 12 }}
-          />
-          <select name="strategy" defaultValue={strategy} aria-label="Strategy" className="input" style={{ fontSize: 12 }}>
-            <option value="">Strategy · all</option>
-            {(d?.facets.strategy_type ?? []).map((f) => (
-              <option key={f.value} value={f.value}>
-                {f.value} ({f.listings})
-              </option>
-            ))}
-          </select>
-          <select name="universe" defaultValue={universe} aria-label="Universe" className="input" style={{ fontSize: 12 }}>
-            <option value="">Universe · all</option>
-            {(d?.facets.asset_universe ?? []).map((f) => (
-              <option key={f.value} value={f.value}>
-                {f.value} ({f.listings})
-              </option>
-            ))}
-          </select>
-          <select name="min_score" defaultValue={minScore} aria-label="Minimum score" className="input" style={{ fontSize: 12 }}>
-            <option value="">Score · any</option>
-            <option value="40">Score ≥ 40</option>
-            <option value="60">Score ≥ 60</option>
-            <option value="75">Score ≥ 75</option>
-          </select>
-          <label className="m2" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-            <input type="checkbox" name="buyable_only" value="true" defaultChecked={buyableOnly} />
-            Only what can be bought
-          </label>
-          <button className="btn" type="submit" style={{ fontSize: 12 }}>
-            Apply
-          </button>
-          {filtered ? (
-            <Link href="/marketplace" className="m3" style={{ fontSize: 12 }}>
-              clear
-            </Link>
-          ) : null}
-        </form>
+          clicked. Sort sits in the same bar but stays a set of links. */}
+      <div className="sec" style={{ paddingBottom: 18, borderBottom: 'none' }}>
+        <div className="mk-bar">
+          <form method="get" action="/marketplace" className="mk-filters">
+            <input type="hidden" name="sort" value={sort} />
+            <input
+              className="input mono mk-search"
+              type="search"
+              name="q"
+              defaultValue={q}
+              placeholder="Search agent or creator"
+              aria-label="Search the marketplace"
+            />
+            <select name="strategy" defaultValue={strategy} aria-label="Strategy" className="input">
+              <option value="">Strategy · all</option>
+              {(d?.facets.strategy_type ?? []).map((f) => (
+                <option key={f.value} value={f.value}>
+                  {f.value} ({f.listings})
+                </option>
+              ))}
+            </select>
+            <select name="universe" defaultValue={universe} aria-label="Universe" className="input">
+              <option value="">Universe · all</option>
+              {(d?.facets.asset_universe ?? []).map((f) => (
+                <option key={f.value} value={f.value}>
+                  {f.value} ({f.listings})
+                </option>
+              ))}
+            </select>
+            <select name="min_score" defaultValue={minScore} aria-label="Minimum score" className="input">
+              <option value="">Score · any</option>
+              <option value="40">Score ≥ 40</option>
+              <option value="60">Score ≥ 60</option>
+              <option value="75">Score ≥ 75</option>
+            </select>
+            <label className="mk-check">
+              <input type="checkbox" name="buyable_only" value="true" defaultChecked={buyableOnly} />
+              Only what can be bought
+            </label>
+            <button className="btn" type="submit">
+              Apply
+            </button>
+            {filtered ? (
+              <Link href="/marketplace" className="mk-clear">
+                Clear
+              </Link>
+            ) : null}
+          </form>
+          <div className="mk-sort">
+            <span className="fm-stat-k" style={{ marginTop: 0 }}>
+              Sort
+            </span>
+            <Seg current={sort} tabs={SORTS.map((s) => ({ ...s, href: href({ sort: s.key }) }))} />
+          </div>
+        </div>
         {minScore ? (
-          <div className="m3" style={{ fontSize: 11, marginTop: 6 }}>
+          <p className="fm-note" style={{ marginTop: 8 }}>
             A score floor can only judge agents that have one. An agent whose score is withheld is excluded by this
             filter rather than treated as scoring zero.
-          </div>
+          </p>
         ) : null}
       </div>
 
-      <div className="sec" style={{ paddingBottom: 40, borderBottom: 'none' }}>
+      <div className="sec" style={{ paddingBottom: 48, borderBottom: 'none' }}>
         {!r.ok ? (
           <Failed what="The marketplace" error={r} />
         ) : d && d.items.length === 0 ? (
           <EmptyGrid d={d} filtered={filtered} />
         ) : (
           <>
+            {d ? (
+              <div className="mk-count">
+                <span>
+                  <span className="mono">{int(d.items.length)}</span> shown
+                  {d.sorted ? (
+                    <>
+                      {' '}
+                      · ordered by <span style={{ color: 'var(--color-text)' }}>{sortLabel}</span>
+                    </>
+                  ) : null}
+                </span>
+                {filtered ? <span className="m3">filtered</span> : null}
+              </div>
+            ) : null}
             {d && !d.sorted ? (
               <div style={{ marginBottom: 16 }}>
                 <Callout tone="warn">
@@ -191,13 +225,13 @@ export default async function MarketplacePage({ searchParams }: { searchParams: 
                 </Callout>
               </div>
             ) : null}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 24 }}>
+            <div className="mk-grid">
               {(d?.items ?? []).map((i) => (
                 <ListingCard key={i.listing_id} i={i} />
               ))}
             </div>
             {d && d.counts.hidden_unavailable > 0 ? (
-              <div className="m3" style={{ fontSize: 11.5, marginTop: 16 }}>
+              <div className="fm-note" style={{ marginTop: 20 }}>
                 <span className="mono">{int(d.counts.hidden_unavailable)}</span> more listing
                 {d.counts.hidden_unavailable === 1 ? ' is' : 's are'} not shown — {describeHidden(d.counts.hidden_by_agent_status)}.
                 A stopped agent decides nothing, so a subscription bought today would mirror nothing. The listings are
@@ -205,7 +239,7 @@ export default async function MarketplacePage({ searchParams }: { searchParams: 
               </div>
             ) : null}
             {d && d.counts.inactive > 0 && !buyableOnly ? (
-              <div className="m3" style={{ fontSize: 11.5, marginTop: 16 }}>
+              <div className="fm-note" style={{ marginTop: 10 }}>
                 <span className="mono">{int(d.counts.inactive)}</span> of these listing
                 {d.counts.inactive === 1 ? ' is' : 's are'} switched off and shown anyway, marked, so the grid is the
                 whole marketplace rather than the part of it that happens to be for sale.
@@ -303,121 +337,126 @@ function EmptyGrid({ d, filtered }: { d: BrowseResponse; filtered: boolean }) {
 function ListingCard({ i }: { i: BrowseItem }) {
   const perf = i.performance;
   const seriesPoints = perf.series.map((p) => ({ ts: p.ts, value: p.nav, agg: p.agg }));
+  const name = i.agent_name ?? i.agent_id.slice(0, 8);
+  const perfWhy = perf.available ? perf.note ?? undefined : perf.reason ?? undefined;
 
   return (
-    <article className="card" style={i.buyable ? undefined : { borderColor: 'rgba(212,162,74,.35)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+    <article className={`mk-card${i.buyable ? '' : ' mk-off'}`}>
+      <div className="mk-card-hd">
+        <span className="fm-glyph" aria-hidden="true">
+          {name.slice(0, 1).toUpperCase()}
+        </span>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 18, lineHeight: 1.1 }}>
-            <Link href={`/marketplace/${i.listing_id}`}>{i.agent_name ?? i.agent_id.slice(0, 8)}</Link>{' '}
-            {i.agent_version ? (
-              <span className="mono m3" style={{ fontWeight: 400, fontSize: 10 }}>
-                v{i.agent_version}
-              </span>
-            ) : null}
+          <div className="mk-name-row">
+            <Link href={`/marketplace/${i.listing_id}`} className="fm-title mk-name">
+              {name}
+            </Link>
+            {i.agent_version ? <span className="mono m3 mk-ver">v{i.agent_version}</span> : null}
           </div>
-          <div className="m2" style={{ fontSize: 11.5 }}>
+          <div className="fm-meta" style={{ marginTop: 3 }}>
             by{' '}
             {i.creator?.handle ? (
-              <Link href={`/creators/${i.creator.id}`}>{i.creator.handle}</Link>
+              <Link href={`/creators/${i.creator.id}`}>@{i.creator.handle}</Link>
             ) : (
-              <span className="m3">creator not recorded</span>
+              <span>creator not recorded</span>
             )}
           </div>
         </div>
-        <div style={{ textAlign: 'right', flex: 'none' }}>
+        <div className="mk-score">
           {/* WITHHELD IS NOT LOW, and the two are drawn differently. */}
           {i.score === null ? (
             <>
-              <div className="mono m3" style={{ fontSize: 22, lineHeight: 1 }} title={scoreWhy(i)}>
+              <div className="mk-score-v m3" title={scoreWhy(i)}>
                 —
               </div>
               <Lbl>{i.ranked === false ? 'UNRANKED' : i.absent_from_leaderboard ? 'NOT COMPETING' : 'NO SCORE'}</Lbl>
             </>
           ) : (
             <>
-              <div className="mono" style={{ fontSize: 22, fontWeight: 500, lineHeight: 1 }}>
-                {fmtScore(i.score)}
-              </div>
+              <div className="mk-score-v">{fmtScore(i.score)}</div>
               <Lbl>SCORE{i.rank ? ` · #${i.rank}` : ''}</Lbl>
             </>
           )}
         </div>
       </div>
 
-      {/* THE SPARKLINE IS DRAWN FROM THE SERVICE'S OWN min/max BUCKETS. It is
-          not resampled here — the deepest point of a drawdown is exactly the
-          value a second pass would smooth away. */}
-      {perf.available && perf.measured && seriesPoints.length > 1 ? (
-        <Sparkline points={seriesPoints} width="100%" height={40} />
-      ) : (
-        <div
-          className="m3 mono"
-          style={{ height: 40, display: 'flex', alignItems: 'center', fontSize: 10.5, borderBottom: '1px dashed var(--ink-4)' }}
-          title={perf.available ? perf.note ?? undefined : perf.reason ?? undefined}
-        >
-          {perf.available ? 'no NAV series in this season' : 'series unreadable'}
+      <div className="mk-body">
+        <div className="pf-chips">
+          <span className="pf-chip" title="Strategy">
+            {i.strategy_type ?? <span className="m3">strategy not stated</span>}
+          </span>
+          {i.asset_universe ? (
+            <span className="pf-chip m2" title="Asset universe">
+              {i.asset_universe}
+            </span>
+          ) : null}
         </div>
-      )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-        <div>
-          <Lbl>RETURN</Lbl>
-          <Num
-            value={pct(perf.return_pct)}
-            tone={tone(perf.return_pct)}
-            title={perf.available ? perf.note ?? undefined : perf.reason ?? undefined}
-          />
+        {/* THE SPARKLINE IS DRAWN FROM THE SERVICE'S OWN min/max BUCKETS. It is
+            not resampled here — the deepest point of a drawdown is exactly the
+            value a second pass would smooth away. */}
+        <div className="mk-spark">
+          {perf.available && perf.measured && seriesPoints.length > 1 ? (
+            <Sparkline points={seriesPoints} width="100%" height={44} />
+          ) : (
+            <div className="mk-spark-none mono" title={perfWhy}>
+              {perf.available ? 'no NAV series in this season' : 'series unreadable'}
+            </div>
+          )}
         </div>
-        <div>
+      </div>
+
+      <div className="mk-strip">
+        <div className="mk-cell">
+          <Lbl>RETURN</Lbl>
+          <Num value={pct(perf.return_pct)} tone={tone(perf.return_pct)} title={perfWhy} className="mk-cell-v" />
+        </div>
+        <div className="mk-cell">
           <Lbl>MAX DD</Lbl>
           <Num
             value={perf.max_drawdown_pct === null ? '—' : `−${num(perf.max_drawdown_pct, 2)}%`}
             tone={perf.max_drawdown_pct === null ? 'flat' : 'dn'}
             title="The largest fall from a running peak inside this season."
+            className="mk-cell-v"
           />
         </div>
-        <div>
-          <Lbl>STRATEGY</Lbl>
-          <div style={{ fontSize: 12 }}>{i.strategy_type ?? <span className="m3">not stated</span>}</div>
+        <div className="mk-cell" title="Subscriptions currently active against this listing.">
+          <Lbl>SUBSCRIBERS</Lbl>
+          <div className="mono mk-cell-v">{int(i.subscribers.active)}</div>
         </div>
       </div>
 
-      <div
-        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--color-divider)', paddingTop: 10, gap: 8 }}
-      >
-        <div>
+      <div className="mk-card-ft">
+        <div className="mk-price">
           {i.price_usd === null ? (
             <span className="mono m3" style={{ fontSize: 12 }}>
               no price on this listing
             </span>
           ) : (
             <>
-              <span className="mono" style={{ fontSize: 14 }}>
-                {money(i.price_usd)}
+              <span className="mono mk-price-v">{money(i.price_usd)}</span>
+              <span className="m3" style={{ fontSize: 11 }}>
+                {' '}
+                USDG / 30d
               </span>
-              <span className="m3" style={{ fontSize: 11 }}> USDG / 30d</span>
             </>
           )}
         </div>
-        <span className="mono m2" style={{ fontSize: 11 }} title="Subscriptions currently active against this listing.">
-          {int(i.subscribers.active)} sub{i.subscribers.active === 1 ? '' : 's'}
-        </span>
-      </div>
-
-      {i.buyable ? (
-        <Link href={`/marketplace/${i.listing_id}`} className="btn btn-primary" style={{ justifyContent: 'center' }}>
-          Subscribe
-        </Link>
-      ) : (
-        <div>
+        {i.buyable ? (
+          <Link href={`/marketplace/${i.listing_id}`} className="btn btn-primary">
+            Subscribe →
+          </Link>
+        ) : (
           <Tag tone="amber" title={i.not_buyable_note ?? undefined}>
             {UNBUYABLE_LABEL[i.not_buyable_because ?? ''] ?? 'NOT AVAILABLE'}
           </Tag>
-          <div className="m3" style={{ fontSize: 11, marginTop: 6, lineHeight: 1.45 }}>
-            {i.not_buyable_note}
-          </div>
-          <Link href={`/marketplace/${i.listing_id}`} style={{ fontSize: 11.5, display: 'inline-block', marginTop: 6 }}>
+        )}
+      </div>
+
+      {i.buyable ? null : (
+        <div className="mk-why">
+          {i.not_buyable_note}{' '}
+          <Link href={`/marketplace/${i.listing_id}`} style={{ whiteSpace: 'nowrap' }}>
             Read the record anyway →
           </Link>
         </div>

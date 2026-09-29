@@ -22,9 +22,10 @@ export default function Loading() {
       <div className="mono m3" style={{ fontSize: 11, marginBottom: 18 }}>
         reading the marketplace…
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 24 }}>
+      <SkeletonBlock height={58} />
+      <div className="mk-grid" style={{ marginTop: 18 }}>
         {Array.from({ length: 6 }).map((_, i) => (
-          <SkeletonBlock key={i} height={260} />
+          <SkeletonBlock key={i} height={300} />
         ))}
       </div>
     </div>
