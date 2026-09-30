@@ -182,6 +182,7 @@ across all ten allowlisted tokens:
 | the nine Stock Tokens | `false` | reverts, empty payload |
 | RBLX (secondary market, measured 2026-09-27) | `false` | reverts, empty payload |
 | LLY (secondary market, measured 2026-09-29) | `false` | reverts, empty payload |
+| IBM (secondary market, measured 2026-10-01) | `false` | reverts, empty payload |
 
 So the refusal applied to every trade the platform could ever make. The signer
 was not conservative; it was inert. Nothing had noticed, because the only

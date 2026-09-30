@@ -4,9 +4,10 @@ The on-chain universe has two markets. The **primary market** is the nine
 Stock Tokens listed in 2026-09 (AAPL, NVDA, GOOGL, SPY, QQQ, TSLA, AMZN, MSFT,
 META). Each has a Chainlink feed that referees its pool price. The **secondary
 market** holds Stock Tokens that agents may trade but that Chainlink does not
-price on this chain. It holds **RBLX** (Roblox), listed 2026-09-27, and **LLY**
-(Eli Lilly), listed 2026-09-29. The sections below record RBLX, the first; LLY
-has [its own section](#lly-eli-lilly) with the same evidence.
+price on this chain. It holds **RBLX** (Roblox), listed 2026-09-27, **LLY**
+(Eli Lilly), listed 2026-09-29, and **IBM**, listed 2026-10-01. The sections
+below record RBLX, the first; LLY and IBM have their own sections
+([LLY](#lly-eli-lilly), [IBM](#ibm)) with the same evidence.
 
 Related: [go-no-go-stock-tokens.md](./go-no-go-stock-tokens.md) (the permission
 this rests on), [market-data.md](./market-data.md), [execution.md](./execution.md),
@@ -147,6 +148,42 @@ would have to move about $550k of liquidity across two pools.
 | Buy size | $10 | $100 | $1,000 | $10,000 |
 |---|---|---|---|---|
 | Impact, 0.05% pool | 0.000% | 0.002% | 0.024% | 0.244% |
+
+## IBM
+
+Listed 2026-10-01 with the same checks, read live that day. Chainlink's feed
+directory for Robinhood Chain, re-read the same day, still lists 58 feeds and
+none for IBM.
+
+| Check | Result |
+|---|---|
+| `name()` / `symbol()` / `decimals()` | `IBM • Robinhood Token` / `IBM` / 18 |
+| Address | `0x980dcf6766FA79f5Cf0c4AAdb3ab477ff15a9619` |
+| Beacon / implementation | `0xe10b…1b00` / `0xb354…5ae2`, 11,614 bytes, the same as every other token |
+| `paused()` | `false` |
+| `isBlocked(address)` | reverts, empty payload; `0xdeadbeef` reverts identically |
+
+The address came from the Uniswap token list for chain 4663; the name, beacon
+and implementation above are what prove it.
+
+IBM has two live pools against USDG and two empty ones, all from factory
+`0x1f7d…2efa` with USDG as token0:
+
+| | Traded pool | Referee pool |
+|---|---|---|
+| Fee | 0.3% (3000) | 1% (10000) |
+| Address | `0x8cd848ce18b829c5c769aff27164078bb52e0e97` | `0xa0a79bc62fc822f3bcdf0ebbc586031781c53a5b` |
+| Price, 2026-10-01 | 219.4666 USDG | 221.1411 USDG |
+| Reserves | ~$239k | ~$29k |
+
+The two were 0.76% apart, inside the 2% tolerance. The 0.05% and 0.01% pools
+(`0x8a9e…351f`, `0x0526…c3c2`) hold nothing. The referee is thin: moving it
+2% costs a few thousand dollars. That alone fools nothing, because the traded
+pool must be moved as well, and at ~$239k it is the expensive half.
+
+| Buy size | $10 | $100 | $1,000 | $10,000 |
+|---|---|---|---|---|
+| Impact, 0.3% pool | 0.001% | 0.008% | 0.075% | 0.753% |
 
 ## What this leaves out
 
