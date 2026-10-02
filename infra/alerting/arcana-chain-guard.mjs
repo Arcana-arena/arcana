@@ -4,9 +4,9 @@
 // THE CASE THIS EXISTS FOR. Every Robinhood Stock Token is a beacon proxy, and
 // every token ARCANA can trade points at the SAME beacon and the SAME
 // implementation (verified across the first nine 2026-09-10, and the
-// secondary market: RBLX 2026-09-27, LLY 2026-09-29, IBM 2026-10-01).
-// One upgrade transaction therefore rewrites the transfer rules for every Stock Token at
-// once — and the permission this entire direction rests on, that an
+// secondary market: RBLX 2026-09-27, LLY 2026-09-29, IBM 2026-10-01, MRNA
+// 2026-10-02). One upgrade transaction therefore rewrites the transfer rules
+// for every Stock Token at once — and the permission this entire direction rests on, that an
 // ARCANA-created wallet may hold and trade them, could be revoked with no
 // notice and no announcement.
 //

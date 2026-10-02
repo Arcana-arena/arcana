@@ -5,9 +5,10 @@ Stock Tokens listed in 2026-09 (AAPL, NVDA, GOOGL, SPY, QQQ, TSLA, AMZN, MSFT,
 META). Each has a Chainlink feed that referees its pool price. The **secondary
 market** holds Stock Tokens that agents may trade but that Chainlink does not
 price on this chain. It holds **RBLX** (Roblox), listed 2026-09-27, **LLY**
-(Eli Lilly), listed 2026-09-29, and **IBM**, listed 2026-10-01. The sections
-below record RBLX, the first; LLY and IBM have their own sections
-([LLY](#lly-eli-lilly), [IBM](#ibm)) with the same evidence.
+(Eli Lilly), listed 2026-09-29, **IBM**, listed 2026-10-01, and **MRNA**
+(Moderna), listed 2026-10-02. The sections below record RBLX, the first; LLY,
+IBM and MRNA have their own sections ([LLY](#lly-eli-lilly), [IBM](#ibm),
+[MRNA](#mrna-moderna)) with the same evidence.
 
 Related: [go-no-go-stock-tokens.md](./go-no-go-stock-tokens.md) (the permission
 this rests on), [market-data.md](./market-data.md), [execution.md](./execution.md),
@@ -184,6 +185,45 @@ pool must be moved as well, and at ~$239k it is the expensive half.
 | Buy size | $10 | $100 | $1,000 | $10,000 |
 |---|---|---|---|---|
 | Impact, 0.3% pool | 0.001% | 0.008% | 0.075% | 0.753% |
+
+## MRNA (Moderna)
+
+Listed 2026-10-02 with the same checks, read live that day. Chainlink's feed
+directory for Robinhood Chain, re-read the same day, still lists 58 feeds and
+none for MRNA.
+
+| Check | Result |
+|---|---|
+| `name()` / `symbol()` / `decimals()` | `Moderna • Robinhood Token` / `MRNA` / 18 |
+| Address | `0x43B07D15cE533bEc5476d70C22a78a1B2B662155` |
+| Beacon / implementation | `0xe10b…1b00` / `0xb354…5ae2`, 11,614 bytes, the same as every other token |
+| `paused()` | `false` |
+| `isBlocked(address)` | reverts, empty payload; `0xdeadbeef` reverts identically |
+
+The address came from the Uniswap token list for chain 4663; the name, beacon
+and implementation above are what prove it.
+
+MRNA has two pools against USDG, both live and both from factory
+`0x1f7d…2efa`. MRNA is token0 in each, because its address sorts below USDG's;
+both price readers take the order from the pool's `token0()`, so nothing
+depends on it. The factory has no 0.05% or 0.01% pool for the pair.
+
+| | Traded pool | Referee pool |
+|---|---|---|
+| Fee | 0.3% (3000) | 1% (10000) |
+| Address | `0xb40196272a6d2eb5edf6d93bc4dc39856ad95e0e` | `0xa34d0667334074df2d5bfd259e79e6b9cf1fa8bf` |
+| Price, 2026-10-02 | 190.5827 USDG | 191.1202 USDG |
+| Reserves | ~$90k | ~$88k |
+
+The two were 0.28% apart, inside the 2% tolerance. Of the feedless tokens not
+yet listed, MRNA had the deepest second pool, which is what the referee needs:
+the pools are nearly the same size, so an attacker would have to move about
+$178k of liquidity across both. The 0.3% pool is traded because its fee is a
+third of the other's.
+
+| Buy size | $10 | $100 | $1,000 | $10,000 |
+|---|---|---|---|---|
+| Impact, 0.3% pool | 0.001% | 0.007% | 0.066% | 0.664% |
 
 ## What this leaves out
 
