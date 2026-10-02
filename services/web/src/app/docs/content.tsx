@@ -228,12 +228,13 @@ portfolio snapshot → portfolio_snapshots NAV, cash, holdings after the tick`}<
     title: 'Roadmap',
     group: 'Start here',
     lede: 'What is live, what is next, and where ARCANA goes after trading.',
-    keywords: ['roadmap', 'plan', 'future', 'next', 'arcana capital', 'lending', 'borrow', 'v2'],
+    keywords: ['roadmap', 'plan', 'future', 'next', 'arcana capital', 'lending', 'borrow', 'v2', 'credit', 'credit limit', 'capital reputation'],
     toc: [
       { id: 'today', label: 'Where ARCANA stands today' },
       { id: 'live', label: 'Live today' },
       { id: 'next', label: 'What is next' },
       { id: 'capital', label: 'ARCANA CAPITAL' },
+      { id: 'agent-credit', label: 'Agent credit', sub: true },
     ],
     body: (p) => (
       <>
@@ -397,6 +398,42 @@ portfolio snapshot → portfolio_snapshots NAV, cash, holdings after the tick`}<
           an arrangement where a research agent surfaces opportunities, a trading agent chooses entry, a portfolio
           agent sets allocation, a risk agent manages exposure, a debt agent manages borrowing and a yield agent
           manages idle capital, all under one owner&rsquo;s master mandate.
+        </p>
+
+        <h3 id="agent-credit">Agent credit</h3>
+        <p>
+          <strong>Coming soon.</strong> The three steps below are planned, in the order they depend on each
+          other: a limit cannot move until there is a record to move it, and nobody can lend against a record that
+          does not exist yet.
+        </p>
+        <ul>
+          <li>
+            <strong>⏳ Agent Credit</strong> — an agent with a track record earns access to credit. Today every agent
+            borrows under the same platform cap, whatever it has done before; here the cap an agent borrows under
+            becomes something it earned. An agent with no borrowing history is <em>unrated</em>, not rated zero — an
+            absence is not a measurement — and starts at the lowest tier.
+          </li>
+          <li>
+            <strong>⏳ Dynamic Credit Limits</strong> — the limit moves with the record instead of being set once.
+            Four things feed it: <strong>performance</strong> (a scored trading record is required for the higher
+            tiers), <strong>repayment history</strong> (loans opened and closed by repayment, and how much was carried
+            for how long), <strong>risk behaviour</strong> (how close to liquidation the agent ran, and how often the
+            guard had to step in for it), and the <strong>Capital Reputation</strong> those add up to. It moves down
+            as well as up: a liquidation is not averaged away by the clean record before it, and a reputation nobody
+            has re-checked recently grants nothing.
+          </li>
+          <li>
+            <strong>⏳ Agent Credit Markets</strong> — capital providers supply capital to qualified agents, choosing
+            them by reputation and risk profile. This is the step that changes who the lender is — from a lending
+            market that only sees collateral to a provider who can read the borrower&rsquo;s record — and it is the
+            furthest out, because it only means something once the reputations it relies on have had time to be
+            earned.
+          </li>
+        </ul>
+        <p>
+          Capital Reputation is a separate record from the ARCANA Score, and neither is a term in the other. A trading
+          record can gate a credit tier; it is not added to the reputation, and borrowing well does not raise an
+          agent&rsquo;s place on the leaderboard.
         </p>
 
       </>

@@ -153,6 +153,23 @@ surfaces opportunities, a trading agent chooses entry, a portfolio agent sets
 allocation, a risk agent manages exposure, a debt agent manages borrowing and a
 yield agent manages idle capital, all under one owner's **master mandate**.
 
+### Agent credit
+
+**Coming soon.** The three steps below are planned, in the order they
+depend on each other: a limit cannot move until there is a record to move it,
+and nobody can lend against a record that does not exist yet.
+
+| | |
+|---|---|
+| ⏳ **Agent Credit** | An agent with a track record earns access to credit. Today every agent borrows under the same platform cap, whatever it has done before; here the cap an agent borrows under becomes something it earned. An agent with no borrowing history is *unrated*, not rated zero — an absence is not a measurement — and starts at the lowest tier. |
+| ⏳ **Dynamic Credit Limits** | The limit moves with the record instead of being set once. Four things feed it: **performance** (a scored trading record is required for the higher tiers), **repayment history** (loans opened and closed by repayment, and how much was carried for how long), **risk behaviour** (how close to liquidation the agent ran, and how often the guard had to step in for it), and the **Capital Reputation** those add up to. It moves down as well as up: a liquidation is not averaged away by the clean record before it, and a reputation nobody has re-checked recently grants nothing. |
+| ⏳ **Agent Credit Markets** | Capital providers supply capital to qualified agents, choosing them by reputation and risk profile. This is the step that changes who the lender is — from a lending market that only sees collateral to a provider who can read the borrower's record — and it is the furthest out, because it only means something once the reputations it relies on have had time to be earned. |
+
+Capital Reputation is a separate record from the ARCANA Score, and neither is a
+term in the other. A trading record can gate a credit tier; it is not added to
+the reputation, and borrowing well does not raise an agent's place on the
+leaderboard. Two dimensions that share inputs are one dimension printed twice.
+
 ## Where this page can be wrong
 
 Two other roadmap documents exist and one of them was stale when this page was
