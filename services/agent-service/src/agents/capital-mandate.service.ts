@@ -1,8 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { readFileSync } from 'fs';
-import { resolve } from 'path';
 import { DataSource } from 'typeorm';
+import { readAllowlist } from './allowlist';
+import { creditConfig, limitForTier } from './capital-credit';
 import { CapitalMandateDto } from './dto/capital-mandate.dto';
 
 /**
@@ -18,8 +18,10 @@ import { CapitalMandateDto } from './dto/capital-mandate.dto';
  *                       weekend the NVDA feed holds Friday's price while the
  *                       token trades (docs/go-no-go-lending.md condition 3), so
  *                       the floor must clear liquidation BY A MARGIN.
- *   max_borrow_usdg     above zero and no higher than the signer's per-agent
- *                       cap. A mandate cannot raise the platform's cap (§17.6).
+ *   max_borrow_usdg     above zero and no higher than what this agent may owe:
+ *                       the signer's per-agent cap, or — with Agent Credit
+ *                       enabled — the limit of the tier its capital reputation
+ *                       holds (§18.5). A mandate cannot raise either.
  *   liquidity_trigger   between zero and the borrow cap.
  *   never_sell          every symbol one the agent can actually hold — an
  *                       allowlisted token. A symbol it can never hold is a
@@ -32,28 +34,13 @@ import { CapitalMandateDto } from './dto/capital-mandate.dto';
 export const MIN_HEALTH_FACTOR = 1.5;
 export const MAX_HEALTH_FACTOR = 10;
 
-type Allowlist = {
-  tokens: Array<{ symbol: string }>;
-  lending?: {
-    enabled: boolean;
-    markets: Array<{ id: string; name: string }>;
-    limits: { max_borrow_per_tx_usdg: string; max_debt_per_agent_usdg: string };
-  };
-};
-
-function allowlist(): Allowlist {
-  const path = process.env.CAPITAL_ALLOWLIST_FILE
-    || resolve(process.cwd(), '../signer/allowlist/robinhood-mainnet.json');
-  return JSON.parse(readFileSync(path, 'utf8'));
-}
-
 /**
  * What a mandate may be and what the platform allows, read from the signer's
  * allowlist. Shared with the docs parameters, so the page that explains
  * ARCANA CAPITAL quotes the same numbers the form enforces and the signer caps.
  */
 export function capitalLimits() {
-  const a = allowlist();
+  const a = readAllowlist();
   const l = a.lending;
   return {
     lending_enabled: l?.enabled === true,
@@ -72,9 +59,25 @@ const refuse = (code: string, message: string) => new BadRequestException({ code
 export class CapitalMandateService {
   constructor(@InjectDataSource() private readonly db: DataSource) {}
 
-  /** What a mandate may be, for the form to show before anyone types. */
-  limits() {
-    return capitalLimits();
+  /**
+   * What a mandate may be for THIS agent, for the form to show before anyone
+   * types. `agent_max_debt_usdg` is the number the borrow cap is held to: the
+   * platform's cap while Agent Credit is disabled, the agent's tier limit once
+   * it is enabled. It is computed the way the engine computes it, from the
+   * newest reputation row and the allowlist's tier table.
+   */
+  async limits(agentId: string) {
+    const lim = capitalLimits();
+    const cfg = creditConfig();
+    const rep = await this.db.query(
+      `SELECT tier, confirmed_at FROM capital_reputation
+        WHERE agent_id = $1 ORDER BY computed_at DESC, id DESC LIMIT 1`, [agentId]);
+    const confirmedAt = rep[0] ? new Date(rep[0].confirmed_at) : null;
+    return {
+      ...lim,
+      agent_max_debt_usdg: limitForTier(cfg, rep[0]?.tier ?? 0, confirmedAt),
+      credit_enabled: cfg.enabled,
+    };
   }
 
   async get(agentId: string) {
@@ -83,12 +86,12 @@ export class CapitalMandateService {
               liquidity_trigger_usdg::float8 AS liquidity_trigger_usdg, max_borrow_usdg::float8 AS max_borrow_usdg,
               never_sell, status, created_at, updated_at, activated_at
          FROM capital_mandates WHERE agent_id = $1`, [agentId]);
-    return { mandate: rows[0] ?? null, limits: this.limits() };
+    return { mandate: rows[0] ?? null, limits: await this.limits(agentId) };
   }
 
   /** Saves the mandate. A new one is a draft; an edit keeps its status. */
   async save(agentId: string, dto: CapitalMandateDto) {
-    const lim = this.limits();
+    const lim = await this.limits(agentId);
     if (!lim.market) {
       throw refuse('no_lending_market', 'The allowlist lists no lending market, so there is nothing to write a mandate for.');
     }
@@ -111,8 +114,16 @@ export class CapitalMandateService {
     }
     if (cap > lim.platform_max_debt_usdg) {
       throw refuse('borrow_cap_over_platform',
-        `The platform allows at most ${lim.platform_max_debt_usdg} USDG of debt per agent during the beta, and a ` +
+        `The platform allows at most ${lim.platform_max_debt_usdg} USDG of debt per agent, and a ` +
         `mandate cannot raise it. Got ${cap}.`);
+    }
+    // Under the platform's cap and still over what this agent's capital
+    // reputation allows. Only reachable with Agent Credit enabled; disabled,
+    // the two numbers are the same one.
+    if (cap > lim.agent_max_debt_usdg) {
+      throw refuse('borrow_cap_over_credit_limit',
+        `This agent's capital reputation allows at most ${lim.agent_max_debt_usdg} USDG of debt, and a mandate ` +
+        `cannot raise it. The limit rises with the tier the agent earns by repaying. Got ${cap}.`);
     }
     const trig = dto.liquidity_trigger_usdg;
     if (!Number.isFinite(trig) || trig < 0 || trig > cap) {

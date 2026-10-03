@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { creditFor } from './capital-credit';
 
 /**
  * ARCANA CAPITAL: what an agent owes, what backs it, and how close it is to
@@ -101,9 +102,10 @@ export class AgentCapitalService {
     // THE CAPITAL RECORD, beside the ARCANA Score and never inside it (§17.3).
     // Only what the rows prove: what was borrowed and repaid through ARCANA,
     // the interest that costs (repaid plus still owed, less borrowed), the
-    // lowest worst-case health factor any reading saw, and how often the guard
-    // had to deleverage. A liquidation is not detected yet, and the record says
-    // so rather than printing a zero.
+    // lowest worst-case health factor any reading saw, how often the guard had
+    // to deleverage, and how often a third party liquidated the position —
+    // read from Morpho's Liquidate events by the guard (§18.3). Until that scan
+    // has run once the count is null, not zero: not detected is not none.
     const rec = await this.db.query(
       `SELECT coalesce(sum(amount) FILTER (WHERE kind = 'borrow' AND status = 'mined'), 0)::float8 AS borrowed,
               coalesce(sum(amount) FILTER (WHERE kind = 'repay' AND status = 'mined'), 0)::float8 AS repaid,
@@ -114,6 +116,7 @@ export class AgentCapitalService {
     const low = await this.db.query(
       `SELECT min(health_factor_worst)::float8 AS lowest FROM capital_positions
         WHERE agent_id = $1 AND health_factor_worst IS NOT NULL`, [agentId]);
+    const credit = await creditFor(this.db, agentId);
     const owed = positions.reduce((s: number, p: any) => s + (p.debt_usdg ?? 0), 0);
     const r0 = rec[0] ?? {};
     const repaidTotal = (r0.repaid ?? 0) + (r0.deleverage_repaid ?? 0);
@@ -125,8 +128,10 @@ export class AgentCapitalService {
       lowest_health_factor_worst: low[0]?.lowest ?? null,
       deleverage_steps: r0.deleverage_steps ?? 0,
       since: r0.first_action_at ?? null,
-      liquidations: null,
-      liquidations_note: 'Not detected yet: a liquidation by a third party leaves no ARCANA row, and reading it from the chain is not built.',
+      liquidations: credit.liquidations.count,
+      liquidations_note: credit.liquidations.count === null
+        ? 'Not read yet: the guard has not finished a scan of Morpho\'s Liquidate events, so a liquidation would not show here.'
+        : `Read from Morpho's Liquidate events by the position guard, up to block ${credit.liquidations.scanned_to_block}.`,
     };
 
     const acting = mandate[0]?.status === 'active';
@@ -135,6 +140,11 @@ export class AgentCapitalService {
       positions,
       mandate: mandate[0] ? { status: mandate[0].status, activated_at: mandate[0].activated_at } : null,
       record,
+      // AGENT CREDIT (§18): the capital reputation, the tier it holds, the
+      // limit that gives, and the cycles and liquidations it was derived from.
+      // Public for a private agent too, for the same reason the position is:
+      // it is derived from what the agent owes, which is on chain.
+      credit,
       actions: actions.map((a: any) => ({
         id: Number(a.id), ts: a.ts, kind: a.kind, amount: a.amount, status: a.status,
         reason_code: a.reason_code, decider: a.decider,

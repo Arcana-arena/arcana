@@ -138,13 +138,20 @@ func main() {
 	log.Printf("capital reader: every %d scan(s), %d lending market(s) allowlisted",
 		capitalEvery, len(broker.CapitalMarkets()))
 
+	// AGENT CREDIT rides the capital reader (architecture.md §18). Liquidations
+	// are read on every capital pass; cycles and reputations are rebuilt every
+	// Nth one — hourly at the defaults — and at once when a liquidation is found.
+	creditEvery := envInt("CAPITAL_CREDIT_EVERY", 60)
+	log.Printf("agent credit: liquidations on every capital pass, reputations every %d", creditEvery)
+
 	// A scan on the way in, so a restart is visible immediately in the
 	// heartbeat rather than one interval later.
 	scan(ctx, eng, st, buildCommit)
-	capital(ctx, eng)
+	capital(ctx, eng, true)
 
 	t := time.NewTicker(interval)
 	defer t.Stop()
+	passes := 0
 	for n := 1; ; n++ {
 		select {
 		case <-ctx.Done():
@@ -153,7 +160,8 @@ func main() {
 		case <-t.C:
 			scan(ctx, eng, st, buildCommit)
 			if capitalEvery > 0 && n%capitalEvery == 0 {
-				capital(ctx, eng)
+				passes++
+				capital(ctx, eng, creditEvery > 0 && passes%creditEvery == 0)
 			}
 		}
 	}
@@ -162,14 +170,33 @@ func main() {
 // capital runs one pass of the capital reader. Its failures are logged and
 // do not touch the guard heartbeat: a lending RPC having a bad minute must not
 // make the stop-loss watcher look unhealthy, and the reverse.
-func capital(ctx context.Context, eng *engine.Engine) {
+//
+// The credit passes come after the reader and have their own deadline, so a
+// slow event scan cannot take the position reads — and the deleverage that
+// hangs off them — down with it.
+func capital(ctx context.Context, eng *engine.Engine, rebuildCredit bool) {
 	cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
 	written, err := eng.CapitalScan(cctx)
+	cancel()
 	if err != nil {
 		log.Printf("capital: %d row(s) written, first error: %v", written, err)
 	} else if written > 0 {
 		log.Printf("capital: %d row(s) written", written)
+	}
+
+	kctx, kcancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer kcancel()
+	found, err := eng.LiquidationScan(kctx)
+	if err != nil {
+		log.Printf("agent credit: liquidation scan: %d found, first error: %v", found, err)
+	}
+	if rebuildCredit || found > 0 {
+		done, err := eng.CreditScan(kctx)
+		if err != nil {
+			log.Printf("agent credit: %d reputation(s) rebuilt, first error: %v", done, err)
+		} else if done > 0 {
+			log.Printf("agent credit: %d reputation(s) rebuilt", done)
+		}
 	}
 }
 

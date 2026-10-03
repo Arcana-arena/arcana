@@ -106,7 +106,7 @@ export default async function CapitalPage() {
         Borrow USDG against {lim?.market?.name ? <span className="mono">{lim.market.name}</span> : 'a Stock Token'} on
         Morpho, without selling it. Each agent borrows into its own wallet only. A mandate on the agent&rsquo;s manage
         page runs this on the agent&rsquo;s cadence; the controls below do it by hand. Both are held to the same rule:
-        the platform caps ({lim ? `${lim.platform_max_borrow_per_tx_usdg} USDG a borrow, ${lim.platform_max_debt_usdg} per agent` : 'per borrow and per agent'}),
+        the caps ({lim ? `${lim.platform_max_borrow_per_tx_usdg} USDG a borrow, and per agent ${lim.credit_enabled ? 'the limit its capital reputation gives' : `${lim.platform_max_debt_usdg} USDG`}` : 'per borrow and per agent'}),
         a health-factor floor on the worse of the oracle and pool price, and a trusted oracle.
       </div>
 
@@ -140,10 +140,13 @@ export default async function CapitalPage() {
               withdrawMax = 0;
             } else {
               const worst = Math.min(pos.prices.oracle_usdg, pos.prices.pool_usdg ?? pos.prices.oracle_usdg);
+              // This agent's own limit, not the first agent's: with Agent Credit
+              // enabled two agents of one owner can hold different tiers.
+              const agentMax = man.ok ? man.data.limits.agent_max_debt_usdg : 0;
               const ceiling = Math.min(
                 (pos.collateral.quantity * worst * pos.lltv) / floor * FLOOR_MARGIN,
-                mandate?.max_borrow_usdg ?? lim?.platform_max_debt_usdg ?? 0,
-                lim?.platform_max_debt_usdg ?? 0,
+                mandate?.max_borrow_usdg ?? agentMax,
+                agentMax,
               );
               headroom = Math.max(0, Math.min(ceiling - pos.debt_usdg, lim?.platform_max_borrow_per_tx_usdg ?? 0));
               // What must stay posted to keep the worst-case health factor at the

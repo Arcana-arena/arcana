@@ -51,6 +51,11 @@ type State struct {
 	// lower than these, never higher (§17.6).
 	PlatformDebtCapUSDG float64
 	PlatformTxCapUSDG   float64
+
+	// What this agent's capital reputation allows it to owe (architecture.md
+	// §18.5). With credit disabled it equals the platform's cap; it is never
+	// above it. Zero refuses every borrow: a limit nobody set is not a licence.
+	CreditLimitUSDG float64
 }
 
 type Kind string
@@ -138,9 +143,10 @@ func (s State) HealthAt(collateral, debt float64) float64 {
 }
 
 // debtCeiling is the most that may be owed: the lowest of the mandate, the
-// platform cap, and what keeps the worst-case health factor at the floor.
+// agent's credit limit, the platform cap, and what keeps the worst-case health
+// factor at the floor.
 func debtCeiling(m Mandate, s State, collateral float64) float64 {
-	c := math.Min(m.MaxBorrowUSDG, s.PlatformDebtCapUSDG)
+	c := math.Min(m.MaxBorrowUSDG, math.Min(s.CreditLimitUSDG, s.PlatformDebtCapUSDG))
 	if m.MinHealthFactor > 0 {
 		c = math.Min(c, collateral*s.worstPrice()*s.LLTV/m.MinHealthFactor*floorMargin)
 	}
@@ -209,7 +215,7 @@ func Decide(m Mandate, s State) Action {
 			}
 		}
 		return Action{Hold, 0, "no_room_to_borrow", fmt.Sprintf(
-			"cash is under the trigger, but the mandate, the platform cap, the floor or the market's liquidity leaves %.2f USDG of room", math.Max(amt, 0))}
+			"cash is under the trigger, but the mandate, the credit limit, the platform cap, the floor or the market's liquidity leaves %.2f USDG of room", math.Max(amt, 0))}
 	}
 
 	if s.DebtUSDG > 0 && s.WalletUSDG > 2*m.LiquidityTriggerUSDG {
@@ -279,6 +285,14 @@ func Validate(a Action, m Mandate, s State) *Refusal {
 		after := s.DebtUSDG + a.Amount
 		if after > m.MaxBorrowUSDG+0.000001 {
 			return refuse("over_mandate_borrow_cap", "debt would be %.2f USDG and the mandate allows %.2f", after, m.MaxBorrowUSDG)
+		}
+		// The credit limit before the platform's cap: it is the lower of the
+		// two whenever they differ, and its refusal names the thing the owner
+		// can do something about. A mandate written under a higher tier is not
+		// rewritten when the tier falls; this is what stops it borrowing more,
+		// and nothing calls in what is already owed (architecture.md §18.5).
+		if after > s.CreditLimitUSDG+0.000001 {
+			return refuse("debt_over_credit_limit", "debt would be %.2f USDG and this agent's credit limit is %.2f", after, s.CreditLimitUSDG)
 		}
 		if after > s.PlatformDebtCapUSDG+0.000001 {
 			return refuse("debt_over_agent_cap", "debt would be %.2f USDG and the platform allows %.2f per agent", after, s.PlatformDebtCapUSDG)

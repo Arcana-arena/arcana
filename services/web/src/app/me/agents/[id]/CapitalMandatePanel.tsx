@@ -39,7 +39,7 @@ export function CapitalMandatePanel({
   const [hf, setHf] = useState(String(m?.min_health_factor ?? 2));
   const [rate, setRate] = useState(String(m ? m.max_borrow_rate_bps / 100 : 8));
   const [trigger, setTrigger] = useState(String(m?.liquidity_trigger_usdg ?? 50));
-  const [cap, setCap] = useState(String(m?.max_borrow_usdg ?? Math.min(150, lim.platform_max_debt_usdg)));
+  const [cap, setCap] = useState(String(m?.max_borrow_usdg ?? Math.min(150, lim.agent_max_debt_usdg)));
   const [neverSell, setNeverSell] = useState<string[]>(m?.never_sell ?? []);
   const [fail, setFail] = useState<Fail | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -114,10 +114,12 @@ export function CapitalMandatePanel({
         </label>
         <label style={{ fontSize: 12 }}>
           Borrow cap (USDG)
-          <input className="input" type="number" step="1" min={1} max={lim.platform_max_debt_usdg}
+          <input className="input" type="number" step="1" min={1} max={lim.agent_max_debt_usdg}
             value={cap} onChange={(e) => setCap(e.target.value)} disabled={!editable || pending} />
           <span className="m3" style={{ fontSize: 10.5 }}>
-            the platform allows at most {lim.platform_max_debt_usdg} per agent in the beta, and at most{' '}
+            {lim.credit_enabled
+              ? `this agent may owe at most ${lim.agent_max_debt_usdg}, set by the tier its capital reputation holds, and borrow at most `
+              : `the platform allows at most ${lim.agent_max_debt_usdg} per agent, and at most `}
             {lim.platform_max_borrow_per_tx_usdg} in one borrow.
           </span>
         </label>

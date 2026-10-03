@@ -8,6 +8,30 @@
  * explicitly so the page cannot forget they exist.
  */
 
+/** Agent Credit: the capital dimension of the record, beside the performance one. */
+export type PassportCapital = {
+  status: 'no_record' | 'unrated' | 'rated';
+  credit_score: number | null;
+  unrated_why: string | null;
+  tier: number;
+  earned_tier: number;
+  held_because: string | null;
+  held_because_note: string | null;
+  credit_limit_usdg: number;
+  /** Whether the tier is what sets the limit, or every agent has the same one. */
+  credit_enabled: boolean;
+  borrowed_usdg: number;
+  repaid_usdg: number;
+  owed_usdg: number;
+  loans: { total: number; open: number; repaid: number; deleveraged: number; liquidated: number };
+  /** null until the guard has read the lending market's liquidation events once. */
+  liquidations: number | null;
+  computed_at: string | null;
+  confirmed_at: string | null;
+  stale: boolean;
+  note: string;
+};
+
 export type Passport = {
   agent: {
     id: string;
@@ -53,6 +77,7 @@ export type Passport = {
     unprotected: UnprotectedPosition[];
     note: string | null;
   } | null;
+  capital?: PassportCapital | null;
   season_records: Array<Record<string, unknown>> | null;
   score_history: {
     runs: number;

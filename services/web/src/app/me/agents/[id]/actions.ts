@@ -286,6 +286,9 @@ export type CapitalMandateView = {
     max_health_factor: number;
     platform_max_debt_usdg: number;
     platform_max_borrow_per_tx_usdg: number;
+    /** What THIS agent may owe: the platform cap, or its credit tier limit once Agent Credit is enabled. */
+    agent_max_debt_usdg: number;
+    credit_enabled: boolean;
     symbols: string[];
   };
 };

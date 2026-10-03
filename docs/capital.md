@@ -7,7 +7,9 @@ owner's approval, for the first live borrow; the caps (100 USDG per borrow, 250
 per agent) are unchanged. Only an agent whose owner activates a mandate borrows.
 
 Plan: architecture.md §17. Evidence for the market chosen:
-[go-no-go-lending.md](./go-no-go-lending.md).
+[go-no-go-lending.md](./go-no-go-lending.md). What the record below becomes — a
+capital reputation, and a debt limit that follows it — is
+[agent-credit.md](./agent-credit.md).
 
 | Part | Where |
 |---|---|
@@ -113,8 +115,10 @@ the floor leaves no room; repay cash above twice the trigger; otherwise hold.
 
 Every proposal then goes through `Validate`, which refuses a borrow over the
 mandate's cap, over the platform's caps, under the floor, above the rate, on an
-untrusted oracle (a feed past its heartbeat, or `oraclePaused()`), or beyond the
-market's liquidity. A trading SELL of a never-sell symbol becomes a hold with
+untrusted oracle (a feed past its heartbeat, or `oraclePaused()`), beyond the
+market's liquidity, or over the agent's credit limit (`debt_over_credit_limit`,
+which is the platform's cap until Agent Credit is enabled —
+[agent-credit.md](./agent-credit.md)). A trading SELL of a never-sell symbol becomes a hold with
 reason `never_sell`, and a mandate that cannot be read holds the sell too.
 
 **Why not the `decisions` table.** The scoring engine divides by every row of
@@ -185,14 +189,14 @@ unrecorded.
 
 **The capital record** on `GET /v1/agents/:id/capital` — borrowed, repaid, still
 owed, interest, the lowest worst-case health factor seen, deleverage steps — is
-written beside the ARCANA Score and never into it. Liquidations are not
-detected yet, and the record says so.
+written beside the ARCANA Score and never into it. Liquidations are read from
+Morpho's `Liquidate` events by the guard; until that scan has finished once the
+record reports them as not read, not as none ([agent-credit.md](./agent-credit.md)).
 
 ## Not yet
 
 - **Enabling the signer.** A reviewed commit flipping `enabled`, and a funded
   wallet with gas, are what turn a recorded refusal into a real borrow.
-- **Liquidation detection.** A third party's liquidation leaves no ARCANA row.
 - **A browser suite** for the mandate form and the /me/capital controls; they
   are proved server-side only.
 - **A real transaction.** Everything above was proved by simulation against

@@ -14,7 +14,7 @@ func base() State {
 	return State{
 		CollateralQty: 2, DebtUSDG: 0, LLTV: 0.625, OraclePrice: 223, PoolPrice: 220,
 		WalletCollateral: 1, WalletUSDG: 10, BorrowRateBps: 3, AvailableUSDG: 6000,
-		PlatformDebtCapUSDG: 250, PlatformTxCapUSDG: 100,
+		PlatformDebtCapUSDG: 250, PlatformTxCapUSDG: 100, CreditLimitUSDG: 250,
 	}
 }
 
@@ -152,8 +152,18 @@ func TestMandateCannotRaiseThePlatformCap(t *testing.T) {
 	s := base()
 	s.CollateralQty, s.DebtUSDG = 100, 200
 	r := Validate(Action{Kind: Borrow, Amount: 60}, m, s)
+	if r == nil || r.Code != "debt_over_credit_limit" {
+		t.Fatalf("want debt_over_credit_limit, got %v", r)
+	}
+	// And the platform's cap holds on its own. The engine never hands Validate
+	// a credit limit above it; if something did, the cap is still the cap.
+	s.CreditLimitUSDG = 1000
+	r = Validate(Action{Kind: Borrow, Amount: 60}, m, s)
 	if r == nil || r.Code != "debt_over_agent_cap" {
 		t.Fatalf("want debt_over_agent_cap, got %v", r)
+	}
+	if a := Decide(m, s); a.Kind == Borrow && s.DebtUSDG+a.Amount > 250 {
+		t.Fatalf("Decide borrowed %v past the platform cap under a credit limit above it", a.Amount)
 	}
 }
 
@@ -180,7 +190,7 @@ func TestDecidedBorrowAlwaysPassesValidate(t *testing.T) {
 			for _, hf := range []float64{1.5, 1.73, 2, 2.5, 3.1} {
 				m := Mandate{MinHealthFactor: hf, MaxBorrowRateBps: 800, LiquidityTriggerUSDG: 200, MaxBorrowUSDG: 250}
 				s := State{CollateralQty: coll, LLTV: 0.625, OraclePrice: price, PoolPrice: price,
-					WalletUSDG: 1, BorrowRateBps: 3, AvailableUSDG: 1e6, PlatformDebtCapUSDG: 250, PlatformTxCapUSDG: 100}
+					WalletUSDG: 1, BorrowRateBps: 3, AvailableUSDG: 1e6, PlatformDebtCapUSDG: 250, PlatformTxCapUSDG: 100, CreditLimitUSDG: 250}
 				a := Decide(m, s)
 				if a.Kind != Borrow {
 					continue
@@ -265,5 +275,84 @@ func TestPriceDivergenceStopsBorrowingOnly(t *testing.T) {
 	far.DebtUSDG, far.WalletUSDG = 40, 30
 	if r := Validate(Action{Kind: Repay, Amount: 30}, mandate, far); r != nil {
 		t.Fatalf("a repay was refused over a divergence: %v", r)
+	}
+}
+
+// AGENT CREDIT, architecture.md §18.5. "If the collateral is large the borrow
+// can be large": with a higher tier and the collateral to back it, the same
+// mandate rule borrows past the old 250 — and the floor still binds it.
+func TestAHigherCreditLimitLetsCollateralCarryALargerDebt(t *testing.T) {
+	m := Mandate{MinHealthFactor: 2, MaxBorrowRateBps: 800, LiquidityTriggerUSDG: 2000, MaxBorrowUSDG: 5000}
+	s := base()
+	s.CollateralQty = 40 // 40 * 220 * 0.625 / 2 = 2,750 USDG of room at the floor
+	s.DebtUSDG, s.WalletUSDG = 900, 0
+	s.PlatformDebtCapUSDG, s.CreditLimitUSDG = 5000, 2500
+
+	a := Decide(m, s)
+	if a.Kind != Borrow {
+		t.Fatalf("want a borrow, got %+v", a)
+	}
+	near(t, "borrow", a.Amount, 100) // the per-transaction cap is what sizes it
+	if r := Validate(a, m, s); r != nil {
+		t.Fatalf("refused: %v", r)
+	}
+
+	// At tier 0 the same position, the same mandate and the same collateral
+	// borrow nothing more: 900 is already over 250.
+	s.CreditLimitUSDG = 250
+	if a := Decide(m, s); a.Kind == Borrow {
+		t.Fatalf("borrowed %v over a credit limit of 250", a.Amount)
+	}
+	r := Validate(Action{Kind: Borrow, Amount: 50}, m, s)
+	if r == nil || r.Code != "debt_over_credit_limit" {
+		t.Fatalf("want debt_over_credit_limit, got %v", r)
+	}
+}
+
+// The limit is permission, not collateral: a high tier with little posted is
+// still held by the floor.
+func TestACreditLimitDoesNotReplaceCollateral(t *testing.T) {
+	m := Mandate{MinHealthFactor: 2, MaxBorrowRateBps: 800, LiquidityTriggerUSDG: 2000, MaxBorrowUSDG: 5000}
+	s := base() // 2 posted: 137.5 USDG of room
+	s.WalletCollateral = 0
+	s.PlatformDebtCapUSDG, s.CreditLimitUSDG, s.PlatformTxCapUSDG = 5000, 5000, 5000
+	a := Decide(m, s)
+	if a.Kind != Borrow || a.Amount > 137.5 {
+		t.Fatalf("want a borrow inside the floor's 137.5, got %+v", a)
+	}
+	r := Validate(Action{Kind: Borrow, Amount: 1000}, m, s)
+	if r == nil || r.Code != "below_health_floor" {
+		t.Fatalf("want below_health_floor, got %v", r)
+	}
+}
+
+// A tier that falls refuses new borrowing and calls nothing in: Decide does not
+// propose a repay because the debt is over the limit, and a repay is never
+// refused for it.
+func TestAFallenTierStopsBorrowingAndCallsNothingIn(t *testing.T) {
+	m := Mandate{MinHealthFactor: 2, MaxBorrowRateBps: 800, LiquidityTriggerUSDG: 50, MaxBorrowUSDG: 2500}
+	s := base()
+	s.CollateralQty, s.DebtUSDG, s.WalletUSDG = 40, 1800, 60 // healthy, cash between the trigger and twice it
+	s.PlatformDebtCapUSDG, s.CreditLimitUSDG = 5000, 250
+	if a := Decide(m, s); a.Kind != Hold {
+		t.Fatalf("a debt over a fallen limit was acted on: %+v", a)
+	}
+	if r := Validate(Action{Kind: Repay, Amount: 60}, m, s); r != nil {
+		t.Fatalf("a repay was refused under a fallen limit: %v", r)
+	}
+	if r := Validate(Action{Kind: Borrow, Amount: 1}, m, s); r == nil || r.Code != "debt_over_credit_limit" {
+		t.Fatalf("want debt_over_credit_limit, got %v", r)
+	}
+}
+
+// A limit nobody set refuses: the zero value is not a licence.
+func TestNoCreditLimitRefusesEveryBorrow(t *testing.T) {
+	s := base()
+	s.CreditLimitUSDG = 0
+	if a := Decide(mandate, s); a.Kind == Borrow {
+		t.Fatalf("borrowed %v with no credit limit", a.Amount)
+	}
+	if r := Validate(Action{Kind: Borrow, Amount: 5}, mandate, s); r == nil || r.Code != "debt_over_credit_limit" {
+		t.Fatalf("want debt_over_credit_limit, got %v", r)
 	}
 }

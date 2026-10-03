@@ -48,11 +48,33 @@ type LendingLimits struct {
 	maxDebtPerAgent     *big.Int
 }
 
+// CreditTier is one row of the tier table (architecture.md §18.5): the capital
+// reputation an agent needs, and the debt it may then carry.
+type CreditTier struct {
+	Tier          int    `json:"tier"`
+	MinScore      int    `json:"min_score"`
+	MaxDebtUSDG   string `json:"max_debt_usdg"`
+	MinScoredDays int    `json:"min_scored_days,omitempty"`
+}
+
+// Credit is the tier table. THE SIGNER DOES NOT APPLY IT: it has no database
+// and cannot know which tier an agent holds. What it enforces is the per-agent
+// cap in Limits, which is the ceiling no tier may exceed — checked here, at
+// load, so a file whose top tier is above the ceiling the signer would sign to
+// does not load at all. The tier itself is applied by the engine's
+// capital.Validate and the API.
+type Credit struct {
+	Enabled bool         `json:"enabled"`
+	Note    string       `json:"note"`
+	Tiers   []CreditTier `json:"tiers"`
+}
+
 type Lending struct {
 	Enabled bool            `json:"enabled"`
 	Morpho  string          `json:"morpho"`
 	Markets []LendingMarket `json:"markets"`
 	Limits  LendingLimits   `json:"limits"`
+	Credit  *Credit         `json:"credit,omitempty"`
 
 	byID map[string]LendingMarket
 }
@@ -118,6 +140,56 @@ func (a *Allowlist) loadLending() error {
 	}
 	if l.Limits.maxBorrowPerTx.Cmp(l.Limits.maxDebtPerAgent) > 0 {
 		return fmt.Errorf("allowlist: the per-transaction borrow cap is above the per-agent debt cap")
+	}
+	return l.loadCredit(dec)
+}
+
+// loadCredit validates the tier table, or accepts its absence.
+//
+// A TABLE THAT IS PRESENT HAS ITS SHAPE VALIDATED WHETHER OR NOT IT IS ENABLED,
+// so the commit that turns it on is not the first time anything reads the
+// numbers. Tiers start at 0 and count up by one; scores and limits rise with
+// them; tier 0 asks for no score.
+//
+// ENABLED, NO TIER MAY ALLOW MORE THAN THE PER-AGENT CAP — the only number here
+// the signer enforces. Disabled, the table is a proposal and every agent has
+// the cap, so a top tier above it is allowed to sit in the file; enabling it
+// then needs the cap raised in the same reviewed commit, or the file does not
+// load.
+func (l *Lending) loadCredit(dec int) error {
+	c := l.Credit
+	if c == nil {
+		return nil
+	}
+	if len(c.Tiers) == 0 {
+		return fmt.Errorf("allowlist: lending.credit lists no tier")
+	}
+	var prev *big.Int
+	for i, t := range c.Tiers {
+		if t.Tier != i {
+			return fmt.Errorf("allowlist: lending.credit tier %d is in position %d; tiers start at 0 and count up by one", t.Tier, i)
+		}
+		if t.MinScore < 0 || t.MinScore > 100 || t.MinScoredDays < 0 {
+			return fmt.Errorf("allowlist: lending.credit tier %d asks for a score of %d and %d scored days", t.Tier, t.MinScore, t.MinScoredDays)
+		}
+		if i == 0 && (t.MinScore != 0 || t.MinScoredDays != 0) {
+			return fmt.Errorf("allowlist: lending.credit tier 0 is where every agent starts and may ask for nothing")
+		}
+		if i > 0 && t.MinScore <= c.Tiers[i-1].MinScore {
+			return fmt.Errorf("allowlist: lending.credit tier %d asks for a score of %d, not above tier %d's", t.Tier, t.MinScore, i-1)
+		}
+		max, err := wholeToBase(t.MaxDebtUSDG, dec)
+		if err != nil {
+			return fmt.Errorf("allowlist: lending.credit tier %d max_debt_usdg: %w", t.Tier, err)
+		}
+		if prev != nil && max.Cmp(prev) <= 0 {
+			return fmt.Errorf("allowlist: lending.credit tier %d allows no more debt than tier %d", t.Tier, i-1)
+		}
+		if c.Enabled && max.Cmp(l.Limits.maxDebtPerAgent) > 0 {
+			return fmt.Errorf("allowlist: lending.credit tier %d allows %s USDG of debt, over the per-agent cap of %s USDG the signer enforces",
+				t.Tier, t.MaxDebtUSDG, l.Limits.MaxDebtPerAgentUSDG)
+		}
+		prev = max
 	}
 	return nil
 }

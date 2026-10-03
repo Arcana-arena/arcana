@@ -22,6 +22,8 @@ import (
 	"math/big"
 	"strings"
 	"time"
+
+	"github.com/arcana/decision-engine/internal/credit"
 )
 
 type LendingCfg struct {
@@ -35,6 +37,39 @@ type LendingCfg struct {
 		MaxBorrowPerTxUSDG  string `json:"max_borrow_per_tx_usdg"`
 		MaxDebtPerAgentUSDG string `json:"max_debt_per_agent_usdg"`
 	} `json:"limits"`
+	// Credit is the tier table (architecture.md §18.5). Absent or disabled,
+	// every agent has the platform's cap.
+	Credit *CreditCfg `json:"credit,omitempty"`
+	// LiquidationsFromBlock is where the Liquidate event scan starts when it
+	// has no cursor: a block before any ARCANA borrow existed.
+	LiquidationsFromBlock uint64 `json:"liquidations_from_block,omitempty"`
+}
+
+// CreditCfg is the allowlist's credit section, exactly as the signer validates
+// it at load: the limits are whole USDG and none is above the per-agent cap.
+type CreditCfg struct {
+	Enabled bool `json:"enabled"`
+	Tiers   []struct {
+		Tier          int    `json:"tier"`
+		MinScore      int    `json:"min_score"`
+		MaxDebtUSDG   string `json:"max_debt_usdg"`
+		MinScoredDays int    `json:"min_scored_days,omitempty"`
+	} `json:"tiers"`
+}
+
+// CreditTiers returns whether credit is enabled and the tier table. The table
+// is returned when disabled too: the reputation is computed and shown before
+// it is allowed to move a limit (§18.8).
+func (b *Broker) CreditTiers() (enabled bool, tiers []credit.Tier) {
+	if b.cfg.Lending == nil || b.cfg.Lending.Credit == nil {
+		return false, nil
+	}
+	for _, t := range b.cfg.Lending.Credit.Tiers {
+		var max float64
+		fmt.Sscanf(t.MaxDebtUSDG, "%g", &max)
+		tiers = append(tiers, credit.Tier{Tier: t.Tier, MinScore: t.MinScore, MaxDebtUSDG: max, MinScoredDays: t.MinScoredDays})
+	}
+	return b.cfg.Lending.Credit.Enabled, tiers
 }
 
 // PlatformCaps returns the per-transaction and per-agent caps in whole USDG,

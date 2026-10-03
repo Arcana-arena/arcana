@@ -5,6 +5,7 @@ import { EvolutionService } from '../evolution/evolution.service';
 import { MIN_DECISIONS } from '../common/ranking';
 import { intelligenceBlock, isPrivate, withoutConfiguredLimits } from '../intelligence/intelligence';
 import { creatorReputation } from '../reputation/creator-reputation';
+import { creditFor } from '../agents/capital-credit';
 
 /**
  * Agent Passport — the career record: what an agent has been through.
@@ -104,6 +105,7 @@ export class PassportService {
       : null;
 
     const totalTicks = seasons.reduce((a, s) => a + s.ticks, 0);
+    const capital = await this.loadCapital(agentId);
 
     // DERIVED FROM SEALED SCORES, never creators.reputation_score — a column that
     // defaulted to 0 and that nothing ever wrote. See reputation/creator-reputation.ts.
@@ -195,6 +197,12 @@ export class PassportService {
       // refuses a narrow one — the percentage is simply stated, in words, where
       // the owner is already looking.
       protection,
+      // THE SECOND DIMENSION (architecture.md §18). Everything above answers
+      // "how well does this agent manage money"; this answers "how far can it
+      // be trusted when it is given capital". Kept as its own block because it
+      // is its own measurement: no capital figure enters the ARCANA Score, and
+      // the ARCANA Score is not a term in the capital reputation.
+      capital,
       season_records: seasons,
       score_history: {
         runs: scores.series.length,
@@ -233,6 +241,53 @@ export class PassportService {
     );
     if (rows.length === 0) throw new NotFoundException(`Agent ${agentId} not found`);
     return rows[0];
+  }
+
+  /**
+   * The capital record, summarised. Derived on request like everything else
+   * here: the guard writes the reputation, the cycles and the liquidations, and
+   * this reads them. The full working is at GET /v1/agents/:id/capital.
+   */
+  private async loadCapital(agentId: string) {
+    const c = await creditFor(this.db, agentId);
+    const flows = await this.db.query(
+      `SELECT coalesce(sum(amount) FILTER (WHERE kind = 'borrow' AND status = 'mined'), 0)::float8 AS borrowed,
+              coalesce(sum(amount) FILTER (WHERE status = 'mined' AND (kind = 'repay'
+                         OR (kind = 'deleverage' AND reason_code = 'deleverage_repay'))), 0)::float8 AS repaid
+         FROM capital_actions WHERE agent_id = $1`, [agentId]);
+    const owed = await this.db.query(
+      `SELECT coalesce(sum(debt_usdg), 0)::float8 AS owed FROM (
+         SELECT DISTINCT ON (market_id) debt_usdg FROM capital_positions
+          WHERE agent_id = $1 ORDER BY market_id, ts DESC) latest`, [agentId]);
+    return {
+      status: c.status,
+      credit_score: c.score,
+      unrated_why: c.unrated_why,
+      tier: c.tier,
+      earned_tier: c.earned_tier,
+      held_because: c.held_because,
+      held_because_note: c.held_because_note,
+      credit_limit_usdg: c.limit_usdg,
+      // Whether the tier is what sets that limit, or every agent has the same.
+      credit_enabled: c.enabled,
+      borrowed_usdg: flows[0]?.borrowed ?? 0,
+      repaid_usdg: flows[0]?.repaid ?? 0,
+      owed_usdg: owed[0]?.owed ?? 0,
+      loans: {
+        total: c.cycles.total,
+        open: c.cycles.open,
+        repaid: c.cycles.repaid,
+        deleveraged: c.cycles.deleveraged,
+        liquidated: c.cycles.liquidated,
+      },
+      // null until the guard has read Morpho's events once.
+      liquidations: c.liquidations.count,
+      computed_at: c.computed_at,
+      confirmed_at: c.confirmed_at,
+      stale: c.stale,
+      url: `/v1/agents/${agentId}/capital`,
+      note: c.note,
+    };
   }
 
   /**

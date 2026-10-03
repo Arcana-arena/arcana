@@ -235,6 +235,18 @@
       "max_debt_per_agent_usdg": "250",
       "note": "WHOLE USDG, converted once at load with the quote token's 6 decimals: 100 here is 100000000 base units. The beta's per-agent ceiling, which no mandate can raise (architecture.md §17.6), sized far under the 6161 USDG the market had available on 2026-09-24 so that one agent cannot become the market's borrower. Repay is not capped: it only reduces risk."
     },
+    "credit": {
+      "enabled": false,
+      "note": "AGENT CREDIT, architecture.md §18. DISABLED: written 2026-10-02 as a proposal, and while it is disabled every agent has max_debt_per_agent_usdg above, exactly as before. The capital reputation is computed and shown regardless; this table is what it would move. Each tier is the capital reputation an agent needs (0-100, from its own repaid loans, never from the ARCANA Score) and the debt it may then carry, in whole USDG; min_scored_days is a scored trading record the tier also requires. The limit is permission and not collateral: Morpho's LLTV and the mandate's health floor still bound every borrow by what is posted. THE SIGNER DOES NOT APPLY THE TIERS — it cannot know which one an agent holds. It enforces max_debt_per_agent_usdg, and refuses to load a file whose enabled table has a tier above that number. So turning this on is one reviewed, dated commit that sets enabled true AND raises max_debt_per_agent_usdg to the top tier; from then on that cap is what a compromised engine could borrow per agent, against that agent's own collateral and into its own wallet.",
+      "tiers": [
+        { "tier": 0, "min_score": 0, "max_debt_usdg": "250" },
+        { "tier": 1, "min_score": 40, "max_debt_usdg": "1000" },
+        { "tier": 2, "min_score": 60, "max_debt_usdg": "2500", "min_scored_days": 90 },
+        { "tier": 3, "min_score": 80, "max_debt_usdg": "5000", "min_scored_days": 90 }
+      ]
+    },
+    "liquidations_from_block": 71404524,
+    "liquidations_from_block_note": "Where the guard starts reading Morpho's Liquidate events for the markets below: the block the go/no-go was simulated at on 2026-09-24, before any ARCANA wallet had borrowed. Read on 2026-10-02: 163 Liquidate events on this Morpho since that block, none in the market below.",
     "morpho": "0x9D53d5E3bd5E8d4Cbfa6DB1ca238AEA02E651010",
     "markets": [
       {

@@ -134,3 +134,89 @@ func TestTamperedMarketIDDoesNotLoad(t *testing.T) {
 		t.Fatalf("a market whose oracle was swapped under its reviewed id loaded: %v", err)
 	}
 }
+
+// AGENT CREDIT, architecture.md §18.5. The signer does not apply the tiers; it
+// enforces the per-agent cap, and refuses a file whose tier table would promise
+// more than that cap or does not describe a ladder.
+func loadEdited(t *testing.T, edits ...string) (*Allowlist, error) {
+	t.Helper()
+	raw, err := os.ReadFile(shipped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	for i := 0; i+1 < len(edits); i += 2 {
+		next := strings.Replace(s, edits[i], edits[i+1], 1)
+		if next == s {
+			t.Fatalf("fixture edit %q changed nothing; the test would prove nothing", edits[i])
+		}
+		s = next
+	}
+	p := t.TempDir() + "/allow.json"
+	if err := os.WriteFile(p, []byte(s), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return Load(p)
+}
+
+// The shipped file has exactly one "enabled": false, and it is the credit table's.
+const creditOff = `"enabled": false,`
+const creditOn = `"enabled": true,`
+
+func TestShippedCreditTableIsDisabledAndLoads(t *testing.T) {
+	a := load(t)
+	c := a.Lending.Credit
+	if c == nil || len(c.Tiers) < 2 {
+		t.Fatal("the shipped allowlist has no credit tier table")
+	}
+	if c.Enabled {
+		// Enabling it is a reviewed commit that also raises the cap; when that
+		// lands this assertion is what should be edited, deliberately.
+		t.Fatal("credit is enabled in the shipped allowlist; this test was written while it was a proposal")
+	}
+	if c.Tiers[0].MaxDebtUSDG != a.Lending.Limits.MaxDebtPerAgentUSDG {
+		t.Errorf("tier 0 allows %s USDG and the per-agent cap is %s; tier 0 is meant to be today's cap",
+			c.Tiers[0].MaxDebtUSDG, a.Lending.Limits.MaxDebtPerAgentUSDG)
+	}
+}
+
+// Disabled, the cap is still the cap: a borrow one base unit past it is refused
+// whatever the table says a tier could carry.
+func TestTheSignerEnforcesTheCapNotTheTiers(t *testing.T) {
+	a := enabled(t)
+	if _, _, r := a.CheckBorrow(marketID, usdg(50), new(big.Int).Add(usdg(200), big.NewInt(1))); r == nil || r.Code != CodeDebtOverAgentCap {
+		t.Fatalf("want %s, got %v", CodeDebtOverAgentCap, r)
+	}
+}
+
+func TestEnablingCreditNeedsTheCapRaisedToTheTopTier(t *testing.T) {
+	if _, err := loadEdited(t, creditOff, creditOn); err == nil || !strings.Contains(err.Error(), "over the per-agent cap") {
+		t.Fatalf("credit enabled with a 5000 tier over a 250 cap loaded: %v", err)
+	}
+	a, err := loadEdited(t, creditOff, creditOn, `"max_debt_per_agent_usdg": "250"`, `"max_debt_per_agent_usdg": "5000"`)
+	if err != nil {
+		t.Fatalf("credit enabled with the cap raised to the top tier did not load: %v", err)
+	}
+	// And the raised cap is what the signer now signs up to, and not past.
+	if _, _, r := a.CheckBorrow(marketID, usdg(100), usdg(4900)); r != nil {
+		t.Errorf("a borrow to exactly 5000 was refused: %v", r)
+	}
+	if _, _, r := a.CheckBorrow(marketID, usdg(100), new(big.Int).Add(usdg(4900), big.NewInt(1))); r == nil || r.Code != CodeDebtOverAgentCap {
+		t.Errorf("a borrow one base unit past 5000: want %s, got %v", CodeDebtOverAgentCap, r)
+	}
+}
+
+func TestAMalformedTierTableDoesNotLoad(t *testing.T) {
+	cases := []struct{ name, from, to, want string }{
+		{"tier 0 asking for a score", `{ "tier": 0, "min_score": 0,`, `{ "tier": 0, "min_score": 10,`, "may ask for nothing"},
+		{"a tier out of order", `{ "tier": 1, "min_score": 40,`, `{ "tier": 2, "min_score": 40,`, "count up by one"},
+		{"a score that does not rise", `{ "tier": 2, "min_score": 60,`, `{ "tier": 2, "min_score": 40,`, "not above tier 1"},
+		{"a limit that does not rise", `"max_debt_usdg": "2500"`, `"max_debt_usdg": "1000"`, "no more debt than tier 1"},
+		{"a fractional limit", `"max_debt_usdg": "1000"`, `"max_debt_usdg": "1000.5"`, "not a positive whole number"},
+	}
+	for _, c := range cases {
+		if _, err := loadEdited(t, c.from, c.to); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: loaded, or failed for another reason: %v", c.name, err)
+		}
+	}
+}

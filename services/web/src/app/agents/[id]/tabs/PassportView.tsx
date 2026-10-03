@@ -11,7 +11,7 @@
  * comparing one across seasons is comparing two different markets.
  */
 import Link from 'next/link';
-import { int, score as fmtScore, utc, utcDate } from '@/lib/format';
+import { int, money, score as fmtScore, utc, utcDate } from '@/lib/format';
 import { Key, Lbl, Num, Tag } from '@/components/ds/primitives';
 import { Callout, Empty, Failed } from '@/components/ds/states';
 import { LineChart } from '@/components/ds/chart';
@@ -23,9 +23,116 @@ export function PassportTab({ p, passportError }: { p: Passport | null; passport
   if (!p) return <Empty title="No passport returned">The request succeeded and carried no passport.</Empty>;
 
   const hist = p.score_history;
+  const cap = p.capital ?? null;
+  const latest = hist?.latest?.arcana_score;
+  const peak = hist?.peak?.arcana_score;
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 26 }}>
+      {/* TWO DIMENSIONS, SIDE BY SIDE AND NEVER ADDED TOGETHER. Performance is
+          how well the agent manages money; capital is how far it can be
+          trusted when it is given some. No capital figure enters the ARCANA
+          Score, and the ARCANA Score is not a term in the credit score. */}
+      <section>
+        <Key>Reputation</Key>
+        <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
+          <div className="node">
+            <Lbl>PERFORMANCE</Lbl>
+            <div style={{ marginTop: 8, display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div>
+                <Lbl>ARCANA SCORE</Lbl>
+                <div className="mono" style={{ fontSize: 22 }}>
+                  {typeof latest === 'number' ? <Num value={fmtScore(latest)} /> : <span className="m3">withheld</span>}
+                </div>
+              </div>
+              <div>
+                <Lbl>PEAK</Lbl>
+                <div className="mono" style={{ fontSize: 15 }}>
+                  {typeof peak === 'number' ? <Num value={fmtScore(peak)} /> : <span className="m3">—</span>}
+                </div>
+              </div>
+              <div>
+                <Lbl>DECISIONS · TRADES</Lbl>
+                <div className="mono" style={{ fontSize: 15 }}>
+                  {int(p.career?.total_decisions ?? 0)} · {int(p.career?.total_trades ?? 0)}
+                </div>
+              </div>
+            </div>
+            <div className="mono m3" style={{ fontSize: 10.5, marginTop: 8 }}>
+              {p.career?.first_tick ? `track record since ${utcDate(p.career.first_tick)}` : 'no ticks recorded'}
+              {hist ? ` · ${int(hist.runs)} scoring runs` : ''}
+            </div>
+          </div>
+
+          <div className="node">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
+              <Lbl>CAPITAL</Lbl>
+              {cap && cap.status !== 'no_record' ? (
+                <Tag tone={cap.tier > 0 ? 'outline' : 'dashed'}>TIER {cap.tier}</Tag>
+              ) : null}
+            </div>
+            {!cap ? (
+              <div className="m3" style={{ fontSize: 12, marginTop: 8 }}>no capital block returned</div>
+            ) : (
+              <>
+                <div style={{ marginTop: 8, display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <div>
+                    <Lbl>CREDIT SCORE</Lbl>
+                    <div className="mono" style={{ fontSize: 22 }}>
+                      {cap.status === 'rated' && cap.credit_score !== null ? (
+                        <Num value={int(cap.credit_score)} />
+                      ) : (
+                        <span className="m3" title={cap.unrated_why ?? undefined}>unrated</span>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <Lbl>CREDIT LIMIT</Lbl>
+                    <div className="mono" style={{ fontSize: 15 }}><Num value={money(cap.credit_limit_usdg)} /></div>
+                  </div>
+                  <div>
+                    <Lbl>BORROWED · REPAID</Lbl>
+                    <div className="mono" style={{ fontSize: 15 }}>
+                      {money(cap.borrowed_usdg)} · {money(cap.repaid_usdg)}
+                    </div>
+                  </div>
+                </div>
+                <div className="mono m3" style={{ fontSize: 10.5, marginTop: 8 }}>
+                  owed {money(cap.owed_usdg)} · loans repaid {int(cap.loans.repaid)} of {int(cap.loans.total)}
+                  {cap.loans.open > 0 ? ` · ${int(cap.loans.open)} open` : ''}
+                  {cap.loans.deleveraged > 0 ? ` · ${int(cap.loans.deleveraged)} deleveraged` : ''}
+                  {' · liquidations '}
+                  {cap.liquidations === null ? 'not read yet' : int(cap.liquidations)}
+                </div>
+                {/* UNRATED IS SAID, WITH ITS REASON. It is a state and not a
+                    zero: a new agent has no bad record, it has no record. */}
+                {cap.status !== 'rated' && cap.unrated_why ? (
+                  <div className="m2" style={{ fontSize: 11.5, marginTop: 6 }}>Unrated: {cap.unrated_why}.</div>
+                ) : null}
+                {cap.held_because_note ? (
+                  <div className="m2" style={{ fontSize: 11.5, marginTop: 6 }}>
+                    Earned tier {cap.earned_tier}, held at {cap.tier}. {cap.held_because_note}
+                  </div>
+                ) : null}
+                {!cap.credit_enabled ? (
+                  <div className="m3" style={{ fontSize: 11, marginTop: 6 }}>
+                    The tier does not move the limit yet: every agent has the same one.
+                  </div>
+                ) : null}
+                {cap.stale ? (
+                  <div style={{ marginTop: 8 }}>
+                    <Callout tone="warn">
+                      This reputation was last confirmed {utc(cap.confirmed_at)}. It has not been re-checked since, and
+                      grants tier 0 until it is.
+                    </Callout>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </div>
+        </div>
+      </section>
+
       <section>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
           <Key>Score history</Key>

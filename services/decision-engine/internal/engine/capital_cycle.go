@@ -74,8 +74,10 @@ func (e *Engine) readCapitalInputs(ctx context.Context, agentID, marketID string
 	}
 	v := execution.Value(pos, ms)
 	perTx, perAgent := e.broker.PlatformCaps()
+	creditLimit, creditTier, creditOn := e.creditLimit(ctx, agentID, perAgent)
 	st := capital.State{
-		CollateralQty: v.CollateralQty, DebtUSDG: v.Debt, LLTV: v.LLTV, OraclePrice: v.OraclePrice,
+		CreditLimitUSDG: creditLimit,
+		CollateralQty:   v.CollateralQty, DebtUSDG: v.Debt, LLTV: v.LLTV, OraclePrice: v.OraclePrice,
 		WalletCollateral: walletColl, WalletUSDG: walletUSDG,
 		BorrowRateBps:       ms.BorrowRateBps,
 		AvailableUSDG:       execution.ToWhole(ms.TotalSupplyAssets, ms.LoanDec) - execution.ToWhole(ms.TotalBorrowAssets, ms.LoanDec),
@@ -109,7 +111,8 @@ func (e *Engine) readCapitalInputs(ctx context.Context, agentID, marketID string
 		st.OracleUntrusted, st.OracleWhy = true, strings.Join(why, "; ")
 	}
 	ev := map[string]any{"mandate": mandate, "state": st, "health_factor": v.HealthFactor,
-		"health_factor_worst": v.HealthFactorWorst, "lending_enabled": e.broker.LendingEnabled()}
+		"health_factor_worst": v.HealthFactorWorst, "lending_enabled": e.broker.LendingEnabled(),
+		"credit": map[string]any{"enabled": creditOn, "tier": creditTier, "limit_usdg": creditLimit}}
 	return &capitalInputs{wallet: w.Address, market: *market, state: st, ev: ev}, nil
 }
 

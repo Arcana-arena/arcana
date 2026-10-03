@@ -54,6 +54,269 @@ type CapitalAction = {
   evidence: Record<string, unknown> | 'withheld' | null;
 };
 
+/**
+ * Agent Credit: the capital reputation, WITH ITS WORKING. The score is four
+ * components in points; each is printed beside the figure it came from, and the
+ * loans those figures were measured over are listed underneath. A number that
+ * moves a debt limit has to be one a reader can recompute.
+ */
+type CreditCycle = {
+  market_id: string;
+  opened_at: string;
+  closed_at: string | null;
+  peak_debt_usdg: number;
+  usdg_days: number;
+  debt_seconds: number;
+  seconds_under_floor: number;
+  lowest_health_factor_worst: number | null;
+  borrowed_usdg: number;
+  repaid_usdg: number;
+  interest_usdg: number | null;
+  deleverage_steps: number;
+  liquidations: number;
+  closed_how: 'repaid' | 'deleveraged' | 'liquidated' | null;
+};
+
+type Credit = {
+  enabled: boolean;
+  status: 'no_record' | 'unrated' | 'rated';
+  score: number | null;
+  unrated_why: string | null;
+  components: { exposure: number; margin: number; self_sufficiency: number; cycles_closed: number } | null;
+  inputs: {
+    figures?: {
+      usdg_days: number;
+      debt_days: number;
+      share_under_floor: number;
+      lowest_health_factor_worst: number | null;
+      deleverage_steps: number;
+      qualifying_cycles: number;
+      cycles_repaid: number;
+      evidence_fraction: number;
+    };
+    scored_days?: number;
+  } | null;
+  tier: number;
+  earned_tier: number;
+  held_because: string | null;
+  held_because_note: string | null;
+  limit_usdg: number;
+  ceiling_usdg: number;
+  tiers: Array<{ tier: number; min_score: number; max_debt_usdg: number; min_scored_days: number }>;
+  computed_at: string | null;
+  confirmed_at: string | null;
+  stale: boolean;
+  cycles: { total: number; open: number; repaid: number; deleveraged: number; liquidated: number; list: CreditCycle[]; truncated: boolean };
+  liquidations: {
+    count: number | null;
+    scanned_at: string | null;
+    scanned_to_block: string | null;
+    list: Array<{ ts: string; tx_hash: string; liquidator: string; repaid_usdg: number; seized_qty: number; bad_debt_usdg: number }>;
+  };
+  note: string;
+};
+
+const days = (seconds: number) => num(seconds / 86400, 1);
+
+function CreditBlock({ c }: { c: Credit }) {
+  const f = c.inputs?.figures;
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
+        <Key>Capital reputation</Key>
+        <span className="mono m3" style={{ fontSize: 10.5 }}>
+          {c.confirmed_at ? `confirmed ${utc(c.confirmed_at)}` : 'never computed'}
+          {c.enabled ? ' · the tier sets the limit' : ' · shown only, moves no limit yet'}
+        </span>
+      </div>
+
+      {c.stale ? (
+        <div style={{ marginTop: 10 }}>
+          <Callout tone="warn">
+            <strong>This reputation has not been re-checked for two days.</strong> The guard that computes it has
+            stopped, so it grants tier 0 until it runs again.
+          </Callout>
+        </div>
+      ) : null}
+
+      <div style={{ marginTop: 10, display: 'flex', gap: 28, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <div>
+          <div className="mono m3" style={{ fontSize: 10 }}>CREDIT SCORE</div>
+          <div className="mono" style={{ fontSize: 22 }}>
+            {c.status === 'rated' && c.score !== null ? <Num value={num(c.score, 0)} /> : <span className="m3">unrated</span>}
+          </div>
+        </div>
+        <div>
+          <div className="mono m3" style={{ fontSize: 10 }}>TIER</div>
+          <div className="mono" style={{ fontSize: 15 }}>
+            {c.tier}
+            {c.earned_tier > c.tier ? <span className="m3"> · earned {c.earned_tier}</span> : null}
+          </div>
+        </div>
+        <div>
+          <div className="mono m3" style={{ fontSize: 10 }}>CREDIT LIMIT</div>
+          <div className="mono" style={{ fontSize: 15 }}><Num value={money(c.limit_usdg)} /> USDG</div>
+        </div>
+        <div>
+          <div className="mono m3" style={{ fontSize: 10 }}>LOANS</div>
+          <div className="mono" style={{ fontSize: 15 }}>
+            {c.cycles.repaid} repaid of {c.cycles.total}
+            {c.cycles.open > 0 ? <span className="m3"> · {c.cycles.open} open</span> : null}
+          </div>
+        </div>
+        <div>
+          <div className="mono m3" style={{ fontSize: 10 }}>LIQUIDATIONS</div>
+          <div className="mono" style={{ fontSize: 15, color: c.liquidations.count ? 'var(--red)' : undefined }}>
+            {c.liquidations.count === null ? <span className="m3">not read yet</span> : c.liquidations.count}
+          </div>
+        </div>
+      </div>
+
+      {c.status !== 'rated' && c.unrated_why ? (
+        <p className="m2" style={{ marginTop: 8, fontSize: 12.5 }}>
+          Unrated: {c.unrated_why}. Unrated is not a low score — there is not yet enough of a record to give one.
+        </p>
+      ) : null}
+      {c.held_because_note ? (
+        <p className="m2" style={{ marginTop: 8, fontSize: 12.5 }}>
+          The score earns tier {c.earned_tier}; the agent holds tier {c.tier}. {c.held_because_note}
+        </p>
+      ) : null}
+      <p className="m3" style={{ marginTop: 8, fontSize: 11.5 }}>{c.note}</p>
+
+      {c.status === 'rated' && c.components && f ? (
+        <div className="scroll-x">
+          <table className="table" style={{ marginTop: 10 }}>
+            <thead>
+              <tr>
+                <th style={{ width: 190 }}>Component</th>
+                <th className="r" style={{ width: 90 }}>Points</th>
+                <th className="r" style={{ width: 70 }}>Of</th>
+                <th>Measured from</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Seasoned exposure</td>
+                <td className="r"><Num value={num(c.components.exposure, 1)} /></td>
+                <td className="r mono m3">35</td>
+                <td className="m2" style={{ fontSize: 12 }}>
+                  {num(f.usdg_days, 0)} USDG-days carried across {f.qualifying_cycles} qualifying loan(s) —{' '}
+                  {num(f.evidence_fraction * 100, 0)}% of full evidence
+                </td>
+              </tr>
+              <tr>
+                <td>Margin kept</td>
+                <td className="r"><Num value={num(c.components.margin, 1)} /></td>
+                <td className="r mono m3">30</td>
+                <td className="m2" style={{ fontSize: 12 }}>
+                  lowest worst-case health factor {hf(f.lowest_health_factor_worst)};{' '}
+                  {num(f.share_under_floor * 100, 1)}% of {num(f.debt_days, 1)} debt-days spent under 1.5
+                </td>
+              </tr>
+              <tr>
+                <td>Self-sufficiency</td>
+                <td className="r"><Num value={num(c.components.self_sufficiency, 1)} /></td>
+                <td className="r mono m3">20</td>
+                <td className="m2" style={{ fontSize: 12 }}>
+                  the guard had to deleverage {f.deleverage_steps} time(s)
+                </td>
+              </tr>
+              <tr>
+                <td>Loans closed</td>
+                <td className="r"><Num value={num(c.components.cycles_closed, 1)} /></td>
+                <td className="r mono m3">15</td>
+                <td className="m2" style={{ fontSize: 12 }}>
+                  {f.cycles_repaid} qualifying loan(s) repaid without the guard or a liquidator
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+
+      {c.tiers.length > 0 ? (
+        <p className="mono m3" style={{ marginTop: 10, fontSize: 11 }}>
+          tiers:{' '}
+          {c.tiers.map((t) =>
+            `${t.tier} → ${money(t.max_debt_usdg, 0)} USDG` +
+            (t.tier > 0 ? ` at ${t.min_score}+` : '') +
+            (t.min_scored_days > 0 ? ` and ${t.min_scored_days} scored days` : '')).join(' · ')}
+          {c.enabled ? '' : ` · not enabled: every agent may owe ${money(c.ceiling_usdg, 0)}`}
+        </p>
+      ) : null}
+
+      {c.cycles.list.length > 0 ? (
+        <div className="scroll-x">
+          <table className="table" style={{ marginTop: 10 }}>
+            <thead>
+              <tr>
+                <th style={{ width: 150 }}>Opened</th>
+                <th style={{ width: 150 }}>Closed</th>
+                <th className="r" style={{ width: 100 }}>Peak debt</th>
+                <th className="r" style={{ width: 100 }}>USDG-days</th>
+                <th className="r" style={{ width: 80 }}>Days</th>
+                <th className="r" style={{ width: 90 }}>Lowest HF</th>
+                <th className="r" style={{ width: 90 }}>Interest</th>
+                <th>How it closed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {c.cycles.list.map((y) => (
+                <tr key={`${y.market_id}-${y.opened_at}`}>
+                  <td className="mono" style={{ fontSize: 11 }}>{utc(y.opened_at)}</td>
+                  <td className="mono" style={{ fontSize: 11 }}>{y.closed_at ? utc(y.closed_at) : <span className="m3">open</span>}</td>
+                  <td className="r"><Num value={money(y.peak_debt_usdg)} /></td>
+                  <td className="r"><Num value={num(y.usdg_days, 1)} /></td>
+                  <td className="r mono">{days(y.debt_seconds)}</td>
+                  <td className="r mono" style={{ color: tone(y.lowest_health_factor_worst) }}>{hf(y.lowest_health_factor_worst)}</td>
+                  <td className="r">{y.interest_usdg === null ? <span className="mono m3">—</span> : <Num value={money(y.interest_usdg)} />}</td>
+                  <td className="mono" style={{ fontSize: 11, color: y.closed_how === 'liquidated' ? 'var(--red)' : undefined }}>
+                    {y.closed_how ?? 'still owed'}
+                    {y.deleverage_steps > 0 ? <span className="m3"> · {y.deleverage_steps} deleverage step(s)</span> : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {c.cycles.truncated ? (
+            <p className="m3" style={{ fontSize: 11, marginTop: 6 }}>
+              The most recent {c.cycles.list.length} of {c.cycles.total} loans. The score is computed over all of them.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {c.liquidations.list.length > 0 ? (
+        <div className="scroll-x">
+          <table className="table" style={{ marginTop: 10 }}>
+            <thead>
+              <tr>
+                <th style={{ width: 150 }}>Liquidated</th>
+                <th className="r" style={{ width: 120 }}>Seized</th>
+                <th className="r" style={{ width: 120 }}>Debt repaid</th>
+                <th className="r" style={{ width: 110 }}>Bad debt</th>
+                <th>Transaction</th>
+              </tr>
+            </thead>
+            <tbody>
+              {c.liquidations.list.map((l) => (
+                <tr key={l.tx_hash}>
+                  <td className="mono" style={{ fontSize: 11 }}>{utc(l.ts)}</td>
+                  <td className="r"><Num value={num(l.seized_qty, 6)} /></td>
+                  <td className="r"><Num value={money(l.repaid_usdg)} /></td>
+                  <td className="r"><Num value={money(l.bad_debt_usdg)} /></td>
+                  <td className="mono m3" style={{ fontSize: 11 }} title={l.tx_hash}>{l.tx_hash.slice(0, 18)}…</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 type CapitalResp = {
   agent_id: string;
   positions: CapitalPosition[];
@@ -69,6 +332,7 @@ type CapitalResp = {
     liquidations: number | null;
     liquidations_note: string;
   };
+  credit?: Credit;
   actions: CapitalAction[];
   acting: boolean;
   note: string;
@@ -165,9 +429,14 @@ export async function CapitalBlock({ id }: { id: string }) {
           owed {money(d.record.owed_usdg)} · interest {money(d.record.interest_usdg)}
           {d.record.lowest_health_factor_worst !== null ? ` · lowest worst-case HF ${num(d.record.lowest_health_factor_worst, 2)}` : ''}
           {` · deleverage steps ${d.record.deleverage_steps}`}
-          <span title={d.record.liquidations_note}> · liquidations: not detected yet</span>
+          <span title={d.record.liquidations_note}>
+            {' · liquidations: '}
+            {d.record.liquidations === null ? 'not read yet' : d.record.liquidations}
+          </span>
         </p>
       ) : null}
+
+      {d.credit ? <CreditBlock c={d.credit} /> : null}
 
       {/* THE CAPITAL DECISION LOG. Every action the mandate chose and every
           refusal, newest first, with the reason and the inputs it was taken on
