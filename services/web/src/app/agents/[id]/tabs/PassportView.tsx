@@ -88,7 +88,7 @@ export function PassportTab({ p, passportError }: { p: Passport | null; passport
                   </div>
                   <div>
                     <Lbl>CREDIT LIMIT</Lbl>
-                    <div className="mono" style={{ fontSize: 15 }}><Num value={money(cap.credit_limit_usdg)} /></div>
+                    <div className="mono" style={{ fontSize: 15 }}><Num value={money(cap.credit_limit_usdg)} /> USDG</div>
                   </div>
                   <div>
                     <Lbl>BORROWED · REPAID</Lbl>
