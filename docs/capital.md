@@ -3,8 +3,10 @@
 **Status:** a mandate can be written, activated and stopped in a browser; an
 active mandate's decider runs on the agent's cadence and records every action
 and refusal. Lending was **enabled** in the allowlist on 2026-09-25, with the
-owner's approval, for the first live borrow; the caps (100 USDG per borrow, 250
-per agent) are unchanged. Only an agent whose owner activates a mandate borrows.
+owner's approval, for the first live borrow; the per-borrow cap is still 100
+USDG. Since 2026-10-03 what an agent may owe in total is the limit of its
+capital-reputation tier, 250 to 5,000 USDG ([agent-credit.md](./agent-credit.md)).
+Only an agent whose owner activates a mandate borrows.
 
 Plan: architecture.md §17. Evidence for the market chosen:
 [go-no-go-lending.md](./go-no-go-lending.md). What the record below becomes — a

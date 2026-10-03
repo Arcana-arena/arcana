@@ -34,6 +34,8 @@ export type DocParams = {
         max_health_factor: number;
         platform_max_debt_usdg: number;
         platform_max_borrow_per_tx_usdg: number;
+        credit_enabled?: boolean;
+        credit_tiers?: Array<{ tier: number; min_score: number; max_debt_usdg: number; min_scored_days: number }>;
         symbols: string[];
       }
     | { available: false; reason: string };

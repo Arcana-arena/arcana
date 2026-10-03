@@ -49,6 +49,13 @@ export function capitalLimits() {
     max_health_factor: MAX_HEALTH_FACTOR,
     platform_max_debt_usdg: l ? Number(l.limits.max_debt_per_agent_usdg) : 0,
     platform_max_borrow_per_tx_usdg: l ? Number(l.limits.max_borrow_per_tx_usdg) : 0,
+    // AGENT CREDIT (§18): whether the tier table sets what each agent may owe,
+    // and the table. With it enabled, platform_max_debt_usdg is the ceiling no
+    // tier exceeds, not what an agent starts with.
+    credit_enabled: l?.credit?.enabled === true,
+    credit_tiers: (l?.credit?.tiers ?? []).map((t) => ({
+      tier: t.tier, min_score: t.min_score, max_debt_usdg: Number(t.max_debt_usdg), min_scored_days: t.min_scored_days ?? 0,
+    })),
     symbols: a.tokens.map((t) => t.symbol),
   };
 }

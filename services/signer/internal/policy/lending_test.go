@@ -48,14 +48,15 @@ func TestLendingDisabledRefusesEverything(t *testing.T) {
 }
 
 // THE UNITS. §17.7: "a cap that is off by 10^12 is not a cap". The file says
-// 100 and 250 whole USDG; the comparison must happen in 6-decimal base units.
+// 100 and 5000 whole USDG (250 until Agent Credit was enabled on 2026-10-03);
+// the comparison must happen in 6-decimal base units.
 func TestCapsAreConvertedToBaseUnits(t *testing.T) {
 	a := load(t)
 	if got, want := a.MaxBorrowPerTx(), usdg(100); got.Cmp(want) != 0 {
 		t.Fatalf("per-tx cap is %s base units, want %s (100 USDG)", got, want)
 	}
-	if got, want := a.MaxDebtPerAgent(), usdg(250); got.Cmp(want) != 0 {
-		t.Fatalf("per-agent cap is %s base units, want %s (250 USDG)", got, want)
+	if got, want := a.MaxDebtPerAgent(), usdg(5000); got.Cmp(want) != 0 {
+		t.Fatalf("per-agent cap is %s base units, want %s (5000 USDG)", got, want)
 	}
 }
 
@@ -77,8 +78,8 @@ func TestBorrowCaps(t *testing.T) {
 		{"one base unit over the per-tx cap", new(big.Int).Add(usdg(100), big.NewInt(1)), usdg(0), CodeBorrowOverTxCap},
 		{"a whole-USDG number mistaken for base units is tiny, not huge", big.NewInt(100), usdg(0), ""},
 		{"a base-unit number read as 18 decimals is refused", new(big.Int).Mul(usdg(100), big.NewInt(1_000000_000000)), usdg(0), CodeBorrowOverTxCap},
-		{"debt would reach the cap exactly", usdg(50), usdg(200), ""},
-		{"debt would pass the cap by one base unit", usdg(50), new(big.Int).Add(usdg(200), big.NewInt(1)), CodeDebtOverAgentCap},
+		{"debt would reach the cap exactly", usdg(50), usdg(4950), ""},
+		{"debt would pass the cap by one base unit", usdg(50), new(big.Int).Add(usdg(4950), big.NewInt(1)), CodeDebtOverAgentCap},
 		{"debt could not be read", usdg(1), nil, CodeChainUnverifiable},
 		{"zero", big.NewInt(0), usdg(0), CodeAmountNotPositive},
 	}
@@ -159,50 +160,60 @@ func loadEdited(t *testing.T, edits ...string) (*Allowlist, error) {
 	return Load(p)
 }
 
-// The shipped file has exactly one "enabled": false, and it is the credit table's.
-const creditOff = `"enabled": false,`
-const creditOn = `"enabled": true,`
+// The shipped file's credit switch and per-agent cap, as single-line patterns.
+const creditOn = `"enabled": true,
+      "note": "AGENT CREDIT`
+const creditOff = `"enabled": false,
+      "note": "AGENT CREDIT`
+const capShipped = `"max_debt_per_agent_usdg": "5000"`
 
-func TestShippedCreditTableIsDisabledAndLoads(t *testing.T) {
+// ENABLED 2026-10-03 (the allowlist's note says by whom). The cap was raised to
+// the top tier in the same commit, which is what lets the file load at all.
+func TestShippedCreditTableIsEnabledAndCappedAtTheTopTier(t *testing.T) {
 	a := load(t)
 	c := a.Lending.Credit
 	if c == nil || len(c.Tiers) < 2 {
 		t.Fatal("the shipped allowlist has no credit tier table")
 	}
-	if c.Enabled {
-		// Enabling it is a reviewed commit that also raises the cap; when that
-		// lands this assertion is what should be edited, deliberately.
-		t.Fatal("credit is enabled in the shipped allowlist; this test was written while it was a proposal")
+	if !c.Enabled {
+		t.Fatal("credit is disabled in the shipped allowlist; this test was written after it was enabled")
 	}
-	if c.Tiers[0].MaxDebtUSDG != a.Lending.Limits.MaxDebtPerAgentUSDG {
-		t.Errorf("tier 0 allows %s USDG and the per-agent cap is %s; tier 0 is meant to be today's cap",
-			c.Tiers[0].MaxDebtUSDG, a.Lending.Limits.MaxDebtPerAgentUSDG)
+	top := c.Tiers[len(c.Tiers)-1].MaxDebtUSDG
+	if top != a.Lending.Limits.MaxDebtPerAgentUSDG {
+		t.Errorf("the top tier allows %s USDG and the per-agent cap is %s; the cap is meant to be the top tier",
+			top, a.Lending.Limits.MaxDebtPerAgentUSDG)
+	}
+	if c.Tiers[0].MaxDebtUSDG != "250" {
+		t.Errorf("tier 0 allows %s USDG; it is meant to be the 250 every agent had before credit", c.Tiers[0].MaxDebtUSDG)
 	}
 }
 
-// Disabled, the cap is still the cap: a borrow one base unit past it is refused
-// whatever the table says a tier could carry.
+// THE SIGNER ENFORCES THE CEILING, NOT THE TIERS. A borrow taking an agent past
+// tier 0's 250 is signed here — the engine and the API are what hold an agent
+// to its tier — and one base unit past the ceiling is refused whatever any tier
+// says.
 func TestTheSignerEnforcesTheCapNotTheTiers(t *testing.T) {
-	a := enabled(t)
-	if _, _, r := a.CheckBorrow(marketID, usdg(50), new(big.Int).Add(usdg(200), big.NewInt(1))); r == nil || r.Code != CodeDebtOverAgentCap {
+	a := load(t)
+	if _, _, r := a.CheckBorrow(marketID, usdg(100), usdg(250)); r != nil {
+		t.Fatalf("a borrow past tier 0 was refused by the signer, which cannot know the tier: %v", r)
+	}
+	if _, _, r := a.CheckBorrow(marketID, usdg(50), new(big.Int).Add(usdg(4950), big.NewInt(1))); r == nil || r.Code != CodeDebtOverAgentCap {
 		t.Fatalf("want %s, got %v", CodeDebtOverAgentCap, r)
 	}
 }
 
-func TestEnablingCreditNeedsTheCapRaisedToTheTopTier(t *testing.T) {
-	if _, err := loadEdited(t, creditOff, creditOn); err == nil || !strings.Contains(err.Error(), "over the per-agent cap") {
-		t.Fatalf("credit enabled with a 5000 tier over a 250 cap loaded: %v", err)
+func TestAnEnabledTableAboveTheCapDoesNotLoad(t *testing.T) {
+	if _, err := loadEdited(t, capShipped, `"max_debt_per_agent_usdg": "2500"`); err == nil || !strings.Contains(err.Error(), "over the per-agent cap") {
+		t.Fatalf("credit enabled with a 5000 tier over a 2500 cap loaded: %v", err)
 	}
-	a, err := loadEdited(t, creditOff, creditOn, `"max_debt_per_agent_usdg": "250"`, `"max_debt_per_agent_usdg": "5000"`)
+	// Switched off, the same table is a proposal and the old cap loads with it:
+	// the state the file was in from 2026-10-02 to 2026-10-03.
+	a, err := loadEdited(t, creditOn, creditOff, capShipped, `"max_debt_per_agent_usdg": "250"`)
 	if err != nil {
-		t.Fatalf("credit enabled with the cap raised to the top tier did not load: %v", err)
+		t.Fatalf("credit disabled under a 250 cap did not load: %v", err)
 	}
-	// And the raised cap is what the signer now signs up to, and not past.
-	if _, _, r := a.CheckBorrow(marketID, usdg(100), usdg(4900)); r != nil {
-		t.Errorf("a borrow to exactly 5000 was refused: %v", r)
-	}
-	if _, _, r := a.CheckBorrow(marketID, usdg(100), new(big.Int).Add(usdg(4900), big.NewInt(1))); r == nil || r.Code != CodeDebtOverAgentCap {
-		t.Errorf("a borrow one base unit past 5000: want %s, got %v", CodeDebtOverAgentCap, r)
+	if _, _, r := a.CheckBorrow(marketID, usdg(50), new(big.Int).Add(usdg(200), big.NewInt(1))); r == nil || r.Code != CodeDebtOverAgentCap {
+		t.Errorf("under a 250 cap, a borrow one base unit past it: want %s, got %v", CodeDebtOverAgentCap, r)
 	}
 }
 

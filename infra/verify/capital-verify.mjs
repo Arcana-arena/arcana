@@ -77,6 +77,12 @@ const signInAs = async (handle) => {
   return token;
 };
 
+// The caps, from the signer's own file. With Agent Credit enabled the platform
+// cap is the ceiling and a new agent may owe tier 0's limit, which is lower.
+const SHIPPED = JSON.parse(readFileSync(`${process.env.REPO || '/home/ubuntu/arcana'}/services/signer/allowlist/robinhood-mainnet.json`, 'utf8')).lending;
+const CEILING = Number(SHIPPED.limits.max_debt_per_agent_usdg);
+const NEW_AGENT_MAX = SHIPPED.credit?.enabled ? Number(SHIPPED.credit.tiers[0].max_debt_usdg) : CEILING;
+
 const VALID = { min_health_factor: 2, max_borrow_rate_bps: 800, liquidity_trigger_usdg: 50, max_borrow_usdg: 150, never_sell: ['NVDA'] };
 
 try {
@@ -98,7 +104,8 @@ try {
     check('there is none yet', g.body?.mandate === null, JSON.stringify(g.body?.mandate));
     const lim = g.body?.limits ?? {};
     check('the market is the one allowlisted', /^0x66306c08/.test(lim.market?.id ?? ''), JSON.stringify(lim.market));
-    check('the platform cap is the signer\'s 250 USDG', lim.platform_max_debt_usdg === 250, `${lim.platform_max_debt_usdg}`);
+    check(`the platform cap is the signer's ${CEILING} USDG`, lim.platform_max_debt_usdg === CEILING, `${lim.platform_max_debt_usdg}`);
+    check(`and a new agent may owe ${NEW_AGENT_MAX} USDG`, lim.agent_max_debt_usdg === NEW_AGENT_MAX, `${lim.agent_max_debt_usdg}`);
     check('the floor offered is 1.5', lim.min_health_factor === 1.5, `${lim.min_health_factor}`);
     const shippedEnabled = JSON.parse(readFileSync(`${process.env.REPO || '/home/ubuntu/arcana'}/services/signer/allowlist/robinhood-mainnet.json`, 'utf8')).lending?.enabled === true;
     check('lending is reported exactly as the allowlist sets it', lim.lending_enabled === shippedEnabled, `${lim.lending_enabled} vs file ${shippedEnabled}`);
@@ -109,7 +116,10 @@ try {
     const cases = [
       ['a floor at liquidation, 1.0', { ...VALID, min_health_factor: 1.0 }, 'health_floor_too_low'],
       ['a floor just under the margin, 1.49', { ...VALID, min_health_factor: 1.49 }, 'health_floor_too_low'],
-      ['a borrow cap over the platform\'s', { ...VALID, max_borrow_usdg: 251 }, 'borrow_cap_over_platform'],
+      ['a borrow cap over the platform\'s', { ...VALID, max_borrow_usdg: CEILING + 1 }, 'borrow_cap_over_platform'],
+      ...(NEW_AGENT_MAX < CEILING
+        ? [['a borrow cap over what a new agent may owe', { ...VALID, max_borrow_usdg: NEW_AGENT_MAX + 1 }, 'borrow_cap_over_credit_limit']]
+        : []),
       ['a borrow cap of zero', { ...VALID, max_borrow_usdg: 0, liquidity_trigger_usdg: 0 }, 'borrow_cap_not_positive'],
       ['a trigger above the cap', { ...VALID, liquidity_trigger_usdg: 151 }, 'trigger_out_of_range'],
       ['a never-sell symbol nobody can hold', { ...VALID, never_sell: ['NVDA', 'ZZZZ'] }, 'never_sell_not_holdable'],

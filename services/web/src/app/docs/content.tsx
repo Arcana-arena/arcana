@@ -833,7 +833,14 @@ GET  /v1/agents/:id/decisions/:d/anchor          the root containing a decision,
     body: (p) => {
       const cap = p?.capital && p.capital.available ? p.capital : null;
       const perTx = cap ? `${cap.platform_max_borrow_per_tx_usdg} USDG` : 'the platform’s per-borrow cap';
-      const perAgent = cap ? `${cap.platform_max_debt_usdg} USDG` : 'the platform’s per-agent cap';
+      // With Agent Credit on, what an agent may owe is its tier's limit, from
+      // the lowest tier to the platform's ceiling — not one number for everyone.
+      const tiers = cap?.credit_enabled ? cap.credit_tiers ?? [] : [];
+      const perAgent = !cap
+        ? 'the platform’s per-agent cap'
+        : tiers.length > 0
+          ? `${tiers[0].max_debt_usdg} to ${cap.platform_max_debt_usdg} USDG, by the tier the agent’s capital reputation holds`
+          : `${cap.platform_max_debt_usdg} USDG`;
       const floor = cap ? String(cap.min_health_factor) : 'the platform minimum';
       return (
         <>

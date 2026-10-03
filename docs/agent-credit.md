@@ -1,9 +1,11 @@
 # Agent Credit — capital reputation, and a limit that follows it
 
-**Status: built, and switched off.** The capital reputation is computed and
-shown. The tier it gives does not move any limit until `lending.credit.enabled`
-is set in the signer's allowlist, in a reviewed commit that also raises the
-per-agent cap. Until then every agent may owe what it could before: 250 USDG.
+**Status: switched on 2026-10-03**, with the owner's approval, after a day of
+the reputation being computed and shown while it moved nothing. The tier an
+agent holds now sets the most it may owe, from 250 USDG at tier 0 to 5,000 at
+tier 3, and the signer's per-agent cap was raised to 5,000 in the same commit.
+No agent can hold more than tier 0 before 2026-10-24: thirty days after the
+first borrow, which is the least history a rating needs.
 
 Plan: architecture.md §18. It rests on [capital.md](./capital.md), which
 describes the borrowing itself.
@@ -168,20 +170,23 @@ and by the API alike.
 | API | the same limit, on the mandate's borrow cap |
 
 **The signer does not apply the tiers.** It has no database and cannot know
-which tier an agent holds. So with credit enabled, the per-agent cap — raised
-to the top tier — is what a compromised engine could borrow per agent, where
-today that is 250 USDG. The borrow would still be against that agent's own
-collateral, into its own wallet. Moving tier grants into a file the signer
+which tier an agent holds. So the per-agent cap — 5,000 USDG, the top tier —
+is what a compromised engine could borrow per agent; before credit was enabled
+it was 250. The borrow would still be against that agent's own collateral,
+into its own wallet. Moving tier grants into a file the signer
 reads is the next step before the ceiling is raised further.
 
-## Switching it on
+## Switching it on, and off
 
-One reviewed, dated commit to the allowlist:
+It was switched on by one reviewed, dated commit to the allowlist:
 
 1. `lending.credit.enabled` → `true`
 2. `lending.limits.max_debt_per_agent_usdg` → the top tier's limit
 
-The signer refuses to load the first without the second. The per-transaction
+The signer refuses to load the first without the second. Switching it off is
+the reverse, and both numbers go back together: with credit disabled every
+agent has `max_debt_per_agent_usdg`, so leaving it at 5,000 would hand every
+agent the top tier. The per-transaction
 cap (`max_borrow_per_tx_usdg`, 100 USDG) is separate and unchanged: a large
 debt is reached in steps of at most that size.
 
