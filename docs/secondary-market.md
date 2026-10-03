@@ -5,10 +5,11 @@ Stock Tokens listed in 2026-09 (AAPL, NVDA, GOOGL, SPY, QQQ, TSLA, AMZN, MSFT,
 META). Each has a Chainlink feed that referees its pool price. The **secondary
 market** holds Stock Tokens that agents may trade but that Chainlink does not
 price on this chain. It holds **RBLX** (Roblox), listed 2026-09-27, **LLY**
-(Eli Lilly), listed 2026-09-29, **IBM**, listed 2026-10-01, and **MRNA**
-(Moderna), listed 2026-10-02. The sections below record RBLX, the first; LLY,
-IBM and MRNA have their own sections ([LLY](#lly-eli-lilly), [IBM](#ibm),
-[MRNA](#mrna-moderna)) with the same evidence.
+(Eli Lilly), listed 2026-09-29, **IBM**, listed 2026-10-01, **MRNA**
+(Moderna), listed 2026-10-02, and **NU** (Nu Holdings), listed 2026-10-04. The
+sections below record RBLX, the first; LLY, IBM, MRNA and NU have their own
+sections ([LLY](#lly-eli-lilly), [IBM](#ibm), [MRNA](#mrna-moderna),
+[NU](#nu-nu-holdings)) with the same evidence.
 
 Related: [go-no-go-stock-tokens.md](./go-no-go-stock-tokens.md) (the permission
 this rests on), [market-data.md](./market-data.md), [execution.md](./execution.md),
@@ -224,6 +225,47 @@ third of the other's.
 | Buy size | $10 | $100 | $1,000 | $10,000 |
 |---|---|---|---|---|
 | Impact, 0.3% pool | 0.001% | 0.007% | 0.066% | 0.664% |
+
+## NU (Nu Holdings)
+
+Listed 2026-10-04 with the same checks, read live that day. Chainlink's feed
+directory for Robinhood Chain, re-read the same day, still lists 58 feeds and
+none for NU.
+
+| Check | Result |
+|---|---|
+| `name()` / `symbol()` / `decimals()` | `Nu • Robinhood Token` / `NU` / 18 |
+| Address | `0x408c14038a04f7bD235329E26d2bf569ee20e250` |
+| Beacon / implementation | `0xe10b…1b00` / `0xb354…5ae2`, 11,614 bytes, the same as every other token |
+| `paused()` | `false` |
+| `isBlocked(address)` | reverts, empty payload; `0xdeadbeef` reverts identically |
+
+The address came from the Uniswap token list for chain 4663; the name, beacon
+and implementation above are what prove it.
+
+NU has two pools against USDG, both live and both from factory
+`0x1f7d…2efa`, with NU as token0 in each. The factory has no 0.05% or 0.01%
+pool for the pair.
+
+| | Traded pool | Referee pool |
+|---|---|---|
+| Fee | 0.3% (3000) | 1% (10000) |
+| Address | `0x0e3faed512e7909758eb924e6919e0057bd6b45e` | `0xb6d047637151f6de1d02028acdd187aa9cb7afe3` |
+| Price, 2026-10-04 | 13.3369 USDG | 13.3512 USDG |
+| Reserves | ~$47k | ~$49k |
+
+The two were 0.11% apart, inside the 2% tolerance. Of the feedless tokens not
+yet listed, NU had the deepest second pool; the next, RIVN, has ~$19k. The
+pools are nearly the same size, so an attacker would have to move about $96k
+of liquidity across both. The 0.3% pool is traded because its fee is a third
+of the other's and it holds more in-range liquidity.
+
+| Buy size | $10 | $100 | $1,000 | $10,000 |
+|---|---|---|---|---|
+| Impact, 0.3% pool | 0.002% | 0.017% | 0.171% | 1.706% |
+
+This is the thinnest traded pool in the secondary market: a $10,000 order pays
+about two and a half times the impact recorded for MRNA.
 
 ## What this leaves out
 
