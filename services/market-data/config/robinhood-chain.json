@@ -173,6 +173,20 @@
       "referee_pool": "0xb6d047637151f6de1d02028acdd187aa9cb7afe3",
       "referee_pool_fee": 10000,
       "listing_note": "SECONDARY MARKET, listed 2026-10-04. Read live before this entry was written: name() = \"Nu • Robinhood Token\", symbol NU, 18 decimals, behind the same beacon (0xe10b…1b00) and implementation (0xb354…5ae2, 11,614 bytes) as every primary token, paused() = false. Chainlink publishes NO NU feed on this chain (its feed directory for robinhood-mainnet, re-read 2026-10-04, still lists 58 feeds, none NU), so the price is refereed by the 1% pool for the same pair instead. Pools, both from factory 0x1f7d…2efa with NU as token0 (its address sorts below USDG's): 0.3% at 0x0e3f…b45e (13.3369 USDG, ~$47k in reserves) and 1% at 0xb6d0…afe3 (13.3512 USDG, ~$49k); 0.11% apart. The factory has no 0.05% or 0.01% pool for the pair. The 0.3% pool is traded because its fee is a third of the other's and it holds more in-range liquidity: ~0.017% impact at $100, ~0.17% at $1,000, ~1.7% at $10,000. That is the thinnest traded pool in the secondary market, so a large order pays for it. The 1% pool is the only other pool, so it referees; the two are nearly the same size, so a price that fools the check needs about $96k of liquidity moved across both."
+    },
+    {
+      "symbol": "JNJ",
+      "sector": "Health Care",
+      "address": "0x03DfbBE0AC4E7bCDaFd08eD41A400326B77D8c80",
+      "decimals": 18,
+      "pool": "0x7f0ace18d1dced47063cf26e649bc8ab14d09e67",
+      "pool_fee": 3000,
+      "feed": "",
+      "feed_name": "",
+      "market": "secondary",
+      "referee_pool": "0x8d39388ef11bb78843130bd74ab0e5d89fa76b30",
+      "referee_pool_fee": 10000,
+      "listing_note": "SECONDARY MARKET, listed 2026-10-04. Read live before this entry was written: name() = \"Johnson & Johnson • Robinhood Token\", symbol JNJ, 18 decimals, behind the same beacon (0xe10b…1b00) and implementation (0xb354…5ae2, 11,614 bytes) as every primary token, paused() = false. Chainlink publishes NO JNJ feed on this chain (its feed directory for robinhood-mainnet, re-read 2026-10-04, still lists 58 feeds, none JNJ), so the price is refereed by the 1% pool for the same pair instead. Pools, all from factory 0x1f7d…2efa with JNJ as token0 (its address sorts below USDG's): 0.3% at 0x7f0a…9e67 (256.2861 USDG, ~$55k in reserves) and 1% at 0x8d39…6b30 (255.3495 USDG, ~$13k); 0.37% apart. The 0.05% pool (0x44d7…1c1e) exists and is empty; the factory has no 0.01% pool for the pair. The 0.3% pool is traded because it is the deepest and its fee is a third of the other's: ~0.016% impact at $100, ~0.16% at $1,000, ~1.6% at $10,000. The 1% pool is the only other live pool, so it referees; it is the thinnest referee in the secondary market, but a price that fools the check still needs the 0.3% pool moved, and that is where the money is."
     }
   ]
 }

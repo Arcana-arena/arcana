@@ -6,10 +6,11 @@ META). Each has a Chainlink feed that referees its pool price. The **secondary
 market** holds Stock Tokens that agents may trade but that Chainlink does not
 price on this chain. It holds **RBLX** (Roblox), listed 2026-09-27, **LLY**
 (Eli Lilly), listed 2026-09-29, **IBM**, listed 2026-10-01, **MRNA**
-(Moderna), listed 2026-10-02, and **NU** (Nu Holdings), listed 2026-10-04. The
-sections below record RBLX, the first; LLY, IBM, MRNA and NU have their own
-sections ([LLY](#lly-eli-lilly), [IBM](#ibm), [MRNA](#mrna-moderna),
-[NU](#nu-nu-holdings)) with the same evidence.
+(Moderna), listed 2026-10-02, and **NU** (Nu Holdings) and **JNJ** (Johnson &
+Johnson), both listed 2026-10-04. The sections below record RBLX, the first;
+LLY, IBM, MRNA, NU and JNJ have their own sections ([LLY](#lly-eli-lilly),
+[IBM](#ibm), [MRNA](#mrna-moderna), [NU](#nu-nu-holdings),
+[JNJ](#jnj-johnson--johnson)) with the same evidence.
 
 Related: [go-no-go-stock-tokens.md](./go-no-go-stock-tokens.md) (the permission
 this rests on), [market-data.md](./market-data.md), [execution.md](./execution.md),
@@ -266,6 +267,49 @@ of the other's and it holds more in-range liquidity.
 
 This is the thinnest traded pool in the secondary market: a $10,000 order pays
 about two and a half times the impact recorded for MRNA.
+
+## JNJ (Johnson & Johnson)
+
+Listed 2026-10-04, after NU, with the same checks, read live that day.
+Chainlink's feed directory for Robinhood Chain, re-read for this listing, still
+lists 58 feeds and none for JNJ.
+
+| Check | Result |
+|---|---|
+| `name()` / `symbol()` / `decimals()` | `Johnson & Johnson • Robinhood Token` / `JNJ` / 18 |
+| Address | `0x03DfbBE0AC4E7bCDaFd08eD41A400326B77D8c80` |
+| Beacon / implementation | `0xe10b…1b00` / `0xb354…5ae2`, 11,614 bytes, the same as every other token |
+| `paused()` | `false` |
+| `isBlocked(address)` | reverts, empty payload; `0xdeadbeef` reverts identically |
+
+The address came from the Uniswap token list for chain 4663; the name, beacon
+and implementation above are what prove it.
+
+JNJ has two live pools against USDG and one empty one, all from factory
+`0x1f7d…2efa` with JNJ as token0:
+
+| | Traded pool | Referee pool |
+|---|---|---|
+| Fee | 0.3% (3000) | 1% (10000) |
+| Address | `0x7f0ace18d1dced47063cf26e649bc8ab14d09e67` | `0x8d39388ef11bb78843130bd74ab0e5d89fa76b30` |
+| Price, 2026-10-04 | 256.2861 USDG | 255.3495 USDG |
+| Reserves | ~$55k | ~$13k |
+
+The two were 0.37% apart, inside the 2% tolerance. The 0.05% pool
+(`0x44d7…1c1e`) holds nothing, and the factory has no 0.01% pool for the pair.
+
+Two feedless tokens had a deeper second pool, RIVN (~$21k) and UPS (~$16k),
+and in both the deeper pool is the 1% one. Listing either means trading on a
+1% pool, which no listed token does, or trading on the thin one. JNJ is the
+deepest second pool behind a 0.3% traded pool.
+
+The referee is the thinnest in the secondary market: moving it 2% costs under
+a thousand dollars. As with IBM, that alone fools nothing, because the traded
+pool must be moved as well, and at ~$55k it is the expensive half.
+
+| Buy size | $10 | $100 | $1,000 | $10,000 |
+|---|---|---|---|---|
+| Impact, 0.3% pool | 0.002% | 0.016% | 0.163% | 1.628% |
 
 ## What this leaves out
 

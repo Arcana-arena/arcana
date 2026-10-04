@@ -235,6 +235,24 @@
         "control_revert_data": "0x",
         "note": "isBlocked(address) does not exist on this token. Measured 2026-10-04 on chain 4663: eth_call of isBlocked(address) reverts with an empty payload, and eth_call of 0xdeadbeef — a selector that exists nowhere — reverts identically, exactly as on the nine primary tokens, RBLX, LLY, IBM and MRNA, which share its beacon and implementation. paused() is NOT excepted: it answers false on this token and is still enforced."
       }
+    },
+    {
+      "symbol": "JNJ",
+      "address": "0x03DfbBE0AC4E7bCDaFd08eD41A400326B77D8c80",
+      "decimals": 18,
+      "pool": "0x7f0ace18d1dced47063cf26e649bc8ab14d09e67",
+      "pool_fee": 3000,
+      "market": "secondary",
+      "referee_pool": "0x8d39388ef11bb78843130bd74ab0e5d89fa76b30",
+      "referee_pool_fee": 10000,
+      "market_note": "SECONDARY MARKET, listed 2026-10-04. No Chainlink feed exists for JNJ on this chain, so the engine reads the 1% pool for the same pair before every JNJ swap and refuses the trade (price_divergence) when the two pools are more than 2% apart, or when the referee pool cannot be read (referee_unreadable). Both pools read live: 0.3% at 256.2861 USDG, 1% at 255.3495 USDG, both from factory 0x1f7d7550b1b028f7571e69a784071f0205fd2efa, which is the factory SwapRouter02 reports. Evidence for the token itself is in services/market-data/config/robinhood-chain.json and docs/secondary-market.md.",
+      "blocklist_unreadable": {
+        "verified_at": "2026-10-04",
+        "revert_data": "0x",
+        "control_selector": "0xdeadbeef",
+        "control_revert_data": "0x",
+        "note": "isBlocked(address) does not exist on this token. Measured 2026-10-04 on chain 4663: eth_call of isBlocked(address) reverts with an empty payload, and eth_call of 0xdeadbeef — a selector that exists nowhere — reverts identically, exactly as on the nine primary tokens, RBLX, LLY, IBM, MRNA and NU, which share its beacon and implementation. paused() is NOT excepted: it answers false on this token and is still enforced."
+      }
     }
   ],
   "limits": {

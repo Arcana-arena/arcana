@@ -148,6 +148,16 @@
       "paused_expected": false,
       "pool": "0x0e3faed512e7909758eb924e6919e0057bd6b45e",
       "pool_fee_bps": 30
+    },
+    {
+      "symbol": "JNJ",
+      "address": "0x03DfbBE0AC4E7bCDaFd08eD41A400326B77D8c80",
+      "beacon": "0xe10b6f6b275de231345c20d14ab812db62151b00",
+      "implementation": "0xb35490d6f9163de4f80d88dc75c3516eb64c5ae2",
+      "implementation_code_size": 11614,
+      "paused_expected": false,
+      "pool": "0x7f0ace18d1dced47063cf26e649bc8ab14d09e67",
+      "pool_fee_bps": 30
     }
   ],
   "note": "All nine tokens share ONE beacon and ONE implementation. A single upgrade transaction changes every Stock Token at once. That is why implementation drift is a CRITICAL alarm and not a warning."
