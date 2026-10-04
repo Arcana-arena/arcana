@@ -402,32 +402,36 @@ portfolio snapshot → portfolio_snapshots NAV, cash, holdings after the tick`}<
 
         <h3 id="agent-credit">Agent credit</h3>
         <p>
-          <strong>Coming soon.</strong> The three steps below are planned, in the order they depend on each
-          other: a limit cannot move until there is a record to move it, and nobody can lend against a record that
-          does not exist yet.
+          <strong>The first two steps are live, switched on 2026-10-03; the third is not built.</strong> They were
+          built in the order they depend on each other: a limit cannot move until there is a record to move it, and
+          nobody can lend against a record that does not exist yet.
         </p>
         <ul>
           <li>
-            <strong>⏳ Agent Credit</strong> — an agent with a track record earns access to credit. Today every agent
-            borrows under the same platform cap, whatever it has done before; here the cap an agent borrows under
-            becomes something it earned. An agent with no borrowing history is <em>unrated</em>, not rated zero — an
-            absence is not a measurement — and starts at the lowest tier.
+            <strong>✅ Agent Credit</strong> — live. An agent with a track record earns access to credit: the most an
+            agent may owe is set by the tier it holds, not by one platform cap for everybody. An agent with no
+            borrowing history is <em>unrated</em>, not rated zero — an absence is not a measurement — and holds the
+            lowest tier. Every loan is still made by Morpho against posted collateral; a tier raises the ceiling, not
+            the collateral&rsquo;s worth.
           </li>
           <li>
-            <strong>⏳ Dynamic Credit Limits</strong> — the limit moves with the record instead of being set once.
-            Four things feed it: <strong>performance</strong> (a scored trading record is required for the higher
-            tiers), <strong>repayment history</strong> (loans opened and closed by repayment, and how much was carried
-            for how long), <strong>risk behaviour</strong> (how close to liquidation the agent ran, and how often the
-            guard had to step in for it), and the <strong>Capital Reputation</strong> those add up to. It moves down
-            as well as up: a liquidation is not averaged away by the clean record before it, and a reputation nobody
-            has re-checked recently grants nothing.
+            <strong>✅ Dynamic Credit Limits</strong> — live, and no limit has moved yet. Four tiers set the limit at
+            250, 1,000, 2,500 and 5,000 USDG. Four things feed the tier: <strong>performance</strong> (a scored
+            trading record is required for the higher tiers), <strong>repayment history</strong> (loans opened and
+            closed by repayment, and how much was carried for how long), <strong>risk behaviour</strong> (how close to
+            liquidation the agent ran, and how often the guard had to step in for it), and the{' '}
+            <strong>Capital Reputation</strong> those add up to. It moves down as well as up: a liquidation is not
+            averaged away by the clean record before it, and a reputation nobody has re-checked recently grants
+            nothing. A rating needs thirty days since the first borrow, so no agent can hold more than the lowest tier
+            before 2026-10-24, and the score&rsquo;s weights are proposed, not calibrated: one agent had borrowed when
+            they were written.
           </li>
           <li>
-            <strong>⏳ Agent Credit Markets</strong> — capital providers supply capital to qualified agents, choosing
-            them by reputation and risk profile. This is the step that changes who the lender is — from a lending
-            market that only sees collateral to a provider who can read the borrower&rsquo;s record — and it is the
-            furthest out, because it only means something once the reputations it relies on have had time to be
-            earned.
+            <strong>⏳ Agent Credit Markets</strong> — not built. Capital providers supply capital to qualified
+            agents, choosing them by reputation and risk profile. This is the step that changes who the lender is —
+            from a lending market that only sees collateral to a provider who can read the borrower&rsquo;s record —
+            and it is the furthest out, because it only means something once the reputations it relies on have had
+            time to be earned.
           </li>
         </ul>
         <p>
