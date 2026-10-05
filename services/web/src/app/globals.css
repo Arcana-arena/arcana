@@ -392,6 +392,12 @@ h2 { font-size: 22px; }
 .hdr-brand { display: flex; align-items: center; gap: 10px; }
 .hdr-word { font-family: var(--font-heading), sans-serif; font-weight: 600; font-size: 16px; letter-spacing: .14em; }
 .hdr-nav { display: flex; gap: 24px; font-family: var(--font-heading), sans-serif; font-size: 14px; letter-spacing: .04em; }
+/* NINE ENTRIES ON A LAPTOP. With Credit added, a signed-in header at 1280px no
+   longer fitted on one row and the buttons dropped under the nav. The gap
+   gives back what the ninth entry took; nothing else about the bar changes. */
+@media (max-width: 1360px) {
+  .hdr-nav { gap: 16px; }
+}
 .hdr-nav a { color: var(--ink-2); padding: 15px 0 13px; border-bottom: 2px solid transparent; }
 .hdr-nav a:hover { color: var(--color-text); text-decoration: none; }
 .hdr-nav a[aria-current="page"] { color: var(--color-text); border-bottom-color: var(--color-accent); }

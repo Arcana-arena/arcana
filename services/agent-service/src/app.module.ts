@@ -19,6 +19,7 @@ import { AutopsyModule } from './autopsy/autopsy.module';
 import { IntelligenceModule } from './intelligence/intelligence.module';
 import { ThesesModule } from './theses/theses.module';
 import { ForumModule } from './forum/forum.module';
+import { CreditMarketModule } from './credit-market/credit-market.module';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { ForumModule } from './forum/forum.module';
     IntelligenceModule,
     ThesesModule,
     ForumModule,
+    CreditMarketModule,
   ],
   controllers: [HealthController],
 })

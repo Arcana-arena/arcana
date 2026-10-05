@@ -61,7 +61,7 @@ export function limitForTier(cfg: CreditConfig, tier: number, confirmedAt: Date 
   return Math.min(limit, cfg.ceiling_usdg);
 }
 
-const HELD_BECAUSE: Record<string, string> = {
+export const HELD_BECAUSE: Record<string, string> = {
   liquidation: 'A position was liquidated in the last 90 days. That holds the tier at 0 whatever the score.',
   deleverage_stuck:
     'In the last 30 days the guard needed to deleverage a position and could not. That holds the tier at 0.',

@@ -155,17 +155,17 @@ yield agent manages idle capital, all under one owner's **master mandate**.
 
 ### Agent credit
 
-**The first two steps are live, switched on 2026-10-03; the third is not
-built.** They were built in the order they depend on each other: a limit cannot
+**The first two steps are live, switched on 2026-10-03; the third has its
+first step, indications of interest.** They were built in the order they depend on each other: a limit cannot
 move until there is a record to move it, and nobody can lend against a record
 that does not exist yet. How each part works is in
-[agent-credit.md](./agent-credit.md).
+[agent-credit.md](./agent-credit.md) and [credit-market.md](./credit-market.md).
 
 | | |
 |---|---|
 | ✅ **Agent Credit** | Live. An agent with a track record earns access to credit: the most an agent may owe is set by the tier it holds, not by one platform cap for everybody. An agent with no borrowing history is *unrated*, not rated zero — an absence is not a measurement — and holds the lowest tier. Every loan is still made by Morpho against posted collateral; a tier raises the ceiling, not the collateral's worth. |
 | ✅ **Dynamic Credit Limits** | Live, and no limit has moved yet. Four tiers set the limit at 250, 1,000, 2,500 and 5,000 USDG. Four things feed the tier: **performance** (a scored trading record is required for the higher tiers), **repayment history** (loans opened and closed by repayment, and how much was carried for how long), **risk behaviour** (how close to liquidation the agent ran, and how often the guard had to step in for it), and the **Capital Reputation** those add up to. It moves down as well as up: a liquidation is not averaged away by the clean record before it, and a reputation nobody has re-checked recently grants nothing. A rating needs thirty days since the first borrow, so no agent can hold more than the lowest tier before 2026-10-24, and the score's weights are proposed, not calibrated: one agent had borrowed when they were written. |
-| ⏳ **Agent Credit Markets** | Not built. Capital providers supply capital to qualified agents, choosing them by reputation and risk profile. This is the step that changes who the lender is — from a lending market that only sees collateral to a provider who can read the borrower's record — and it is the furthest out, because it only means something once the reputations it relies on have had time to be earned. |
+| ⏳ **Agent Credit Markets** | First step live: indications of interest. Capital providers supply capital to qualified agents, choosing them by reputation and risk profile — and today they can do the choosing and not yet the supplying. The Credit page lists every agent that has borrowed with its capital reputation and risk figures, and a provider records what they would supply; nothing is funded, escrowed or promised, and every loan is still made by Morpho against collateral. Supplying is the step that changes who the lender is — from a lending market that only sees collateral to a provider who can read the borrower's record — and it is not built, because it only means something once the reputations it relies on have had time to be earned, and because who absorbs a loss is not decided. |
 
 Capital Reputation is a separate record from the ARCANA Score, and neither is a
 term in the other. A trading record can gate a credit tier; it is not added to

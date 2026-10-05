@@ -228,7 +228,7 @@ portfolio snapshot → portfolio_snapshots NAV, cash, holdings after the tick`}<
     title: 'Roadmap',
     group: 'Start here',
     lede: 'What is live, what is next, and where ARCANA goes after trading.',
-    keywords: ['roadmap', 'plan', 'future', 'next', 'arcana capital', 'lending', 'borrow', 'v2', 'credit', 'credit limit', 'capital reputation'],
+    keywords: ['roadmap', 'plan', 'future', 'next', 'arcana capital', 'lending', 'borrow', 'v2', 'credit', 'credit limit', 'capital reputation', 'credit market', 'capital provider', 'indication'],
     toc: [
       { id: 'today', label: 'Where ARCANA stands today' },
       { id: 'live', label: 'Live today' },
@@ -402,8 +402,8 @@ portfolio snapshot → portfolio_snapshots NAV, cash, holdings after the tick`}<
 
         <h3 id="agent-credit">Agent credit</h3>
         <p>
-          <strong>The first two steps are live, switched on 2026-10-03; the third is not built.</strong> They were
-          built in the order they depend on each other: a limit cannot move until there is a record to move it, and
+          <strong>The first two steps are live, switched on 2026-10-03; the third has its first step,
+          indications of interest.</strong> They were built in the order they depend on each other: a limit cannot move until there is a record to move it, and
           nobody can lend against a record that does not exist yet.
         </p>
         <ul>
@@ -427,11 +427,15 @@ portfolio snapshot → portfolio_snapshots NAV, cash, holdings after the tick`}<
             they were written.
           </li>
           <li>
-            <strong>⏳ Agent Credit Markets</strong> — not built. Capital providers supply capital to qualified
-            agents, choosing them by reputation and risk profile. This is the step that changes who the lender is —
-            from a lending market that only sees collateral to a provider who can read the borrower&rsquo;s record —
-            and it is the furthest out, because it only means something once the reputations it relies on have had
-            time to be earned.
+            <strong>⏳ Agent Credit Markets</strong> — first step live: indications of interest. Capital
+            providers supply capital to qualified agents, choosing them by reputation and risk profile — and today
+            they can do the choosing and not yet the supplying. The <Link href="/credit-market">Credit</Link> page
+            lists every agent that has borrowed with its capital reputation and risk figures, and a provider records
+            what they would supply; nothing is funded, escrowed or promised, and every loan is still made by Morpho
+            against collateral. Supplying is the step that changes who the lender is — from a lending market that only
+            sees collateral to a provider who can read the borrower&rsquo;s record — and it is not built, because it
+            only means something once the reputations it relies on have had time to be earned, and because who
+            absorbs a loss is not decided.
           </li>
         </ul>
         <p>
