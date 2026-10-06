@@ -55,7 +55,8 @@ export class LeaderboardSeriesService {
   constructor(@InjectDataSource() private readonly db: DataSource) {}
 
   async forSeason(seasonId: string, buckets: number) {
-    const stats = await this.db.query(
+    // The two reads share nothing but their input, so they run together.
+    const statsP = this.db.query(
       `
       WITH snaps AS (
         SELECT p.agent_id, ps.ts, ps.nav::float8 AS nav
@@ -66,20 +67,19 @@ export class LeaderboardSeriesService {
       ),
       w AS (
         SELECT agent_id, ts, nav,
-               first_value(nav) OVER whole AS first_nav,
-               last_value(nav)  OVER whole AS last_nav,
                -- THE RUNNING PEAK, not the overall maximum. A drawdown is a
                -- fall from what the agent had at the time; measuring it against
                -- a high it only reached later would invent losses it never took.
                max(nav) OVER (PARTITION BY agent_id ORDER BY ts
                               ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS peak
           FROM snaps
-        WINDOW whole AS (PARTITION BY agent_id ORDER BY ts
-                         ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
       )
+      -- first() and last() are TimescaleDB's "value at the earliest/latest ts".
+      -- They replace a whole-partition window that carried the same two
+      -- numbers on every row and cost more than the rest of the query.
       SELECT agent_id::text,
-             max(first_nav) AS first_nav,
-             max(last_nav)  AS last_nav,
+             first(nav, ts) AS first_nav,
+             last(nav, ts)  AS last_nav,
              min(ts) AS first_ts,
              max(ts) AS last_ts,
              count(*)::int AS points,
@@ -96,7 +96,13 @@ export class LeaderboardSeriesService {
     // from means is a calmer line than the one that happened. Each bucket
     // contributes its minimum and its maximum, each at its own timestamp, in
     // time order — the same rule the per-agent series endpoint follows.
-    const series = await this.db.query(
+    //
+    // ONE ROW PER EXTREME. Matching on the value instead returned every row
+    // tied for it, and an agent holding cash is tied with itself on every
+    // tick: measured 2026-10-06, 74,000 points and 2.2 MB for a column of
+    // sparklines 130 pixels wide. The earliest row at each extreme is kept, and
+    // a flat bucket is one point, not two.
+    const seriesP = this.db.query(
       `
       WITH snaps AS (
         SELECT p.agent_id, ps.ts, ps.nav::float8 AS nav
@@ -110,19 +116,20 @@ export class LeaderboardSeriesService {
                ntile($2) OVER (PARTITION BY agent_id ORDER BY ts) AS bucket
           FROM snaps
       ),
-      edges AS (
-        SELECT agent_id, bucket,
-               min(nav) AS lo, max(nav) AS hi
-          FROM bucketed GROUP BY agent_id, bucket
+      ranked AS (
+        SELECT agent_id, ts, nav,
+               row_number() OVER (PARTITION BY agent_id, bucket ORDER BY nav ASC, ts ASC)  AS lo_rank,
+               row_number() OVER (PARTITION BY agent_id, bucket ORDER BY nav DESC, ts ASC) AS hi_rank
+          FROM bucketed
       )
-      SELECT b.agent_id::text, b.ts, b.nav,
-             CASE WHEN b.nav = e.lo THEN 'min' ELSE 'max' END AS agg
-        FROM bucketed b
-        JOIN edges e ON e.agent_id = b.agent_id AND e.bucket = b.bucket
-       WHERE b.nav = e.lo OR b.nav = e.hi
-       ORDER BY b.agent_id, b.ts`,
+      SELECT agent_id::text, ts, nav,
+             CASE WHEN lo_rank = 1 THEN 'min' ELSE 'max' END AS agg
+        FROM ranked
+       WHERE lo_rank = 1 OR hi_rank = 1
+       ORDER BY agent_id, ts`,
       [seasonId, buckets],
     );
+    const [stats, series] = await Promise.all([statsP, seriesP]);
 
     const byAgent = new Map<string, SeriesRow['series']>();
     for (const r of series as Array<{ agent_id: string; ts: Date; nav: number; agg: 'min' | 'max' }>) {
