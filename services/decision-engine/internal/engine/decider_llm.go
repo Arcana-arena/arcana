@@ -431,6 +431,38 @@ func buildPrompt(in DeciderInput) string {
 	fmt.Fprintf(&b, "max of total value in one trade    %.0f%%\n", in.Limits.TradeSizePct*100)
 	fmt.Fprintf(&b, "cash you must never spend          %.0f%%\n", in.Limits.CashFloorPct*100)
 
+	// THE OWNER'S LEVELS, SHOWN TO THE MODEL THAT IS ASKED FOR THEM.
+	//
+	// The answer format asks for stop_loss_fraction and take_profit_fraction on
+	// every buy, and an answer of any kind replaces the owner's standing level
+	// (see Decide). The standing levels themselves were never in the prompt.
+	// So the model answered with numbers of its own, and those won: measured
+	// 2026-10-06, an agent configured for a 4% take profit and a 1.5% stop
+	// loss was holding a position armed at 1.2% with no stop at all, and
+	// another configured for 5% and 2% had been armed anywhere from 1.2% to
+	// 12%. Nothing was broken at any single step; the owner's setting just had
+	// no way to arrive.
+	//
+	// Stated as fractions, the scale the answer uses, with the percentage
+	// beside each so a hundredfold slip is visible. A mandate that names its
+	// own number still wins, because that is the owner too, and more recently.
+	if in.Limits.StopLossPct > 0 || in.Limits.TakeProfitPct > 0 {
+		level := func(f float64, side string) string {
+			if f <= 0 {
+				return "none set"
+			}
+			return fmt.Sprintf("%.4f  (%.2f%% %s what you pay)", f, f*100, side)
+		}
+		b.WriteString("\nYOUR OWNER'S PROTECTIVE LEVELS (set on this agent)\n")
+		fmt.Fprintf(&b, "stop_loss_fraction     %s\n", level(in.Limits.StopLossPct, "below"))
+		fmt.Fprintf(&b, "take_profit_fraction   %s\n", level(in.Limits.TakeProfitPct, "above"))
+		b.WriteString("On a buy, answer with these numbers. Do not choose levels of your own.\n")
+		b.WriteString("The one exception is an owner instruction below that states a different\n")
+		b.WriteString("number for a level: then use the instruction's number for that level.\n")
+		b.WriteString("A level that is not more than a symbol's minimum in the MARKET table is\n")
+		b.WriteString("refused on that symbol and the position opens without it.\n")
+	}
+
 	// THE OWNER'S INSTRUCTION, AND THE FENCE AROUND IT.
 	//
 	// Free text is allowed here now, so this block is the one place a stranger's

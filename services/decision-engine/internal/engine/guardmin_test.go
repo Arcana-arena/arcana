@@ -97,3 +97,39 @@ func TestThePromptExplainsWhereTheBoundComesFrom(t *testing.T) {
 			"shape that left four of nine symbols unguarded")
 	}
 }
+
+// The owner's standing levels have to reach the model, as fractions, or the
+// model answers with levels of its own and those replace the owner's.
+func TestThePromptCarriesTheOwnersProtectiveLevels(t *testing.T) {
+	in := DeciderInput{
+		View: marketView{
+			symbols: []marketdata.Quote{{Symbol: "NVDA"}},
+			prices:  map[string]float64{"NVDA": 219.0},
+		},
+		Limits: RiskLimits{StopLossPct: 0.015, TakeProfitPct: 0.04},
+	}
+	p := buildPrompt(in)
+	for _, want := range []string{
+		"stop_loss_fraction     0.0150  (1.50% below what you pay)",
+		"take_profit_fraction   0.0400  (4.00% above what you pay)",
+		"Do not choose levels of your own",
+	} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("the prompt does not carry %q, so the owner's level cannot arrive:\n%s", want, p)
+		}
+	}
+
+	// One level set and the other not: the unset one is said to be unset.
+	in.Limits = RiskLimits{TakeProfitPct: 0.05}
+	p = buildPrompt(in)
+	if !strings.Contains(p, "stop_loss_fraction     none set") {
+		t.Fatalf("an unset stop loss is not stated as unset:\n%s", p)
+	}
+
+	// No standing level at all: the block is absent, and the model is as free
+	// as it was.
+	in.Limits = RiskLimits{}
+	if p = buildPrompt(in); strings.Contains(p, "YOUR OWNER'S PROTECTIVE LEVELS") {
+		t.Fatalf("an agent with no standing levels is told it has some:\n%s", p)
+	}
+}
