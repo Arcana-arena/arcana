@@ -187,6 +187,20 @@
       "referee_pool": "0x8d39388ef11bb78843130bd74ab0e5d89fa76b30",
       "referee_pool_fee": 10000,
       "listing_note": "SECONDARY MARKET, listed 2026-10-04. Read live before this entry was written: name() = \"Johnson & Johnson • Robinhood Token\", symbol JNJ, 18 decimals, behind the same beacon (0xe10b…1b00) and implementation (0xb354…5ae2, 11,614 bytes) as every primary token, paused() = false. Chainlink publishes NO JNJ feed on this chain (its feed directory for robinhood-mainnet, re-read 2026-10-04, still lists 58 feeds, none JNJ), so the price is refereed by the 1% pool for the same pair instead. Pools, all from factory 0x1f7d…2efa with JNJ as token0 (its address sorts below USDG's): 0.3% at 0x7f0a…9e67 (256.2861 USDG, ~$55k in reserves) and 1% at 0x8d39…6b30 (255.3495 USDG, ~$13k); 0.37% apart. The 0.05% pool (0x44d7…1c1e) exists and is empty; the factory has no 0.01% pool for the pair. The 0.3% pool is traded because it is the deepest and its fee is a third of the other's: ~0.016% impact at $100, ~0.16% at $1,000, ~1.6% at $10,000. The 1% pool is the only other live pool, so it referees; it is the thinnest referee in the secondary market, but a price that fools the check still needs the 0.3% pool moved, and that is where the money is."
+    },
+    {
+      "symbol": "BA",
+      "sector": "Industrials",
+      "address": "0x4D21483a44Bf67a86b77E3dA301411880797D452",
+      "decimals": 18,
+      "pool": "0xc6517047b189c72d3baa9ef37d1d28f27a63638a",
+      "pool_fee": 3000,
+      "feed": "",
+      "feed_name": "",
+      "market": "secondary",
+      "referee_pool": "0xbf3904cad0e63a4796cf806c21f2c1528b8ebe06",
+      "referee_pool_fee": 10000,
+      "listing_note": "SECONDARY MARKET, listed 2026-10-06. Read live before this entry was written: name() = \"Boeing • Robinhood Token\", symbol BA, 18 decimals, behind the same beacon (0xe10b…1b00) and implementation (0xb354…5ae2, 11,614 bytes) as every primary token, paused() = false. Chainlink publishes NO BA feed on this chain (its feed directory for robinhood-mainnet, re-read 2026-10-06, still lists 58 feeds, none BA), so the price is refereed by the 1% pool for the same pair instead. Pools, both from factory 0x1f7d…2efa with BA as token0 (its address sorts below USDG's): 0.3% at 0xc651…638a (193.3322 USDG, ~$112k in reserves) and 1% at 0xbf39…be06 (193.4248 USDG, ~$3k); 0.05% apart. The factory has no 0.05% or 0.01% pool for the pair. The 0.3% pool is traded because it is the deepest and its fee is a third of the other's: ~0.006% impact at $100, ~0.06% at $1,000, ~0.6% at $10,000. The 1% pool is the only other pool, so it referees; it is the thinnest referee in the secondary market, and about $100 moves it 2%, which stops BA trades (price_divergence) until the pools agree again. A price that fools the check still needs the 0.3% pool moved, and that is where the money is."
     }
   ]
 }

@@ -6,11 +6,12 @@ META). Each has a Chainlink feed that referees its pool price. The **secondary
 market** holds Stock Tokens that agents may trade but that Chainlink does not
 price on this chain. It holds **RBLX** (Roblox), listed 2026-09-27, **LLY**
 (Eli Lilly), listed 2026-09-29, **IBM**, listed 2026-10-01, **MRNA**
-(Moderna), listed 2026-10-02, and **NU** (Nu Holdings) and **JNJ** (Johnson &
-Johnson), both listed 2026-10-04. The sections below record RBLX, the first;
-LLY, IBM, MRNA, NU and JNJ have their own sections ([LLY](#lly-eli-lilly),
-[IBM](#ibm), [MRNA](#mrna-moderna), [NU](#nu-nu-holdings),
-[JNJ](#jnj-johnson--johnson)) with the same evidence.
+(Moderna), listed 2026-10-02, **NU** (Nu Holdings) and **JNJ** (Johnson &
+Johnson), both listed 2026-10-04, and **BA** (Boeing), listed 2026-10-06. The
+sections below record RBLX, the first; LLY, IBM, MRNA, NU, JNJ and BA have
+their own sections ([LLY](#lly-eli-lilly), [IBM](#ibm),
+[MRNA](#mrna-moderna), [NU](#nu-nu-holdings), [JNJ](#jnj-johnson--johnson),
+[BA](#ba-boeing)) with the same evidence.
 
 Related: [go-no-go-stock-tokens.md](./go-no-go-stock-tokens.md) (the permission
 this rests on), [market-data.md](./market-data.md), [execution.md](./execution.md),
@@ -310,6 +311,53 @@ pool must be moved as well, and at ~$55k it is the expensive half.
 | Buy size | $10 | $100 | $1,000 | $10,000 |
 |---|---|---|---|---|
 | Impact, 0.3% pool | 0.002% | 0.016% | 0.163% | 1.628% |
+
+## BA (Boeing)
+
+Listed 2026-10-06 with the same checks, read live that day. Chainlink's feed
+directory for Robinhood Chain, re-read the same day, still lists 58 feeds and
+none for BA.
+
+| Check | Result |
+|---|---|
+| `name()` / `symbol()` / `decimals()` | `Boeing • Robinhood Token` / `BA` / 18 |
+| Address | `0x4D21483a44Bf67a86b77E3dA301411880797D452` |
+| Beacon / implementation | `0xe10b…1b00` / `0xb354…5ae2`, 11,614 bytes, the same as every other token |
+| `paused()` | `false` |
+| `isBlocked(address)` | reverts, empty payload; `0xdeadbeef` reverts identically |
+
+The address came from the Uniswap token list for chain 4663; the name, beacon
+and implementation above are what prove it.
+
+BA has two pools against USDG, both live and both from factory
+`0x1f7d…2efa`, with BA as token0 in each. The factory has no 0.05% or 0.01%
+pool for the pair.
+
+| | Traded pool | Referee pool |
+|---|---|---|
+| Fee | 0.3% (3000) | 1% (10000) |
+| Address | `0xc6517047b189c72d3baa9ef37d1d28f27a63638a` | `0xbf3904cad0e63a4796cf806c21f2c1528b8ebe06` |
+| Price, 2026-10-06 | 193.3322 USDG | 193.4248 USDG |
+| Reserves | ~$112k | ~$3k |
+
+The two were 0.05% apart, inside the 2% tolerance.
+
+BA was picked for its traded pool. RIVN and UPS still have the deeper second
+pools, and their deep pool is still the 1% one. Of the rest, the feedless
+tokens with a deep 0.3% pool all have a thin 1% pool behind it or none that
+works: NFLX (~$219k traded) has a referee that about $5 moves 2%, and GLXY
+and AVGO have a 1% pool that was never given a usable price. BA's referee
+takes about $100 to move 2%.
+
+That makes it the thinnest referee in the secondary market, and the cost is
+availability, not safety. Someone who moves the 1% pool stops BA trades
+(`price_divergence`) until the pools agree again; they do not set a price.
+Fooling the check needs the 0.3% pool moved 2% as well, about $17k, three
+times what the same move costs on JNJ's traded pool today.
+
+| Buy size | $10 | $100 | $1,000 | $10,000 |
+|---|---|---|---|---|
+| Impact, 0.3% pool | 0.001% | 0.006% | 0.058% | 0.580% |
 
 ## What this leaves out
 

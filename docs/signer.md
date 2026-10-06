@@ -186,6 +186,7 @@ across all ten allowlisted tokens:
 | MRNA (secondary market, measured 2026-10-02) | `false` | reverts, empty payload |
 | NU (secondary market, measured 2026-10-04) | `false` | reverts, empty payload |
 | JNJ (secondary market, measured 2026-10-04) | `false` | reverts, empty payload |
+| BA (secondary market, measured 2026-10-06) | `false` | reverts, empty payload |
 
 So the refusal applied to every trade the platform could ever make. The signer
 was not conservative; it was inert. Nothing had noticed, because the only
