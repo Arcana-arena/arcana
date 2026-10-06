@@ -83,6 +83,9 @@ export function sourceRuns(series: Array<{ source: string }>): Array<{ lo: numbe
   return runs;
 }
 
+/** A snapshot pairs with a decision at most this long before it. */
+const PAIRING_WINDOW_US = 5_000_000;
+
 interface AgentTick {
   ts: Date;
   nav: number;
@@ -692,26 +695,27 @@ export class AutopsyService {
     return rows[0];
   }
 
-  /** Same pairing DNA uses: a snapshot with the decision that produced it. */
+  /**
+   * Same pairing DNA uses: a snapshot with the decision that produced it, the
+   * most recent one in the five seconds before the snapshot.
+   *
+   * READ AS TWO LISTS AND PAIRED HERE. This was one query with the decision
+   * looked up per snapshot, and decisions is a hypertable: each lookup probed
+   * the ts index of every chunk. Measured 2026-10-06 on an agent with 16,878
+   * snapshots, that was 732,000 buffer reads and about a second, on every
+   * render of the home page. Two reads and one pass give the same pairs in a
+   * fifth of the time.
+   *
+   * Timestamps are compared in microseconds, as Postgres stores them. A Date
+   * keeps milliseconds, and a decision 400 microseconds AFTER its snapshot
+   * would round into the window it is outside of.
+   */
   private async loadTicks(agentId: string): Promise<AgentTick[]> {
-    const rows = await this.db.query(
-      `SELECT ps.ts, ps.nav::float8 AS nav, ps.cash::float8 AS cash, ps.holdings,
-              d.market_snapshot_ref, d.action, d.symbol, d.quantity::float8 AS quantity,
-              -- A private agent's rationale is its reasoning, and withheld (0047).
-              -- Done in the query so the timing and drawdown samples built from
-              -- these rows cannot carry it by accident.
-              CASE WHEN ag.visibility = 'private' THEN NULL ELSE d.rationale END AS rationale,
-              d.decider, d.reason_code
+    const snaps: any[] = await this.db.query(
+      `SELECT ps.ts, (extract(epoch FROM ps.ts) * 1000000)::bigint AS ts_us,
+              ps.nav::float8 AS nav, ps.cash::float8 AS cash, ps.holdings
        FROM portfolio_snapshots ps
        JOIN portfolios p ON p.id = ps.portfolio_id
-       JOIN agents ag ON ag.id = p.agent_id
-       LEFT JOIN LATERAL (
-         SELECT market_snapshot_ref, action, symbol, quantity, rationale, decider, reason_code
-         FROM decisions_counted
-         WHERE agent_id = p.agent_id
-           AND ts BETWEEN ps.ts - interval '5 seconds' AND ps.ts
-         ORDER BY ts DESC LIMIT 1
-       ) d ON true
        WHERE p.agent_id = $1
          AND p.season_id = (
            -- Scope to the agent's MOST RECENT season.
@@ -736,19 +740,51 @@ export class AutopsyService {
        ORDER BY ps.ts ASC`,
       [agentId],
     );
-    return rows.map((r: any) => ({
-      ts: r.ts,
-      nav: Number(r.nav) || 0,
-      cash: Number(r.cash) || 0,
-      holdings: (r.holdings ?? {}) as Record<string, number>,
-      ref: r.market_snapshot_ref ?? null,
-      action: r.action ?? null,
-      symbol: r.symbol ?? null,
-      quantity: r.quantity != null ? Number(r.quantity) : null,
-      rationale: r.rationale ?? null,
-      decider: r.decider ?? null,
-      reason_code: r.reason_code ?? null,
-    }));
+    if (snaps.length === 0) return [];
+
+    // Every decision the snapshots above could pair with, and no season filter:
+    // the pairing is by time alone, as it was. The bounds are padded past the
+    // window because they travel as Dates; the pass below is what is exact.
+    const first = new Date(new Date(snaps[0].ts).getTime() - 6000);
+    const last = new Date(new Date(snaps[snaps.length - 1].ts).getTime() + 1000);
+    const decisions: any[] = await this.db.query(
+      `SELECT (extract(epoch FROM d.ts) * 1000000)::bigint AS ts_us,
+              d.market_snapshot_ref, d.action, d.symbol, d.quantity::float8 AS quantity,
+              -- A private agent's rationale is its reasoning, and withheld (0047).
+              -- Done in the query so the timing and drawdown samples built from
+              -- these rows cannot carry it by accident.
+              CASE WHEN ag.visibility = 'private' THEN NULL ELSE d.rationale END AS rationale,
+              d.decider, d.reason_code
+       FROM decisions_counted d
+       JOIN agents ag ON ag.id = d.agent_id
+       WHERE d.agent_id = $1 AND d.ts BETWEEN $2 AND $3
+       ORDER BY d.ts ASC`,
+      [agentId, first, last],
+    );
+    const decisionUs = decisions.map((d) => Number(d.ts_us));
+
+    // Both lists ascend, so one index walks the decisions once: it rests on
+    // the latest decision at or before the snapshot, and that decision is the
+    // pair only if it is also inside the window.
+    let j = -1;
+    return snaps.map((r: any) => {
+      const us = Number(r.ts_us);
+      while (j + 1 < decisions.length && decisionUs[j + 1] <= us) j++;
+      const d = j >= 0 && decisionUs[j] >= us - PAIRING_WINDOW_US ? decisions[j] : null;
+      return {
+        ts: r.ts,
+        nav: Number(r.nav) || 0,
+        cash: Number(r.cash) || 0,
+        holdings: (r.holdings ?? {}) as Record<string, number>,
+        ref: d?.market_snapshot_ref ?? null,
+        action: d?.action ?? null,
+        symbol: d?.symbol ?? null,
+        quantity: d?.quantity != null ? Number(d.quantity) : null,
+        rationale: d?.rationale ?? null,
+        decider: d?.decider ?? null,
+        reason_code: d?.reason_code ?? null,
+      };
+    });
   }
 }
 

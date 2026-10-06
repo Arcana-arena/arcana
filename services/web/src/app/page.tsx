@@ -113,6 +113,13 @@ const n = (v: string | number | null | undefined) => {
 };
 
 export default async function LandingPage() {
+  // Started here and awaited below: it depends on nothing the page reads
+  // first, and waiting for it in turn put its three reads after everyone
+  // else's. The empty catch only marks a rejection as seen while the other
+  // reads are in flight; the await below still throws it.
+  const privateExampleP = findPrivateExample();
+  privateExampleP.catch(() => {});
+
   const [statsR, feedR, execR, boardR, seasonsR, discoverR] = await Promise.all([
     agent<PlatformStats>('/v1/stats'),
     agent<Feed<RecentDecision>>('/v1/decisions/recent?limit=8'),
@@ -134,7 +141,7 @@ export default async function LandingPage() {
   ]);
 
   // Awaited on its own, not added to the positional arrays above.
-  const privateExample = await findPrivateExample();
+  const privateExample = await privateExampleP;
 
   const running = seasonsR.ok ? seasonsR.data.items.filter((s) => s.progress?.status === 'running') : [];
   const others = seasonsR.ok ? seasonsR.data.items.filter((s) => s.progress?.status !== 'running') : [];
