@@ -84,7 +84,37 @@ alert() {
     echo "guard-watchdog: $1 — $2" >&2
     return
   fi
-  printf '%s\n' "$2" | "$NOTIFY" alert high "$1" || true
+
+  # ONE ALERT PER CONDITION PER WINDOW. This runs every two minutes, and a
+  # condition that lasts a day used to be 720 alerts: from 2026-09-30 to 10-06
+  # this watchdog alone used the whole ntfy.sh daily quota (250) before noon,
+  # and every alert after that, from any unit, was refused with 429. The first
+  # one still goes at once; repeats are counted, and the next alert that does
+  # go out says how many were held — the rule arcana-notify applies to units.
+  local cooldown="${GUARD_ALERT_COOLDOWN_SEC:-1800}"
+  local state_dir="${ALERT_STATE_DIR:-${HOME:-/home/ubuntu}/.local/state/arcana-alerts}"
+  local key state now last=0 held=0 body="$2"
+  key=$(printf '%s' "$1" | tr -c 'A-Za-z0-9' '_')
+  state="${state_dir}/guard-watchdog.${key}"
+  now=$(date +%s)
+  mkdir -p "$state_dir" 2>/dev/null
+  if [ -r "$state" ]; then
+    read -r last held < "$state" || true
+  fi
+  last=${last:-0}; held=${held:-0}
+  if [ $((now - last)) -lt "$cooldown" ]; then
+    echo "$last $((held + 1))" > "$state"
+    echo "guard-watchdog: HELD: '$1' repeated within ${cooldown}s of the last alert ($((held + 1)) held so far)."
+    return
+  fi
+  if [ "$held" -gt 0 ]; then
+    body="${body}"$'\n\n'"repeats: ${held} more check(s) found this since the previous alert"
+  fi
+  # The window opens only on a delivery that worked, so an alert the provider
+  # refused is tried again at the next check instead of being held for it.
+  if printf '%s\n' "$body" | "$NOTIFY" alert high "$1"; then
+    echo "$now 0" > "$state"
+  fi
 }
 
 verdict() { echo "guard-watchdog: VERDICT=$1 REASON=$2"; }
@@ -116,8 +146,9 @@ HB=$(psql "SELECT COALESCE(extract(epoch FROM now() - last_scan_at)::bigint::tex
                   COALESCE(scans::text,'0') || '|' ||
                   COALESCE(armed_guards::text,'0') || '|' ||
                   COALESCE(triggers::text,'0') || '|' ||
-                  COALESCE(last_error,'') || '|' ||
-                  COALESCE(version,'')
+                  COALESCE(version,'') || '|' ||
+                  COALESCE(extract(epoch FROM last_scan_at - last_error_at)::bigint::text, '') || '|' ||
+                  COALESCE(last_error,'')
              FROM guard_heartbeat WHERE id = 1")
 
 if [ -z "$HB" ]; then
@@ -145,11 +176,26 @@ AGE=$(echo "$HB" | cut -d'|' -f1)
 SCANS=$(echo "$HB" | cut -d'|' -f2)
 HB_ARMED=$(echo "$HB" | cut -d'|' -f3)
 TRIGGERS=$(echo "$HB" | cut -d'|' -f4)
-LAST_ERR=$(echo "$HB" | cut -d'|' -f5)
-VERSION=$(echo "$HB" | cut -d'|' -f6)
+VERSION=$(echo "$HB" | cut -d'|' -f5)
+# How long before the latest scan the error was recorded. Empty: never.
+ERR_LAG=$(echo "$HB" | cut -d'|' -f6)
+# The error is the last field and takes the rest of the line: its text joins
+# one RPC endpoint's failure to the next with a '|' of its own.
+LAST_ERR=$(echo "$HB" | cut -d'|' -f7-)
 
 [ -n "$FORCE_AGE" ] && AGE="$FORCE_AGE"
-[ -n "$FORCE_ERROR" ] && LAST_ERR="$FORCE_ERROR"
+if [ -n "$FORCE_ERROR" ]; then LAST_ERR="$FORCE_ERROR"; ERR_LAG=0; fi
+
+# THE HEARTBEAT KEEPS ITS LAST ERROR FOR GOOD. A scan that succeeds leaves
+# last_error and last_error_at as they were, so the text alone says "this
+# failed once", not "this is failing". Read alone, one RPC timeout on
+# 2026-10-03 was reported as the most recent scan's error every two minutes
+# for three and a half days. It is current only if it was recorded inside the
+# same window that decides whether the guard is scanning at all.
+if [ -n "$LAST_ERR" ] && [ -n "$ERR_LAG" ] && [ "$ERR_LAG" -gt "$STALE_AFTER_SEC" ]; then
+  echo "guard-watchdog: last error is ${ERR_LAG}s older than the latest scan; scans have succeeded since, so it is not current"
+  LAST_ERR=""
+fi
 
 echo "guard-watchdog: heartbeat ${AGE}s old, ${SCANS} scans, ${HB_ARMED} armed, ${TRIGGERS} triggers, unit=$UNIT_STATE, version=${VERSION:-unknown}"
 
@@ -182,10 +228,11 @@ fi
 #
 # A guard that scans on time and fails every scan is the subtlest of the three:
 # the heartbeat is fresh, the unit is active, and nothing is being watched.
+# LAST_ERR is empty by now unless the error is from the last few scans.
 if [ -n "$LAST_ERR" ]; then
   alert "ARCANA: position guard is scanning and failing" \
-"The guard is alive (last scan ${AGE}s ago, ${SCANS} scans) and its most recent scan
-reported an error:
+"The guard is alive (last scan ${AGE}s ago, ${SCANS} scans) and a scan in the last
+${STALE_AFTER_SEC}s reported an error:
 
   $LAST_ERR
 

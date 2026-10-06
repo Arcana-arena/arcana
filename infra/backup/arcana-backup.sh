@@ -70,9 +70,48 @@ log "dumping globals"
 docker exec "$PG_CONTAINER" pg_dumpall -U "$PG_USER" --globals-only > "${STAGE}/globals.sql" \
   || die "pg_dumpall --globals-only failed"
 
-log "dumping database ${PG_DB} (custom format, whole database)"
-docker exec "$PG_CONTAINER" pg_dump -U "$PG_USER" -d "$PG_DB" -Fc > "${STAGE}/arcana.dump" \
+# THE DUMP AND THE COUNTS READ ONE SNAPSHOT. The counts used to be taken after
+# the dump and after the MinIO mirror, minutes later, on tables that take a row
+# every tick. The manifest then described a database newer than the dump beside
+# it, and the weekly restore test failed three Sundays running (2026-09-20 to
+# 10-04) on a backup that was whole: 25 decisions "missing" that were written
+# after pg_dump had finished reading.
+#
+# One session opens a REPEATABLE READ transaction and exports its snapshot;
+# pg_dump reads through that snapshot, and the same session counts the rows.
+# The session is closed before MinIO, so nothing holds a transaction open
+# while files are copied.
+MANIFEST_TABLES="agents creators seasons competitions competition_ticks decisions \
+  score_snapshots portfolio_snapshots portfolios market_snapshots \
+  marketplace_listings subscriptions agent_dna auth_sessions"
+
+coproc PGSNAP { docker exec -i "$PG_CONTAINER" psql -U "$PG_USER" -d "$PG_DB" -qAtX 2>/dev/null; }
+echo "BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT pg_export_snapshot();" >&"${PGSNAP[1]}"
+IFS= read -r -t 30 SNAPSHOT_ID <&"${PGSNAP[0]}" || die "could not export a snapshot for the dump"
+SNAPSHOT_ID=$(printf '%s' "$SNAPSHOT_ID" | tr -d '\r')
+[ -n "$SNAPSHOT_ID" ] || die "the exported snapshot id is empty"
+
+log "dumping database ${PG_DB} (custom format, whole database, snapshot ${SNAPSHOT_ID})"
+docker exec "$PG_CONTAINER" pg_dump -U "$PG_USER" -d "$PG_DB" -Fc --snapshot="$SNAPSHOT_ID" > "${STAGE}/arcana.dump" \
   || die "pg_dump failed"
+
+: > "${STAGE}/.rows"
+for t in $MANIFEST_TABLES; do
+  # A failed count prints nothing, so a marker row after each one keeps the
+  # reads in step: a table that cannot be counted is ERROR, as before.
+  echo "SELECT count(*) FROM ${t}; SELECT 'end-${t}';" >&"${PGSNAP[1]}"
+  n=""
+  while IFS= read -r -t 120 line <&"${PGSNAP[0]}"; do
+    line=$(printf '%s' "$line" | tr -d '\r')
+    [ "$line" = "end-${t}" ] && break
+    n="$line"
+  done
+  case "$n" in ''|*[!0-9]*) n="ERROR" ;; esac
+  echo "rows.${t}=${n}" >> "${STAGE}/.rows"
+done
+echo "COMMIT;" >&"${PGSNAP[1]}"
+echo '\q' >&"${PGSNAP[1]}"
+wait "$PGSNAP_PID" 2>/dev/null
 
 # A dump that is empty or absurdly small is a failure that returned 0.
 DUMP_BYTES=$(stat -c %s "${STAGE}/arcana.dump" 2>/dev/null || echo 0)
@@ -103,7 +142,7 @@ MINIO_OBJECTS=$(find "${STAGE}/minio" -type f | wc -l)
 log "minio objects: ${MINIO_OBJECTS}"
 
 # --- 3. manifest -----------------------------------------------------------
-# Counts recorded at dump time. A restore is verified against THESE, not against
+# Counts recorded in the dump's own snapshot (section 1). A restore is verified against THESE, not against
 # production — production keeps moving, and comparing to it would either pass by
 # luck or fail for the wrong reason.
 log "recording manifest"
@@ -117,13 +156,9 @@ log "recording manifest"
   echo "# row counts at dump time"
 } > "${STAGE}/manifest.txt"
 
-for t in agents creators seasons competitions competition_ticks decisions \
-         score_snapshots portfolio_snapshots portfolios market_snapshots \
-         marketplace_listings subscriptions agent_dna auth_sessions; do
-  n=$(docker exec "$PG_CONTAINER" psql -U "$PG_USER" -d "$PG_DB" -tAc \
-        "SELECT count(*) FROM ${t}" 2>/dev/null | tr -d '\r')
-  echo "rows.${t}=${n:-ERROR}" >> "${STAGE}/manifest.txt"
-done
+# Counted inside the dump's snapshot, in section 1.
+cat "${STAGE}/.rows" >> "${STAGE}/manifest.txt"
+rm -f "${STAGE}/.rows"
 
 # --- 4. archive ------------------------------------------------------------
 log "archiving"
