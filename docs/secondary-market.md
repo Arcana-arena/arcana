@@ -7,11 +7,12 @@ market** holds Stock Tokens that agents may trade but that Chainlink does not
 price on this chain. It holds **RBLX** (Roblox), listed 2026-09-27, **LLY**
 (Eli Lilly), listed 2026-09-29, **IBM**, listed 2026-10-01, **MRNA**
 (Moderna), listed 2026-10-02, **NU** (Nu Holdings) and **JNJ** (Johnson &
-Johnson), both listed 2026-10-04, and **BA** (Boeing), listed 2026-10-06. The
-sections below record RBLX, the first; LLY, IBM, MRNA, NU, JNJ and BA have
-their own sections ([LLY](#lly-eli-lilly), [IBM](#ibm),
-[MRNA](#mrna-moderna), [NU](#nu-nu-holdings), [JNJ](#jnj-johnson--johnson),
-[BA](#ba-boeing)) with the same evidence.
+Johnson), both listed 2026-10-04, **BA** (Boeing), listed 2026-10-06, and
+**NFLX** (Netflix), listed 2026-10-09. The sections below record RBLX, the
+first; LLY, IBM, MRNA, NU, JNJ, BA and NFLX have their own sections
+([LLY](#lly-eli-lilly), [IBM](#ibm), [MRNA](#mrna-moderna),
+[NU](#nu-nu-holdings), [JNJ](#jnj-johnson--johnson), [BA](#ba-boeing),
+[NFLX](#nflx-netflix)) with the same evidence.
 
 Related: [go-no-go-stock-tokens.md](./go-no-go-stock-tokens.md) (the permission
 this rests on), [market-data.md](./market-data.md), [execution.md](./execution.md),
@@ -358,6 +359,59 @@ times what the same move costs on JNJ's traded pool today.
 | Buy size | $10 | $100 | $1,000 | $10,000 |
 |---|---|---|---|---|
 | Impact, 0.3% pool | 0.001% | 0.006% | 0.058% | 0.580% |
+
+## NFLX (Netflix)
+
+Listed 2026-10-09 with the same checks, read live that day. Chainlink's
+tokenized-equity feed directory for Robinhood Chain, re-read the same day,
+carries a feed for many other tickers but none for NFLX.
+
+| Check | Result |
+|---|---|
+| `name()` / `symbol()` / `decimals()` | `Netflix • Robinhood Token` / `NFLX` / 18 |
+| Address | `0xE0444EF8BF4eD74f74FD73686e2ddF4C1c5591E8` |
+| Beacon / implementation | `0xe10b…1b00` / `0xb354…5ae2`, 11,614 bytes, the same as every other token |
+| `paused()` | `false` |
+| `isBlocked(address)` | reverts, empty payload; `0xdeadbeef` reverts identically |
+
+The address came from the issuer's own contract registry for chain 4663; the
+name, beacon and implementation above are what prove it.
+
+NFLX has exactly two pools against USDG, both live and both from factory
+`0x1f7d…2efa` with USDG as token0. The factory has no 0.05% or 0.01% pool for
+the pair.
+
+| | Traded pool | Referee pool |
+|---|---|---|
+| Fee | 0.3% (3000) | 1% (10000) |
+| Address | `0x59895c0302f41aeaa129d2fa2442cec01e7ef45e` | `0xea75ea625d83ae276b9ae8b0a3dc205916ee65cf` |
+| Price, 2026-10-09 | 70.4428 USDG | 70.9520 USDG |
+| Reserves | ~$210k | ~$4k |
+
+The two were 0.72% apart, inside the 2% tolerance. The 0.3% pool is traded
+because its fee is a third of the other's and it is far the deeper: about $3.6M
+of in-range liquidity, second only to IBM's among the secondary market's traded
+pools. That is what an agent pays, and it is the cheapest large order in the
+secondary market:
+
+| Buy size | $10 | $100 | $1,000 | $10,000 |
+|---|---|---|---|---|
+| Impact, 0.3% pool | 0.001% | 0.006% | 0.055% | 0.552% |
+
+The 1% pool is the only other pool, so it referees. It is thin — about $1.2k
+moves it 2% — much thinner than NFLX's traded pool, though nearly six times
+harder to move than BA's referee. As with IBM, JNJ and BA, the cost is
+availability and not safety: someone who moves the 1% pool stops NFLX trades
+(`price_divergence`) until the pools agree again; they do not set a price.
+Fooling the check needs the 0.3% pool moved 2% as well, about $73k, and that is
+where the money is — the deepest traded pool in the secondary market, so the
+most expensive half to move.
+
+NFLX was picked over RIVN and UPS, the other feedless tokens with a deep second
+pool, because in both of those the deep pool is the 1% one: listing either means
+trading on a 1% pool, which no listed token does, or on the thinner 0.3% pool.
+NFLX is the remaining feedless token with a deep 0.3% traded pool and a live, if
+thin, 1% referee.
 
 ## What this leaves out
 

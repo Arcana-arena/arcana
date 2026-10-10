@@ -271,6 +271,24 @@
         "control_revert_data": "0x",
         "note": "isBlocked(address) does not exist on this token. Measured 2026-10-06 on chain 4663: eth_call of isBlocked(address) reverts with an empty payload, and eth_call of 0xdeadbeef — a selector that exists nowhere — reverts identically, exactly as on the nine primary tokens, RBLX, LLY, IBM, MRNA, NU and JNJ, which share its beacon and implementation. paused() is NOT excepted: it answers false on this token and is still enforced."
       }
+    },
+    {
+      "symbol": "NFLX",
+      "address": "0xE0444EF8BF4eD74f74FD73686e2ddF4C1c5591E8",
+      "decimals": 18,
+      "pool": "0x59895c0302f41aeaa129d2fa2442cec01e7ef45e",
+      "pool_fee": 3000,
+      "market": "secondary",
+      "referee_pool": "0xea75ea625d83ae276b9ae8b0a3dc205916ee65cf",
+      "referee_pool_fee": 10000,
+      "market_note": "SECONDARY MARKET, listed 2026-10-09. No Chainlink feed exists for NFLX on this chain, so the engine reads the 1% pool for the same pair before every NFLX swap and refuses the trade (price_divergence) when the two pools are more than 2% apart, or when the referee pool cannot be read (referee_unreadable). Both pools read live: 0.3% at 70.4428 USDG, 1% at 70.9520 USDG, both from factory 0x1f7d7550b1b028f7571e69a784071f0205fd2efa, which is the factory SwapRouter02 reports. Evidence for the token itself is in services/market-data/config/robinhood-chain.json and docs/secondary-market.md.",
+      "blocklist_unreadable": {
+        "verified_at": "2026-10-09",
+        "revert_data": "0x",
+        "control_selector": "0xdeadbeef",
+        "control_revert_data": "0x",
+        "note": "isBlocked(address) does not exist on this token. Measured 2026-10-09 on chain 4663 (selector 0xfbac3951): eth_call reverts with an empty payload, and eth_call of 0xdeadbeef — a selector that exists nowhere — reverts identically, exactly as on the nine primary tokens, RBLX, LLY, IBM, MRNA, NU, JNJ and BA, which share its beacon and implementation. paused() is NOT excepted: it answers false on this token and is still enforced."
+      }
     }
   ],
   "limits": {
