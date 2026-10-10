@@ -22,11 +22,17 @@ Two rules govern the order:
 | 4b–d | Retire strategy.go, session.go, the human path | **partly done** | session.go and the vendor path HELD — still carrying Polygon backfill; the human format is retired, the code is not. See below |
 | 6 | Decider abstraction + LLM, still on virtual money | **done** | — **unblocked 2026-09-11**: Xiaomi MiMo, key supplied, decider ACTIVE |
 | 7 | Signer service, policy engine, router allowlist — no money | **done** | **owner: key custody (~$0.06–$1/mo)** |
-| 8 | **First real swap, $10, one wallet** | | **owner: approval to spend** |
-| 9 | Deposit, withdrawal, and the attack suite that proves it refuses | | — |
+| 8 | **First real swap** | **done** 2026-09-11 | — |
+| 9 | Deposit, withdrawal, and the attack suite that proves it refuses | **next** | — |
 | 10 | Pool prices, Chainlink referee, continuous cadence, decision watchdog | **done** | — |
 | 11 | Marketplace — tx-hash verification | **done** | — |
-| 12 | User-created agents, public signup | **done** (the parts needing no funding) | frontend not started, and deliberately not started here |
+| 12 | User-created agents, public signup | **done** | — (frontend live at arcana-arena.com) |
+
+> **Reconciled 2026-10-10.** This table was written while phase 8 was still ahead
+> of it. [roadmap.md](./roadmap.md) is the current page and wins where the two
+> disagree. Phase 8 is **done** — the first real swap settled 2026-09-11 (see
+> [waiting-on-owner.md](./waiting-on-owner.md) §3) and 393 swaps have settled
+> since. Phase 12's frontend is live. Phase 9 is the current work.
 
 ---
 
@@ -302,7 +308,7 @@ the signer takes a NAMED INTENT and builds the calldata itself. No `to`, no
 here. A phase-7 seed exists for empty wallets and must be replaced before
 anything is funded. Options and costs in [signer.md](./signer.md).
 
-## Phase 8 — The first real swap ⛔ *needs the owner*
+## Phase 8 — The first real swap *(done 2026-09-11)*
 
 One wallet, **$10**, one swap on a 5 bp pool, end to end: decision
 recorded, transaction signed, receipt read back, NAV read from the chain,
@@ -321,6 +327,14 @@ any money moves, not adjusted quietly during the run.
 **Verified by:** a transaction hash that succeeded, *and* a deliberate failure
 — RPC pulled, LLM response corrupted — proven to produce a refusal rather than a
 trade.
+
+**Done 2026-09-11.** The owner set the first swap at **$2**, not $10: 2 USDG
+filled 0.0061448329 AAPL, the simulated and actual fills matched to the base
+unit, and both receipts were read back from the chain rather than the
+response. The same run exposed that nothing yet called the signer — the
+execution path from a recorded decision to a broadcast transaction did not
+exist — which phase 10 then built. See
+[waiting-on-owner.md](./waiting-on-owner.md) §3 for the receipt.
 
 ## Phase 9 — Deposit, withdrawal, and proving the gate refuses
 
@@ -436,7 +450,7 @@ money.
 
 | Item | Blocks | Note |
 |---|---|---|
-| `AUTH_ADMIN_WALLETS` | phase 9 | withdrawal approval has no owner until this is set — it went from convenience to control |
+| ~~`AUTH_ADMIN_WALLETS`~~ | ~~phase 9~~ | **done 2026-09-11** — set and proved from both sides (it refuses a non-admin AND admits a configured one), so phase 9 is no longer blocked on it; see [waiting-on-owner.md](./waiting-on-owner.md) §4 |
 | healthchecks.io ping URL | phase 10 | under continuous operation there is no "market closed" excuse; a silent stop is always a fault |
 | Google Drive OAuth (rclone) | phase 8 | backups now protect a record that maps to real money. Drive rather than R2: the owner already has it and rclone speaks it. **Its OAuth token can expire, and that stops uploads silently** — so the alarm must fire on a failed UPLOAD, not only on a failed backup. **Key material is a separate requirement Drive does not solve** — it must not sit beside the database dump behind the same access path |
 | `MARKET_VENDOR_API_KEY` | nothing | **confirmed no longer a blocker.** Prices come from the pool; Chainlink referees. Polygon keeps one narrow use — backfilling pre-launch history for DNA and Autopsy depth — and loses the redistribution-licence problem, since the leaderboard no longer publishes vendor closes |

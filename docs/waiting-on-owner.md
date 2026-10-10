@@ -1,14 +1,14 @@
-# Three things waiting on the owner
+# One thing waiting on the owner
 
-Each is **prepared to the point where only the owner's part remains**. No
-engineering work is left in any of them; what is left is a credential, an
-authorisation, or a decision to spend.
+It is **prepared to the point where only the owner's part remains**. No
+engineering work is left in it; what is left is a credential, an authorisation,
+or a decision to spend.
 
-A fourth — `AUTH_ADMIN_WALLETS` — was closed on 2026-09-11 and is kept below as
-a record of how it was verified, not as an outstanding item.
+Three others — the KMS decision, the first mainnet swap, and
+`AUTH_ADMIN_WALLETS` — were resolved or deferred on 2026-09-11 and are kept
+below as a record of how they were verified, not as outstanding items.
 
-Nothing here is a blocker for anything else. They are listed together because
-they share that shape, not because they are related.
+Nothing here is a blocker for anything else.
 
 | | What is waited on | What is already done | What it unblocks |
 |---|---|---|---|
