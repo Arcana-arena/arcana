@@ -7,12 +7,12 @@ market** holds Stock Tokens that agents may trade but that Chainlink does not
 price on this chain. It holds **RBLX** (Roblox), listed 2026-09-27, **LLY**
 (Eli Lilly), listed 2026-09-29, **IBM**, listed 2026-10-01, **MRNA**
 (Moderna), listed 2026-10-02, **NU** (Nu Holdings) and **JNJ** (Johnson &
-Johnson), both listed 2026-10-04, **BA** (Boeing), listed 2026-10-06, and
-**NFLX** (Netflix), listed 2026-10-09. The sections below record RBLX, the
-first; LLY, IBM, MRNA, NU, JNJ, BA and NFLX have their own sections
-([LLY](#lly-eli-lilly), [IBM](#ibm), [MRNA](#mrna-moderna),
-[NU](#nu-nu-holdings), [JNJ](#jnj-johnson--johnson), [BA](#ba-boeing),
-[NFLX](#nflx-netflix)) with the same evidence.
+Johnson), both listed 2026-10-04, **BA** (Boeing), listed 2026-10-06, **NFLX**
+(Netflix), listed 2026-10-09, and **UPS**, listed 2026-10-11. The sections
+below record RBLX, the first; LLY, IBM, MRNA, NU, JNJ, BA, NFLX and UPS have
+their own sections ([LLY](#lly-eli-lilly), [IBM](#ibm),
+[MRNA](#mrna-moderna), [NU](#nu-nu-holdings), [JNJ](#jnj-johnson--johnson),
+[BA](#ba-boeing), [NFLX](#nflx-netflix), [UPS](#ups)) with the same evidence.
 
 Related: [go-no-go-stock-tokens.md](./go-no-go-stock-tokens.md) (the permission
 this rests on), [market-data.md](./market-data.md), [execution.md](./execution.md),
@@ -412,6 +412,56 @@ pool, because in both of those the deep pool is the 1% one: listing either means
 trading on a 1% pool, which no listed token does, or on the thinner 0.3% pool.
 NFLX is the remaining feedless token with a deep 0.3% traded pool and a live, if
 thin, 1% referee.
+
+## UPS
+
+Listed 2026-10-11 with the same checks, read live that day. Chainlink's
+tokenized-equity feed directory for Robinhood Chain, re-read the same day,
+carries feeds for other tickers and none for UPS.
+
+| Check | Result |
+|---|---|
+| `name()` / `symbol()` / `decimals()` | `UPS • Robinhood Token` / `UPS` / 18 |
+| Address | `0xf23250dac154D05Bb671CB0d0eBEf3c635c79CE2` |
+| Beacon / implementation | `0xe10b…1b00` / `0xb354…5ae2`, 11,614 bytes, the same as every other token |
+| `paused()` | `false` |
+| `isBlocked(address)` | reverts, empty payload; `0xdeadbeef` reverts identically |
+
+The address came from the issuer's own contract registry for chain 4663; the
+name, beacon and implementation above are what prove it.
+
+UPS has exactly two pools against USDG, both live and both from factory
+`0x1f7d…2efa` with USDG as token0. The factory has no 0.05% or 0.01% pool for
+the pair.
+
+| | Traded pool | Referee pool |
+|---|---|---|
+| Fee | 0.3% (3000) | 1% (10000) |
+| Address | `0x5c67a84ec5494ffe24e217b28debb96341014c86` | `0x3ab74c45dcecc6a62898204dd42143a816b44cb1` |
+| Price, 2026-10-11 | 93.4641 USDG | 94.1029 USDG |
+| Reserves | ~$16k | ~$86k |
+
+The two were 0.68% apart, inside the 2% tolerance. This is the mirror image of
+BA: UPS has the **thinnest traded pool** in the secondary market and the
+**deepest referee**. The 0.3% pool is traded because its fee is a third of the
+other's, and it is where an order actually pays:
+
+| Buy size | $10 | $100 | $1,000 | $10,000 |
+|---|---|---|---|---|
+| Impact, 0.3% pool | 0.007% | 0.071% | 0.712% | 7.233% |
+
+The 1% pool is the only other pool, so it referees, and it is the most robust
+referee in the secondary market: about $2.1M of in-range liquidity, so roughly
+$43k moves it 2% — more than two hundred times what BA's referee costs to
+move. Fooling the check still needs the 0.3% pool moved as well. That traded
+pool is thin (~$281k of in-range liquidity), so the cost of listing UPS is
+impact at size, not safety: an agent trading in the tens of dollars pays almost
+nothing, and a $10,000 order pays about 7.2%.
+
+UPS was picked over RIVN, the last feedless token with a live second pool,
+because UPS's traded pool is deeper (~$281k of in-range liquidity against
+RIVN's ~$150k) and its referee is far deeper (~$2.1M against ~$322k). RIVN's
+$10,000 order would have paid about 13.8%.
 
 ## What this leaves out
 
