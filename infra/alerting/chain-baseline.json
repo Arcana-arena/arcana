@@ -188,6 +188,16 @@
       "paused_expected": false,
       "pool": "0x5c67a84ec5494ffe24e217b28debb96341014c86",
       "pool_fee_bps": 30
+    },
+    {
+      "symbol": "COST",
+      "address": "0x4EA005168D7F09a7A0Ba9D1DEf21a479950E44C2",
+      "beacon": "0xe10b6f6b275de231345c20d14ab812db62151b00",
+      "implementation": "0xb35490d6f9163de4f80d88dc75c3516eb64c5ae2",
+      "implementation_code_size": 11614,
+      "paused_expected": false,
+      "pool": "0x0a2121a50a09ed0796ae81f9c53ff9398355a398",
+      "pool_fee_bps": 30
     }
   ],
   "note": "All nine tokens share ONE beacon and ONE implementation. A single upgrade transaction changes every Stock Token at once. That is why implementation drift is a CRITICAL alarm and not a warning."

@@ -8,11 +8,13 @@ price on this chain. It holds **RBLX** (Roblox), listed 2026-09-27, **LLY**
 (Eli Lilly), listed 2026-09-29, **IBM**, listed 2026-10-01, **MRNA**
 (Moderna), listed 2026-10-02, **NU** (Nu Holdings) and **JNJ** (Johnson &
 Johnson), both listed 2026-10-04, **BA** (Boeing), listed 2026-10-06, **NFLX**
-(Netflix), listed 2026-10-09, and **UPS**, listed 2026-10-11. The sections
-below record RBLX, the first; LLY, IBM, MRNA, NU, JNJ, BA, NFLX and UPS have
-their own sections ([LLY](#lly-eli-lilly), [IBM](#ibm),
+(Netflix), listed 2026-10-09, **UPS**, listed 2026-10-11, and **COST**
+(Costco), listed 2026-10-13. The sections
+below record RBLX, the first; LLY, IBM, MRNA, NU, JNJ, BA, NFLX, UPS and COST
+have their own sections ([LLY](#lly-eli-lilly), [IBM](#ibm),
 [MRNA](#mrna-moderna), [NU](#nu-nu-holdings), [JNJ](#jnj-johnson--johnson),
-[BA](#ba-boeing), [NFLX](#nflx-netflix), [UPS](#ups)) with the same evidence.
+[BA](#ba-boeing), [NFLX](#nflx-netflix), [UPS](#ups), [COST](#cost-costco))
+with the same evidence.
 
 Related: [go-no-go-stock-tokens.md](./go-no-go-stock-tokens.md) (the permission
 this rests on), [market-data.md](./market-data.md), [execution.md](./execution.md),
@@ -462,6 +464,59 @@ UPS was picked over RIVN, the last feedless token with a live second pool,
 because UPS's traded pool is deeper (~$281k of in-range liquidity against
 RIVN's ~$150k) and its referee is far deeper (~$2.1M against ~$322k). RIVN's
 $10,000 order would have paid about 13.8%.
+
+## COST (Costco)
+
+Listed 2026-10-13 with the same checks, read live that day. Chainlink's
+tokenized-equity feed directory for Robinhood Chain, re-read the same day,
+lists 58 feeds and none for COST.
+
+| Check | Result |
+|---|---|
+| `name()` / `symbol()` / `decimals()` | `Costco • Robinhood Token` / `COST` / 18 |
+| Address | `0x4EA005168D7F09a7A0Ba9D1DEf21a479950E44C2` |
+| Beacon / implementation | `0xe10b…1b00` / `0xb354…5ae2`, 11,614 bytes, the same as every other token |
+| `paused()` | `false` |
+| `isBlocked(address)` | reverts, empty payload; `0xdeadbeef` reverts identically |
+
+The address came from the issuer's own contract registry for chain 4663; the
+name, beacon and implementation above are what prove it.
+
+COST has exactly two pools against USDG, both live and both from factory
+`0x1f7d…2efa` with COST as token0. The factory has no 0.05% or 0.01% pool for
+the pair.
+
+| | Traded pool | Referee pool |
+|---|---|---|
+| Fee | 0.3% (3000) | 1% (10000) |
+| Address | `0x0a2121a50a09ed0796ae81f9c53ff9398355a398` | `0xdb073638f94a384b8b7a647d73274decac9e7ca5` |
+| Price, 2026-10-13 | 958.6662 USDG | 959.8221 USDG |
+| Reserves | ~$585k | ~$920 |
+
+The two were 0.12% apart, inside the 2% tolerance. The 0.3% pool is traded
+because its fee is a third of the other's and it is far the deeper — about
+$17M of in-range liquidity, the deepest traded pool in the secondary market.
+That is what an agent pays, and it is the cheapest large order in the
+secondary market:
+
+| Buy size | $10 | $100 | $1,000 | $10,000 |
+|---|---|---|---|---|
+| Impact, 0.3% pool | 0.000% | 0.001% | 0.011% | 0.115% |
+
+The 1% pool is the only other pool, so it referees. It is thin — about $25k of
+in-range liquidity, so roughly $250 moves it 2% — comparable to BA's and JNJ's
+referees. As with them, the cost is availability and not safety: someone who
+moves the 1% pool stops COST trades (`price_divergence`) until the pools agree
+again; they do not set a price. Fooling the check needs the 0.3% pool moved 2%
+as well, about $174k, and that is where the money is — the deepest traded pool
+in the secondary market, so the most expensive half to move.
+
+COST was picked over HIMS, the only feedless token with a deeper traded pool,
+because HIMS's 1% referee holds under $200 — about $17 moves it 2%, an order of
+magnitude thinner than any referee the market has accepted — so HIMS would halt
+on almost any trade. COST pairs the second-deepest traded pool with a referee
+inside that accepted range. PFE (~$1.3M traded, ~$50k referee) and RIVN
+(~$123k traded, ~$278k referee) were the next candidates.
 
 ## What this leaves out
 

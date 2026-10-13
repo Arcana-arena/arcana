@@ -307,6 +307,24 @@
         "control_revert_data": "0x",
         "note": "isBlocked(address) does not exist on this token. Measured 2026-10-11 on chain 4663 (selector 0xfbac3951): eth_call reverts with an empty payload, and eth_call of 0xdeadbeef — a selector that exists nowhere — reverts identically, exactly as on the nine primary tokens, RBLX, LLY, IBM, MRNA, NU, JNJ, BA and NFLX, which share its beacon and implementation. paused() is NOT excepted: it answers false on this token and is still enforced."
       }
+    },
+    {
+      "symbol": "COST",
+      "address": "0x4EA005168D7F09a7A0Ba9D1DEf21a479950E44C2",
+      "decimals": 18,
+      "pool": "0x0a2121a50a09ed0796ae81f9c53ff9398355a398",
+      "pool_fee": 3000,
+      "market": "secondary",
+      "referee_pool": "0xdb073638f94a384b8b7a647d73274decac9e7ca5",
+      "referee_pool_fee": 10000,
+      "market_note": "SECONDARY MARKET, listed 2026-10-13. No Chainlink feed exists for COST on this chain, so the engine reads the 1% pool for the same pair before every COST swap and refuses the trade (price_divergence) when the two pools are more than 2% apart, or when the referee pool cannot be read (referee_unreadable). Both pools read live: 0.3% at 958.6662 USDG, 1% at 959.8221 USDG, both from factory 0x1f7d7550b1b028f7571e69a784071f0205fd2efa, which is the factory SwapRouter02 reports. Evidence for the token itself is in services/market-data/config/robinhood-chain.json and docs/secondary-market.md.",
+      "blocklist_unreadable": {
+        "verified_at": "2026-10-13",
+        "revert_data": "0x",
+        "control_selector": "0xdeadbeef",
+        "control_revert_data": "0x",
+        "note": "isBlocked(address) does not exist on this token. Measured 2026-10-13 on chain 4663 (selector 0xfbac3951): eth_call reverts with an empty payload, and eth_call of 0xdeadbeef — a selector that exists nowhere — reverts identically, exactly as on the nine primary tokens, RBLX, LLY, IBM, MRNA, NU, JNJ, BA, NFLX and UPS, which share its beacon and implementation. paused() is NOT excepted: it answers false on this token and is still enforced."
+      }
     }
   ],
   "limits": {
