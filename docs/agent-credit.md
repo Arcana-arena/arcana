@@ -35,9 +35,9 @@ be large. With a high tier and little collateral, it cannot.
 | The limit, applied | `capital.Validate` → `debt_over_credit_limit` |
 | Tier table | `services/signer/allowlist/robinhood-mainnet.json` → `lending.credit` |
 | Tables | `capital_liquidations`, `capital_scan_cursors`, `capital_cycles`, `capital_reputation` (0061) |
-| API | `GET /v1/agents/:id/capital` → `credit`; `GET /v1/agents/:id/passport` → `capital` |
+| API | `GET /v1/agents/:id/capital` → `credit`; `GET /v1/agents/:id/passport` → `capital`; `GET /v1/credit-formulas/:version` → the formula as data |
 | Pages | agent page → *Passport* (two blocks) and *Positions → Capital* (the working) |
-| Proof | Go tests in `internal/credit`, `internal/capital`, `internal/execution` and the signer's `policy`; `infra/verify/credit-verify.mjs` |
+| Proof | Go tests in `internal/credit`, `internal/capital`, `internal/execution` and the signer's `policy`; `infra/verify/credit-verify.mjs`, `infra/verify/credit-formula-verify.mjs` |
 
 ---
 
@@ -125,6 +125,33 @@ they were computed from. A row is written when the standing changes; a
 recomputation that changes nothing refreshes that working and moves
 `confirmed_at`.
 
+## Published as data
+
+The formula above is not only prose. `GET /v1/credit-formulas/arcana-credit-formula/v1`
+returns it as data: the constants (the four weights, the scales, the floor, the
+qualifying and hold windows), the steps in order, and the tier table and the
+ceiling **read live** from the signer's allowlist — so a tier-table change needs
+no code change and the arithmetic is untouched.
+
+A reader can recompute a `capital_reputation` row from its own figures.
+`GET /v1/agents/:id/capital` returns `credit.inputs` (the figures) and
+`credit.components` (the four point values); applying the published steps with
+the published constants must reproduce both, and the score. This is the same
+shape the ARCANA Score has had since `GET /v1/score-formulas/:version`.
+
+`infra/verify/credit-formula-verify.mjs` parses the constants straight out of
+`services/decision-engine/internal/credit/credit.go` and requires the published
+formula and endpoint to match — so a change to `credit.go` that is not published
+fails the suite — and then recomputes every stored rated row from its own
+figures, a **second implementation** of the arithmetic.
+
+**What is not yet recorded.** A `capital_reputation` row carries its components
+and the figures behind them, but not the formula version it was computed under.
+The constants published now are the ones in force now; attributing an old row to
+the version it was written under is a follow-up (the score path does that with a
+manifest per snapshot, and it needs no schema change here — the version can go
+into the existing `inputs` JSONB).
+
 ## Tiers and the limit
 
 The tier table is in the signer's allowlist:
@@ -197,3 +224,21 @@ debt is reached in steps of at most that size.
 - **Lineage.** A new version of an agent has a new wallet and starts unrated.
 - **Credit with less collateral, or none.** That needs a lender who absorbs a
   loss, and is a different product.
+
+## Revision log
+
+Newest first, the same convention as [scoring-formula.md](./scoring-formula.md):
+what changed, why, and what was deliberately left alone.
+
+### 2026-10-13 — the formula is published as data
+
+The arithmetic did not change. What changed is that it is now readable as data
+(`GET /v1/credit-formulas/arcana-credit-formula/v1`) and held to `credit.go` by
+`credit-formula-verify`, which also recomputes every stored row from its own
+figures. This closes the last reputation formula that lived only as prose — the
+remaining piece of roadmap #5's "publish the formula and weights as data rather
+than prose" — so a reader no longer has to read Go to check a credit score.
+
+Left alone: the weights and thresholds themselves (still proposed, not
+calibrated), the tier table (still the signer's allowlist, read live), and the
+schema (a row still records no formula version; that is the next step).

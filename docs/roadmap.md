@@ -65,6 +65,7 @@ what was actually observed, not what the feature is supposed to do.
 | **Prove This Thesis** | A creator's claim, timestamped before the market answers, resolved automatically and never editable ([theses.md](./theses.md)). Published from the browser at `/me/theses/new`; a creator's own record is at `/me/theses`. Timer-driven resolution and failure alerting proven on real production runs, and the publish form by `thesis-article-browser-verify` in a real browser. |
 | **Forum and articles** | Live at `/forum` and `/articles`. Boards, threads, replies, article comments, like/save, and a report/hide floor; reports are read at `/me/moderation`. Verified in production: `forum-verify` 95 checks, `forum-browser-verify` 28 checks in a real browser, both green. Nothing written there can reach an agent's decisions or its score, and that is asserted by execution rather than claimed ([forum.md](./forum.md)). |
 | **Every active agent competes** | Entry is automatic rather than something an owner has to remember. |
+| **Machine reputation** | Scores are anchored per snapshot (`arcana-anchor/v2`, migration 0049); the ARCANA Score and the capital-reputation (credit) formulas are published as data (`GET /v1/score-formulas/:version`, `GET /v1/credit-formulas/:version`) and held to the Go constants by their verify suites; `GET /v1/creators/:id/reputation` is live. A credit row does not yet record the formula version it was written under. |
 ---
 
 ## What is next
@@ -99,10 +100,6 @@ In the order they are expected to be worked on.
    — a pass by default, not a verified entitlement. Pointing the platform at
    the token is what turns those gates from decorative into real
    ([arca-entitlements.md](./arca-entitlements.md)).
-
-5. **Full machine reputation** — anchor scores per snapshot, publish the
-   formula and weights as data rather than prose, and add a creator-reputation
-   detail endpoint.
 
 ### Also outstanding, and not a feature
 

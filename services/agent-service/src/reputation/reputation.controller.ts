@@ -47,6 +47,23 @@ export class ReputationController {
     return this.reputation.formula(version);
   }
 
+  /**
+   * 🌐 The Agent Credit formula of one version: its steps, constants, and the
+   * tier table and ceiling read live from the signer's allowlist.
+   *
+   * Same slash-in-the-name problem as score-formulas (arcana-credit-formula/v1),
+   * so both spellings are accepted.
+   */
+  @Get('v1/credit-formulas/:name/:v')
+  creditFormulaByPath(@Param('name') name: string, @Param('v') v: string) {
+    return this.reputation.creditFormula(`${name}/${v}`);
+  }
+
+  @Get('v1/credit-formulas/:version')
+  creditFormula(@Param('version') version: string) {
+    return this.reputation.creditFormula(version);
+  }
+
   /** 🌐 A creator's reputation, derived from sealed scores, with every input. */
   @Get('v1/creators/:id/reputation')
   creatorReputation(@Param('id', ParseUuidAllPipe) id: string) {

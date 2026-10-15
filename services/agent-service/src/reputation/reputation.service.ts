@@ -3,7 +3,9 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AnchorsService } from '../intelligence/anchors.service';
+import { creditConfig } from '../agents/capital-credit';
 import { creatorReputation } from './creator-reputation';
+import { CREDIT_FORMULAS } from './credit-formula';
 import { FORMULAS, parseScoreManifest, recomputeV1, SCORE_FORMULA_V1, ScoreManifest, ScoreOutputs } from './score-formula';
 
 type Check = { name: string; ok: boolean; detail?: string };
@@ -41,6 +43,13 @@ const HOW_TO_RECOMPUTE = [
   'Check the score\'s own seal against its anchor. That root was written only after every sealed input was already in a mined anchor.',
 ];
 
+const CREDIT_HOW_TO_RECOMPUTE = [
+  'Fetch the agent\'s capital record: GET /v1/agents/:id/capital. The block is credit — its inputs (the figures) and components (the four point values) are what you recompute from.',
+  'Follow the steps of the formula version below, using the published constants and the row\'s own figures (inputs.figures). Every component and the score must come out equal, not approximately equal.',
+  'The tier table and the ceiling are NOT constants of the formula: read them from GET /v1/credit-formulas/:version (or the signer\'s allowlist), since they are reviewed configuration that can change without the arithmetic changing.',
+  'A row does not record which formula version it was computed under. The constants published today are the ones in force now; there is no per-row version (see the notes).',
+];
+
 /**
  * A score, with everything needed to compute it again.
  *
@@ -67,6 +76,33 @@ export class ReputationService {
       });
     }
     return { ...f, how_to_recompute: HOW_TO_RECOMPUTE };
+  }
+
+  /**
+   * The Agent Credit formula as data (arcana-credit-formula/v1).
+   *
+   * A reader can recompute a capital_reputation row from its own figures with
+   * these constants. The tier table and the ceiling are NOT constants of the
+   * arithmetic: they are read LIVE from the signer's allowlist — the same file
+   * the engine and the limit read — so a tier-table change needs no code change
+   * and the arithmetic is untouched.
+   */
+  creditFormula(version: string) {
+    const f = CREDIT_FORMULAS[version];
+    if (!f) {
+      throw new NotFoundException({
+        code: 'unknown_credit_formula_version',
+        message: `No credit formula '${version}'. Published: ${Object.keys(CREDIT_FORMULAS).join(', ')}.`,
+      });
+    }
+    const cfg = creditConfig();
+    return {
+      ...f,
+      enabled: cfg.enabled,
+      tiers: cfg.tiers,
+      ceiling_usdg: cfg.ceiling_usdg,
+      how_to_recompute: CREDIT_HOW_TO_RECOMPUTE,
+    };
   }
 
   async creatorReputation(creatorId: string) {
