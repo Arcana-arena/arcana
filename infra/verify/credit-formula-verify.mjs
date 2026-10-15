@@ -94,7 +94,12 @@ function recompute(C, fig) {
   const margin = C.w_margin * marginQuality * ef;
   const self_sufficiency = C.w_self_sufficiency * ss * ef;
   const cycles_closed = C.w_cycles_closed * clamp01((fig.cycles_repaid ?? 0) / C.cycles_closed_full);
-  return { exposure, margin, self_sufficiency, cycles_closed, score: Math.round(exposure + margin + self_sufficiency + cycles_closed) };
+  return {
+    exposure, margin, self_sufficiency, cycles_closed,
+    score: Math.round(exposure + margin + self_sufficiency + cycles_closed),
+    // the intermediates, so a golden vector can be checked one at a time
+    evidence_fraction: ef, share_under_floor: share, margin_quality: marginQuality, self_sufficiency_quality: ss,
+  };
 }
 
 let published = null;
@@ -179,6 +184,56 @@ await section('The tier table and ceiling are the allowlist\'s, read live', asyn
   check('and shows the same ceiling', cap.body?.credit?.ceiling_usdg === CEILING, `${cap.body?.credit?.ceiling_usdg} vs ${CEILING}`);
   check('and the same tier table', JSON.stringify(cap.body?.credit?.tiers) === JSON.stringify(TIERS),
     JSON.stringify(cap.body?.credit?.tiers));
+});
+
+// =====================================================================
+//
+// THE SAME ARITHMETIC, AGAINST THE GO ENGINE'S OWN TEST VECTORS. Production has
+// no rated row yet — a rating needs thirty days of history — and a recomputation
+// that only ever runs against an empty set proves nothing. These vectors are the
+// expected values ASSERTED IN credit_test.go, taken from the Go tests rather than
+// invented here, so the published arithmetic is checked against the engine even
+// before the first agent is rated.
+await section('The recompute matches the Go engine\'s own test vectors', async () => {
+  if (!published?.constants) {
+    nothingToCheck('the formula endpoint did not answer, so there are no constants to recompute with');
+    return;
+  }
+  const C = published.constants;
+
+  // TestACleanRecordScoresByHowMuchWasAtStake (the large loan): full evidence,
+  // full margin, no deleverage, one of twelve cycles closed.
+  // want := int(math.Round(35 + 30 + 20 + 15.0/12))
+  const large = recompute(C, { usdg_days: 25000, debt_days: 100, share_under_floor: 0, lowest_health_factor_worst: 3.0, deleverage_steps: 0, cycles_repaid: 1 });
+  check('full evidence: exposure 35, margin 30, self-sufficiency 20',
+    close(large.exposure, 35) && close(large.margin, 30) && close(large.self_sufficiency, 20), JSON.stringify(large));
+  check('full evidence: one of twelve cycles closed is 15/12', close(large.cycles_closed, 15 / 12), `${large.cycles_closed}`);
+  check('full evidence: the score is round(35+30+20+15/12) = 86', large.score === 86, `${large.score}`);
+
+  // The same test's small loan: 3,000 USDG-days, so ln(31)/ln(251) of the evidence.
+  const small = recompute(C, { usdg_days: 3000, debt_days: 30, share_under_floor: 0, lowest_health_factor_worst: 3.0, deleverage_steps: 0, cycles_repaid: 1 });
+  check('3,000 USDG-days is ln(31)/ln(251) of the evidence',
+    close(small.evidence_fraction, Math.log(31) / Math.log(251)),
+    `${small.evidence_fraction} vs ${Math.log(31) / Math.log(251)}`);
+  check('and the exposure follows it (35 × evidence)', close(small.exposure, (35 * Math.log(31)) / Math.log(251)), `${small.exposure}`);
+
+  // TestTimeNearLiquidationCostsMargin: ten of a hundred days under the floor at
+  // 1.25 gives share 0.1 and a margin quality of 0.9 × 0.5.
+  const risky = recompute(C, { usdg_days: 25000, debt_days: 100, share_under_floor: 0.1, lowest_health_factor_worst: 1.25, deleverage_steps: 0, cycles_repaid: 1 });
+  check('a tenth of the time under the floor is share 0.1', close(risky.share_under_floor, 0.1), `${risky.share_under_floor}`);
+  check('a low of 1.25 is half way to liquidation, so the margin quality is 0.45', close(risky.margin_quality, 0.9 * 0.5), `${risky.margin_quality}`);
+
+  // TestDeleverageStepsCostSelfSufficiency: four steps in sixty debt-days is two
+  // per thirty, half marks.
+  const helped = recompute(C, { usdg_days: 15000, debt_days: 60, share_under_floor: 0, lowest_health_factor_worst: 3.0, deleverage_steps: 4, cycles_repaid: 0 });
+  check('four steps in sixty debt-days is a rate of two per thirty, quality 0.5',
+    close(helped.self_sufficiency_quality, 0.5), `${helped.self_sufficiency_quality}`);
+
+  // A null lowest health factor is the agent that never owed: the margin keeps
+  // its full depth rather than reading an absent figure as a bad one.
+  const noLow = recompute(C, { usdg_days: 25000, debt_days: 100, share_under_floor: 0, lowest_health_factor_worst: null, deleverage_steps: 0, cycles_repaid: 0 });
+  check('a missing lowest health factor does not penalise the margin', close(noLow.margin_quality, 1),
+    'an absent reading was read as a low one');
 });
 
 // =====================================================================
