@@ -8,13 +8,13 @@ price on this chain. It holds **RBLX** (Roblox), listed 2026-09-27, **LLY**
 (Eli Lilly), listed 2026-09-29, **IBM**, listed 2026-10-01, **MRNA**
 (Moderna), listed 2026-10-02, **NU** (Nu Holdings) and **JNJ** (Johnson &
 Johnson), both listed 2026-10-04, **BA** (Boeing), listed 2026-10-06, **NFLX**
-(Netflix), listed 2026-10-09, **UPS**, listed 2026-10-11, and **COST**
-(Costco), listed 2026-10-13. The sections
-below record RBLX, the first; LLY, IBM, MRNA, NU, JNJ, BA, NFLX, UPS and COST
-have their own sections ([LLY](#lly-eli-lilly), [IBM](#ibm),
+(Netflix), listed 2026-10-09, **UPS**, listed 2026-10-11, **COST**
+(Costco), listed 2026-10-13, and **PFE** (Pfizer), listed 2026-10-15. The
+sections below record RBLX, the first; LLY, IBM, MRNA, NU, JNJ, BA, NFLX, UPS,
+COST and PFE have their own sections ([LLY](#lly-eli-lilly), [IBM](#ibm),
 [MRNA](#mrna-moderna), [NU](#nu-nu-holdings), [JNJ](#jnj-johnson--johnson),
-[BA](#ba-boeing), [NFLX](#nflx-netflix), [UPS](#ups), [COST](#cost-costco))
-with the same evidence.
+[BA](#ba-boeing), [NFLX](#nflx-netflix), [UPS](#ups), [COST](#cost-costco),
+[PFE](#pfe-pfizer)) with the same evidence.
 
 Related: [go-no-go-stock-tokens.md](./go-no-go-stock-tokens.md) (the permission
 this rests on), [market-data.md](./market-data.md), [execution.md](./execution.md),
@@ -517,6 +517,65 @@ magnitude thinner than any referee the market has accepted — so HIMS would hal
 on almost any trade. COST pairs the second-deepest traded pool with a referee
 inside that accepted range. PFE (~$1.3M traded, ~$50k referee) and RIVN
 (~$123k traded, ~$278k referee) were the next candidates.
+
+## PFE (Pfizer)
+
+Listed 2026-10-15 with the same checks, read live that day. Chainlink's
+tokenized-equity feed directory for Robinhood Chain, re-read the same day,
+lists 58 feeds and none for PFE.
+
+| Check | Result |
+|---|---|
+| `name()` / `symbol()` / `decimals()` | `Pfizer • Robinhood Token` / `PFE` / 18 |
+| Address | `0x7066A64c24e4206CD62E83bf198c1E7EB361F51e` |
+| Beacon / implementation | `0xe10b…1b00` / `0xb354…5ae2`, 11,614 bytes, the same as every other token |
+| `paused()` | `false` |
+| `isBlocked(address)` | reverts, empty payload; `0xdeadbeef` reverts identically |
+
+The address came from the issuer's own contract registry for chain 4663; the
+name, beacon and implementation above are what prove it.
+
+PFE has exactly two pools against USDG, both live and both from factory
+`0x1f7d…2efa` with USDG as token0. The factory has no 0.05% or 0.01% pool for
+the pair.
+
+| | Traded pool | Referee pool |
+|---|---|---|
+| Fee | 0.3% (3000) | 1% (10000) |
+| Address | `0xc7d573fcda6d2107c97fb582ae18411f9db32e7f` | `0xa26df7296ef5dfc727f3bc6f1e9050e6b62e6abf` |
+| Price, 2026-10-15 | 29.2354 USDG | 29.1906 USDG |
+| Reserves | ~$48k | ~$1.1k |
+
+The two were 0.15% apart, inside the 2% tolerance. The 0.3% pool is traded
+because its fee is a third of the other's and it is far the deeper — about
+$815k of in-range liquidity against about $51k in the 1% pool. That is what an
+agent pays:
+
+| Buy size | $10 | $100 | $1,000 | $10,000 |
+|---|---|---|---|---|
+| Impact, 0.3% pool | 0.002% | 0.024% | 0.245% | 2.408% |
+
+The 1% pool is the only other pool, so it referees. It is thin — about $500
+moves it 2% — comparable to IBM's and JNJ's referees. As with them, the cost is
+availability and not safety: someone who moves the 1% pool stops PFE trades
+(`price_divergence`) until the pools agree again; they do not set a price.
+Fooling the check needs the 0.3% pool moved 2% as well, about $8k, and that is
+where the money is.
+
+PFE was picked over RIVN, NET and LULU, the other feedless tokens with a live
+second pool behind a 0.3% traded pool. RIVN's traded pool is thinner (~$106k of
+in-range liquidity, ~16% impact at $10,000) even though its 1% referee is
+deeper (~$251k); NET (~$316k traded) and LULU (~$580k traded) pair thinner
+traded pools with referees (~$13k and ~$10k) no deeper than PFE's. PFE pairs
+the deepest 0.3% traded pool of the group (~$815k) with a referee inside the
+range the market has accepted (~$51k, about $500 to move 2%). HIMS (~$20M
+traded), AMC (~$1.5M) and TTWO (~$0.9M) have deeper traded pools but no usable
+referee: HIMS's and AMC's 1% pools hold about $8 and $12 to move 2%, far
+thinner than any referee the market has accepted, and TTWO has only an empty
+0.05% pool — so they would halt on almost any trade. GLD's v3 pools are deeper
+still, but it has a Chainlink feed (`GLD / USD`, read live 2026-10-15 at 374.31
+against a 0.3% pool at 375.21), so it belongs in the primary market rather than
+here.
 
 ## What this leaves out
 
