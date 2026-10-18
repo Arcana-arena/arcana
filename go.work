@@ -6,4 +6,5 @@ use (
 	./services/scoring-engine
 	./services/market-data
 	./services/signer
+	./services/arbitrage
 )

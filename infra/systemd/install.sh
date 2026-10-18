@@ -88,7 +88,7 @@ LDFLAGS="-X main.buildCommit=$COMMIT"
 echo "==> building at $COMMIT"
 
 echo "==> building service binaries"
-for svc in decision-engine scoring-engine market-data; do
+for svc in decision-engine scoring-engine market-data arbitrage; do
   (cd "$REPO/services/$svc" && /usr/local/go/bin/go build -ldflags "$LDFLAGS" -o "$BIN_DIR/$svc" ./cmd/server)
   echo "    $svc"
 done

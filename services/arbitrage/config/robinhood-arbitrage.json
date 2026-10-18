@@ -1,0 +1,17 @@
+{
+  "chain_id": 4663,
+  "reviewed_at": "2026-10-18",
+  "reviewed_by": "docs/go-no-go-arbitrage.md. The v2 pairs below are DUST: listed as venues so the scanner can measure them, not because they are tradeable. Traded and referee v3 pools come from the signer allowlist, so this file only adds venues the allowlist does not name.",
+  "min_net_profit_bps": 0,
+  "reference_size_usd": 100,
+  "gas_cost_usd": 0.12,
+  "impact_buffer_bps": 10,
+  "impact_buffer_note": "First-slice placeholder. Price impact is not yet computed from in-range liquidity; this conservative buffer stands in until exact impact via exactInputSingle simulation replaces it. Rationale for the number: the go/no-go measured impact < 0.01% at $100 on liquid pools, so 0.1% (10 bps) is a deliberately wide floor that never lets a dust pool read as executable.",
+  "extra_venues": [
+    { "token": "AAPL", "dex": "uniswap-v2", "pool": "0xd0bbf7df4e357eb3d6276df5a5903bd42bbf3647", "fee_bps": 30, "note": "dust: USDG reserve ~$0 (go/no-go 2026-10-18)" },
+    { "token": "NVDA", "dex": "uniswap-v2", "pool": "0xee6f200063a53fe9450578d99c0f8ead4952c97a", "fee_bps": 30, "note": "dust" },
+    { "token": "SPY", "dex": "uniswap-v2", "pool": "0xe59087890579afec2cc316c7db230b2d0945569f", "fee_bps": 30, "note": "dust" },
+    { "token": "TSLA", "dex": "uniswap-v2", "pool": "0x30804c611286a1b19fabde3a4e55693ab861214a", "fee_bps": 30, "note": "dust" },
+    { "token": "AMZN", "dex": "uniswap-v2", "pool": "0xf6c8a75149ef46ae92901d48eb78805f739e0768", "fee_bps": 30, "note": "dust" }
+  ]
+}

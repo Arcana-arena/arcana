@@ -1,0 +1,41 @@
+# arbitrage scanner (Go) — read-only market-intelligence service
+#
+# IT SIGNS AND SENDS NOTHING. This service reads configured venues, estimates
+# net profit and records opportunities; execution is out of scope for this
+# slice. The same-chain go/no-go returned NO (docs/go-no-go-arbitrage.md), so
+# the honest steady state is rows marked `indicative`.
+#
+# A LONG-RUNNING SERVICE, NOT A TIMER, for the same reason the position guard
+# is one: the scanner's value is a fresh heartbeat and a recent reading, and a
+# oneshot timer only gives you that on its cadence.
+[Unit]
+Description=ARCANA Arbitrage Scanner (read-only market intelligence)
+After=network-online.target docker.service
+Wants=network-online.target
+OnFailure=arcana-alert@%n.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/arcana/services/arbitrage
+Environment=DATABASE_URL=postgres://arcana:arcana@localhost:5432/arcana?sslmode=disable
+
+# The token list and traded/referee pools come from the SIGNER'S allowlist, not
+# a copy, so the scanner cannot drift from what the signer would approve. The
+# extra config only adds venues the allowlist does not name (dust v2 pairs).
+Environment=ARBITRAGE_ALLOWLIST_FILE=/home/ubuntu/arcana/services/signer/allowlist/robinhood-mainnet.json
+Environment=ARBITRAGE_CONFIG_FILE=/home/ubuntu/arcana/services/arbitrage/config/robinhood-arbitrage.json
+Environment=ARBITRAGE_RPC_URLS=https://robinhood-rpc.publicnode.com,https://robinhood.api.pocket.network,https://rpc-robinhood.blockmachine.io,https://rpc.mainnet.chain.robinhood.com
+
+# How often the background scanner runs. It also scans once at startup.
+Environment=SCAN_INTERVAL=60s
+
+# The /internal scan trigger needs the shared internal key.
+EnvironmentFile=-/home/ubuntu/arcana/.env.auth
+
+ExecStart=/home/ubuntu/arcana/scheduler-bin/arbitrage
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
