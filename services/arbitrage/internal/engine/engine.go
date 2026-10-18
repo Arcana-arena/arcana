@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/arcana/arbitrage/internal/chain"
 	"github.com/arcana/arbitrage/internal/config"
@@ -54,6 +55,9 @@ type venueQuote struct {
 func (e *Engine) ScanOnce(ctx context.Context) (*ScanResult, error) {
 	res := &ScanResult{ScannedTokens: len(e.cfg.Tokens)}
 	gasBps := e.cfg.GasCostUSD / e.cfg.ReferenceSizeUSD * 10000
+	// One timestamp per scan, shared by every row, so "latest scan" is one
+	// max(ts) lookup instead of matching only the last-inserted row.
+	scanTS := time.Now().UTC().Truncate(time.Second)
 
 	for _, t := range e.cfg.Tokens {
 		quotes, errs := e.readVenues(ctx, t)
@@ -97,7 +101,7 @@ func (e *Engine) ScanOnce(ctx context.Context) (*ScanResult, error) {
 			LiquiditySell:    bestSell.liq,
 			Status:           status,
 		}
-		if err := e.store.InsertOpportunity(ctx, row); err != nil {
+		if err := e.store.InsertOpportunity(ctx, scanTS, row); err != nil {
 			log.Printf("arbitrage insert %s: %v", t.Symbol, err)
 			res.Errors++
 			continue

@@ -57,15 +57,18 @@ type OpportunityRow struct {
 	TS               time.Time `json:"ts"`
 }
 
-// InsertOpportunity appends one row. Append-only, like every other observation
-// table in this project: a scan never edits an earlier scan's reading.
-func (s *Store) InsertOpportunity(ctx context.Context, o OpportunityRow) error {
+// InsertOpportunity appends one row at ts. Append-only, like every other
+// observation table in this project: a scan never edits an earlier scan's
+// reading. ts is shared across a scan's rows so the "latest scan" query can
+// group them with one max(ts) rather than matching only the last-inserted row.
+func (s *Store) InsertOpportunity(ctx context.Context, ts time.Time, o OpportunityRow) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO arbitrage_opportunities
 		  (ts, symbol, venue_buy, venue_sell, buy_price, sell_price, gross_spread_bps,
 		   est_net_profit_bps, fee_buy_bps, fee_sell_bps, gas_bps, impact_buffer_bps,
 		   reference_size_usd, liquidity_buy, liquidity_sell, status)
-		VALUES (now(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+		ts,
 		o.Symbol, o.VenueBuy, o.VenueSell, o.BuyPrice, o.SellPrice, o.GrossSpreadBps,
 		o.EstNetProfitBps, o.FeeBuyBps, o.FeeSellBps, o.GasBps, o.ImpactBufferBps,
 		o.ReferenceSizeUSD, o.LiquidityBuy, o.LiquiditySell, o.Status)
