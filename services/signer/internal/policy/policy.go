@@ -105,14 +105,20 @@ type Allowlist struct {
 	ReviewedAt string   `json:"reviewed_at"`
 	QuoteToken Token    `json:"quote_token"`
 	Routers    []string `json:"routers"`
-	Tokens     []Token  `json:"tokens"`
-	Limits     Limits   `json:"limits"`
+	// PositionManagers are the contracts lp_mint may call: the Uniswap v3
+	// NonfungiblePositionManager, reviewed like a router. It is separate from
+	// Routers because the shapes it accepts are different, and a caller must not
+	// be able to point a swap at a contract that does not swap.
+	PositionManagers []string `json:"position_managers"`
+	Tokens           []Token  `json:"tokens"`
+	Limits           Limits   `json:"limits"`
 	// Lending is ARCANA CAPITAL's section. Absent or disabled, every lending
 	// intent is refused; see lending.go.
 	Lending *Lending `json:"lending,omitempty"`
 
-	byToken  map[string]Token
-	byRouter map[string]bool
+	byToken            map[string]Token
+	byRouter           map[string]bool
+	byPositionManager  map[string]bool
 }
 
 func Load(path string) (*Allowlist, error) {
@@ -163,6 +169,10 @@ func Load(path string) (*Allowlist, error) {
 	for _, r := range a.Routers {
 		a.byRouter[norm(r)] = true
 	}
+	a.byPositionManager = map[string]bool{}
+	for _, pm := range a.PositionManagers {
+		a.byPositionManager[norm(pm)] = true
+	}
 	if err := a.loadLending(); err != nil {
 		return nil, err
 	}
@@ -204,6 +214,9 @@ const (
 	CodeChainUnverifiable = "chain_state_unverifiable"
 	CodeChainMismatch     = "chain_id_mismatch"
 	CodeNoPoolFee         = "pool_fee_unknown"
+	CodePMNotListed       = "position_manager_not_allowlisted"
+	CodeTickOrder         = "tick_lower_not_below_tick_upper"
+	CodeMinOverDesired    = "min_amount_over_desired"
 )
 
 // Token returns an allowlisted token, or a refusal naming the address.
@@ -226,6 +239,20 @@ func (a *Allowlist) Router(addr string) *Refusal {
 	}
 	if !a.byRouter[norm(addr)] {
 		return refuse(CodeRouterNotListed, "router %s is not in the allowlist", addr)
+	}
+	return nil
+}
+
+// PositionManager checks the contract an lp_mint will call.
+func (a *Allowlist) PositionManager(addr string) *Refusal {
+	if len(a.byPositionManager) == 0 {
+		return refuse(CodePMNotListed,
+			"no position manager is allowlisted, so every lp_mint is refused. The shape is "+
+				"built and tested; it stays disabled until the NonfungiblePositionManager is "+
+				"reviewed into the allowlist, the same way a router earns its place")
+	}
+	if !a.byPositionManager[norm(addr)] {
+		return refuse(CodePMNotListed, "position manager %s is not in the allowlist", addr)
 	}
 	return nil
 }
@@ -278,7 +305,13 @@ func (a *Allowlist) CheckSwap(router, tokenIn, tokenOut, recipient, agentWallet 
 // Everything below it is the owner's business.
 func (a *Allowlist) CheckApprove(token, spender string, amount *big.Int) *Refusal {
 	if r := a.Router(spender); r != nil {
-		return r
+		// A position manager is also a legitimate spender for an approval: it
+		// pulls the two legs when lp_mint runs. Accepting it here lets the
+		// engine approve the NonfungiblePositionManager without the signer
+		// pretending it is a swap router.
+		if r2 := a.PositionManager(spender); r2 != nil {
+			return r
+		}
 	}
 	t, r := a.Token(token)
 	if r != nil {
@@ -303,6 +336,60 @@ var unboundedApproval = new(big.Int).Lsh(big.NewInt(1), 255)
 func checkPositive(t Token, amount *big.Int, what string) *Refusal {
 	if amount == nil || amount.Sign() <= 0 {
 		return refuse(CodeAmountNotPositive, "%s amount must be positive", what)
+	}
+	return nil
+}
+
+// CheckMint validates every part of an lp_mint that this service could get
+// wrong. The pair must be one the allowlist describes (exactly one side the
+// quote token, fee taken from the other side), the range must be ordered, and
+// the slippage floors must not exceed the desired amounts.
+func (a *Allowlist) CheckMint(pm, token0, token1 string, fee uint32, tickLower, tickUpper int32, recipient, agentWallet string, amount0Desired, amount1Desired, amount0Min, amount1Min *big.Int) *Refusal {
+	if r := a.PositionManager(pm); r != nil {
+		return r
+	}
+	t0, r := a.Token(token0)
+	if r != nil {
+		return r
+	}
+	t1, r := a.Token(token1)
+	if r != nil {
+		return r
+	}
+	if norm(t0.Address) == norm(t1.Address) {
+		return refuse(CodeSameToken, "token0 and token1 are both %s", t0.Symbol)
+	}
+	// The pair must be a pool the allowlist knows: exactly one side the quote
+	// token, fee taken from the other side, and the caller's fee must agree.
+	wantFee, r := a.PoolFeeFor(token0, token1)
+	if r != nil {
+		return r
+	}
+	if fee != wantFee {
+		return refuse(CodeNoPoolFee,
+			"fee %d does not match the allowlisted pool fee %d for this pair", fee, wantFee)
+	}
+	if norm(recipient) != norm(agentWallet) {
+		return refuse(CodeRecipientNotSelf,
+			"recipient %s is not this agent's wallet %s; the position would go elsewhere",
+			recipient, agentWallet)
+	}
+	if tickLower >= tickUpper {
+		return refuse(CodeTickOrder,
+			"tick_lower %d is not below tick_upper %d; a range that starts where it ends is not a range",
+			tickLower, tickUpper)
+	}
+	if amount0Desired == nil || amount0Desired.Sign() < 0 || amount1Desired == nil || amount1Desired.Sign() < 0 {
+		return refuse(CodeAmountNotPositive, "mint amounts must be non-negative")
+	}
+	if amount0Desired.Sign() == 0 && amount1Desired.Sign() == 0 {
+		return refuse(CodeAmountNotPositive, "a mint with both amounts zero adds no liquidity")
+	}
+	if amount0Min != nil && amount0Min.Cmp(amount0Desired) > 0 {
+		return refuse(CodeMinOverDesired, "amount0_min %s exceeds amount0_desired %s", amount0Min, amount0Desired)
+	}
+	if amount1Min != nil && amount1Min.Cmp(amount1Desired) > 0 {
+		return refuse(CodeMinOverDesired, "amount1_min %s exceeds amount1_desired %s", amount1Min, amount1Desired)
 	}
 	return nil
 }

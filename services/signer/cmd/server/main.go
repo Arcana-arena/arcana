@@ -210,17 +210,29 @@ func (s *server) handleWallet(w http.ResponseWriter, r *http.Request) {
 // that thinks it is asking for something else is told it is wrong instead of
 // quietly getting something it did not ask for.
 type signRequest struct {
-	Intent   string `json:"intent"` // approve | swap_exact_in | lending_approve | lending_supply | lending_borrow | lending_repay | lending_withdraw
+	Intent   string `json:"intent"` // approve | swap_exact_in | lp_mint | lending_approve | lending_supply | lending_borrow | lending_repay | lending_withdraw
 	AgentID  string `json:"agent_id"`
 	MarketID string `json:"market_id"` // lending only: an allowlisted Morpho market
 	// RepayAll repays the WHOLE debt by shares, read from the chain here, rather
 	// than an asset amount. `amount` is still required and bounds nothing else.
 	RepayAll  bool   `json:"repay_all"`
-	TokenIn   string `json:"token_in"`
-	TokenOut  string `json:"token_out"` // swap only
-	Router    string `json:"router"`
-	Amount    string `json:"amount"`  // base units, decimal or 0x-hex
-	MinOut    string `json:"min_out"` // swap only
+	TokenIn   string `json:"token_in"`  // swap: token in; lp_mint: token0
+	TokenOut  string `json:"token_out"` // swap: token out; lp_mint: token1
+	Router    string `json:"router"`    // swap/approve: router; lp_mint: position manager
+	Amount    string `json:"amount"`    // base units, decimal or 0x-hex
+	MinOut    string `json:"min_out"`   // swap only
+
+	// lp_mint only. Base units, decimal or 0x-hex; min defaults to desired when
+	// omitted, so an engine that does not want slippage protection sends none.
+	Fee            uint32 `json:"fee"`
+	TickLower      int32  `json:"tick_lower"`
+	TickUpper      int32  `json:"tick_upper"`
+	Amount0Desired string `json:"amount0_desired"`
+	Amount1Desired string `json:"amount1_desired"`
+	Amount0Min     string `json:"amount0_min"`
+	Amount1Min     string `json:"amount1_min"`
+	Deadline       string `json:"deadline"`
+
 	Nonce     uint64 `json:"nonce"`
 	Gas       uint64 `json:"gas"`
 	MaxFeeWei string `json:"max_fee_wei"`
@@ -309,6 +321,54 @@ func (s *server) handleSign(w http.ResponseWriter, r *http.Request) {
 		data = tx.EncodeExactInputSingle(tx.SwapParams{
 			TokenIn: req.TokenIn, TokenOut: req.TokenOut, Fee: fee,
 			Recipient: wallet, AmountIn: amount, MinOut: minOut,
+		})
+
+	// --- LIQUIDITY PROVISION. Token0/token1 ride on token_in/token_out, the
+	// position manager on router. The recipient is the agent's own wallet, and
+	// there is no field to make it anything else.
+	case "lp_mint":
+		a0d, err := tx.ParseHexAmount(req.Amount0Desired)
+		if err != nil {
+			refuse(w, "bad_request", "amount0_desired: "+err.Error())
+			return
+		}
+		a1d, err := tx.ParseHexAmount(req.Amount1Desired)
+		if err != nil {
+			refuse(w, "bad_request", "amount1_desired: "+err.Error())
+			return
+		}
+		a0m, err := tx.ParseHexAmount(orDefault(req.Amount0Min, req.Amount0Desired))
+		if err != nil {
+			refuse(w, "bad_request", "amount0_min: "+err.Error())
+			return
+		}
+		a1m, err := tx.ParseHexAmount(orDefault(req.Amount1Min, req.Amount1Desired))
+		if err != nil {
+			refuse(w, "bad_request", "amount1_min: "+err.Error())
+			return
+		}
+		deadline, err := tx.ParseHexAmount(orDefault(req.Deadline, "0"))
+		if err != nil {
+			refuse(w, "bad_request", "deadline: "+err.Error())
+			return
+		}
+		if ref := s.allow.CheckMint(req.Router, req.TokenIn, req.TokenOut, req.Fee,
+			req.TickLower, req.TickUpper, wallet, wallet, a0d, a1d, a0m, a1m); ref != nil {
+			refuseCode(w, ref)
+			return
+		}
+		for _, t := range []string{req.TokenIn, req.TokenOut} {
+			if ref := s.chainChecks(ctx, t, wallet); ref != nil {
+				refuseCode(w, ref)
+				return
+			}
+		}
+		to = req.Router
+		data = tx.EncodeMint(tx.MintParams{
+			Token0: req.TokenIn, Token1: req.TokenOut, Fee: req.Fee,
+			TickLower: req.TickLower, TickUpper: req.TickUpper,
+			Amount0Desired: a0d, Amount1Desired: a1d, Amount0Min: a0m, Amount1Min: a1m,
+			Recipient: wallet, Deadline: deadline,
 		})
 
 	// --- ARCANA CAPITAL. Refused with lending_not_enabled until the allowlist
@@ -410,7 +470,7 @@ func (s *server) handleSign(w http.ResponseWriter, r *http.Request) {
 		// The allowlist principle, stated at the door: an intent nobody
 		// permitted is refused, whether or not any rule forbids it.
 		refuse(w, policy.CodeUnknownIntent, fmt.Sprintf(
-			"intent %q is not one this signer can build. It knows approve and swap_exact_in, and "+
+			"intent %q is not one this signer can build. It knows approve, swap_exact_in and lp_mint, and "+
 				"lending_approve, lending_supply, lending_borrow, lending_repay and lending_withdraw while lending is "+
 				"enabled. An unrecognised shape is refused rather than interpreted", req.Intent))
 		return

@@ -23,6 +23,7 @@ import (
 const (
 	selApprove          = "095ea7b3" // approve(address,uint256)
 	selExactInputSingle = "04e45aaf" // exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))
+	selMint             = "88316456" // mint((address,address,uint24,int24,int24,uint256,uint256,uint256,uint256,address,uint256))
 )
 
 func padAddress(a string) []byte {
@@ -39,6 +40,26 @@ func padUint(v *big.Int) []byte {
 		b = b[len(b)-32:]
 	}
 	copy(out[32-len(b):], b)
+	return out
+}
+
+// padInt24 sign-extends an int24 to a 32-byte ABI word. Ticks can be negative,
+// and a negative tick padded as if unsigned would read as a huge positive
+// number — a pool range that starts above where it ends, which the position
+// manager refuses (or worse, accepts at a different place).
+func padInt24(v int32) []byte {
+	out := make([]byte, 32)
+	fill := byte(0x00)
+	if v < 0 {
+		fill = 0xff
+	}
+	for i := 0; i < 29; i++ {
+		out[i] = fill
+	}
+	u := uint32(v)
+	out[29] = byte(u >> 16)
+	out[30] = byte(u >> 8)
+	out[31] = byte(u)
 	return out
 }
 
@@ -75,6 +96,43 @@ func EncodeExactInputSingle(p SwapParams) []byte {
 	out = append(out, padUint(p.AmountIn)...)
 	out = append(out, padUint(p.MinOut)...)
 	out = append(out, padUint(big.NewInt(0))...) // sqrtPriceLimitX96: no limit
+	return out
+}
+
+// MintParams is a Uniswap v3 NonfungiblePositionManager.mint, restricted to
+// what this service permits: the recipient is always the agent's own wallet,
+// and the pair must be one the allowlist describes. The range (ticks) and the
+// two amounts are the caller's — the engine decides WHERE to provide liquidity,
+// the signer only decides whether that shape is permitted.
+type MintParams struct {
+	Token0         string
+	Token1         string
+	Fee            uint32
+	TickLower      int32
+	TickUpper      int32
+	Amount0Desired *big.Int
+	Amount1Desired *big.Int
+	Amount0Min     *big.Int
+	Amount1Min     *big.Int
+	Recipient      string
+	Deadline       *big.Int
+}
+
+// EncodeMint builds mint((address,address,uint24,int24,int24,uint256,uint256,uint256,uint256,address,uint256)).
+func EncodeMint(p MintParams) []byte {
+	sel, _ := hex.DecodeString(selMint)
+	out := append([]byte{}, sel...)
+	out = append(out, padAddress(p.Token0)...)
+	out = append(out, padAddress(p.Token1)...)
+	out = append(out, padUint(new(big.Int).SetUint64(uint64(p.Fee)))...)
+	out = append(out, padInt24(p.TickLower)...)
+	out = append(out, padInt24(p.TickUpper)...)
+	out = append(out, padUint(p.Amount0Desired)...)
+	out = append(out, padUint(p.Amount1Desired)...)
+	out = append(out, padUint(p.Amount0Min)...)
+	out = append(out, padUint(p.Amount1Min)...)
+	out = append(out, padAddress(p.Recipient)...)
+	out = append(out, padUint(p.Deadline)...)
 	return out
 }
 

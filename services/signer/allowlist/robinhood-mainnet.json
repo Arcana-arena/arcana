@@ -18,6 +18,10 @@
   "routers": [
     "0xcaf681a66d020601342297493863e78c959e5cb2"
   ],
+  "position_managers": [
+    "0x73991a25c818bf1f1128deaab1492d45638de0d3"
+  ],
+  "position_managers_note": "NonfungiblePositionManager, from Uniswap's Robinhood Chain v3 deployments page (v3-periphery 1.0.0). VERIFIED rather than believed: eth_getCode returns 24384 bytes and the bytecode carries mint (0x88316456) — the selector lp_mint builds. It is NOT a router, so it lives here and not in routers: a caller must not be able to point a swap at a contract that does not swap. The mint shape is built and disabled-by-absence; this address is what enables it.",
   "routers_note": "SwapRouter02. Published by Uniswap for Robinhood Chain, then VERIFIED rather than believed: eth_getCode returns 24497 bytes; factory() returns 0x1f7d7550b1b028f7571e69a784071f0205fd2efa, the same factory the pools in this file come from — derived independently from a pool during the go/no-go test, so the two agree without either having been told the other; and the bytecode carries exactInputSingle (0x04e45aaf), which is the selector this signer builds. A swap using the signer's own calldata was then executed against live state and returned 0.308992 AAPL for 100 USDG, while a control with an impossible minimum reverted — so the simulation is not a no-op. The canonical UniversalRouter address is deliberately NOT here: it exists on this chain and is not wired to this factory (go/no-go condition 5). Uniswap publishes a different UniversalRouter for this chain (0x8876789976decbfcbbbe364623c63652db8c0904); it is not listed either, because a router earns a place here only once the exact calldata this service produces has been proven against it, and the signer produces exactInputSingle.",
   "tokens": [
     {
