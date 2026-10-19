@@ -77,9 +77,17 @@ Status 2026-10-18:
    factory, reads the current tick, and reports owner, ticks, liquidity, stored
    `tokensOwed`, current token amounts, `in_range`, and a recommendation
    (`hold` / `rebalance` / `empty`). Verified against a live position.
-   **Still to build for a full position manager:** the signer shapes for
-   `collect`, `decreaseLiquidity` and `burn`; a DB registry of the tokenIds an
-   agent owns; and the execution loop that acts on the recommendation. Exact
-   live fee accrual (beyond stored `tokensOwed`) also needs `feeGrowthInside`.
-5. **Small real position — NOT STARTED.** A capped, owner-approved deposit,
+5. **Signer management shapes — DONE (built, tested, dry-run).** `lp_collect`,
+   `lp_decrease` and `lp_burn` join `lp_mint`. Every one first reads `ownerOf`
+   from the chain and refuses a position the agent does not own; `lp_collect`
+   forces the recipient to the agent's wallet; `lp_decrease` refuses liquidity
+   above the position's; `lp_burn` refuses while liquidity remains. Selectors
+   `fc6f7865` / `0c49ccbe` / `42966c68` were confirmed in the NPM bytecode, and
+   all three were `eth_call`ed live — `collect` and `burn` succeeded on an empty
+   position, and `decreaseLiquidity(1)` succeeded on a live position with
+   liquidity. Not yet deployed to the running signer.
+   **Still to build:** a DB registry of the tokenIds an agent owns, and the
+   execution loop that acts on the recommendation. Exact live fee accrual
+   (beyond stored `tokensOwed`) also needs `feeGrowthInside`.
+6. **Small real position — NOT STARTED.** A capped, owner-approved deposit,
    watched end-to-end before any scale-up.
