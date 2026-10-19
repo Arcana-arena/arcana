@@ -70,6 +70,7 @@ type LPPosition struct {
 	Amount1         *string    `json:"amount1,omitempty"`
 	Recommendation  *string    `json:"recommendation,omitempty"`
 	Status          string     `json:"status"`
+	Provenance      string     `json:"provenance"`
 	DiscoveredAt    time.Time  `json:"discovered_at"`
 	LastSyncedAt    *time.Time `json:"last_synced_at,omitempty"`
 	ClosedAt        *time.Time `json:"closed_at,omitempty"`
@@ -171,7 +172,7 @@ const lpPositionSelect = `
 	SELECT position_manager, token_id, agent_id::text, wallet, pool, token0, token1, fee_tier,
 	       tick_lower, tick_upper, liquidity, tokens_owed0, tokens_owed1,
 	       current_tick, in_range, amount0, amount1, recommendation, status,
-	       discovered_at, last_synced_at, closed_at
+	       provenance, discovered_at, last_synced_at, closed_at
 	FROM lp_positions`
 
 func scanLPPositions(rows pgx.Rows) ([]LPPosition, error) {
@@ -182,7 +183,7 @@ func scanLPPositions(rows pgx.Rows) ([]LPPosition, error) {
 			&p.PositionManager, &p.TokenID, &p.AgentID, &p.Wallet, &p.Pool, &p.Token0, &p.Token1, &p.FeeTier,
 			&p.TickLower, &p.TickUpper, &p.Liquidity, &p.TokensOwed0, &p.TokensOwed1,
 			&p.CurrentTick, &p.InRange, &p.Amount0, &p.Amount1, &p.Recommendation, &p.Status,
-			&p.DiscoveredAt, &p.LastSyncedAt, &p.ClosedAt,
+			&p.Provenance, &p.DiscoveredAt, &p.LastSyncedAt, &p.ClosedAt,
 		); err != nil {
 			return nil, err
 		}
