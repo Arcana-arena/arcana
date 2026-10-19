@@ -43,6 +43,8 @@ import (
 const (
 	selPaused    = "5c975abb" // paused()
 	selIsBlocked = "fbac3951" // isBlocked(address)
+	selOwnerOf   = "6352211e" // ownerOf(uint256) on the NonfungiblePositionManager
+	selPositions = "99fbab88" // positions(uint256) on the NonfungiblePositionManager
 )
 
 type Client struct {
@@ -356,4 +358,47 @@ func (c *Client) BorrowSharesOf(ctx context.Context, morpho, marketID, wallet st
 		return nil, err
 	}
 	return wordAt(pos, 1)
+}
+
+// --- LP positions ------------------------------------------------------------
+//
+// These two reads are what make lp_collect, lp_decrease and lp_burn safe: the
+// signer will not touch a position it cannot prove belongs to the agent's own
+// wallet, and will not burn one that still has liquidity. An unreadable answer
+// refuses, the same rule as everywhere else.
+
+func padUint(v *big.Int) string {
+	h := v.Text(16)
+	if len(h) >= 64 {
+		return h[len(h)-64:]
+	}
+	return strings.Repeat("0", 64-len(h)) + h
+}
+
+func wordAddress(hexResult string) (string, error) {
+	body := strings.TrimPrefix(hexResult, "0x")
+	if len(body) < 64 {
+		return "", fmt.Errorf("short address answer: %d hex chars", len(body))
+	}
+	return "0x" + strings.ToLower(body[24:64]), nil
+}
+
+// OwnerOf reports the owner of a position NFT.
+func (c *Client) OwnerOf(ctx context.Context, npm string, tokenID *big.Int) (string, error) {
+	res, err := c.call(ctx, npm, selOwnerOf+padUint(tokenID))
+	if err != nil {
+		return "", err
+	}
+	return wordAddress(res)
+}
+
+// PositionLiquidity reports the position's current liquidity (positions()[7]).
+// Used to refuse a decrease larger than the position, and a burn of a position
+// that is not empty.
+func (c *Client) PositionLiquidity(ctx context.Context, npm string, tokenID *big.Int) (*big.Int, error) {
+	res, err := c.call(ctx, npm, selPositions+padUint(tokenID))
+	if err != nil {
+		return nil, err
+	}
+	return wordAt(res, 7)
 }

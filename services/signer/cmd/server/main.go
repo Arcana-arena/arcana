@@ -233,6 +233,12 @@ type signRequest struct {
 	Amount1Min     string `json:"amount1_min"`
 	Deadline       string `json:"deadline"`
 
+	// Position management (lp_collect / lp_decrease / lp_burn).
+	TokenID    string `json:"token_id"`
+	Liquidity  string `json:"liquidity"`   // lp_decrease: liquidity to remove
+	Amount0Max string `json:"amount0_max"` // lp_collect: default max uint128
+	Amount1Max string `json:"amount1_max"` // lp_collect: default max uint128
+
 	Nonce     uint64 `json:"nonce"`
 	Gas       uint64 `json:"gas"`
 	MaxFeeWei string `json:"max_fee_wei"`
@@ -371,6 +377,100 @@ func (s *server) handleSign(w http.ResponseWriter, r *http.Request) {
 			Recipient: wallet, Deadline: deadline,
 		})
 
+	// --- POSITION MANAGEMENT. Every one of these first proves, from the chain,
+	// that the position belongs to this agent's own wallet. Proceeds go to that
+	// wallet and nowhere else; a burn is refused while liquidity remains.
+	case "lp_collect":
+		tokenID, err := tx.ParseHexAmount(req.TokenID)
+		if err != nil {
+			refuse(w, "bad_request", "token_id: "+err.Error())
+			return
+		}
+		a0max := maxUint128()
+		if v := strings.TrimSpace(req.Amount0Max); v != "" {
+			a0max, err = tx.ParseHexAmount(v)
+			if err != nil {
+				refuse(w, "bad_request", "amount0_max: "+err.Error())
+				return
+			}
+		}
+		a1max := maxUint128()
+		if v := strings.TrimSpace(req.Amount1Max); v != "" {
+			a1max, err = tx.ParseHexAmount(v)
+			if err != nil {
+				refuse(w, "bad_request", "amount1_max: "+err.Error())
+				return
+			}
+		}
+		if ref := s.allow.CheckCollect(req.Router, wallet, wallet); ref != nil {
+			refuseCode(w, ref)
+			return
+		}
+		if ref := s.positionChecks(ctx, req.Router, tokenID, wallet, nil, false); ref != nil {
+			refuseCode(w, ref)
+			return
+		}
+		to = req.Router
+		data = tx.EncodeCollect(tx.CollectParams{
+			TokenID: tokenID, Recipient: wallet, Amount0Max: a0max, Amount1Max: a1max,
+		})
+
+	case "lp_decrease":
+		tokenID, err := tx.ParseHexAmount(req.TokenID)
+		if err != nil {
+			refuse(w, "bad_request", "token_id: "+err.Error())
+			return
+		}
+		liq, err := tx.ParseHexAmount(req.Liquidity)
+		if err != nil {
+			refuse(w, "bad_request", "liquidity: "+err.Error())
+			return
+		}
+		a0min, err := tx.ParseHexAmount(orDefault(req.Amount0Min, "0"))
+		if err != nil {
+			refuse(w, "bad_request", "amount0_min: "+err.Error())
+			return
+		}
+		a1min, err := tx.ParseHexAmount(orDefault(req.Amount1Min, "0"))
+		if err != nil {
+			refuse(w, "bad_request", "amount1_min: "+err.Error())
+			return
+		}
+		deadline, err := tx.ParseHexAmount(orDefault(req.Deadline, "0"))
+		if err != nil {
+			refuse(w, "bad_request", "deadline: "+err.Error())
+			return
+		}
+		if ref := s.allow.CheckDecrease(req.Router, liq); ref != nil {
+			refuseCode(w, ref)
+			return
+		}
+		if ref := s.positionChecks(ctx, req.Router, tokenID, wallet, liq, false); ref != nil {
+			refuseCode(w, ref)
+			return
+		}
+		to = req.Router
+		data = tx.EncodeDecreaseLiquidity(tx.DecreaseLiquidityParams{
+			TokenID: tokenID, Liquidity: liq, Amount0Min: a0min, Amount1Min: a1min, Deadline: deadline,
+		})
+
+	case "lp_burn":
+		tokenID, err := tx.ParseHexAmount(req.TokenID)
+		if err != nil {
+			refuse(w, "bad_request", "token_id: "+err.Error())
+			return
+		}
+		if ref := s.allow.CheckBurn(req.Router); ref != nil {
+			refuseCode(w, ref)
+			return
+		}
+		if ref := s.positionChecks(ctx, req.Router, tokenID, wallet, nil, true); ref != nil {
+			refuseCode(w, ref)
+			return
+		}
+		to = req.Router
+		data = tx.EncodeBurn(tokenID)
+
 	// --- ARCANA CAPITAL. Refused with lending_not_enabled until the allowlist
 	// says otherwise; see policy/lending.go. The wallet is onBehalf and
 	// receiver in every one of them, and there is no field to change that.
@@ -470,9 +570,10 @@ func (s *server) handleSign(w http.ResponseWriter, r *http.Request) {
 		// The allowlist principle, stated at the door: an intent nobody
 		// permitted is refused, whether or not any rule forbids it.
 		refuse(w, policy.CodeUnknownIntent, fmt.Sprintf(
-			"intent %q is not one this signer can build. It knows approve, swap_exact_in and lp_mint, and "+
-				"lending_approve, lending_supply, lending_borrow, lending_repay and lending_withdraw while lending is "+
-				"enabled. An unrecognised shape is refused rather than interpreted", req.Intent))
+			"intent %q is not one this signer can build. It knows approve, swap_exact_in, lp_mint, "+
+				"lp_collect, lp_decrease and lp_burn, and lending_approve, lending_supply, lending_borrow, "+
+				"lending_repay and lending_withdraw while lending is enabled. "+
+				"An unrecognised shape is refused rather than interpreted", req.Intent))
 		return
 	}
 
@@ -582,6 +683,42 @@ func (s *server) chainChecks(ctx context.Context, token, wallet string) *policy.
 			"wallet %s is blocked by the issuer of %s", wallet, token)}
 	}
 	return nil
+}
+
+// positionChecks proves the position belongs to this agent before any LP
+// management shape touches it. The owner is read from the chain, never taken
+// from the caller: a position the agent does not own is somebody else's money.
+// wantLiquidity bounds a decrease against what the position actually holds;
+// requireEmpty refuses a burn while liquidity remains.
+func (s *server) positionChecks(ctx context.Context, npm string, tokenID *big.Int, wallet string, wantLiquidity *big.Int, requireEmpty bool) *policy.Refusal {
+	owner, err := s.chain.OwnerOf(ctx, npm, tokenID)
+	if err != nil {
+		return &policy.Refusal{Code: policy.CodeChainUnverifiable, Detail: fmt.Sprintf(
+			"could not read ownerOf(%s): %v. Refusing: an unreadable owner is not an owner", tokenID, err)}
+	}
+	if !strings.EqualFold(strings.TrimSpace(owner), strings.TrimSpace(wallet)) {
+		return &policy.Refusal{Code: policy.CodeNotPositionOwner, Detail: fmt.Sprintf(
+			"position %s is owned by %s, not this agent's wallet %s", tokenID, owner, wallet)}
+	}
+	liq, err := s.chain.PositionLiquidity(ctx, npm, tokenID)
+	if err != nil {
+		return &policy.Refusal{Code: policy.CodeChainUnverifiable, Detail: fmt.Sprintf(
+			"could not read position %s liquidity: %v", tokenID, err)}
+	}
+	if wantLiquidity != nil && wantLiquidity.Cmp(liq) > 0 {
+		return &policy.Refusal{Code: policy.CodeLiquidityOverPosition, Detail: fmt.Sprintf(
+			"requested liquidity %s exceeds the position's %s", wantLiquidity, liq)}
+	}
+	if requireEmpty && liq.Sign() != 0 {
+		return &policy.Refusal{Code: policy.CodePositionNotEmpty, Detail: fmt.Sprintf(
+			"position %s still has liquidity %s; decrease and collect before burn", tokenID, liq)}
+	}
+	return nil
+}
+
+// maxUint128 is the "collect everything owed" cap.
+func maxUint128() *big.Int {
+	return new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 128), big.NewInt(1))
 }
 
 // countSignature is the daily cap, read from disk rather than from memory.

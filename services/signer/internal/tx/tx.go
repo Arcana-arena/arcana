@@ -21,9 +21,12 @@ import (
 // --- ABI encoding for the two shapes this service can build -----------------
 
 const (
-	selApprove          = "095ea7b3" // approve(address,uint256)
-	selExactInputSingle = "04e45aaf" // exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))
-	selMint             = "88316456" // mint((address,address,uint24,int24,int24,uint256,uint256,uint256,uint256,address,uint256))
+	selApprove           = "095ea7b3" // approve(address,uint256)
+	selExactInputSingle  = "04e45aaf" // exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))
+	selMint              = "88316456" // mint((address,address,uint24,int24,int24,uint256,uint256,uint256,uint256,address,uint256))
+	selCollect           = "fc6f7865" // collect((uint256,address,uint128,uint128))
+	selDecreaseLiquidity = "0c49ccbe" // decreaseLiquidity((uint256,uint128,uint256,uint256,uint256))
+	selBurn              = "42966c68" // burn(uint256)
 )
 
 func padAddress(a string) []byte {
@@ -133,6 +136,58 @@ func EncodeMint(p MintParams) []byte {
 	out = append(out, padUint(p.Amount1Min)...)
 	out = append(out, padAddress(p.Recipient)...)
 	out = append(out, padUint(p.Deadline)...)
+	return out
+}
+
+// CollectParams is NonfungiblePositionManager.collect. Recipient is always the
+// agent's own wallet, filled by the signer; there is no field to change it.
+type CollectParams struct {
+	TokenID    *big.Int
+	Recipient  string
+	Amount0Max *big.Int
+	Amount1Max *big.Int
+}
+
+// EncodeCollect builds collect((uint256,address,uint128,uint128)).
+func EncodeCollect(p CollectParams) []byte {
+	sel, _ := hex.DecodeString(selCollect)
+	out := append([]byte{}, sel...)
+	out = append(out, padUint(p.TokenID)...)
+	out = append(out, padAddress(p.Recipient)...)
+	out = append(out, padUint(p.Amount0Max)...)
+	out = append(out, padUint(p.Amount1Max)...)
+	return out
+}
+
+// DecreaseLiquidityParams is NonfungiblePositionManager.decreaseLiquidity. The
+// removed tokens are credited to the position's tokensOwed and require a
+// collect with the agent as recipient.
+type DecreaseLiquidityParams struct {
+	TokenID    *big.Int
+	Liquidity  *big.Int
+	Amount0Min *big.Int
+	Amount1Min *big.Int
+	Deadline   *big.Int
+}
+
+// EncodeDecreaseLiquidity builds decreaseLiquidity((uint256,uint128,uint256,uint256,uint256)).
+func EncodeDecreaseLiquidity(p DecreaseLiquidityParams) []byte {
+	sel, _ := hex.DecodeString(selDecreaseLiquidity)
+	out := append([]byte{}, sel...)
+	out = append(out, padUint(p.TokenID)...)
+	out = append(out, padUint(p.Liquidity)...)
+	out = append(out, padUint(p.Amount0Min)...)
+	out = append(out, padUint(p.Amount1Min)...)
+	out = append(out, padUint(p.Deadline)...)
+	return out
+}
+
+// EncodeBurn builds burn(uint256). A position must be empty before it can be
+// burned; the signer checks that against the chain rather than trusting it.
+func EncodeBurn(tokenID *big.Int) []byte {
+	sel, _ := hex.DecodeString(selBurn)
+	out := append([]byte{}, sel...)
+	out = append(out, padUint(tokenID)...)
 	return out
 }
 

@@ -214,9 +214,13 @@ const (
 	CodeChainUnverifiable = "chain_state_unverifiable"
 	CodeChainMismatch     = "chain_id_mismatch"
 	CodeNoPoolFee         = "pool_fee_unknown"
-	CodePMNotListed       = "position_manager_not_allowlisted"
-	CodeTickOrder         = "tick_lower_not_below_tick_upper"
-	CodeMinOverDesired    = "min_amount_over_desired"
+	CodePMNotListed           = "position_manager_not_allowlisted"
+	CodeTickOrder             = "tick_lower_not_below_tick_upper"
+	CodeMinOverDesired        = "min_amount_over_desired"
+	CodeNotPositionOwner      = "not_position_owner"
+	CodeLiquidityZero         = "liquidity_not_positive"
+	CodeLiquidityOverPosition = "liquidity_over_position"
+	CodePositionNotEmpty      = "position_not_empty"
 )
 
 // Token returns an allowlisted token, or a refusal naming the address.
@@ -392,6 +396,41 @@ func (a *Allowlist) CheckMint(pm, token0, token1 string, fee uint32, tickLower, 
 		return refuse(CodeMinOverDesired, "amount1_min %s exceeds amount1_desired %s", amount1Min, amount1Desired)
 	}
 	return nil
+}
+
+// CheckCollect validates a fee harvest. The ownership of the tokenId is checked
+// against the chain in the caller (ownerOf), because that is a live read rather
+// than a rule; what belongs here is the shape: a reviewed position manager, and
+// proceeds that go to nobody but the agent.
+func (a *Allowlist) CheckCollect(pm, recipient, agentWallet string) *Refusal {
+	if r := a.PositionManager(pm); r != nil {
+		return r
+	}
+	if norm(recipient) != norm(agentWallet) {
+		return refuse(CodeRecipientNotSelf,
+			"collect recipient %s is not this agent's wallet %s; fees would go elsewhere",
+			recipient, agentWallet)
+	}
+	return nil
+}
+
+// CheckDecrease validates a liquidity removal: a reviewed position manager and a
+// positive amount. The bound against the position's own liquidity is a chain
+// read in the caller.
+func (a *Allowlist) CheckDecrease(pm string, liquidity *big.Int) *Refusal {
+	if r := a.PositionManager(pm); r != nil {
+		return r
+	}
+	if liquidity == nil || liquidity.Sign() <= 0 {
+		return refuse(CodeLiquidityZero, "liquidity to remove must be positive")
+	}
+	return nil
+}
+
+// CheckBurn validates a position burn: only a reviewed position manager. That
+// the position is empty and owned by this agent is checked against the chain.
+func (a *Allowlist) CheckBurn(pm string) *Refusal {
+	return a.PositionManager(pm)
 }
 
 // unitsOf converts a base-unit integer to a human amount.
