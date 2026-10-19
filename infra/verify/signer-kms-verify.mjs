@@ -55,7 +55,8 @@ const KMS_KEY = randomBytes(32);
 const seal = (buf) => {
   const iv = randomBytes(12);
   const c = createCipheriv('aes-256-gcm', KMS_KEY, iv);
-  return Buffer.concat([iv, c.getAuthTag(), c.update(buf), c.final()]);
+  const ct = Buffer.concat([c.update(buf), c.final()]);
+  return Buffer.concat([iv, c.getAuthTag(), ct]);
 };
 const unseal = (blob) => {
   const d = createDecipheriv('aes-256-gcm', KMS_KEY, blob.subarray(0, 12));
