@@ -214,3 +214,35 @@ func (c *Client) TickSpacing(ctx context.Context, pool string) (int64, error) {
 	}
 	return wordToBig(w[0]).Int64(), nil
 }
+
+// Slot0 returns the pool's current sqrtPriceX96 and tick. The tick is an int24
+// sign-extended to a 32-byte ABI word, so a negative tick arrives with every
+// high bit set and must be converted back to a signed value here.
+func (c *Client) Slot0(ctx context.Context, pool string) (*big.Int, int32, error) {
+	raw, err := c.Call(ctx, pool, selSlot0)
+	if err != nil {
+		return nil, 0, err
+	}
+	w := words(raw)
+	if len(w) < 2 {
+		return nil, 0, fmt.Errorf("slot0 returned %d words, expected at least 2", len(w))
+	}
+	tick := wordToBig(w[1])
+	if tick.Bit(255) == 1 {
+		tick.Sub(tick, new(big.Int).Lsh(big.NewInt(1), 256))
+	}
+	return wordToBig(w[0]), int32(tick.Int64()), nil
+}
+
+// Token0 returns the pool's token0 address (the lower-address side).
+func (c *Client) Token0(ctx context.Context, pool string) (string, error) {
+	raw, err := c.Call(ctx, pool, selToken0)
+	if err != nil {
+		return "", err
+	}
+	w := words(raw)
+	if len(w) == 0 {
+		return "", errors.New("token0 empty")
+	}
+	return wordToAddress(w[0]), nil
+}
