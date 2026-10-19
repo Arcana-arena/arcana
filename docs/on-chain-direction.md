@@ -487,6 +487,13 @@ on a decision. They appear in a decision's rationale via `execution_refused`:
 | `wallet_blocked` | the issuer blocked this wallet |
 | `chain_state_unverifiable` | `paused()` or `isBlocked()` could not be read, or the recorded blocklist evidence no longer matches |
 | `chain_id_mismatch` | the allowlist is for a different chain than the caller asked for |
+| `position_manager_not_allowlisted` | an `lp_*` shape named a position manager the allowlist does not carry. The NonfungiblePositionManager is a call target like a router, and an address nothing permits is refused |
+| `tick_lower_not_below_tick_upper` | a minted range that is empty or inverted: it would earn nothing or revert |
+| `min_amount_over_desired` | the slippage floor (`amount0_min`/`amount1_min`) is above the amount the caller is willing to spend, which can only revert on chain |
+| `not_position_owner` | `ownerOf(tokenId)` is not this agent's wallet. Every management shape reads it from the chain on each call rather than remembering the mint |
+| `liquidity_not_positive` | `lp_decrease` with a zero liquidity amount, which is not a decrease |
+| `liquidity_over_position` | `lp_decrease` asked to remove more liquidity than the position holds |
+| `position_not_empty` | `lp_burn` while liquidity remains — collect or decrease first |
 
 **What the old table promised and nothing delivered.** `price_implausible`,
 `balance_unreadable`, `policy_refused`, `insufficient_gas`, `tx_failed` and
