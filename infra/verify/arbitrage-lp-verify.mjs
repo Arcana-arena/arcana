@@ -121,6 +121,60 @@ await run.section('Registry rows are consistent and belong to the configured pos
   run.check('every row is well-formed and belongs to the configured manager', ok, detail);
 });
 
+// The registry is EMPTY until an agent owns a position, which means the read
+// path — nullable columns, the jsonb detail, the pointer fields — would never
+// run before real money exists. So it is exercised here with rows that say
+// what they are: provenance='verification', inserted and deleted inside this
+// section, and swept again at the start in case an earlier run died between.
+await run.section('The read path is exercised with a verification row', async () => {
+  if (!npm) {
+    run.nothingToCheck('no position manager configured, so no row can be attributed');
+    return;
+  }
+  const wallet = sql(`SELECT address FROM agent_wallets WHERE address <> '' ORDER BY agent_id LIMIT 1`);
+  const agent = sql(`SELECT agent_id FROM agent_wallets WHERE address <> '' ORDER BY agent_id LIMIT 1`);
+  if (!wallet || !agent) {
+    run.nothingToCheck('no agent wallet exists to attribute a verification row to');
+    return;
+  }
+  const sweep = () => sql(`DELETE FROM lp_position_actions WHERE token_id = '999999999999' AND agent_id = '${agent}'; ` +
+    `DELETE FROM lp_positions WHERE token_id = '999999999999' AND agent_id = '${agent}'`);
+  sweep();
+  try {
+    sql(`INSERT INTO lp_positions
+          (position_manager, token_id, agent_id, wallet, pool, token0, token1, fee_tier,
+           tick_lower, tick_upper, liquidity, tokens_owed0, tokens_owed1,
+           current_tick, in_range, amount0, amount1, recommendation, status, provenance)
+         VALUES ('${npm}', '999999999999', '${agent}', '${wallet}',
+           '0x0000000000000000000000000000000000000001', '0x0000000000000000000000000000000000000002',
+           '0x0000000000000000000000000000000000000003', 500, -100, 100, '1000000', '0', '0',
+           '0', true, '1000', '2000', 'rebalance', 'open', 'verification')`);
+    sql(`INSERT INTO lp_position_actions
+          (position_manager, token_id, agent_id, recommendation, detail)
+         VALUES ('${npm}', '999999999999', '${agent}', 'rebalance',
+           '{"intents":["lp_collect","lp_decrease","lp_burn","lp_mint"],"verification":true}'::jsonb)`);
+
+    const p = await get('/v1/arbitrage/lp/positions?status=all');
+    const row = (p.body?.positions || []).find((x) => x.token_id === '999999999999');
+    run.check('positions lists the verification row', !!row, `status ${p.status}`);
+    if (row) {
+      run.check('nullable columns survive the read (current_tick, in_range, amounts)',
+        row.current_tick === 0 && row.in_range === true && row.amount0 === '1000' && row.amount1 === '2000',
+        JSON.stringify(row));
+      run.check('provenance says what the row is', row.provenance === 'verification', row.provenance);
+    }
+    const a = await get('/v1/arbitrage/lp/actions');
+    const act = (a.body?.actions || []).find((x) => x.token_id === '999999999999');
+    run.check('actions lists the verification proposal with its jsonb detail intact',
+      !!act && act.status === 'proposed' && Array.isArray(act.detail?.intents) && act.detail.intents.includes('lp_mint'),
+      JSON.stringify(act));
+  } finally {
+    sweep();
+  }
+  const left = sql(`SELECT count(*) FROM lp_positions WHERE token_id = '999999999999'`);
+  run.check('the verification rows are removed again', left === '0', left);
+});
+
 await run.section('Proposals are proposed and nothing else', async () => {
   const a = await get('/v1/arbitrage/lp/actions');
   const list = a.body?.actions;

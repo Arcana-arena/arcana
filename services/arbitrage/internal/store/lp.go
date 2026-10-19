@@ -135,8 +135,12 @@ func (s *Store) CloseLPPosition(ctx context.Context, positionManager, tokenID st
 }
 
 // OpenLPPositions returns every position the registry believes is still open.
+// Verification rows (provenance='verification', written by the verify suite to
+// exercise the read path) are excluded on purpose: they describe nothing on
+// chain, so refreshing them would close them — and racing the suite that owns
+// them.
 func (s *Store) OpenLPPositions(ctx context.Context) ([]LPPosition, error) {
-	rows, err := s.pool.Query(ctx, lpPositionSelect+` WHERE status = 'open' ORDER BY token_id`)
+	rows, err := s.pool.Query(ctx, lpPositionSelect+` WHERE status = 'open' AND provenance = 'live' ORDER BY token_id`)
 	if err != nil {
 		return nil, fmt.Errorf("open lp positions: %w", err)
 	}
