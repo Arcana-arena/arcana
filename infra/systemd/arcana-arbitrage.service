@@ -30,6 +30,12 @@ Environment=ARBITRAGE_RPC_URLS=https://robinhood-rpc.publicnode.com,https://robi
 # How often the background scanner runs. It also scans once at startup.
 Environment=SCAN_INTERVAL=60s
 
+# How often the LP registry loop runs (discovery + state refresh + proposal of
+# rebalance/close actions). Positions move on the scale of price ranges, not
+# quotes, so the reviewed cadence is 5 minutes — conservative on purpose: each
+# pass is a handful of chain reads, and nothing executes as a result of it.
+Environment=LP_SYNC_INTERVAL=300s
+
 # The /internal scan trigger needs the shared internal key.
 EnvironmentFile=-/home/ubuntu/arcana/.env.auth
 

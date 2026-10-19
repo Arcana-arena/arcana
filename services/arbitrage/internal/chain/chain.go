@@ -15,6 +15,7 @@ import (
 	"math"
 	"math/big"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +30,10 @@ const (
 	selOwnerOf     = "0x6352211e" // ownerOf(uint256) (ERC721)
 	selTotalSupply = "0x18160ddd" // totalSupply()
 	selGetPool     = "0x1698ee82" // getPool(address,address,uint24) on the v3 factory
+
+	// The ERC-721 Transfer event topic, used to discover position NFTs by
+	// recipient without knowing a tokenId in advance.
+	topicTransfer = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 )
 
 // Client calls eth_call against a list of endpoints, in order, and remembers
@@ -62,14 +67,22 @@ type rpcRequest struct {
 }
 
 type rpcResponse struct {
-	Result string `json:"result"`
+	Result json.RawMessage `json:"result"`
 	Error  *struct {
 		Message string `json:"message"`
 	} `json:"error"`
 }
 
-// Call performs eth_call and returns the raw hex result.
-func (c *Client) Call(ctx context.Context, to, data string) (string, error) {
+// doRPC performs one JSON-RPC request against the endpoint list, in order, and
+// returns the first result that passes validate. Every provider call goes
+// through here, so the failover order and the quarantine rule ("method" errors
+// mark an endpoint broken) are stated once and cannot drift between methods.
+//
+// A result that validate rejects is not returned to the caller as a failure —
+// it continues to the next endpoint, exactly as the empty eth_call result
+// always has: two endpoints that answer differently are a reason to keep
+// asking, not to give up. label names the request in error messages.
+func (c *Client) doRPC(ctx context.Context, method string, params []any, label string, validate func(json.RawMessage) error) (json.RawMessage, string, error) {
 	var lastErr error
 	for _, url := range c.urls {
 		c.mu.Lock()
@@ -78,16 +91,13 @@ func (c *Client) Call(ctx context.Context, to, data string) (string, error) {
 		if skip {
 			continue
 		}
-		body, err := json.Marshal(rpcRequest{
-			JSONRPC: "2.0", ID: 1, Method: "eth_call",
-			Params: []any{map[string]string{"to": to, "data": data}, "latest"},
-		})
+		body, err := json.Marshal(rpcRequest{JSONRPC: "2.0", ID: 1, Method: method, Params: params})
 		if err != nil {
-			return "", err
+			return nil, "", err
 		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(string(body)))
 		if err != nil {
-			return "", err
+			return nil, "", err
 		}
 		req.Header.Set("Content-Type", "application/json")
 		res, err := c.http.Do(req)
@@ -111,16 +121,42 @@ func (c *Client) Call(ctx context.Context, to, data string) (string, error) {
 			lastErr = errors.New(out.Error.Message)
 			continue
 		}
-		if out.Result == "" || out.Result == "0x" {
-			lastErr = fmt.Errorf("empty result from %s for %s", url, to)
+		if len(out.Result) == 0 {
+			lastErr = fmt.Errorf("empty result from %s for %s", url, label)
 			continue
 		}
-		return out.Result, nil
+		if validate != nil {
+			if verr := validate(out.Result); verr != nil {
+				lastErr = fmt.Errorf("%s from %s for %s", verr, url, label)
+				continue
+			}
+		}
+		return out.Result, url, nil
 	}
 	if lastErr == nil {
 		lastErr = errors.New("no rpc endpoint answered")
 	}
-	return "", lastErr
+	return nil, "", lastErr
+}
+
+// Call performs eth_call and returns the raw hex result.
+func (c *Client) Call(ctx context.Context, to, data string) (string, error) {
+	var hex string
+	_, _, err := c.doRPC(ctx, "eth_call",
+		[]any{map[string]string{"to": to, "data": data}, "latest"}, to,
+		func(raw json.RawMessage) error {
+			if err := json.Unmarshal(raw, &hex); err != nil {
+				return fmt.Errorf("eth_call result is not a string: %w", err)
+			}
+			if hex == "" || hex == "0x" {
+				return errors.New("empty result")
+			}
+			return nil
+		})
+	if err != nil {
+		return "", err
+	}
+	return hex, nil
 }
 
 func words(hex string) []string {
@@ -362,4 +398,91 @@ func (c *Client) GetPool(ctx context.Context, factory, tokenA, tokenB string, fe
 		return "", nil
 	}
 	return addr, nil
+}
+
+// --- discovery ---------------------------------------------------------------
+
+// BlockNumber returns the chain's latest block height.
+func (c *Client) BlockNumber(ctx context.Context) (int64, error) {
+	var hex string
+	_, _, err := c.doRPC(ctx, "eth_blockNumber", []any{}, "eth_blockNumber",
+		func(raw json.RawMessage) error {
+			if err := json.Unmarshal(raw, &hex); err != nil {
+				return fmt.Errorf("block number is not a string: %w", err)
+			}
+			if hex == "" || hex == "0x" {
+				return errors.New("empty result")
+			}
+			return nil
+		})
+	if err != nil {
+		return 0, err
+	}
+	n, err := strconv.ParseInt(strings.TrimPrefix(hex, "0x"), 16, 64)
+	if err != nil {
+		return 0, fmt.Errorf("block number %q is not hex: %w", hex, err)
+	}
+	return n, nil
+}
+
+// TransferLog is one ERC-721 Transfer emitted by a contract, filtered to the
+// recipients the caller asked about.
+type TransferLog struct {
+	Block   int64
+	To      string
+	TokenID *big.Int
+}
+
+// PositionTransfersTo reads the Transfer logs of an ERC-721 contract whose
+// recipient is one of `to` — how a position is discovered without knowing its
+// tokenId in advance. fromBlock and toBlock are inclusive; providers cap how
+// many blocks one query may span (the reviewed endpoint allows 100,000 for a
+// recipient-filtered query), so callers scan in windows. The recipients go in
+// one OR array, so a query covers every agent wallet at once instead of one
+// round trip per wallet.
+func (c *Client) PositionTransfersTo(ctx context.Context, contract string, to []string, fromBlock, toBlock int64) ([]TransferLog, error) {
+	if len(to) == 0 || fromBlock > toBlock {
+		return nil, nil
+	}
+	recipients := make([]string, 0, len(to))
+	for _, a := range to {
+		recipients = append(recipients, "0x"+padAddress(a))
+	}
+	params := []any{map[string]any{
+		"address":   contract,
+		"topics":    []any{topicTransfer, nil, recipients},
+		"fromBlock": fmt.Sprintf("0x%x", fromBlock),
+		"toBlock":   fmt.Sprintf("0x%x", toBlock),
+	}}
+	label := fmt.Sprintf("logs %s %d..%d", contract, fromBlock, toBlock)
+	raw, _, err := c.doRPC(ctx, "eth_getLogs", params, label, nil)
+	if err != nil {
+		return nil, err
+	}
+	var entries []struct {
+		Topics      []string `json:"topics"`
+		BlockNumber string   `json:"blockNumber"`
+	}
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", label, err)
+	}
+	out := make([]TransferLog, 0, len(entries))
+	for _, e := range entries {
+		// A Transfer carries four topics: event, from, to, tokenId. Anything
+		// else is a log this method did not ask for, and guessing at it could
+		// register the wrong tokenId — so it is refused rather than skipped.
+		if len(e.Topics) != 4 {
+			return nil, fmt.Errorf("%s: transfer log has %d topics, expected 4", label, len(e.Topics))
+		}
+		block, err := strconv.ParseInt(strings.TrimPrefix(e.BlockNumber, "0x"), 16, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%s: block %q is not hex: %w", label, e.BlockNumber, err)
+		}
+		id := new(big.Int)
+		if _, ok := id.SetString(strings.TrimPrefix(e.Topics[3], "0x"), 16); !ok {
+			return nil, fmt.Errorf("%s: token id %q is not hex", label, e.Topics[3])
+		}
+		out = append(out, TransferLog{Block: block, To: wordToAddress(strings.TrimPrefix(e.Topics[2], "0x")), TokenID: id})
+	}
+	return out, nil
 }

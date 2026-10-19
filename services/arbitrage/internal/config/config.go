@@ -30,9 +30,15 @@ type Config struct {
 	// position reader: factory.getPool resolves the pool a position belongs to,
 	// and the position manager holds the position itself. They are reviewed
 	// addresses, the same values the signer allowlist carries.
-	V3Factory       string  `json:"v3_factory"`
-	PositionManager string  `json:"position_manager"`
-	Tokens          []Token `json:"tokens"`
+	V3Factory       string `json:"v3_factory"`
+	PositionManager string `json:"position_manager"`
+	// LPRebalanceRangePct and LPRebalanceSlippageBps are what the LP sync loop
+	// proposes when a position's recommendation is `rebalance`: the new range is
+	// symmetric in price around the current tick (±pct), and the amounts carry
+	// the slippage floor. Reviewed numbers, in one place.
+	LPRebalanceRangePct    float64 `json:"lp_rebalance_range_pct"`
+	LPRebalanceSlippageBps float64 `json:"lp_rebalance_slippage_bps"`
+	Tokens                 []Token `json:"tokens"`
 }
 
 // QuoteToken is the pair's quote side (USDG).
@@ -84,7 +90,10 @@ type extraFile struct {
 	ReferenceSize   float64 `json:"reference_size_usd"`
 	GasCostUSD      float64 `json:"gas_cost_usd"`
 	ImpactBufferBps float64 `json:"impact_buffer_bps"`
-	ExtraVenues     []struct {
+	// Optional; absent means the defaults in Load (0.05 / 50 bps).
+	LPRebalanceRangePct    float64 `json:"lp_rebalance_range_pct"`
+	LPRebalanceSlippageBps float64 `json:"lp_rebalance_slippage_bps"`
+	ExtraVenues            []struct {
 		Token  string `json:"token"`
 		Dex    string `json:"dex"`
 		Pool   string `json:"pool"`
@@ -106,6 +115,16 @@ func Load(allowlistPath, extraPath string) (*Config, error) {
 		return nil, fmt.Errorf("chain_id mismatch: allowlist %d vs extra %d", allow.ChainID, extra.ChainID)
 	}
 
+	// The LP rebalance proposal is the only place these are read, so the
+	// defaults live here rather than in the JSON: an absent field means "use
+	// the reviewed default", not "zero".
+	if extra.LPRebalanceRangePct == 0 {
+		extra.LPRebalanceRangePct = 0.05
+	}
+	if extra.LPRebalanceSlippageBps == 0 {
+		extra.LPRebalanceSlippageBps = 50
+	}
+
 	extraByToken := map[string][]Venue{}
 	for _, ev := range extra.ExtraVenues {
 		extraByToken[ev.Token] = append(extraByToken[ev.Token], Venue{
@@ -117,13 +136,15 @@ func Load(allowlistPath, extraPath string) (*Config, error) {
 	}
 
 	cfg := &Config{
-		ChainID:          allow.ChainID,
-		V3Factory:        extra.V3Factory,
-		PositionManager:  extra.PositionManager,
-		MinNetProfitBps:  extra.MinNetProfitBps,
-		ReferenceSizeUSD: extra.ReferenceSize,
-		GasCostUSD:       extra.GasCostUSD,
-		ImpactBufferBps:  extra.ImpactBufferBps,
+		ChainID:             allow.ChainID,
+		V3Factory:           extra.V3Factory,
+		PositionManager:     extra.PositionManager,
+		MinNetProfitBps:     extra.MinNetProfitBps,
+		ReferenceSizeUSD:    extra.ReferenceSize,
+		GasCostUSD:          extra.GasCostUSD,
+		ImpactBufferBps:     extra.ImpactBufferBps,
+		LPRebalanceRangePct: extra.LPRebalanceRangePct,
+		LPRebalanceSlippageBps: extra.LPRebalanceSlippageBps,
 		QuoteToken: QuoteToken{
 			Symbol:   allow.Quote.Symbol,
 			Address:  allow.Quote.Address,
@@ -188,6 +209,13 @@ func loadExtra(path string) (*extraFile, error) {
 	}
 	if e.GasCostUSD < 0 {
 		return nil, errors.New("config: gas_cost_usd must be >= 0")
+	}
+	// Zero means "absent, use the default"; anything else must be sane.
+	if e.LPRebalanceRangePct < 0 || e.LPRebalanceRangePct >= 1 {
+		return nil, errors.New("config: lp_rebalance_range_pct must be in (0, 1)")
+	}
+	if e.LPRebalanceSlippageBps < 0 || e.LPRebalanceSlippageBps >= 10000 {
+		return nil, errors.New("config: lp_rebalance_slippage_bps must be in [0, 10000)")
 	}
 	return &e, nil
 }

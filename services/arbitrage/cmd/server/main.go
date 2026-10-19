@@ -1,7 +1,9 @@
 // Command server runs the ARCANA Arbitrage scanner.
 //
 // It is a read-only market-intelligence service: it reads configured venues,
-// estimates net profit, and records opportunities. IT SIGNS AND SENDS NOTHING.
+// estimates net profit, and records opportunities. It also keeps the LP
+// position registry (lp_positions) in step with the chain, proposing the
+// actions a position needs — and proposing only. IT SIGNS AND SENDS NOTHING.
 // The same-chain go/no-go (docs/go-no-go-arbitrage.md, 2026-10-18) found no
 // second venue with real liquidity, so the honest output today is "indicative,
 // not executable"; this service is the foundation Phase 2/3 build on.
@@ -10,6 +12,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -24,6 +27,7 @@ import (
 	"github.com/arcana/arbitrage/internal/config"
 	"github.com/arcana/arbitrage/internal/engine"
 	"github.com/arcana/arbitrage/internal/lp"
+	"github.com/arcana/arbitrage/internal/registry"
 	"github.com/arcana/arbitrage/internal/store"
 	"github.com/arcana/internalauth"
 )
@@ -39,6 +43,7 @@ type server struct {
 	engine *engine.Engine
 	cfg    *config.Config
 	chain  *chain.Client
+	lpreg  *registry.Syncer
 }
 
 func main() {
@@ -72,10 +77,12 @@ func main() {
 	}
 	defer pool.Close()
 
+	st := store.New(pool)
 	srv := &server{
-		engine: engine.New(chainClient, cfg, store.New(pool)),
+		engine: engine.New(chainClient, cfg, st),
 		cfg:    cfg,
 		chain:  chainClient,
+		lpreg:  registry.New(chainClient, st, cfg),
 	}
 
 	guard := internalauth.New("arbitrage")
@@ -91,7 +98,10 @@ func main() {
 	mux.HandleFunc("GET /v1/arbitrage/opportunities/history", srv.handleHistory)
 	mux.HandleFunc("GET /v1/arbitrage/lp/plan", srv.handleLPPlan)
 	mux.HandleFunc("GET /v1/arbitrage/lp/position", srv.handleLPPosition)
+	mux.HandleFunc("GET /v1/arbitrage/lp/positions", srv.handleLPPositions)
+	mux.HandleFunc("GET /v1/arbitrage/lp/actions", srv.handleLPActions)
 	mux.HandleFunc("POST /internal/v1/arbitrage/scan", guard.Wrap(srv.handleScan))
+	mux.HandleFunc("POST /internal/v1/arbitrage/lp/sync", guard.Wrap(srv.handleLPSync))
 
 	// The continuous scanner. Disabled by an empty or invalid SCAN_INTERVAL, so
 	// the service can run as a pure HTTP API (or under a systemd timer) without
@@ -100,6 +110,15 @@ func main() {
 		go srv.runScanner(d)
 	} else {
 		log.Printf("arbitrage background scanner DISABLED (SCAN_INTERVAL=%q)", os.Getenv("SCAN_INTERVAL"))
+	}
+
+	// The LP registry loop. Same disabling rule, its own interval: positions
+	// move slower than quotes, so the default is minutes, not seconds. Like the
+	// scanner it proposes and never executes.
+	if d := lpSyncInterval(); d > 0 {
+		go srv.runLPSync(d)
+	} else {
+		log.Printf("arbitrage LP registry loop DISABLED (LP_SYNC_INTERVAL=%q)", os.Getenv("LP_SYNC_INTERVAL"))
 	}
 
 	log.Printf("arbitrage listening on :%s", port)
@@ -387,10 +406,116 @@ func (s *server) scanNow() {
 	log.Printf("arbitrage scan: %d opportunities, %d errors", res.Opportunities, res.Errors)
 }
 
+// handleLPPositions lists the registry: what agents own and the state last
+// read from the chain. status=open (default), closed, or anything for both.
+//
+//	GET /v1/arbitrage/lp/positions?status=open&limit=100
+func (s *server) handleLPPositions(w http.ResponseWriter, r *http.Request) {
+	status := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("status")))
+	if status == "" {
+		status = "open"
+	}
+	limit := atoiDefault(r.URL.Query().Get("limit"), 100)
+	if limit < 1 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	rows, err := s.lpreg.Positions(r.Context(), status, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "positions_unavailable", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"positions": rows})
+}
+
+// handleLPActions lists the outstanding proposals — what the loop would ask
+// the signer for. READ-ONLY: nothing executes these rows today.
+//
+//	GET /v1/arbitrage/lp/actions?limit=50
+func (s *server) handleLPActions(w http.ResponseWriter, r *http.Request) {
+	limit := atoiDefault(r.URL.Query().Get("limit"), 50)
+	if limit < 1 {
+		limit = 50
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	rows, err := s.lpreg.ProposedActions(r.Context(), limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "actions_unavailable", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"actions": rows,
+		"note": "proposed actions only. Nothing executes them: no ARCANA code path calls " +
+			"the signer's lp_collect/lp_decrease/lp_burn/lp_mint shapes yet.",
+	})
+}
+
+// handleLPSync runs one registry pass now — for the verification suite, and
+// for an operator who does not want to wait for the interval. Authed like the
+// scan trigger; a pass already running answers 409 rather than queueing.
+func (s *server) handleLPSync(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+	res, err := s.lpreg.SyncOnce(ctx)
+	if errors.Is(err, registry.ErrBusy) {
+		writeError(w, http.StatusConflict, "sync_busy", err.Error())
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "lp_sync_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (s *server) runLPSync(d time.Duration) {
+	log.Printf("arbitrage LP registry loop started (interval %s)", d)
+	// Sync immediately so a fresh loop has a heartbeat without waiting a full
+	// interval — the same rule the scanner follows.
+	s.lpSyncNow()
+	t := time.NewTicker(d)
+	defer t.Stop()
+	for range t.C {
+		s.lpSyncNow()
+	}
+}
+
+func (s *server) lpSyncNow() {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	res, err := s.lpreg.SyncOnce(ctx)
+	if err != nil {
+		log.Printf("lp sync: %v", err)
+		return
+	}
+	log.Printf("lp sync: %d watched, %d synced, %d discovered, %d proposed, %d closed, %d open, %d errors",
+		res.Watched, res.Synced, res.Discovered, res.Proposed, res.Closed, res.Open, res.Errors)
+}
+
 func scanInterval() time.Duration {
 	v := strings.TrimSpace(os.Getenv("SCAN_INTERVAL"))
 	if v == "" {
 		return 60 * time.Second
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return 0
+	}
+	return d
+}
+
+// lpSyncInterval reads LP_SYNC_INTERVAL. Empty means the reviewed default (5
+// minutes: positions move on the scale of price ranges, not quotes, and each
+// pass is a handful of chain reads); invalid or non-positive disables the loop
+// so the service can run as a pure HTTP API.
+func lpSyncInterval() time.Duration {
+	v := strings.TrimSpace(os.Getenv("LP_SYNC_INTERVAL"))
+	if v == "" {
+		return 5 * time.Minute
 	}
 	d, err := time.ParseDuration(v)
 	if err != nil || d <= 0 {

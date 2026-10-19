@@ -9,6 +9,9 @@
   "gas_cost_usd": 0.12,
   "impact_buffer_bps": 10,
   "impact_buffer_note": "First-slice placeholder. Price impact is not yet computed from in-range liquidity; this conservative buffer stands in until exact impact via exactInputSingle simulation replaces it. Rationale for the number: the go/no-go measured impact < 0.01% at $100 on liquid pools, so 0.1% (10 bps) is a deliberately wide floor that never lets a dust pool read as executable.",
+  "lp_rebalance_range_pct": 0.05,
+  "lp_rebalance_slippage_bps": 50,
+  "lp_rebalance_note": "What the LP sync loop proposes when a position is out of range: a new +/-5% range around the current tick (symmetric in price, snapped to the pool's tick spacing) sized for the position's current USD value, with a 0.5% slippage floor on the mint amounts. Proposals only — nothing executes them yet.",
   "extra_venues": [
     { "token": "AAPL", "dex": "uniswap-v2", "pool": "0xd0bbf7df4e357eb3d6276df5a5903bd42bbf3647", "fee_bps": 30, "note": "dust: USDG reserve ~$0 (go/no-go 2026-10-18)" },
     { "token": "NVDA", "dex": "uniswap-v2", "pool": "0xee6f200063a53fe9450578d99c0f8ead4952c97a", "fee_bps": 30, "note": "dust" },
