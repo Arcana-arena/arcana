@@ -72,7 +72,14 @@ Status 2026-10-18:
    into a concrete `lp_mint` plan (range snapped to tick spacing, both legs
    sized for a target USD value). Live endpoint:
    `GET /v1/arbitrage/lp/plan?symbol=NVDA&size_usd=500&range_pct=0.05`.
-   **Still to build for this phase:** the position manager — tracking the NFT
-   tokenId, harvesting fees and rebalancing when price leaves the range.
-4. **Small real position — NOT STARTED.** A capped, owner-approved deposit,
+4. **Position reader — DONE (read-only).** `GET /v1/arbitrage/lp/position?token_id=`
+   reads `positions(tokenId)` from the NPM, resolves the pool through the
+   factory, reads the current tick, and reports owner, ticks, liquidity, stored
+   `tokensOwed`, current token amounts, `in_range`, and a recommendation
+   (`hold` / `rebalance` / `empty`). Verified against a live position.
+   **Still to build for a full position manager:** the signer shapes for
+   `collect`, `decreaseLiquidity` and `burn`; a DB registry of the tokenIds an
+   agent owns; and the execution loop that acts on the recommendation. Exact
+   live fee accrual (beyond stored `tokensOwed`) also needs `feeGrowthInside`.
+5. **Small real position — NOT STARTED.** A capped, owner-approved deposit,
    watched end-to-end before any scale-up.
