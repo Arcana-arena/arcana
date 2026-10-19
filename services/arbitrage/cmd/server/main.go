@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"strconv"
@@ -244,17 +245,37 @@ func (s *server) handleLPPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The range in the STOCK token's USD price, which is what a reader means by
+	// "±5% around $216". The pool ratio moves opposite to token0's price when
+	// the stock is token0, so the inversion is explicit rather than assumed.
+	sqrtP := plan.SqrtPrice
+	sqrtPa := lp.TickToSqrtPrice(plan.TickLower)
+	sqrtPb := lp.TickToSqrtPrice(plan.TickUpper)
+	var stockNow, stockLower, stockUpper float64
+	if strings.EqualFold(token0, usdg.Address) {
+		stockNow = usd1
+		stockLower = usd1 * math.Pow(sqrtPa/sqrtP, 2)
+		stockUpper = usd1 * math.Pow(sqrtPb/sqrtP, 2)
+	} else {
+		stockNow = usd0
+		stockLower = usd0 * math.Pow(sqrtP/sqrtPa, 2)
+		stockUpper = usd0 * math.Pow(sqrtP/sqrtPb, 2)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"symbol":          symbol,
-		"pool":            venue.Pool,
-		"pool_fee":        venue.FeeBps,
-		"token0":          token0,
-		"token1":          token1,
-		"token0_decimals": dec0,
-		"token1_decimals": dec1,
-		"token0_usd":      usd0,
-		"token1_usd":      usd1,
-		"plan":            plan,
+		"symbol":                symbol,
+		"pool":                  venue.Pool,
+		"pool_fee":              venue.FeeBps,
+		"token0":                token0,
+		"token1":                token1,
+		"token0_decimals":       dec0,
+		"token1_decimals":       dec1,
+		"token0_usd":            usd0,
+		"token1_usd":            usd1,
+		"stock_price_usd":       stockNow,
+		"stock_range_lower_usd": stockLower,
+		"stock_range_upper_usd": stockUpper,
+		"plan":                  plan,
 		"note": "read-only plan. Send to the signer as intent lp_mint: token_in=token0, " +
 			"token_out=token1, router=NonfungiblePositionManager, fee from the pool, " +
 			"tick_lower/tick_upper and the four amounts from plan.",

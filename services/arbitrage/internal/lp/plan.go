@@ -25,18 +25,16 @@ type PoolState struct {
 // snapped to the pool's spacing, the amounts are raw base units, and the min
 // amounts carry the caller's slippage floor.
 type Plan struct {
-	TickLower      int32    `json:"tick_lower"`
-	TickUpper      int32    `json:"tick_upper"`
-	Amount0Desired string   `json:"amount0_desired"`
-	Amount1Desired string   `json:"amount1_desired"`
-	Amount0Min     string   `json:"amount0_min"`
-	Amount1Min     string   `json:"amount1_min"`
-	Liquidity      float64  `json:"liquidity"`
-	SizeUSD        float64  `json:"size_usd"`
-	CurrentTick    int32    `json:"current_tick"`
-	SqrtPrice      float64  `json:"sqrt_price"`
-	PriceLowerUSD  float64  `json:"price_lower_usd,omitempty"`
-	PriceUpperUSD  float64  `json:"price_upper_usd,omitempty"`
+	TickLower      int32   `json:"tick_lower"`
+	TickUpper      int32   `json:"tick_upper"`
+	Amount0Desired string  `json:"amount0_desired"`
+	Amount1Desired string  `json:"amount1_desired"`
+	Amount0Min     string  `json:"amount0_min"`
+	Amount1Min     string  `json:"amount1_min"`
+	Liquidity      float64 `json:"liquidity"`
+	SizeUSD        float64 `json:"size_usd"`
+	CurrentTick    int32   `json:"current_tick"`
+	SqrtPrice      float64 `json:"sqrt_price"`
 }
 
 // PlanFromState chooses a range around the current tick and sizes the two legs
@@ -100,18 +98,6 @@ func PlanFromState(st PoolState, targetUSD, rangePct, slippageBps float64) (*Pla
 		SizeUSD:        targetUSD,
 		CurrentTick:    st.Tick,
 		SqrtPrice:      sqrtP,
-	}
-	// USD price of one whole token0 at each bound, for a human-readable
-	// response. raw price is token1-per-token0 in base units, so:
-	//   human(token0 in token1) = raw * 10^(dec0-dec1)
-	//   USD(token0)            = human * token1USD
-	if st.Token1USD > 0 {
-		usd := func(sqrt float64) float64 {
-			raw := sqrt * sqrt
-			return raw * math.Pow(10, float64(st.Dec0-st.Dec1)) * st.Token1USD
-		}
-		p.PriceLowerUSD = usd(sqrtPa)
-		p.PriceUpperUSD = usd(sqrtPb)
 	}
 	return p, nil
 }
