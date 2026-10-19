@@ -239,6 +239,16 @@ bash infra/backup/arcana-seed-restore-test.sh          # the drill, against the 
 sudo shred -u /etc/arcana/signer/master.key            # only after both are green
 ```
 
+**Proved without a cloud account.** `infra/verify/signer-kms-verify.mjs` stands
+up a local KMS endpoint (Encrypt and Decrypt, for the test only), seals a test
+seed through it, and drives the real signer binary through the sealed path: the
+sealed seed derives the SAME wallet as the plaintext one, the Decrypt request's
+SigV4 signature is recomputed and verified on arrival by a second
+implementation, a refused decrypt stands the signer down instead of falling
+back, an unknown `SIGNER_SEED_SOURCE` is fatal, and a world-readable blob is
+refused before it is decrypted. What remains unproved is AWS's own behaviour —
+a contract question, not a code one.
+
 ### Backing the seed up, and the drill that proves it
 
 A backup that has never been restored is not a backup, and a seed never re-
