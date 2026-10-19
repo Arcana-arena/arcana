@@ -488,11 +488,11 @@ func (s *Syncer) actionDetail(ctx context.Context, rec, pool string, pos *chain.
 			f1 = fee1.String()
 		}
 		return json.Marshal(map[string]any{
-			"intents":     []string{"lp_collect"},
-			"fees_owed0":  f0,
-			"fees_owed1":  f1,
-			"value_usd":   feeUSD,
-			"note":        note,
+			"intents":    []string{"lp_collect"},
+			"fees_owed0": f0,
+			"fees_owed1": f1,
+			"value_usd":  feeUSD,
+			"note":       note,
 		})
 	}
 

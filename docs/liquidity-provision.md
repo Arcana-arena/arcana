@@ -111,6 +111,13 @@ Status 2026-10-18:
    position's current value with a 0.5% slippage floor, or collect+burn.
    **Nothing executes a proposal** — this service cannot sign, and the verify
    suite checks the signer's journal for zero `lp_*` signings.
+   **Harvest — DONE (2026-10-20).** The loop computes the exact accrual on
+   every sync (the same `feeGrowthInside` `collect()` uses) and, when it
+   crosses `lp_harvest_min_usd` (reviewed default $0.50 — about dust, not gas),
+   proposes `harvest`; the executor turns it into one `lp_collect`. A fill in
+   the proposal is not trusted blindly: an unreadable accrual is recorded as an
+   error and the proposal bookkeeping is skipped for that pass. Migration 0067
+   widens the recommendation constraint.
    **Executor — DONE, ARMED, PROVEN (2026-10-20).** `arcana-lpexec`
    (`services/decision-engine/cmd/lpexec`) reads the proposal queue, re-checks
    each proposal against the chain, and — with `LP_EXECUTE=1`, which the unit

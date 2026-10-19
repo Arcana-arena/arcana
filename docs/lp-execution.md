@@ -37,6 +37,14 @@ For `rebalance` (out of range, liquidity > 0):
 
 For `empty` (liquidity == 0): `lp_collect` → `lp_burn`.
 
+For `harvest` (in range, exact accrual ≥ `lp_harvest_min_usd`): one
+`lp_collect` — no approvals, no deadline, no mint. This is the recurring action
+that realizes the fee income; without it, fees would only be collected when the
+price happened to leave the range, which is a schedule set by the market rather
+than by the business. The proposal carries the exact accrual it was built on,
+and the planner refuses one whose numbers are zero or missing (someone already
+collected).
+
 **The deadline is not optional.** The signer defaults `deadline` to 0, and the
 position manager reverts a mint or a decrease whose deadline has passed — 0 has
 always passed. The executor stamps now + 15 minutes into the bodies it signs.

@@ -166,11 +166,16 @@ cast rpc anvil_stopImpersonatingAccount "$AGENT_ADDR" --rpc-url "$ANVIL_URL" >/d
 
 # --- 6. temporary arbitrage against the fork --------------------------------
 say "6. temporary arbitrage reader against the fork (no loops)"
+# The harvest threshold is lowered for the test: a $300 swap is a real but tiny
+# fraction of this pool, and the assertion is about the MECHANISM (exact fees →
+# proposal → collect), not about the reviewed production threshold.
+jq '.lp_harvest_min_usd = 0.000001' \
+  "$REPO/services/arbitrage/config/robinhood-arbitrage.json" >"$WORK/arb-config.json"
 env -i PATH="$PATH" HOME=/home/ubuntu \
   DATABASE_URL="${PGTEST}?sslmode=disable" PORT="$ARB_PORT" \
   ARBITRAGE_ALLOWLIST_FILE="$REPO/services/signer/allowlist/robinhood-mainnet.json" \
-  ARBITRAGE_CONFIG_FILE="$REPO/services/arbitrage/config/robinhood-arbitrage.json" \
-  ARBITRAGE_RPC_URLS="$ANVIL_URL" SCAN_INTERVAL=0 LP_SYNC_INTERVAL=0 \
+  ARBITRAGE_CONFIG_FILE="$WORK/arb-config.json" \
+  ARBITRAGE_RPC_URLS="$ANVIL_URL" SCAN_INTERVAL=0 LP_SYNC_INTERVAL=0 INTERNAL_API_KEY="$KEY" \
   "$REPO/scheduler-bin/arbitrage" >"$WORK/arb.log" 2>&1 &
 PIDS="$PIDS $!"
 ARB_UP=0
@@ -297,6 +302,103 @@ SECOND_PROPOSALS="$(jq -r '.proposals' "$WORK/second.json" 2>/dev/null)"
   || no "second run" "rc=$SECOND_RC proposals=$SECOND_PROPOSALS"
 DB_STEPS_AFTER="$(psql "${PGTEST}?sslmode=disable" -Atc "SELECT count(*) FROM lp_execution_steps WHERE action_id = $ACTION_ID")"
 [ "$DB_STEPS_AFTER" = "6" ] && ok "the step record did not grow" || no "step record grew" "$DB_STEPS_AFTER"
+
+# --- 13. generate fees -------------------------------------------------------
+say "13. generate fees: a real swap through the pool on the fork"
+ROUTER=0xcaf681a66d020601342297493863e78c959e5cb2
+cast rpc anvil_impersonateAccount "$AGENT_ADDR" --rpc-url "$ANVIL_URL" >/dev/null
+cast send --unlocked --from "$AGENT_ADDR" "$USDG" "approve(address,uint256)" "$ROUTER" 300000000 --rpc-url "$ANVIL_URL" >/dev/null
+SWAP_JSON="$(cast send --json --unlocked --from "$AGENT_ADDR" "$ROUTER" \
+  "exactInputSingle((address,address,uint24,address,uint256,uint256,uint160))" \
+  "($USDG,$NVDA,500,$AGENT_ADDR,300000000,0,0)" --rpc-url "$ANVIL_URL")"
+[ "$(echo "$SWAP_JSON" | jq -r .status)" = "0x1" ] \
+  && ok "swap mined (300 USDG → NVDA through the 0.05% pool)" \
+  || no "swap for fees" "$(echo "$SWAP_JSON" | head -c 300)"
+cast rpc anvil_stopImpersonatingAccount "$AGENT_ADDR" --rpc-url "$ANVIL_URL" >/dev/null
+
+# --- 14. the loop proposes a harvest ---------------------------------------
+say "14. the loop sees the exact accrual and proposes a harvest"
+POS2="$(curl -s -m 30 "$ARB_URL/v1/arbitrage/lp/position?token_id=${NEW_ID}")"
+echo "$POS2" | jq -e '.position.in_range == true' >/dev/null \
+  && ok "the position is still in range after the swap" \
+  || { no "position in range after swap" "$(echo "$POS2" | jq -c '.position | {current_tick,tick_lower,tick_upper}')"; exit 1; }
+POS2_LIQ="$(echo "$POS2" | jq -r '.position.liquidity')"
+POS2_A0="$(echo "$POS2" | jq -r '.position.amount0')"
+POS2_A1="$(echo "$POS2" | jq -r '.position.amount1')"
+POS2_TICK="$(echo "$POS2" | jq -r '.position.current_tick')"
+POS2_TL="$(echo "$POS2" | jq -r '.position.tick_lower')"
+POS2_TU="$(echo "$POS2" | jq -r '.position.tick_upper')"
+
+psql "${PGTEST}?sslmode=disable" -q <<SQL || { no "insert agent/registry for harvest"; exit 1; }
+INSERT INTO agents (id, name, risk_profile, asset_universe)
+VALUES ('$AGENT', 'lpexec e2e', '{}'::jsonb, 'stock_tokens');
+INSERT INTO agent_wallets (agent_id, address, provenance)
+VALUES ('$AGENT', '$(lower "$AGENT_ADDR")', 'derived');
+INSERT INTO lp_positions
+  (position_manager, token_id, agent_id, wallet, pool, token0, token1, fee_tier,
+   tick_lower, tick_upper, liquidity, tokens_owed0, tokens_owed1,
+   current_tick, in_range, amount0, amount1, recommendation, status, provenance)
+VALUES
+  ('$NPM', '$NEW_ID', '$AGENT', '$(lower "$AGENT_ADDR")', '$POOL', '$(lower "$TOKEN0")', '$(lower "$TOKEN1")', $POOL_FEE,
+   $POS2_TL, $POS2_TU, '$POS2_LIQ', '0', '0',
+   $POS2_TICK, true, '$POS2_A0', '$POS2_A1', 'hold', 'open', 'live');
+SQL
+SYNC_JSON="$(curl -s -m 60 -X POST -H "X-Internal-Key: $KEY" "$ARB_URL/internal/v1/arbitrage/lp/sync")"
+echo "$SYNC_JSON" | jq -e '.proposed == 1' >/dev/null \
+  && ok "the sync proposed exactly one action" \
+  || no "sync proposed a harvest" "$(echo "$SYNC_JSON" | head -c 300)"
+HARVEST="$(curl -s -m 30 "$ARB_URL/v1/arbitrage/lp/actions" | jq -c --arg id "$NEW_ID" '.actions[] | select(.token_id == $id)')"
+[ "$(echo "$HARVEST" | jq -r .recommendation)" = "harvest" ] \
+  && ok "the proposal is a harvest" || no "harvest recommendation" "$HARVEST"
+HARVEST_ID="$(echo "$HARVEST" | jq -r .id)"
+FEES0="$(echo "$HARVEST" | jq -r '.detail.fees_owed0')"
+FEES1="$(echo "$HARVEST" | jq -r '.detail.fees_owed1')"
+if [ -n "$FEES0" ] && [ "$FEES0" != "null" ] && { [ "$FEES0" != "0" ] || [ "$FEES1" != "0" ]; }; then
+  ok "the proposal carries the exact accrual (${FEES0}/${FEES1})"
+else
+  no "harvest accrual" "$HARVEST"
+fi
+
+# --- 15. armed harvest -------------------------------------------------------
+say "15. EXECUTE the harvest: one collect, paying the accrual to the wallet"
+USDG_BEFORE="$(cast call "$USDG" "balanceOf(address)(uint256)" "$AGENT_ADDR" --rpc-url "$ANVIL_URL" | awk '{print $1}')"
+env -i PATH="$PATH" HOME=/home/ubuntu \
+  ARBITRAGE_URL="$ARB_URL" LP_EXECUTE=1 \
+  DATABASE_URL="${PGTEST}?sslmode=disable" \
+  SIGNER_URL="$SIGNER_URL" INTERNAL_API_KEY="$KEY" \
+  EXECUTION_RPC_URLS="$ANVIL_URL" \
+  EXECUTION_ALLOWLIST_FILE="$REPO/services/signer/allowlist/robinhood-mainnet.json" \
+  "$REPO/scheduler-bin/lpexec" >"$WORK/harvest.json" 2>"$WORK/harvest.log"
+HARVEST_RC=$?
+USDG_AFTER="$(cast call "$USDG" "balanceOf(address)(uint256)" "$AGENT_ADDR" --rpc-url "$ANVIL_URL" | awk '{print $1}')"
+[ "$HARVEST_RC" = 0 ] && ok "the armed harvest exits 0" || no "harvest run exit" "$HARVEST_RC: $(tail -3 "$WORK/harvest.log")"
+[ "$(jq -r '.executions[0].status' "$WORK/harvest.json" 2>/dev/null)" = "executed" ] \
+  && ok "the harvest executed" || no "harvest execution" "$(jq -c '.executions[0] | {status,error}' "$WORK/harvest.json" 2>/dev/null)"
+HARVEST_STEPS="$(jq -c '.executions[0].steps | map(.intent)' "$WORK/harvest.json" 2>/dev/null)"
+[ "$HARVEST_STEPS" = '["lp_collect"]' ] && ok "one step: a single collect" || no "harvest steps" "$HARVEST_STEPS"
+DELTA=$((USDG_AFTER - USDG_BEFORE))
+[ "$DELTA" = "$FEES0" ] && ok "the wallet received exactly the proposed accrual ($DELTA base units)" \
+  || no "collected amount" "wallet +$DELTA, proposal said $FEES0"
+POS3="$(curl -s -m 30 "$ARB_URL/v1/arbitrage/lp/position?token_id=${NEW_ID}")"
+[ "$(echo "$POS3" | jq -r '.position.fees_owed0')" = "0" ] && [ "$(echo "$POS3" | jq -r '.position.fees_owed1')" = "0" ] \
+  && ok "the accrual resets to zero after the collect" \
+  || no "post-harvest accrual" "$(echo "$POS3" | jq -c '.position | {fees_owed0,fees_owed1}')"
+DB_HARVEST="$(psql "${PGTEST}?sslmode=disable" -Atc "SELECT status FROM lp_position_actions WHERE id = $HARVEST_ID")"
+[ "$DB_HARVEST" = "executed" ] && ok "the harvest action is recorded as executed" || no "harvest action status" "$DB_HARVEST"
+
+# --- 16. nothing left --------------------------------------------------------
+say "16. a final armed run does nothing"
+env -i PATH="$PATH" HOME=/home/ubuntu \
+  ARBITRAGE_URL="$ARB_URL" LP_EXECUTE=1 \
+  DATABASE_URL="${PGTEST}?sslmode=disable" \
+  SIGNER_URL="$SIGNER_URL" INTERNAL_API_KEY="$KEY" \
+  EXECUTION_RPC_URLS="$ANVIL_URL" \
+  EXECUTION_ALLOWLIST_FILE="$REPO/services/signer/allowlist/robinhood-mainnet.json" \
+  "$REPO/scheduler-bin/lpexec" >"$WORK/final.json" 2>"$WORK/final.log"
+FINAL_RC=$?
+FINAL_PROPOSALS="$(jq -r '.proposals' "$WORK/final.json" 2>/dev/null)"
+[ "$FINAL_RC" = 0 ] && [ "$FINAL_PROPOSALS" = "0" ] \
+  && ok "nothing left to execute" || no "final run" "rc=$FINAL_RC proposals=$FINAL_PROPOSALS"
 
 # --- verdict -----------------------------------------------------------------
 echo
