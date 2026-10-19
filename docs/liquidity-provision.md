@@ -111,12 +111,18 @@ Status 2026-10-18:
    position's current value with a 0.5% slippage floor, or collect+burn.
    **Nothing executes a proposal** — this service cannot sign, and the verify
    suite checks the signer's journal for zero `lp_*` signings.
-   **Still to build:** the executor that turns a proposal into signer intents
-   (Phase 6+, with the first real position; note the signer parses `amount`
-   before the intent switch, so `lp_collect`/`lp_burn` requests must send
-   `amount: "0"`). Exact live fee accrual is now READABLE
-   (`fees_owed0/1` on `/lp/position`, verified against `collect()`); the
-   registry still records the stored `tokensOwed`, so persisting exact fees
-   per sync would be a deliberate schema addition, not a drive-by.
+   **Still to build:** the arming of the executor — its phase A is DONE
+   (2026-10-19): `arcana-lpexec` reads the proposal queue, re-checks each
+   proposal against the chain, and prints the complete signer request bodies it
+   would send (`lp_collect → lp_decrease → lp_burn → lp_mint` for a rebalance,
+   `lp_collect → lp_burn` for a close), then stops — it calls no signer and
+   holds no credential. Note the signer parses `amount` before the intent
+   switch (these bodies send `amount: "0"`), and its default `deadline` of 0
+   would be rejected by the position manager, so the planner stamps one.
+   **Arming** (signer + broadcast + execution records) is the funding
+   checkpoint in [lp-execution.md](./lp-execution.md). Exact live fee accrual
+   is READABLE (`fees_owed0/1` on `/lp/position`, verified against
+   `collect()`); the registry still records stored `tokensOwed`, so persisting
+   exact fees per sync would be a deliberate schema addition, not a drive-by.
 6. **Small real position — NOT STARTED.** A capped, owner-approved deposit,
    watched end-to-end before any scale-up.

@@ -122,6 +122,14 @@ echo "==> building pacer binary"
 echo "==> building position guard binary"
 (cd "$REPO/services/decision-engine" && /usr/local/go/bin/go build -ldflags "$LDFLAGS" -o "$BIN_DIR/guard" ./cmd/guard)
 
+# The LP execution planner (phase A of the money path): reads the arbitrage
+# loop's proposed LP actions and prints the exact signer intents they would
+# need. It calls no signer and broadcasts nothing; arming it is a separate
+# checkpoint (docs/lp-execution.md). Built and stamped like the rest so the
+# moment arming arrives, the thing that gets armed is already deployed.
+echo "==> building LP execution planner binary"
+(cd "$REPO/services/decision-engine" && /usr/local/go/bin/go build -ldflags "$LDFLAGS" -o "$BIN_DIR/lpexec" ./cmd/lpexec)
+
 # The anchoring job: Merkle roots of decision commitments, written on chain by
 # arcana-anchor-signer (built below, with the signer). It holds no key.
 echo "==> building anchor job binary"

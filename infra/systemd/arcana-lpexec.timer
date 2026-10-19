@@ -1,0 +1,17 @@
+# arcana-lpexec.timer — look every five minutes.
+#
+# The arbitrage loop syncs the registry every five minutes (LP_SYNC_INTERVAL in
+# arcana-arbitrage.service) and proposes only when a verdict changes, so looking
+# more often would read the same queue for nothing. The offset (:2) and the
+# jitter keep a run on a settled queue rather than one being written at the same
+# moment.
+[Unit]
+Description=Run the ARCANA LP execution planner every five minutes
+
+[Timer]
+OnCalendar=*-*-* *:2/5:00 UTC
+RandomizedDelaySec=30
+Persistent=true
+
+[Install]
+WantedBy=timers.target

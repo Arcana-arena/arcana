@@ -1,0 +1,36 @@
+# arcana-lpexec.service — assemble signer intents from proposed LP actions.
+#
+# PHASE A OF THE MONEY PATH, AND IT TOUCHES NO MONEY. It reads the proposal
+# queue the arbitrage loop writes, re-checks every proposal against the chain,
+# and prints the exact signer request bodies it would send — then stops. It
+# does not call the signer, does not broadcast, writes nothing and holds no
+# credential (all three of its reads are public read-only routes). Arming it is
+# the funding checkpoint described in docs/lp-execution.md, not a flag here.
+#
+# A ONESHOT, not a watcher, for the same reason arcana-pace is: the work is a
+# bounded read-and-plan over a small queue, and the timer decides how often it
+# happens. Overlap protection is the usual two layers — systemd will not start
+# a second instance while one is activating, and flock covers runs that never
+# come through systemd.
+[Unit]
+Description=ARCANA LP execution planner (assembles signer intents; sends nothing)
+After=network-online.target arcana-arbitrage.service
+Wants=network-online.target
+
+OnFailure=arcana-alert@%n.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+# Without this every journal line is attributed to `flock`, the process systemd
+# actually executes.
+SyslogIdentifier=arcana-lpexec
+WorkingDirectory=/home/ubuntu/arcana/services/decision-engine
+Environment=ARBITRAGE_URL=http://127.0.0.1:8084
+ExecStart=/usr/bin/flock -n /tmp/arcana-lpexec.lock /home/ubuntu/arcana/scheduler-bin/lpexec
+# A plan is a handful of HTTP reads; anything still running after two minutes is
+# wedged, and the next run will try again.
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
