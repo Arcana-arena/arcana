@@ -31,6 +31,11 @@ const (
 	selTotalSupply = "0x18160ddd" // totalSupply()
 	selGetPool     = "0x1698ee82" // getPool(address,address,uint24) on the v3 factory
 
+	// Fee accounting, for exact accrual rather than the stored tokensOwed.
+	selFeeGrowthGlobal0 = "0xf3058399" // feeGrowthGlobal0X128() on the pool
+	selFeeGrowthGlobal1 = "0x46141319" // feeGrowthGlobal1X128() on the pool
+	selTicks            = "0xf30dba93" // ticks(int24) on the pool
+
 	// The ERC-721 Transfer event topic, used to discover position NFTs by
 	// recipient without knowing a tokenId in advance.
 	topicTransfer = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
@@ -297,6 +302,17 @@ func padUint(v *big.Int) string {
 	return strings.Repeat("0", 64-len(h)) + h
 }
 
+// padInt24 sign-extends a tick to a full ABI word. A negative tick is two's
+// complement over 256 bits, so a caller that sent the plain magnitude would
+// read the WRONG tick — the mirror of what wordToInt24 undoes on the way back.
+func padInt24(t int32) string {
+	v := big.NewInt(int64(t))
+	if v.Sign() < 0 {
+		v.Add(v, new(big.Int).Lsh(big.NewInt(1), 256))
+	}
+	return padUint(v)
+}
+
 func padAddress(a string) string {
 	h := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(a)), "0x")
 	if len(h) > 40 {
@@ -314,20 +330,23 @@ func wordToInt24(w string) int32 {
 }
 
 // Position is one NonfungiblePositionManager position, as positions(tokenId)
-// returns it. TokensOwed0/1 are the fees stored at the last position touch, not
-// the exact accrued total — computing the live accrual needs the pool's
-// feeGrowthInside, which this first slice does not read.
+// returns it. TokensOwed0/1 are the fees stored at the last position touch,
+// not the exact accrued total — the difference between the two is what
+// FeeGrowthInsideLastX128 records, and lp.FeesOwed turns that difference into
+// the exact number using the pool's feeGrowth counters.
 type Position struct {
-	Nonce       *big.Int
-	Operator    string
-	Token0      string
-	Token1      string
-	Fee         uint32
-	TickLower   int32
-	TickUpper   int32
-	Liquidity   *big.Int
-	TokensOwed0 *big.Int
-	TokensOwed1 *big.Int
+	Nonce                   *big.Int
+	Operator                string
+	Token0                  string
+	Token1                  string
+	Fee                     uint32
+	TickLower               int32
+	TickUpper               int32
+	Liquidity               *big.Int
+	FeeGrowthInside0LastX128 *big.Int
+	FeeGrowthInside1LastX128 *big.Int
+	TokensOwed0             *big.Int
+	TokensOwed1             *big.Int
 }
 
 // Position reads one position from the position manager.
@@ -341,16 +360,18 @@ func (c *Client) Position(ctx context.Context, npm string, tokenID *big.Int) (*P
 		return nil, fmt.Errorf("positions returned %d words, expected 12", len(w))
 	}
 	return &Position{
-		Nonce:       wordToBig(w[0]),
-		Operator:    wordToAddress(w[1]),
-		Token0:      wordToAddress(w[2]),
-		Token1:      wordToAddress(w[3]),
-		Fee:         uint32(wordToBig(w[4]).Uint64()),
-		TickLower:   wordToInt24(w[5]),
-		TickUpper:   wordToInt24(w[6]),
-		Liquidity:   wordToBig(w[7]),
-		TokensOwed0: wordToBig(w[10]),
-		TokensOwed1: wordToBig(w[11]),
+		Nonce:                    wordToBig(w[0]),
+		Operator:                 wordToAddress(w[1]),
+		Token0:                   wordToAddress(w[2]),
+		Token1:                   wordToAddress(w[3]),
+		Fee:                      uint32(wordToBig(w[4]).Uint64()),
+		TickLower:                wordToInt24(w[5]),
+		TickUpper:                wordToInt24(w[6]),
+		Liquidity:                wordToBig(w[7]),
+		FeeGrowthInside0LastX128: wordToBig(w[8]),
+		FeeGrowthInside1LastX128: wordToBig(w[9]),
+		TokensOwed0:              wordToBig(w[10]),
+		TokensOwed1:              wordToBig(w[11]),
 	}, nil
 }
 
@@ -398,6 +419,44 @@ func (c *Client) GetPool(ctx context.Context, factory, tokenA, tokenB string, fe
 		return "", nil
 	}
 	return addr, nil
+}
+
+// FeeGrowthGlobal reads the pool's two fee-growth counters, X128 fixed point.
+//
+// These are CUMULATIVE values since the pool was created; what a position has
+// earned is the difference between two readings of them, never the value
+// itself. lp.FeesOwed does that arithmetic.
+func (c *Client) FeeGrowthGlobal(ctx context.Context, pool string) (g0, g1 *big.Int, err error) {
+	raw0, err := c.Call(ctx, pool, selFeeGrowthGlobal0)
+	if err != nil {
+		return nil, nil, err
+	}
+	raw1, err := c.Call(ctx, pool, selFeeGrowthGlobal1)
+	if err != nil {
+		return nil, nil, err
+	}
+	w0, w1 := words(raw0), words(raw1)
+	if len(w0) == 0 || len(w1) == 0 {
+		return nil, nil, errors.New("feeGrowthGlobal empty")
+	}
+	return wordToBig(w0[0]), wordToBig(w1[0]), nil
+}
+
+// TickFeeGrowthOutside reads ticks(tick)'s two feeGrowthOutside counters, the
+// per-boundary half of the feeGrowthInside formula.
+func (c *Client) TickFeeGrowthOutside(ctx context.Context, pool string, tick int32) (o0, o1 *big.Int, err error) {
+	raw, err := c.Call(ctx, pool, selTicks+padInt24(tick))
+	if err != nil {
+		return nil, nil, err
+	}
+	// ticks() returns eight words: liquidityGross, liquidityNet,
+	// feeGrowthOutside0X128, feeGrowthOutside1X128, and four more this reader
+	// does not need.
+	w := words(raw)
+	if len(w) < 4 {
+		return nil, nil, fmt.Errorf("ticks(%d) returned %d words, expected 8", tick, len(w))
+	}
+	return wordToBig(w[2]), wordToBig(w[3]), nil
 }
 
 // --- discovery ---------------------------------------------------------------

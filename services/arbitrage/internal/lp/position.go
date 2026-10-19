@@ -15,6 +15,12 @@ type PositionState struct {
 	Liquidity      string `json:"liquidity"`
 	TokensOwed0    string `json:"tokens_owed0"`
 	TokensOwed1    string `json:"tokens_owed1"`
+	// FeesOwed0/1 are the EXACT accrual: tokensOwed plus everything earned
+	// since the position was last touched, recomputed from the pool's
+	// feeGrowth counters (see FeesOwed). tokens_owed alone is only what the
+	// position manager has written down, which is a stale lower bound.
+	FeesOwed0      string `json:"fees_owed0"`
+	FeesOwed1      string `json:"fees_owed1"`
 	CurrentTick    int32  `json:"current_tick"`
 	InRange        bool   `json:"in_range"`
 	Amount0        string `json:"amount0"`

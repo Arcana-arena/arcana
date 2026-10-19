@@ -356,6 +356,31 @@ func (s *server) handleLPPosition(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The exact fee accrual: the stored tokensOwed plus everything earned
+	// since the position was last touched, recomputed the same way the
+	// contract recomputes it at collect(). The pool cannot be read partially
+	// for this — a wrong number here is worse than a refusal — so any of the
+	// four fee-growth reads failing is an error, not a degraded answer.
+	fg0, fg1, err := s.chain.FeeGrowthGlobal(ctx, pool)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "fee_growth_unreadable", err.Error())
+		return
+	}
+	lower0, lower1, err := s.chain.TickFeeGrowthOutside(ctx, pool, pos.TickLower)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "fee_growth_unreadable", err.Error())
+		return
+	}
+	upper0, upper1, err := s.chain.TickFeeGrowthOutside(ctx, pool, pos.TickUpper)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "fee_growth_unreadable", err.Error())
+		return
+	}
+	inside0 := lp.FeeGrowthInside(fg0, lower0, upper0, currentTick, pos.TickLower, pos.TickUpper)
+	inside1 := lp.FeeGrowthInside(fg1, lower1, upper1, currentTick, pos.TickLower, pos.TickUpper)
+	fees0 := lp.FeesOwed(pos.Liquidity, pos.FeeGrowthInside0LastX128, inside0, pos.TokensOwed0)
+	fees1 := lp.FeesOwed(pos.Liquidity, pos.FeeGrowthInside1LastX128, inside1, pos.TokensOwed1)
+
 	inRange := lp.InRange(currentTick, pos.TickLower, pos.TickUpper)
 	a0, a1 := lp.PositionValue(pos.Liquidity, pos.TickLower, pos.TickUpper, sqrtX96)
 
@@ -372,14 +397,17 @@ func (s *server) handleLPPosition(w http.ResponseWriter, r *http.Request) {
 			Liquidity:      pos.Liquidity.String(),
 			TokensOwed0:    pos.TokensOwed0.String(),
 			TokensOwed1:    pos.TokensOwed1.String(),
+			FeesOwed0:      fees0.String(),
+			FeesOwed1:      fees1.String(),
 			CurrentTick:    currentTick,
 			InRange:        inRange,
 			Amount0:        a0.String(),
 			Amount1:        a1.String(),
 			Recommendation: lp.Recommend(inRange, pos.Liquidity),
 		},
-		"note": "read-only. tokens_owed are fees stored at the last position touch; exact live " +
-			"accrual needs feeGrowthInside. Harvest/decrease/burn are not signed by this service yet.",
+		"note": "read-only. fees_owed0/1 are the exact current accrual, recomputed from the pool's " +
+			"feeGrowth counters the same way collect() does; tokens_owed0/1 are only what the position " +
+			"manager stored at the last touch. Harvest/decrease/burn are not signed by this service yet.",
 	})
 }
 

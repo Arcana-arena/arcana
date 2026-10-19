@@ -175,6 +175,87 @@ await run.section('The read path is exercised with a verification row', async ()
   run.check('the verification rows are removed again', left === '0', left);
 });
 
+// Exact fees are the one number this reader computes that money will later be
+// collected against, so it is checked against the CONTRACT'S OWN answer: a
+// simulated collect() returns exactly what the owner would receive right now.
+// The position is found by scanning back from the position manager's
+// totalSupply — positions come and go on this chain, so no tokenId is
+// hardcoded, and a window with nothing live is "nothing to check" rather than
+// a failure.
+await run.section('Exact fees equal what the chain\'s own collect() would pay', async () => {
+  if (!npm) {
+    run.nothingToCheck('no position manager configured');
+    return;
+  }
+  const RPC = process.env.LP_VERIFY_RPC || 'https://rpc.mainnet.chain.robinhood.com';
+  const rpcCall = async (to, data, from) => {
+    const call = { to, data };
+    if (from) call.from = from;
+    const res = await fetch(RPC, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [call, 'latest'] }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (body.error || typeof body.result !== 'string') throw new Error(body.error?.message || 'no result');
+    return body.result;
+  };
+  const word = (hex, n) => hex.slice(2 + (n - 1) * 64, 2 + n * 64);
+  const pad = (v) => BigInt(v).toString(16).padStart(64, '0');
+
+  let total;
+  try {
+    total = BigInt(await rpcCall(npm, '0x18160ddd'));
+  } catch (e) {
+    run.nothingToCheck(`the chain is not readable from here (${e.message})`);
+    return;
+  }
+
+  const MAX_U128 = 'f'.repeat(32).padStart(64, '0');
+  let found = null;
+  let reason = '';
+  for (let i = 1; i <= 40 && !found; i++) {
+    const id = total - BigInt(i * 137);
+    if (id <= 0n) break;
+    let pos;
+    try {
+      pos = await rpcCall(npm, '0x99fbab88' + pad(id));
+    } catch { continue; }
+    if (BigInt('0x' + word(pos, 8)) === 0n) continue; // no liquidity; burned or drained
+    let owner;
+    try {
+      owner = '0x' + word(await rpcCall(npm, '0x6352211e' + pad(id)), 1).slice(24);
+    } catch { continue; }
+    // The endpoint resolves the pool through OUR configured factory and reads
+    // the fee growth there; a candidate it cannot resolve is not usable.
+    const r = await get(`/v1/arbitrage/lp/position?token_id=${id}`);
+    if (r.status !== 200) {
+      reason = `endpoint said ${r.status} for ${id}: ${JSON.stringify(r.body?.error || {})}`;
+      continue;
+    }
+    found = { id, owner, fees: r.body.position };
+  }
+  if (!found) {
+    run.nothingToCheck(`no live position in the sampled window (${reason || 'every sampled tokenId was burned or held no liquidity'})`);
+    return;
+  }
+
+  // The contract's own number: collect(max, max) simulated from the owner.
+  const collectData = '0xfc6f7865' + pad(found.id) + pad(found.owner) + MAX_U128 + MAX_U128;
+  const raw = await rpcCall(npm, collectData, found.owner);
+  const ref0 = BigInt('0x' + word(raw, 1)).toString();
+  const ref1 = BigInt('0x' + word(raw, 2)).toString();
+
+  run.check(`fees_owed0 equals the collect() simulation exactly (tokenId ${found.id})`,
+    found.fees.fees_owed0 === ref0, `${found.fees.fees_owed0} vs ${ref0}`);
+  run.check('fees_owed1 equals the collect() simulation exactly',
+    found.fees.fees_owed1 === ref1, `${found.fees.fees_owed1} vs ${ref1}`);
+  run.check('the exact fees are at least the stored tokens_owed',
+    BigInt(found.fees.fees_owed0) >= BigInt(found.fees.tokens_owed0)
+      && BigInt(found.fees.fees_owed1) >= BigInt(found.fees.tokens_owed1),
+    JSON.stringify({ owed: [found.fees.tokens_owed0, found.fees.tokens_owed1], fees: [found.fees.fees_owed0, found.fees.fees_owed1] }));
+});
+
 await run.section('Proposals are proposed and nothing else', async () => {
   const a = await get('/v1/arbitrage/lp/actions');
   const list = a.body?.actions;
