@@ -5,16 +5,16 @@ import "math/big"
 // PositionState is a position read back from the chain, enriched with the
 // current pool tick and the token amounts it holds at that price.
 type PositionState struct {
-	TokenID        string `json:"token_id"`
-	Owner          string `json:"owner,omitempty"`
-	Token0         string `json:"token0"`
-	Token1         string `json:"token1"`
-	Fee            uint32 `json:"fee"`
-	TickLower      int32  `json:"tick_lower"`
-	TickUpper      int32  `json:"tick_upper"`
-	Liquidity      string `json:"liquidity"`
-	TokensOwed0    string `json:"tokens_owed0"`
-	TokensOwed1    string `json:"tokens_owed1"`
+	TokenID     string `json:"token_id"`
+	Owner       string `json:"owner,omitempty"`
+	Token0      string `json:"token0"`
+	Token1      string `json:"token1"`
+	Fee         uint32 `json:"fee"`
+	TickLower   int32  `json:"tick_lower"`
+	TickUpper   int32  `json:"tick_upper"`
+	Liquidity   string `json:"liquidity"`
+	TokensOwed0 string `json:"tokens_owed0"`
+	TokensOwed1 string `json:"tokens_owed1"`
 	// FeesOwed0/1 are the EXACT accrual: tokensOwed plus everything earned
 	// since the position was last touched, recomputed from the pool's
 	// feeGrowth counters (see FeesOwed). tokens_owed alone is only what the

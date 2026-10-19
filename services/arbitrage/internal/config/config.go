@@ -136,14 +136,14 @@ func Load(allowlistPath, extraPath string) (*Config, error) {
 	}
 
 	cfg := &Config{
-		ChainID:             allow.ChainID,
-		V3Factory:           extra.V3Factory,
-		PositionManager:     extra.PositionManager,
-		MinNetProfitBps:     extra.MinNetProfitBps,
-		ReferenceSizeUSD:    extra.ReferenceSize,
-		GasCostUSD:          extra.GasCostUSD,
-		ImpactBufferBps:     extra.ImpactBufferBps,
-		LPRebalanceRangePct: extra.LPRebalanceRangePct,
+		ChainID:                allow.ChainID,
+		V3Factory:              extra.V3Factory,
+		PositionManager:        extra.PositionManager,
+		MinNetProfitBps:        extra.MinNetProfitBps,
+		ReferenceSizeUSD:       extra.ReferenceSize,
+		GasCostUSD:             extra.GasCostUSD,
+		ImpactBufferBps:        extra.ImpactBufferBps,
+		LPRebalanceRangePct:    extra.LPRebalanceRangePct,
 		LPRebalanceSlippageBps: extra.LPRebalanceSlippageBps,
 		QuoteToken: QuoteToken{
 			Symbol:   allow.Quote.Symbol,

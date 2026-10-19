@@ -12,7 +12,7 @@ func TestTickToSqrtPriceKnownValues(t *testing.T) {
 		want float64
 	}{
 		{0, 1},
-		{6932, math.Sqrt2},   // 1.0001^6932 ~= 2
+		{6932, math.Sqrt2}, // 1.0001^6932 ~= 2
 		{-6932, 1 / math.Sqrt2},
 	}
 	for _, c := range cases {

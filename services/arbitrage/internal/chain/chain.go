@@ -335,18 +335,18 @@ func wordToInt24(w string) int32 {
 // FeeGrowthInsideLastX128 records, and lp.FeesOwed turns that difference into
 // the exact number using the pool's feeGrowth counters.
 type Position struct {
-	Nonce                   *big.Int
-	Operator                string
-	Token0                  string
-	Token1                  string
-	Fee                     uint32
-	TickLower               int32
-	TickUpper               int32
-	Liquidity               *big.Int
+	Nonce                    *big.Int
+	Operator                 string
+	Token0                   string
+	Token1                   string
+	Fee                      uint32
+	TickLower                int32
+	TickUpper                int32
+	Liquidity                *big.Int
 	FeeGrowthInside0LastX128 *big.Int
 	FeeGrowthInside1LastX128 *big.Int
-	TokensOwed0             *big.Int
-	TokensOwed1             *big.Int
+	TokensOwed0              *big.Int
+	TokensOwed1              *big.Int
 }
 
 // Position reads one position from the position manager.

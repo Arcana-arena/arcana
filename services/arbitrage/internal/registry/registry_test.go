@@ -199,12 +199,12 @@ func healthyChain(tick int32) *fakeChain {
 		transfersFn: func(_, _ int64) ([]chain.TransferLog, error) {
 			return []chain.TransferLog{{Block: 900, To: walletA, TokenID: big.NewInt(7)}}, nil
 		},
-		positionFn:  func(*big.Int) (*chain.Position, error) { return position(1_000_000_000_000_000), nil },
-		ownerFn:     func(*big.Int) (string, error) { return walletA, nil },
-		poolFn:      func(_, _ string, _ uint32) (string, error) { return poolAddr, nil },
-		slot0Fn:     func(string) (*big.Int, int32, error) { return oneSqrt(), tick, nil },
-		spacingFn:   func(string) (int64, error) { return 10, nil },
-		priceFn:     func(_, _ string) (float64, error) { return 200, nil },
+		positionFn: func(*big.Int) (*chain.Position, error) { return position(1_000_000_000_000_000), nil },
+		ownerFn:    func(*big.Int) (string, error) { return walletA, nil },
+		poolFn:     func(_, _ string, _ uint32) (string, error) { return poolAddr, nil },
+		slot0Fn:    func(string) (*big.Int, int32, error) { return oneSqrt(), tick, nil },
+		spacingFn:  func(string) (int64, error) { return 10, nil },
+		priceFn:    func(_, _ string) (float64, error) { return 200, nil },
 	}
 }
 
