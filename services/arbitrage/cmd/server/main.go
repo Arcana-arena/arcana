@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"math/big"
 	"net/http"
 	"os"
 	"strconv"
@@ -89,6 +90,7 @@ func main() {
 	mux.HandleFunc("GET /v1/arbitrage/opportunities", srv.handleOpportunities)
 	mux.HandleFunc("GET /v1/arbitrage/opportunities/history", srv.handleHistory)
 	mux.HandleFunc("GET /v1/arbitrage/lp/plan", srv.handleLPPlan)
+	mux.HandleFunc("GET /v1/arbitrage/lp/position", srv.handleLPPosition)
 	mux.HandleFunc("POST /internal/v1/arbitrage/scan", guard.Wrap(srv.handleScan))
 
 	// The continuous scanner. Disabled by an empty or invalid SCAN_INTERVAL, so
@@ -279,6 +281,86 @@ func (s *server) handleLPPlan(w http.ResponseWriter, r *http.Request) {
 		"note": "read-only plan. Send to the signer as intent lp_mint: token_in=token0, " +
 			"token_out=token1, router=NonfungiblePositionManager, fee from the pool, " +
 			"tick_lower/tick_upper and the four amounts from plan.",
+	})
+}
+
+// handleLPPosition reads one position NFT and reports whether it is still in
+// range, what it currently holds, and the read-only recommendation. It never
+// harvests or rebalances — those need the collect/decrease/burn shapes, which
+// the signer does not build yet.
+//
+//	GET /v1/arbitrage/lp/position?token_id=123
+func (s *server) handleLPPosition(w http.ResponseWriter, r *http.Request) {
+	idStr := strings.TrimSpace(r.URL.Query().Get("token_id"))
+	if idStr == "" {
+		writeError(w, http.StatusBadRequest, "bad_request", "token_id is required")
+		return
+	}
+	tokenID, ok := new(big.Int).SetString(idStr, 10)
+	if !ok || tokenID.Sign() <= 0 {
+		writeError(w, http.StatusBadRequest, "bad_request", "token_id must be a positive integer")
+		return
+	}
+	npm := s.cfg.PositionManager
+	if npm == "" {
+		writeError(w, http.StatusInternalServerError, "position_manager_unconfigured",
+			"position_manager is not set in the arbitrage config")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	pos, err := s.chain.Position(ctx, npm, tokenID)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "position_unreadable", err.Error())
+		return
+	}
+	// The owner is informational: a position can still be read and valued when
+	// ownerOf fails, and losing the label is better than losing the position.
+	owner, _ := s.chain.OwnerOf(ctx, npm, tokenID)
+
+	pool, err := s.chain.GetPool(ctx, s.cfg.V3Factory, pos.Token0, pos.Token1, pos.Fee)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "pool_unreadable", err.Error())
+		return
+	}
+	if pool == "" {
+		writeError(w, http.StatusUnprocessableEntity, "no_pool",
+			"the position's pair has no pool at its fee tier")
+		return
+	}
+
+	sqrtX96, currentTick, err := s.chain.Slot0(ctx, pool)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "pool_unreadable", err.Error())
+		return
+	}
+
+	inRange := lp.InRange(currentTick, pos.TickLower, pos.TickUpper)
+	a0, a1 := lp.PositionValue(pos.Liquidity, pos.TickLower, pos.TickUpper, sqrtX96)
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"pool": pool,
+		"position": lp.PositionState{
+			TokenID:        tokenID.String(),
+			Owner:          owner,
+			Token0:         pos.Token0,
+			Token1:         pos.Token1,
+			Fee:            pos.Fee,
+			TickLower:      pos.TickLower,
+			TickUpper:      pos.TickUpper,
+			Liquidity:      pos.Liquidity.String(),
+			TokensOwed0:    pos.TokensOwed0.String(),
+			TokensOwed1:    pos.TokensOwed1.String(),
+			CurrentTick:    currentTick,
+			InRange:        inRange,
+			Amount0:        a0.String(),
+			Amount1:        a1.String(),
+			Recommendation: lp.Recommend(inRange, pos.Liquidity),
+		},
+		"note": "read-only. tokens_owed are fees stored at the last position touch; exact live " +
+			"accrual needs feeGrowthInside. Harvest/decrease/burn are not signed by this service yet.",
 	})
 }
 

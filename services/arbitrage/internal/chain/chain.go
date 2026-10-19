@@ -25,6 +25,10 @@ const (
 	selToken0      = "0x0dfe1681" // token0()
 	selLiquidity   = "0x1a686502" // liquidity()
 	selTickSpacing = "0xd0c93a7c" // tickSpacing()
+	selPositions   = "0x99fbab88" // positions(uint256) on the NonfungiblePositionManager
+	selOwnerOf     = "0x6352211e" // ownerOf(uint256) (ERC721)
+	selTotalSupply = "0x18160ddd" // totalSupply()
+	selGetPool     = "0x1698ee82" // getPool(address,address,uint24) on the v3 factory
 )
 
 // Client calls eth_call against a list of endpoints, in order, and remembers
@@ -245,4 +249,117 @@ func (c *Client) Token0(ctx context.Context, pool string) (string, error) {
 		return "", errors.New("token0 empty")
 	}
 	return wordToAddress(w[0]), nil
+}
+
+// --- LP positions ------------------------------------------------------------
+
+func padUint(v *big.Int) string {
+	h := v.Text(16)
+	if len(h) >= 64 {
+		return h[len(h)-64:]
+	}
+	return strings.Repeat("0", 64-len(h)) + h
+}
+
+func padAddress(a string) string {
+	h := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(a)), "0x")
+	if len(h) > 40 {
+		h = h[len(h)-40:]
+	}
+	return strings.Repeat("0", 64-len(h)) + h
+}
+
+func wordToInt24(w string) int32 {
+	v := wordToBig(w)
+	if v.Bit(255) == 1 {
+		v.Sub(v, new(big.Int).Lsh(big.NewInt(1), 256))
+	}
+	return int32(v.Int64())
+}
+
+// Position is one NonfungiblePositionManager position, as positions(tokenId)
+// returns it. TokensOwed0/1 are the fees stored at the last position touch, not
+// the exact accrued total — computing the live accrual needs the pool's
+// feeGrowthInside, which this first slice does not read.
+type Position struct {
+	Nonce       *big.Int
+	Operator    string
+	Token0      string
+	Token1      string
+	Fee         uint32
+	TickLower   int32
+	TickUpper   int32
+	Liquidity   *big.Int
+	TokensOwed0 *big.Int
+	TokensOwed1 *big.Int
+}
+
+// Position reads one position from the position manager.
+func (c *Client) Position(ctx context.Context, npm string, tokenID *big.Int) (*Position, error) {
+	raw, err := c.Call(ctx, npm, selPositions+padUint(tokenID))
+	if err != nil {
+		return nil, err
+	}
+	w := words(raw)
+	if len(w) < 12 {
+		return nil, fmt.Errorf("positions returned %d words, expected 12", len(w))
+	}
+	return &Position{
+		Nonce:       wordToBig(w[0]),
+		Operator:    wordToAddress(w[1]),
+		Token0:      wordToAddress(w[2]),
+		Token1:      wordToAddress(w[3]),
+		Fee:         uint32(wordToBig(w[4]).Uint64()),
+		TickLower:   wordToInt24(w[5]),
+		TickUpper:   wordToInt24(w[6]),
+		Liquidity:   wordToBig(w[7]),
+		TokensOwed0: wordToBig(w[10]),
+		TokensOwed1: wordToBig(w[11]),
+	}, nil
+}
+
+// OwnerOf reports who owns a position NFT.
+func (c *Client) OwnerOf(ctx context.Context, npm string, tokenID *big.Int) (string, error) {
+	raw, err := c.Call(ctx, npm, selOwnerOf+padUint(tokenID))
+	if err != nil {
+		return "", err
+	}
+	w := words(raw)
+	if len(w) == 0 {
+		return "", errors.New("ownerOf empty")
+	}
+	return wordToAddress(w[0]), nil
+}
+
+// TotalSupply reports how many positions exist. Used to find a live position
+// for read-only verification without knowing any tokenId in advance.
+func (c *Client) TotalSupply(ctx context.Context, npm string) (*big.Int, error) {
+	raw, err := c.Call(ctx, npm, selTotalSupply)
+	if err != nil {
+		return nil, err
+	}
+	w := words(raw)
+	if len(w) == 0 {
+		return nil, errors.New("totalSupply empty")
+	}
+	return wordToBig(w[0]), nil
+}
+
+// GetPool resolves a pool from the factory. An empty address means no pool
+// exists for that pair and fee.
+func (c *Client) GetPool(ctx context.Context, factory, tokenA, tokenB string, fee uint32) (string, error) {
+	data := selGetPool + padAddress(tokenA) + padAddress(tokenB) + padUint(new(big.Int).SetUint64(uint64(fee)))
+	raw, err := c.Call(ctx, factory, data)
+	if err != nil {
+		return "", err
+	}
+	w := words(raw)
+	if len(w) == 0 {
+		return "", errors.New("getPool empty")
+	}
+	addr := wordToAddress(w[0])
+	if addr == "0x0000000000000000000000000000000000000000" {
+		return "", nil
+	}
+	return addr, nil
 }

@@ -20,13 +20,19 @@ import (
 
 // Config is the arbitrage scanner's view of what to compare.
 type Config struct {
-	ChainID          int64       `json:"chain_id"`
-	MinNetProfitBps  float64     `json:"min_net_profit_bps"`
-	ReferenceSizeUSD float64     `json:"reference_size_usd"`
-	GasCostUSD       float64     `json:"gas_cost_usd"`
-	ImpactBufferBps  float64     `json:"impact_buffer_bps"`
-	QuoteToken       QuoteToken  `json:"quote_token"`
-	Tokens           []Token     `json:"tokens"`
+	ChainID          int64      `json:"chain_id"`
+	MinNetProfitBps  float64    `json:"min_net_profit_bps"`
+	ReferenceSizeUSD float64    `json:"reference_size_usd"`
+	GasCostUSD       float64    `json:"gas_cost_usd"`
+	ImpactBufferBps  float64    `json:"impact_buffer_bps"`
+	QuoteToken       QuoteToken `json:"quote_token"`
+	// V3Factory and PositionManager are read-only references for the LP
+	// position reader: factory.getPool resolves the pool a position belongs to,
+	// and the position manager holds the position itself. They are reviewed
+	// addresses, the same values the signer allowlist carries.
+	V3Factory       string  `json:"v3_factory"`
+	PositionManager string  `json:"position_manager"`
+	Tokens          []Token `json:"tokens"`
 }
 
 // QuoteToken is the pair's quote side (USDG).
