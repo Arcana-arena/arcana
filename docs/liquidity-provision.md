@@ -55,16 +55,24 @@ provision does not need a spread to exist — it *earns the fee the takers pay*
 and is compensated for inventory risk. On WETH/USDG the inventory risk (IL) is
 near zero, so the fee is close to free money.
 
-## Next: phased build (real money → checkpoints)
+## Phased build (real money → checkpoints)
 
-1. **Paper LP simulator** — a read-only engine that places a simulated
-   concentrated position on WETH/USDG from live data and reports realized fee
-   accrual vs IL over a real window. Proves the economics without capital.
-2. **Signer `mint` shape** — add Uniswap v3 `NonfungiblePositionManager.mint`
-   to the signer's fixed shape set (the sharp edge), allowlisted and proved by
-   `eth_call` before any broadcast.
-3. **LP engine + position manager** — set the range around the Chainlink/WETH
-   oracle, size the two legs, harvest fees, and rebalance; with a heartbeat and
-   emergency withdrawal.
-4. **Small real position** — a capped, owner-approved deposit (e.g. a few
-   hundred USD) on WETH/USDG 0.05%, watched end-to-end before any scale-up.
+Status 2026-10-18:
+
+1. **Paper LP simulator — DONE.** Measured realized fee APR 30.7% on the
+   USDG/WETH 0.01% pool from on-chain `feeGrowthGlobal` deltas, over a live
+   10-minute window.
+2. **Signer `mint` shape — DONE (built, tested, dry-run).** `lp_mint` builds
+   `NonfungiblePositionManager.mint`; the NPM is allowlisted after its bytecode
+   was checked for selector `0x88316456`; the calldata was `eth_call`ed against
+   the live NPM and reached `transferFrom` ("STF"), proving the ABI and the
+   int24 tick encoding. Not yet deployed to the running signer.
+3. **LP planner — DONE.** `services/arbitrage/internal/lp` implements the
+   Uniswap v3 tick/liquidity/amount math (unit-tested) and turns a live pool
+   into a concrete `lp_mint` plan (range snapped to tick spacing, both legs
+   sized for a target USD value). Live endpoint:
+   `GET /v1/arbitrage/lp/plan?symbol=NVDA&size_usd=500&range_pct=0.05`.
+   **Still to build for this phase:** the position manager — tracking the NFT
+   tokenId, harvesting fees and rebalancing when price leaves the range.
+4. **Small real position — NOT STARTED.** A capped, owner-approved deposit,
+   watched end-to-end before any scale-up.
