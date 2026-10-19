@@ -62,11 +62,13 @@ Status 2026-10-18:
 1. **Paper LP simulator — DONE.** Measured realized fee APR 30.7% on the
    USDG/WETH 0.01% pool from on-chain `feeGrowthGlobal` deltas, over a live
    10-minute window.
-2. **Signer `mint` shape — DONE (built, tested, dry-run).** `lp_mint` builds
+2. **Signer `mint` shape — DONE (built, tested, dry-run, deployed 2026-10-19).**
+   `lp_mint` builds
    `NonfungiblePositionManager.mint`; the NPM is allowlisted after its bytecode
    was checked for selector `0x88316456`; the calldata was `eth_call`ed against
    the live NPM and reached `transferFrom` ("STF"), proving the ABI and the
-   int24 tick encoding. Not yet deployed to the running signer.
+   int24 tick encoding. Deployed: the running signer's `/healthz` reports the
+   commit, `signer-verify` passes 62/62, and live probes refuse as designed.
 3. **LP planner — DONE.** `services/arbitrage/internal/lp` implements the
    Uniswap v3 tick/liquidity/amount math (unit-tested) and turns a live pool
    into a concrete `lp_mint` plan (range snapped to tick spacing, both legs
@@ -77,7 +79,8 @@ Status 2026-10-18:
    factory, reads the current tick, and reports owner, ticks, liquidity, stored
    `tokensOwed`, current token amounts, `in_range`, and a recommendation
    (`hold` / `rebalance` / `empty`). Verified against a live position.
-5. **Signer management shapes — DONE (built, tested, dry-run).** `lp_collect`,
+5. **Signer management shapes — DONE (built, tested, dry-run, deployed
+   2026-10-19).** `lp_collect`,
    `lp_decrease` and `lp_burn` join `lp_mint`. Every one first reads `ownerOf`
    from the chain and refuses a position the agent does not own; `lp_collect`
    forces the recipient to the agent's wallet; `lp_decrease` refuses liquidity
@@ -85,9 +88,24 @@ Status 2026-10-18:
    `fc6f7865` / `0c49ccbe` / `42966c68` were confirmed in the NPM bytecode, and
    all three were `eth_call`ed live — `collect` and `burn` succeeded on an empty
    position, and `decreaseLiquidity(1)` succeeded on a live position with
-   liquidity. Not yet deployed to the running signer.
-   **Still to build:** a DB registry of the tokenIds an agent owns, and the
-   execution loop that acts on the recommendation. Exact live fee accrual
-   (beyond stored `tokensOwed`) also needs `feeGrowthInside`.
+   liquidity. Deployed: live probes on the running signer return
+   `position_manager_not_allowlisted` (unallowlisted PM) and
+   `chain_state_unverifiable` with the exact ERC721 revert (nonexistent
+   tokenId) — refusals driven by the new shapes, never `unknown_intent`.
+   **Registry and loop — DONE (read-only), 2026-10-19.** Migration 0065 adds
+   `lp_positions`, `lp_position_actions` and `lp_sync_heartbeat`. The loop
+   discovers position NFTs from recipient-filtered Transfer logs (90k-block
+   windows, cursor in the heartbeat so a failed window is re-read), re-reads
+   `ownerOf`/`positions` every pass rather than remembering them, and writes a
+   `proposed` action for an out-of-range or empty position with the exact
+   numbers: a fresh ±5% range (`lp_rebalance_range_pct`) sized for the
+   position's current value with a 0.5% slippage floor, or collect+burn.
+   **Nothing executes a proposal** — this service cannot sign, and the verify
+   suite checks the signer's journal for zero `lp_*` signings.
+   **Still to build:** the executor that turns a proposal into signer intents
+   (Phase 6+, with the first real position; note the signer parses `amount`
+   before the intent switch, so `lp_collect`/`lp_burn` requests must send
+   `amount: "0"`), and `feeGrowthInside` for exact live fee accrual — stored
+   `tokensOwed` is what the registry records today.
 6. **Small real position — NOT STARTED.** A capped, owner-approved deposit,
    watched end-to-end before any scale-up.
