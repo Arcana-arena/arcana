@@ -111,18 +111,26 @@ Status 2026-10-18:
    position's current value with a 0.5% slippage floor, or collect+burn.
    **Nothing executes a proposal** — this service cannot sign, and the verify
    suite checks the signer's journal for zero `lp_*` signings.
-   **Still to build:** the arming of the executor — its phase A is DONE
-   (2026-10-19): `arcana-lpexec` reads the proposal queue, re-checks each
-   proposal against the chain, and prints the complete signer request bodies it
-   would send (`lp_collect → lp_decrease → lp_burn → lp_mint` for a rebalance,
-   `lp_collect → lp_burn` for a close), then stops — it calls no signer and
-   holds no credential. Note the signer parses `amount` before the intent
-   switch (these bodies send `amount: "0"`), and its default `deadline` of 0
-   would be rejected by the position manager, so the planner stamps one.
-   **Arming** (signer + broadcast + execution records) is the funding
-   checkpoint in [lp-execution.md](./lp-execution.md). Exact live fee accrual
-   is READABLE (`fees_owed0/1` on `/lp/position`, verified against
-   `collect()`); the registry still records stored `tokensOwed`, so persisting
-   exact fees per sync would be a deliberate schema addition, not a drive-by.
+   **Executor — DONE, ARMED, PROVEN (2026-10-20).** `arcana-lpexec`
+   (`services/decision-engine/cmd/lpexec`) reads the proposal queue, re-checks
+   each proposal against the chain, and — with `LP_EXECUTE=1`, which the unit
+   sets — claims it, derives the approvals, signs each intent through the
+   signer, broadcasts, waits for each receipt and records every step
+   (`lp_execution_steps`, migration 0066). The sequence is the contract's:
+   `approve` (only when short) → `lp_decrease` → `lp_collect` → `lp_burn` →
+   `lp_mint` for a rebalance (the collect MUST follow the decrease: burn
+   refuses while `tokensOwed` is non-zero, and the decrease is what credits
+   it), `lp_collect` → `lp_burn` for a close. Note the signer parses `amount`
+   before the intent switch (bodies send `amount: "0"`), and its default
+   `deadline` of 0 would be rejected by the position manager, so the executor
+   stamps one. **Proven end to end on an anvil fork of the real chain** — real
+   NPM, real USDG, a real position, six mined transactions, chain state
+   verified afterwards (31/31, `infra/verify/lpexec-anvil-e2e.sh`). It is
+   inert until an agent owns a position; the funding runbook and the remaining
+   owner acts (custody, amount) are in
+   [lp-execution.md](./lp-execution.md). Exact live fee accrual is READABLE
+   (`fees_owed0/1` on `/lp/position`, verified against `collect()`); the
+   registry still records stored `tokensOwed`, so persisting exact fees per
+   sync would be a deliberate schema addition, not a drive-by.
 6. **Small real position — NOT STARTED.** A capped, owner-approved deposit,
    watched end-to-end before any scale-up.

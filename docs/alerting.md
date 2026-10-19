@@ -51,7 +51,7 @@ Twenty-two units declare `OnFailure=arcana-alert@%n.service`:
 | `arcana-anchor-signer` | the anchoring signer: one key, not derived from the agent seed, one transaction shape (a self-send carrying a root) |
 | `arcana-thesis-resolve` | resolves public theses whose deadline has passed, through agent-service's own market measurement. Alerts on a failed run — a verdict that never gets published is a promise broken in public |
 | `arcana-arbitrage` | the read-only arbitrage scanner and LP position registry. It signs nothing, so a failure costs visibility rather than money — which is exactly why the alert matters: a registry that stopped syncing looks identical to a market with nothing in it. Added 2026-10-19, a day after the unit did |
-| `arcana-lpexec` | the LP execution planner: assembles the signer intents a proposed LP action would need and sends none. Alerts on a failed run — it is the last reader in front of the money path, and its silence on a proposal would otherwise look like a quiet queue |
+| `arcana-lpexec` | the LP execution path: claims proposed LP actions, signs and broadcasts the intents, and records each receipt. Alerts on a failed run — a failed action stops the sequence and leaves the record for a person to read, which is exactly the moment silence would be worst |
 | ~~`arcana-tick-watchdog`~~ | **RETIRED 2026-09-11.** Asked "was there a tick on a day the market was open" — a question about a calendar that no longer exists. Replaced by `arcana-decision-watchdog`, which asks whether a DECISION has been recorded in the last twelve hours. |
 
 One template rather than one handler per unit, because a second copy would

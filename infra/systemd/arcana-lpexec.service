@@ -1,20 +1,30 @@
-# arcana-lpexec.service — assemble signer intents from proposed LP actions.
+# arcana-lpexec.service — the LP execution path.
 #
-# PHASE A OF THE MONEY PATH, AND IT TOUCHES NO MONEY. It reads the proposal
-# queue the arbitrage loop writes, re-checks every proposal against the chain,
-# and prints the exact signer request bodies it would send — then stops. It
-# does not call the signer, does not broadcast, writes nothing and holds no
-# credential (all three of its reads are public read-only routes). Arming it is
-# the funding checkpoint described in docs/lp-execution.md, not a flag here.
+# ARMED, AND IT CANNOT ACT UNTIL A POSITION EXISTS. LP_EXECUTE=1 turns the
+# planner into the executor: it claims a proposed action, signs each intent
+# through the signer, broadcasts it, waits for its own receipt, and records
+# every step. With no proposal in the queue — which is the state until an agent
+# owns a position — a run is one HTTP read that exits 0.
+#
+# The sequence is the contract's: approve (only when the allowance to the
+# position manager is short, derived at execution time), decrease, collect,
+# burn, mint for a rebalance; collect, burn for a close. It stops at the first
+# refusal, revert, unresolved receipt or fault; nothing is retried; the hash is
+# recorded at broadcast time so a crash cannot lose a transaction on the wire.
+#
+# PROVEN BEFORE ARMED: the full six-step cycle ran on an anvil fork of
+# Robinhood Chain — the real NonfungiblePositionManager, real USDG, a real
+# position — with the real signer binary and this same scheduler-bin/lpexec.
+# 31/31 checks; see docs/lp-execution.md.
 #
 # A ONESHOT, not a watcher, for the same reason arcana-pace is: the work is a
-# bounded read-and-plan over a small queue, and the timer decides how often it
-# happens. Overlap protection is the usual two layers — systemd will not start
-# a second instance while one is activating, and flock covers runs that never
-# come through systemd.
+# bounded read-and-execute over a small queue, and the timer decides how often
+# it happens. Overlap protection is the usual two layers — systemd will not
+# start a second instance while one is activating, and flock covers runs that
+# never come through systemd.
 [Unit]
-Description=ARCANA LP execution planner (assembles signer intents; sends nothing)
-After=network-online.target arcana-arbitrage.service
+Description=ARCANA LP execution (claims proposals; signs and broadcasts)
+After=network-online.target arcana-arbitrage.service arcana-signer.service
 Wants=network-online.target
 
 OnFailure=arcana-alert@%n.service
@@ -27,10 +37,18 @@ User=ubuntu
 SyslogIdentifier=arcana-lpexec
 WorkingDirectory=/home/ubuntu/arcana/services/decision-engine
 Environment=ARBITRAGE_URL=http://127.0.0.1:8084
+Environment=LP_EXECUTE=1
+Environment=DATABASE_URL=postgres://arcana:arcana@localhost:5432/arcana?sslmode=disable
+Environment=SIGNER_URL=http://127.0.0.1:8085
+Environment=EXECUTION_ALLOWLIST_FILE=/home/ubuntu/arcana/services/signer/allowlist/robinhood-mainnet.json
+Environment=EXECUTION_RPC_URLS=https://robinhood-rpc.publicnode.com,https://rpc.mainnet.chain.robinhood.com
+# INTERNAL_API_KEY comes from this file at mode 600 — never inline in a unit,
+# because `systemctl show` prints Environment= to any user.
+EnvironmentFile=-/home/ubuntu/arcana/.env.auth
 ExecStart=/usr/bin/flock -n /tmp/arcana-lpexec.lock /home/ubuntu/arcana/scheduler-bin/lpexec
-# A plan is a handful of HTTP reads; anything still running after two minutes is
-# wedged, and the next run will try again.
-TimeoutStartSec=120
+# Four transactions worst case, each waiting for its own receipt on a 90s
+# budget. Anything still running after five minutes is wedged.
+TimeoutStartSec=300
 
 [Install]
 WantedBy=multi-user.target
