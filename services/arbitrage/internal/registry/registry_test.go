@@ -354,8 +354,8 @@ func TestSyncIgnoresFreshTokenOwnedByStranger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SyncOnce: %v", err)
 	}
-	if res.Discovered != 1 || res.Synced != 0 || res.Closed != 0 {
-		t.Fatalf("a stranger's token must not be registered: %+v", res)
+	if res.Discovered != 1 || res.Synced != 0 || res.Skipped != 1 || res.Closed != 0 {
+		t.Fatalf("a stranger's token must be skipped, not synced: %+v", res)
 	}
 	if len(st.upserts) != 0 || len(st.closed) != 0 {
 		t.Fatalf("expected no writes, got upserts %+v closed %v", st.upserts, st.closed)

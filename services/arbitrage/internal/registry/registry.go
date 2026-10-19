@@ -102,12 +102,29 @@ type Result struct {
 	Watched    int    `json:"watched"`
 	Discovered int    `json:"discovered"`
 	Synced     int    `json:"synced"`
+	Skipped    int    `json:"skipped"`
 	Proposed   int    `json:"proposed"`
 	Closed     int    `json:"closed"`
 	Open       int    `json:"open"`
 	Errors     int    `json:"errors"`
 	Note       string `json:"note,omitempty"`
 }
+
+// outcome is what one refresh did for a position. "Not an error" and "written"
+// are different things: a discovered token that turns out not to belong to an
+// agent wallet is skipped, not synced, and counting it as synced would hide
+// that nothing was registered.
+type outcome int
+
+const (
+	// outcomeSkipped: nothing was written — the token is not (or no longer)
+	// an agent-owned position.
+	outcomeSkipped outcome = iota
+	// outcomeSynced: the registry row was written.
+	outcomeSynced
+	// outcomeClosed: a known row was closed (burned, or no longer agent-owned).
+	outcomeClosed
+)
 
 // SyncOnce reads every open position, discovers new ones from Transfer logs,
 // and keeps the proposals in step with the recommendations. The heartbeat is
@@ -153,20 +170,25 @@ func (s *Syncer) SyncOnce(ctx context.Context) (*Result, error) {
 	for _, p := range open {
 		known[p.TokenID] = true
 	}
-	for _, p := range open {
-		closed, proposed, err := s.refreshOne(ctx, npm, p, true, byWallet)
-		if err != nil {
-			record(err)
-			continue
-		}
-		if closed {
+	tally := func(o outcome, proposed bool) {
+		switch o {
+		case outcomeClosed:
 			res.Closed++
-		} else {
+		case outcomeSynced:
 			res.Synced++
+		case outcomeSkipped:
+			res.Skipped++
 		}
 		if proposed {
 			res.Proposed++
 		}
+	}
+	for _, p := range open {
+		o, proposed, err := s.refreshOne(ctx, npm, p, true, byWallet)
+		if err != nil {
+			record(err)
+		}
+		tally(o, proposed)
 	}
 
 	// Discovery: read Transfer logs from where the last pass stopped. The
@@ -183,19 +205,11 @@ func (s *Syncer) SyncOnce(ctx context.Context) (*Result, error) {
 	res.Discovered = len(fresh)
 	res.Watched += len(fresh)
 	for _, f := range fresh {
-		closed, proposed, err := s.refreshOne(ctx, npm, f, false, byWallet)
+		o, proposed, err := s.refreshOne(ctx, npm, f, false, byWallet)
 		if err != nil {
 			record(err)
-			continue
 		}
-		if closed {
-			res.Closed++
-		} else {
-			res.Synced++
-		}
-		if proposed {
-			res.Proposed++
-		}
+		tally(o, proposed)
 	}
 
 	// The honest open count after the pass, read back rather than tallied.
@@ -284,18 +298,18 @@ func (s *Syncer) discover(ctx context.Context, npm string, wallets []string, byW
 // holds, and is superseded when it stops. known distinguishes a registry row
 // from a freshly discovered tokenId — a discovery that turns out not to be an
 // agent-owned position is simply not registered.
-func (s *Syncer) refreshOne(ctx context.Context, npm string, row store.LPPosition, known bool, byWallet map[string]store.AgentWallet) (closed bool, proposed bool, err error) {
+func (s *Syncer) refreshOne(ctx context.Context, npm string, row store.LPPosition, known bool, byWallet map[string]store.AgentWallet) (outcome, bool, error) {
 	tokenID, ok := new(big.Int).SetString(row.TokenID, 10)
 	if !ok || tokenID.Sign() <= 0 {
-		return false, false, fmt.Errorf("token id %q is not a positive integer", row.TokenID)
+		return outcomeSkipped, false, fmt.Errorf("token id %q is not a positive integer", row.TokenID)
 	}
 	if len(byWallet) == 0 {
-		return false, false, errors.New("no agent wallets to check ownership against; ownership not verified")
+		return outcomeSkipped, false, errors.New("no agent wallets to check ownership against; ownership not verified")
 	}
 
 	pos, err := s.chain.Position(ctx, npm, tokenID)
 	if err != nil {
-		return false, false, fmt.Errorf("positions(%s): %w", tokenID, err)
+		return outcomeSkipped, false, fmt.Errorf("positions(%s): %w", tokenID, err)
 	}
 	// A burned token is deleted from the position manager, so positions()
 	// returns its zero struct. THAT is the evidence a position is gone — not
@@ -308,7 +322,7 @@ func (s *Syncer) refreshOne(ctx context.Context, npm string, row store.LPPositio
 
 	owner, err := s.chain.OwnerOf(ctx, npm, tokenID)
 	if err != nil {
-		return false, false, fmt.Errorf("ownerOf(%s): %w", tokenID, err)
+		return outcomeSkipped, false, fmt.Errorf("ownerOf(%s): %w", tokenID, err)
 	}
 	agent, ours := byWallet[strings.ToLower(owner)]
 	if !ours {
@@ -320,14 +334,14 @@ func (s *Syncer) refreshOne(ctx context.Context, npm string, row store.LPPositio
 
 	pool, err := s.chain.GetPool(ctx, s.cfg.V3Factory, pos.Token0, pos.Token1, pos.Fee)
 	if err != nil {
-		return false, false, fmt.Errorf("getPool for %s: %w", tokenID, err)
+		return outcomeSkipped, false, fmt.Errorf("getPool for %s: %w", tokenID, err)
 	}
 	if pool == "" {
-		return false, false, fmt.Errorf("position %s: no pool at fee %d for %s/%s", tokenID, pos.Fee, pos.Token0, pos.Token1)
+		return outcomeSkipped, false, fmt.Errorf("position %s: no pool at fee %d for %s/%s", tokenID, pos.Fee, pos.Token0, pos.Token1)
 	}
 	sqrtX96, currentTick, err := s.chain.Slot0(ctx, pool)
 	if err != nil {
-		return false, false, fmt.Errorf("slot0(%s): %w", pool, err)
+		return outcomeSkipped, false, fmt.Errorf("slot0(%s): %w", pool, err)
 	}
 
 	inRange := lp.InRange(currentTick, pos.TickLower, pos.TickUpper)
@@ -336,7 +350,7 @@ func (s *Syncer) refreshOne(ctx context.Context, npm string, row store.LPPositio
 
 	dec0, usd0, dec1, usd1, err := s.pairUSD(ctx, pool, pos.Token0, pos.Token1)
 	if err != nil {
-		return false, false, err
+		return outcomeSkipped, false, err
 	}
 
 	curTick, inR := currentTick, inRange
@@ -362,35 +376,36 @@ func (s *Syncer) refreshOne(ctx context.Context, npm string, row store.LPPositio
 		Recommendation:  &reco,
 	}
 	if err := s.store.UpsertLPPosition(ctx, out); err != nil {
-		return false, false, err
+		return outcomeSkipped, false, err
 	}
 
 	pending, err := s.store.PendingActions(ctx, npm, row.TokenID)
 	if err != nil {
-		return false, false, err
+		return outcomeSynced, false, err
 	}
 	if rec == "hold" {
 		// Back in range, or never left it: any standing proposal was made
 		// under a verdict that no longer holds.
 		if len(pending) > 0 {
 			if err := s.store.SupersedeActions(ctx, npm, row.TokenID); err != nil {
-				return false, false, err
+				return outcomeSynced, false, err
 			}
 		}
-		return false, false, nil
+		return outcomeSynced, false, nil
 	}
 	for _, a := range pending {
 		if a.Recommendation == rec {
-			return false, false, nil
+			return outcomeSynced, false, nil
 		}
 	}
 
 	detail, err := s.actionDetail(ctx, rec, pool, pos, sqrtX96, currentTick, a0, a1, dec0, usd0, dec1, usd1)
 	if err != nil {
-		return false, false, err
+		// The row is registered; only the proposal could not be built.
+		return outcomeSynced, false, err
 	}
 	if err := s.store.SupersedeActions(ctx, npm, row.TokenID); err != nil {
-		return false, false, err
+		return outcomeSynced, false, err
 	}
 	if err := s.store.ProposeAction(ctx, store.LPAction{
 		PositionManager: npm,
@@ -399,24 +414,24 @@ func (s *Syncer) refreshOne(ctx context.Context, npm string, row store.LPPositio
 		Recommendation:  rec,
 		Detail:          detail,
 	}); err != nil {
-		return false, false, err
+		return outcomeSynced, false, err
 	}
-	return false, true, nil
+	return outcomeSynced, true, nil
 }
 
 // closeIfKnown closes a registry row that is provably gone, and quietly
 // ignores a fresh discovery that already reads as gone.
-func (s *Syncer) closeIfKnown(ctx context.Context, npm, tokenID string, known bool) (bool, bool, error) {
+func (s *Syncer) closeIfKnown(ctx context.Context, npm, tokenID string, known bool) (outcome, bool, error) {
 	if !known {
-		return false, false, nil
+		return outcomeSkipped, false, nil
 	}
 	if err := s.store.CloseLPPosition(ctx, npm, tokenID); err != nil {
-		return false, false, err
+		return outcomeSkipped, false, err
 	}
 	if err := s.store.SupersedeActions(ctx, npm, tokenID); err != nil {
-		return false, false, err
+		return outcomeClosed, false, err
 	}
-	return true, false, nil
+	return outcomeClosed, false, nil
 }
 
 // actionDetail is the payload a future executor would carry out: for a
