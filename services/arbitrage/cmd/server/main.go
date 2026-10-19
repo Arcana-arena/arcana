@@ -36,6 +36,7 @@ const defaultRPC = "https://robinhood-rpc.publicnode.com," +
 type server struct {
 	engine *engine.Engine
 	cfg    *config.Config
+	chain  *chain.Client
 }
 
 func main() {
@@ -72,6 +73,7 @@ func main() {
 	srv := &server{
 		engine: engine.New(chainClient, cfg, store.New(pool)),
 		cfg:    cfg,
+		chain:  chainClient,
 	}
 
 	guard := internalauth.New("arbitrage")
