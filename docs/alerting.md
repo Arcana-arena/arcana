@@ -25,7 +25,7 @@ So there are two layers.
 
 ## Layer 1 — `OnFailure=` on every job
 
-Seventeen units declare `OnFailure=arcana-alert@%n.service`:
+Twenty-one units declare `OnFailure=arcana-alert@%n.service`:
 
 | Unit | What it does |
 |---|---|
@@ -49,6 +49,8 @@ Seventeen units declare `OnFailure=arcana-alert@%n.service`:
 | `arcana-error-watch` | reads the journals of agent, arca, marketplace and web every ten minutes and alerts on new server errors (`ExceptionsHandler`, `QueryFailedError`). A service answering requests with 500s is an active unit, so `OnFailure=` alone cannot see it — the earnings read failed for every creator for a day that way |
 | `arcana-anchor` | writes the next Merkle root of decision commitments on chain every fifteen minutes. Alerts when anchoring has worked before and cannot now (unfunded wallet, signer refusing, broadcast failing); before the first anchor ever lands, an unfunded wallet is left to `anchor-verify` rather than alerted every run |
 | `arcana-anchor-signer` | the anchoring signer: one key, not derived from the agent seed, one transaction shape (a self-send carrying a root) |
+| `arcana-thesis-resolve` | resolves public theses whose deadline has passed, through agent-service's own market measurement. Alerts on a failed run — a verdict that never gets published is a promise broken in public |
+| `arcana-arbitrage` | the read-only arbitrage scanner and LP position registry. It signs nothing, so a failure costs visibility rather than money — which is exactly why the alert matters: a registry that stopped syncing looks identical to a market with nothing in it. Added 2026-10-19, a day after the unit did |
 | ~~`arcana-tick-watchdog`~~ | **RETIRED 2026-09-11.** Asked "was there a tick on a day the market was open" — a question about a calendar that no longer exists. Replaced by `arcana-decision-watchdog`, which asks whether a DECISION has been recorded in the last twelve hours. |
 
 One template rather than one handler per unit, because a second copy would
