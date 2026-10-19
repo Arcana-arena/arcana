@@ -78,6 +78,8 @@ type allowlistFile struct {
 
 type extraFile struct {
 	ChainID         int64   `json:"chain_id"`
+	V3Factory       string  `json:"v3_factory"`
+	PositionManager string  `json:"position_manager"`
 	MinNetProfitBps float64 `json:"min_net_profit_bps"`
 	ReferenceSize   float64 `json:"reference_size_usd"`
 	GasCostUSD      float64 `json:"gas_cost_usd"`
@@ -116,6 +118,8 @@ func Load(allowlistPath, extraPath string) (*Config, error) {
 
 	cfg := &Config{
 		ChainID:          allow.ChainID,
+		V3Factory:        extra.V3Factory,
+		PositionManager:  extra.PositionManager,
 		MinNetProfitBps:  extra.MinNetProfitBps,
 		ReferenceSizeUSD: extra.ReferenceSize,
 		GasCostUSD:       extra.GasCostUSD,
