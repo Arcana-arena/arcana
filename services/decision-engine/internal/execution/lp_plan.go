@@ -92,14 +92,23 @@ type lpProposalDetail struct {
 
 // PlanLPAction assembles the intent sequence for one proposal.
 //
-// THE ORDER IS PART OF THE ANSWER, not an implementation detail: lp_collect
-// first (fees out before anything touches the liquidity), then lp_decrease of
-// the whole liquidity, then lp_burn — which the signer refuses while any
-// liquidity remains, so it can only follow a mined decrease — then lp_mint of
-// the fresh range. As separate signed transactions the sequence depends on
-// each predecessor being mined; the executor that arms this runs it that way,
-// and the signer's own checks make a wrong order fail safe rather than
-// half-execute.
+// THE ORDER IS PART OF THE ANSWER, and it is the order the CONTRACT allows, not
+// the one that reads naturally:
+//
+//   - lp_decrease first: it removes the whole liquidity and writes the removed
+//     principal — plus the fees accrued up to that block — into tokensOwed.
+//   - lp_collect second: the position manager's burn refuses while tokensOwed
+//     is non-zero ('Not cleared'), so the amount the decrease just credited has
+//     to be swept BEFORE the burn. A collect placed first would leave the
+//     decrease's own credit behind and the burn would revert.
+//   - lp_burn third: legal only with liquidity 0 and tokensOwed 0, i.e. only
+//     after both.
+//   - lp_mint last: the fresh range from the proposal's plan.
+//
+// For an empty position there is nothing to decrease, so the sequence is
+// lp_collect → lp_burn. As separate signed transactions each step depends on
+// its predecessor being mined; the executor runs them that way, and the
+// contract's own checks make a wrong order revert rather than half-execute.
 //
 // THE DEADLINE IS NOT OPTIONAL, and the signer's default of 0 is a trap: the
 // position manager reverts a mint or a decrease whose deadline has passed, and
@@ -217,6 +226,13 @@ func PlanLPAction(p LPProposal, row LPRegistryRow, pos *LPPositionRead, npm stri
 			"amount1_min": min1,
 			"deadline":    fmt.Sprintf("%d", deadlineUnix),
 		}}
+		// The collect AFTER the decrease, because decrease credits principal
+		// and fees to tokensOwed and burn refuses while it is non-zero.
+		collectAfter := LPIntent{Intent: "lp_collect", Body: map[string]any{
+			"amount":   "0",
+			"router":   npm,
+			"token_id": p.TokenID,
+		}}
 		burn := LPIntent{Intent: "lp_burn", Body: map[string]any{
 			"amount":   "0",
 			"router":   npm,
@@ -236,7 +252,7 @@ func PlanLPAction(p LPProposal, row LPRegistryRow, pos *LPPositionRead, npm stri
 			"amount1_min":     d.Plan.Amount1Min,
 			"deadline":        fmt.Sprintf("%d", deadlineUnix),
 		}}
-		out.Intents = []LPIntent{collect, decrease, burn, mint}
+		out.Intents = []LPIntent{decrease, collectAfter, burn, mint}
 
 	default:
 		out.Refusal = fmt.Sprintf("unknown recommendation %q", p.Recommendation)

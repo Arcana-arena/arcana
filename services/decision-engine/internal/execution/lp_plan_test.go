@@ -50,8 +50,10 @@ func TestPlanRebalanceAssemblesTheSequence(t *testing.T) {
 	if plan.Refusal != "" {
 		t.Fatalf("refused: %s", plan.Refusal)
 	}
+	// decrease, then collect — the contract's burn refuses while tokensOwed is
+	// non-zero and the decrease is what credits it — then burn, then mint.
 	got := names(plan.Intents)
-	want := []string{"lp_collect", "lp_decrease", "lp_burn", "lp_mint"}
+	want := []string{"lp_decrease", "lp_collect", "lp_burn", "lp_mint"}
 	if len(got) != len(want) {
 		t.Fatalf("intents: got %v", got)
 	}
@@ -61,11 +63,7 @@ func TestPlanRebalanceAssemblesTheSequence(t *testing.T) {
 		}
 	}
 
-	collect := plan.Intents[0].Body
-	if collect["amount"] != "0" || collect["router"] != lpNPM || collect["token_id"] != lpTokenID {
-		t.Fatalf("collect body: %v", collect)
-	}
-	decrease := plan.Intents[1].Body
+	decrease := plan.Intents[0].Body
 	if decrease["liquidity"] != "1000000" {
 		t.Fatalf("decrease must take the whole liquidity: %v", decrease)
 	}
@@ -75,6 +73,10 @@ func TestPlanRebalanceAssemblesTheSequence(t *testing.T) {
 	}
 	if decrease["deadline"] != "1800000000" {
 		t.Fatalf("decrease deadline: %v", decrease)
+	}
+	collect := plan.Intents[1].Body
+	if collect["amount"] != "0" || collect["router"] != lpNPM || collect["token_id"] != lpTokenID {
+		t.Fatalf("collect body: %v", collect)
 	}
 	mint := plan.Intents[3].Body
 	if mint["token_in"] != lpNVDA || mint["token_out"] != lpUSDG {

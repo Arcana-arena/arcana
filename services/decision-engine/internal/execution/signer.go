@@ -42,6 +42,23 @@ type SignRequest struct {
 	Gas       uint64 `json:"gas,omitempty"`
 	MaxFeeWei string `json:"max_fee_wei,omitempty"`
 	TipWei    string `json:"tip_wei,omitempty"`
+
+	// LP intents (lp_mint / lp_collect / lp_decrease / lp_burn). Every field is
+	// omitempty so swap and lending requests keep the exact shape they had:
+	// the signer rejects unknown keys, and a zero value that got omitted then
+	// defaulted on its side is the same request that used to be sent.
+	Fee            uint32 `json:"fee,omitempty"` // lp_mint: the pool's fee tier
+	TickLower      int32  `json:"tick_lower,omitempty"`
+	TickUpper      int32  `json:"tick_upper,omitempty"`
+	Amount0Desired string `json:"amount0_desired,omitempty"`
+	Amount1Desired string `json:"amount1_desired,omitempty"`
+	Amount0Min     string `json:"amount0_min,omitempty"`
+	Amount1Min     string `json:"amount1_min,omitempty"`
+	Deadline       string `json:"deadline,omitempty"` // unix seconds; 0 is rejected by the NPM
+	TokenID        string `json:"token_id,omitempty"`
+	Liquidity      string `json:"liquidity,omitempty"`   // lp_decrease
+	Amount0Max     string `json:"amount0_max,omitempty"` // lp_collect
+	Amount1Max     string `json:"amount1_max,omitempty"` // lp_collect
 }
 
 type SignResponse struct {
