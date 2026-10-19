@@ -51,7 +51,7 @@ KEY="e2e-internal-key"
 
 NPM=0x73991a25c818bf1f1128deaab1492d45638de0d3
 USDG=0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168
-NVDA=0xaF3D76f1834A1d425780943C99EaA608f8a93f9
+NVDA=0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC
 POOL=0xd4eb21209c4d6093f80b5b84f5c45cc093ea14a3 # NVDA/USDG 0.05%, holds both legs
 
 AGENT="$(cat /proc/sys/kernel/random/uuid)"
@@ -154,7 +154,7 @@ cast send --unlocked --from "$AGENT_ADDR" "$TOKEN1" "approve(address,uint256)" "
   && ok "approved exactly the setup mint's amount1 to the NPM" || no "setup approval"
 MINT_JSON="$(cast send --json --unlocked --from "$AGENT_ADDR" "$NPM" \
   "mint((address,address,uint24,int24,int24,uint256,uint256,uint256,uint256,address,uint256))" \
-  "$TOKEN0" "$TOKEN1" "$POOL_FEE" "$TL" "$TU" 0 "$AMT1" 0 0 "$AGENT_ADDR" "$DEADLINE" \
+  "($TOKEN0,$TOKEN1,$POOL_FEE,$TL,$TU,0,$AMT1,0,0,$AGENT_ADDR,$DEADLINE)" \
   --rpc-url "$ANVIL_URL")"
 MINT_STATUS="$(echo "$MINT_JSON" | jq -r .status)"
 [ "$MINT_STATUS" = "0x1" ] && ok "setup mint mined (range [$TL,$TU], below tick $CUR_TICK)" || { no "setup mint" "$MINT_STATUS"; echo "$MINT_JSON" | head -c 400; exit 1; }
@@ -272,7 +272,7 @@ NEW_OWNER="$(cast call "$NPM" "ownerOf(uint256)(address)" "$NEW_ID" --rpc-url "$
 [ "$(lower "$NEW_OWNER")" = "$(lower "$AGENT_ADDR")" ] && ok "the new position $NEW_ID is owned by the agent" || no "new position owner" "$NEW_OWNER"
 NEW_LIQ="$(cast call --json "$NPM" "positions(uint256)(uint96,address,address,address,uint24,int24,int24,uint128,uint256,uint256,uint128,uint128)" "$NEW_ID" --rpc-url "$ANVIL_URL" | jq -r '.[7]')"
 [ "$NEW_LIQ" != "0" ] && ok "the new position has liquidity $NEW_LIQ" || no "new position liquidity" "$NEW_LIQ"
-PLAN_TL="$(jq -r '.executions[0].steps[] | select(.intent=="lp_mint") | empty' "$WORK/armed.json" 2>/dev/null; jq -r '.plans[0].intents[] | select(.intent=="lp_mint") | .body.tick_lower' "$WORK/plan.json")"
+PLAN_TL="$(jq -r '.plans[0].intents[] | select(.intent=="lp_mint") | .body.tick_lower' "$WORK/plan.json")"
 PLAN_TU="$(jq -r '.plans[0].intents[] | select(.intent=="lp_mint") | .body.tick_upper' "$WORK/plan.json")"
 NOW_TICK="$(cast call --json "$POOL" "slot0()(uint160,int24,uint16,uint16,uint16,uint8,bool)" --rpc-url "$ANVIL_URL" | jq -r '.[1]')"
 if [ "$NOW_TICK" -ge "$PLAN_TL" ] && [ "$NOW_TICK" -lt "$PLAN_TU" ]; then
