@@ -71,7 +71,7 @@ auditable.
 | GET | `/v1/arbitrage/opportunities` | the most recent scan's rows (read-only, never triggers a scan) |
 | GET | `/v1/arbitrage/opportunities/history?limit=` | the last N rows across scans |
 | GET | `/v1/arbitrage/lp/plan?symbol=&size_usd=&range_pct=` | a concrete `lp_mint` plan for the token's v3 pool (read-only) |
-| GET | `/v1/arbitrage/lp/position?token_id=` | one position read back: in-range, amounts, stored fees, recommendation (read-only) |
+| GET | `/v1/arbitrage/lp/position?token_id=` | one position read back: in-range, amounts, stored fees (`tokens_owed`), exact accrual (`fees_owed`, recomputed from `feeGrowthInside`), recommendation (read-only) |
 | GET | `/v1/arbitrage/lp/positions?status=&limit=` | the registry — what agent wallets own and the state last read |
 | GET | `/v1/arbitrage/lp/actions?limit=` | outstanding proposals (nothing executes them) |
 | POST | `/internal/v1/arbitrage/scan` | run a scan and record it (machine tier, `X-Internal-Key`) |
@@ -122,3 +122,8 @@ runs and reports no errors, the heartbeat is fresh with a discovery cursor,
 every row belongs to the configured position manager, every outstanding action
 is only ever `proposed` with named intents, and the signer's journal shows zero
 `lp_*` signings — the check that "proposes but never executes" is still true.
+It also exercises the registry's read path with a self-removing
+`provenance='verification'` row, and checks the fee math against the chain
+itself: for a live position it finds by scanning back from the position
+manager's `totalSupply`, `fees_owed0/1` must equal a simulated
+`collect(max,max)` from the owner — the contract's own answer, not ours.

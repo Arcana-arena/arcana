@@ -79,6 +79,15 @@ Status 2026-10-18:
    factory, reads the current tick, and reports owner, ticks, liquidity, stored
    `tokensOwed`, current token amounts, `in_range`, and a recommendation
    (`hold` / `rebalance` / `empty`). Verified against a live position.
+   **Exact fee accrual — DONE (2026-10-19).** The reader also recomputes
+   `feeGrowthInside` the same way the contract does at `collect()` time (the
+   pool's `feeGrowthGlobal` counters, both boundary ticks' `feeGrowthOutside`,
+   and the position's stored `feeGrowthInsideLastX128`, with the modulo-2^256
+   subtraction the contract performs unchecked) and reports `fees_owed0/1`
+   next to the stored `tokens_owed0/1`, which are only a stale lower bound.
+   Verified against the chain's OWN answer: for a live position found by the
+   verify suite, `fees_owed` equals a simulated `collect(max,max)` from the
+   owner, exactly, token by token.
 5. **Signer management shapes — DONE (built, tested, dry-run, deployed
    2026-10-19).** `lp_collect`,
    `lp_decrease` and `lp_burn` join `lp_mint`. Every one first reads `ownerOf`
@@ -105,7 +114,9 @@ Status 2026-10-18:
    **Still to build:** the executor that turns a proposal into signer intents
    (Phase 6+, with the first real position; note the signer parses `amount`
    before the intent switch, so `lp_collect`/`lp_burn` requests must send
-   `amount: "0"`), and `feeGrowthInside` for exact live fee accrual — stored
-   `tokensOwed` is what the registry records today.
+   `amount: "0"`). Exact live fee accrual is now READABLE
+   (`fees_owed0/1` on `/lp/position`, verified against `collect()`); the
+   registry still records the stored `tokensOwed`, so persisting exact fees
+   per sync would be a deliberate schema addition, not a drive-by.
 6. **Small real position — NOT STARTED.** A capped, owner-approved deposit,
    watched end-to-end before any scale-up.
