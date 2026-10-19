@@ -88,6 +88,10 @@ type lpProposalDetail struct {
 		Amount1Min     string `json:"amount1_min"`
 	} `json:"plan"`
 	SlippageBps float64 `json:"slippage_bps"`
+	// Harvest proposals carry the exact accrual they were proposed on: a
+	// zero-fee proposal is stale (someone collected since) and is refused.
+	FeesOwed0 string `json:"fees_owed0"`
+	FeesOwed1 string `json:"fees_owed1"`
 }
 
 // PlanLPAction assembles the intent sequence for one proposal.
@@ -159,16 +163,6 @@ func PlanLPAction(p LPProposal, row LPRegistryRow, pos *LPPositionRead, npm stri
 		out.Refusal = "the proposal detail is unreadable: " + err.Error()
 		return out
 	}
-	// A slippage that is absent or nonsensical makes the decrease floors below
-	// meaningless, and a floor of zero is how a decrease gets sandwiched.
-	if !(d.SlippageBps > 0) || d.SlippageBps >= 10000 {
-		out.Refusal = fmt.Sprintf("the proposal carries no usable slippage (slippage_bps=%v)", d.SlippageBps)
-		return out
-	}
-	if deadlineUnix <= 0 {
-		out.Refusal = "no deadline was supplied; the position manager would revert the whole sequence"
-		return out
-	}
 
 	// The signer parses `amount` before it looks at the intent, so every lp_*
 	// body carries one; it bounds nothing in these shapes.
@@ -179,6 +173,26 @@ func PlanLPAction(p LPProposal, row LPRegistryRow, pos *LPPositionRead, npm stri
 	}}
 
 	switch p.Recommendation {
+	case "harvest":
+		// Fees are paid regardless of where the price is; the only thing that
+		// matters is that the position has liquidity (else nothing accrued) and
+		// that the proposal's accrual is not stale.
+		if liquidity.Sign() == 0 {
+			out.Refusal = "the recommendation is harvest but the position has no liquidity"
+			return out
+		}
+		f0, ok0 := new(big.Int).SetString(d.FeesOwed0, 10)
+		f1, ok1 := new(big.Int).SetString(d.FeesOwed1, 10)
+		if !ok0 || !ok1 {
+			out.Refusal = "the proposal carries no readable fee accrual"
+			return out
+		}
+		if f0.Sign() == 0 && f1.Sign() == 0 {
+			out.Refusal = "the proposal's fee accrual is zero — there is nothing to collect"
+			return out
+		}
+		out.Intents = []LPIntent{collect}
+
 	case "empty":
 		if liquidity.Sign() != 0 {
 			out.Refusal = "the recommendation is empty but the position still holds liquidity — that is a rebalance, not a close"
@@ -205,6 +219,18 @@ func PlanLPAction(p LPProposal, row LPRegistryRow, pos *LPPositionRead, npm stri
 		}
 		if d.Plan.TickLower >= d.Plan.TickUpper {
 			out.Refusal = fmt.Sprintf("the mint plan's range is empty or inverted (%d >= %d)", d.Plan.TickLower, d.Plan.TickUpper)
+			return out
+		}
+		// A slippage that is absent or nonsensical makes the decrease floors
+		// below meaningless, and a floor of zero is how a decrease gets
+		// sandwiched. Only a rebalance needs one: a harvest is one collect and
+		// a close has no mint leg.
+		if !(d.SlippageBps > 0) || d.SlippageBps >= 10000 {
+			out.Refusal = fmt.Sprintf("the proposal carries no usable slippage (slippage_bps=%v)", d.SlippageBps)
+			return out
+		}
+		if deadlineUnix <= 0 {
+			out.Refusal = "no deadline was supplied; the position manager would revert the whole sequence"
 			return out
 		}
 		// Floors for the decrease: what the position holds now, discounted by

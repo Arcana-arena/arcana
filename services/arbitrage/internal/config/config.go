@@ -38,7 +38,12 @@ type Config struct {
 	// the slippage floor. Reviewed numbers, in one place.
 	LPRebalanceRangePct    float64 `json:"lp_rebalance_range_pct"`
 	LPRebalanceSlippageBps float64 `json:"lp_rebalance_slippage_bps"`
-	Tokens                 []Token `json:"tokens"`
+	// LPHarvestMinUSD is the exact-accrual threshold at which the loop proposes
+	// `harvest` instead of `hold` for an in-range position. On this chain a
+	// collect costs a fraction of a cent of gas, so the threshold is about
+	// avoiding dust transactions and proposal churn, not about gas.
+	LPHarvestMinUSD float64 `json:"lp_harvest_min_usd"`
+	Tokens          []Token `json:"tokens"`
 }
 
 // QuoteToken is the pair's quote side (USDG).
@@ -90,9 +95,10 @@ type extraFile struct {
 	ReferenceSize   float64 `json:"reference_size_usd"`
 	GasCostUSD      float64 `json:"gas_cost_usd"`
 	ImpactBufferBps float64 `json:"impact_buffer_bps"`
-	// Optional; absent means the defaults in Load (0.05 / 50 bps).
+	// Optional; absent means the defaults in Load (0.05 / 50 bps / $0.50).
 	LPRebalanceRangePct    float64 `json:"lp_rebalance_range_pct"`
 	LPRebalanceSlippageBps float64 `json:"lp_rebalance_slippage_bps"`
+	LPHarvestMinUSD        float64 `json:"lp_harvest_min_usd"`
 	ExtraVenues            []struct {
 		Token  string `json:"token"`
 		Dex    string `json:"dex"`
@@ -124,6 +130,12 @@ func Load(allowlistPath, extraPath string) (*Config, error) {
 	if extra.LPRebalanceSlippageBps == 0 {
 		extra.LPRebalanceSlippageBps = 50
 	}
+	if extra.LPHarvestMinUSD == 0 {
+		// Half a dollar of accrued fees. On this chain a collect costs a
+		// fraction of a cent of gas; the threshold exists so the loop does not
+		// propose a transaction for dust.
+		extra.LPHarvestMinUSD = 0.5
+	}
 
 	extraByToken := map[string][]Venue{}
 	for _, ev := range extra.ExtraVenues {
@@ -145,6 +157,7 @@ func Load(allowlistPath, extraPath string) (*Config, error) {
 		ImpactBufferBps:        extra.ImpactBufferBps,
 		LPRebalanceRangePct:    extra.LPRebalanceRangePct,
 		LPRebalanceSlippageBps: extra.LPRebalanceSlippageBps,
+		LPHarvestMinUSD:        extra.LPHarvestMinUSD,
 		QuoteToken: QuoteToken{
 			Symbol:   allow.Quote.Symbol,
 			Address:  allow.Quote.Address,
@@ -216,6 +229,9 @@ func loadExtra(path string) (*extraFile, error) {
 	}
 	if e.LPRebalanceSlippageBps < 0 || e.LPRebalanceSlippageBps >= 10000 {
 		return nil, errors.New("config: lp_rebalance_slippage_bps must be in [0, 10000)")
+	}
+	if e.LPHarvestMinUSD < 0 {
+		return nil, errors.New("config: lp_harvest_min_usd must be >= 0")
 	}
 	return &e, nil
 }

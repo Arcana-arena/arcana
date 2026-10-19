@@ -50,6 +50,8 @@ type Chain interface {
 	Slot0(ctx context.Context, pool string) (*big.Int, int32, error)
 	TickSpacing(ctx context.Context, pool string) (int64, error)
 	PoolPrice(ctx context.Context, pool, tokenAddr string, tokenDec, quoteDec int) (float64, error)
+	FeeGrowthGlobal(ctx context.Context, pool string) (g0, g1 *big.Int, err error)
+	TickFeeGrowthOutside(ctx context.Context, pool string, tick int32) (o0, o1 *big.Int, err error)
 }
 
 // Store is the persistence surface the syncer uses.
@@ -353,6 +355,32 @@ func (s *Syncer) refreshOne(ctx context.Context, npm string, row store.LPPositio
 		return outcomeSkipped, false, err
 	}
 
+	// HARVEST: fees accrued while the position sits in range are income, and
+	// realizing them should not wait for the price to leave the range. The
+	// number is the EXACT accrual — the same feeGrowthInside the position
+	// manager computes at collect() — and the threshold is in dollars, so the
+	// loop does not propose a transaction for dust.
+	//
+	// An unreadable accrual is NOT treated as zero fees: the row is still
+	// written with 'hold', the error is recorded, and the proposal bookkeeping
+	// is skipped for this pass. Guessing here would either trigger a pointless
+	// collect or supersede a harvest that was real.
+	var fee0, fee1 *big.Int
+	var feeUSD float64
+	var feeErr error
+	if rec == "hold" && pos.Liquidity.Sign() > 0 {
+		f0, f1, ferr := s.exactFees(ctx, pool, pos, currentTick)
+		if ferr != nil {
+			feeErr = fmt.Errorf("fee accrual for %s: %w", row.TokenID, ferr)
+		} else {
+			fee0, fee1 = f0, f1
+			feeUSD = rawToUSD(fee0, dec0, usd0) + rawToUSD(fee1, dec1, usd1)
+			if feeUSD >= s.cfg.LPHarvestMinUSD {
+				rec = "harvest"
+			}
+		}
+	}
+
 	curTick, inR := currentTick, inRange
 	amt0, amt1, reco := a0.String(), a1.String(), rec
 	out := store.LPPosition{
@@ -378,6 +406,9 @@ func (s *Syncer) refreshOne(ctx context.Context, npm string, row store.LPPositio
 	if err := s.store.UpsertLPPosition(ctx, out); err != nil {
 		return outcomeSkipped, false, err
 	}
+	if feeErr != nil {
+		return outcomeSynced, false, feeErr
+	}
 
 	pending, err := s.store.PendingActions(ctx, npm, row.TokenID)
 	if err != nil {
@@ -399,7 +430,7 @@ func (s *Syncer) refreshOne(ctx context.Context, npm string, row store.LPPositio
 		}
 	}
 
-	detail, err := s.actionDetail(ctx, rec, pool, pos, sqrtX96, currentTick, a0, a1, dec0, usd0, dec1, usd1)
+	detail, err := s.actionDetail(ctx, rec, pool, pos, sqrtX96, currentTick, a0, a1, dec0, usd0, dec1, usd1, fee0, fee1, feeUSD)
 	if err != nil {
 		// The row is registered; only the proposal could not be built.
 		return outcomeSynced, false, err
@@ -434,17 +465,34 @@ func (s *Syncer) closeIfKnown(ctx context.Context, npm, tokenID string, known bo
 	return outcomeClosed, false, nil
 }
 
-// actionDetail is the payload a future executor would carry out: for a
-// rebalance, a freshly planned ±rangePct range sized for the position's
-// current USD value; for an empty position, the collect-and-burn.
-func (s *Syncer) actionDetail(ctx context.Context, rec, pool string, pos *chain.Position, sqrtX96 *big.Int, currentTick int32, a0, a1 *big.Int, dec0 int, usd0 float64, dec1 int, usd1 float64) (json.RawMessage, error) {
-	const note = "proposed, not executed: no ARCANA code path calls the signer's lp_* shapes yet"
+// actionDetail is the payload the executor carries out: for a rebalance, a
+// freshly planned ±rangePct range sized for the position's current USD value;
+// for a harvest, the fees and their value; for an empty position, the
+// collect-and-burn.
+func (s *Syncer) actionDetail(ctx context.Context, rec, pool string, pos *chain.Position, sqrtX96 *big.Int, currentTick int32, a0, a1 *big.Int, dec0 int, usd0 float64, dec1 int, usd1 float64, fee0, fee1 *big.Int, feeUSD float64) (json.RawMessage, error) {
+	const note = "proposed by the loop; the executor signs it only when armed and the proposal survives its own re-checks"
 	if rec == "empty" {
 		return json.Marshal(map[string]any{
 			"intents":      []string{"lp_collect", "lp_burn"},
 			"tokens_owed0": pos.TokensOwed0.String(),
 			"tokens_owed1": pos.TokensOwed1.String(),
 			"note":         note,
+		})
+	}
+	if rec == "harvest" {
+		f0, f1 := "0", "0"
+		if fee0 != nil {
+			f0 = fee0.String()
+		}
+		if fee1 != nil {
+			f1 = fee1.String()
+		}
+		return json.Marshal(map[string]any{
+			"intents":     []string{"lp_collect"},
+			"fees_owed0":  f0,
+			"fees_owed1":  f1,
+			"value_usd":   feeUSD,
+			"note":        note,
 		})
 	}
 
@@ -476,6 +524,27 @@ func (s *Syncer) actionDetail(ctx context.Context, rec, pool string, pos *chain.
 		"plan":               plan,
 		"note":               note,
 	})
+}
+
+// exactFees recomputes the position's fee accrual from the pool's feeGrowth
+// counters — the same numbers collect() would pay, token by token.
+func (s *Syncer) exactFees(ctx context.Context, pool string, pos *chain.Position, currentTick int32) (fee0, fee1 *big.Int, err error) {
+	fg0, fg1, err := s.chain.FeeGrowthGlobal(ctx, pool)
+	if err != nil {
+		return nil, nil, fmt.Errorf("feeGrowthGlobal(%s): %w", pool, err)
+	}
+	lower0, lower1, err := s.chain.TickFeeGrowthOutside(ctx, pool, pos.TickLower)
+	if err != nil {
+		return nil, nil, fmt.Errorf("ticks(%d): %w", pos.TickLower, err)
+	}
+	upper0, upper1, err := s.chain.TickFeeGrowthOutside(ctx, pool, pos.TickUpper)
+	if err != nil {
+		return nil, nil, fmt.Errorf("ticks(%d): %w", pos.TickUpper, err)
+	}
+	inside0 := lp.FeeGrowthInside(fg0, lower0, upper0, currentTick, pos.TickLower, pos.TickUpper)
+	inside1 := lp.FeeGrowthInside(fg1, lower1, upper1, currentTick, pos.TickLower, pos.TickUpper)
+	return lp.FeesOwed(pos.Liquidity, pos.FeeGrowthInside0LastX128, inside0, pos.TokensOwed0),
+		lp.FeesOwed(pos.Liquidity, pos.FeeGrowthInside1LastX128, inside1, pos.TokensOwed1), nil
 }
 
 // pairUSD returns the decimals and USD price of each side of a pool, by the

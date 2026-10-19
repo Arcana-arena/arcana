@@ -137,6 +137,42 @@ func TestPlanRefusesVerdictThatContradictsTheChain(t *testing.T) {
 	}
 }
 
+func TestPlanHarvestCollectsOnly(t *testing.T) {
+	p := lpProposal("harvest")
+	p.Detail = json.RawMessage(`{"intents":["lp_collect"],"fees_owed0":"123","fees_owed1":"456","value_usd":1.2}`)
+	// A harvest is one collect: no deadline, no slippage, no approvals needed.
+	plan := PlanLPAction(p, lpRow(), lpPosition("1000000", true), lpNPM, 0)
+	if plan.Refusal != "" {
+		t.Fatalf("refused: %s", plan.Refusal)
+	}
+	if got := names(plan.Intents); len(got) != 1 || got[0] != "lp_collect" {
+		t.Fatalf("harvest sequence: %v", got)
+	}
+	if plan.Intents[0].Body["token_id"] != lpTokenID || plan.Intents[0].Body["amount"] != "0" {
+		t.Fatalf("collect body: %v", plan.Intents[0].Body)
+	}
+}
+
+func TestPlanRefusesStaleOrUnreadableHarvest(t *testing.T) {
+	zero := lpProposal("harvest")
+	zero.Detail = json.RawMessage(`{"fees_owed0":"0","fees_owed1":"0"}`)
+	if p := PlanLPAction(zero, lpRow(), lpPosition("1000000", true), lpNPM, 0); p.Refusal == "" {
+		t.Fatalf("a zero-fee harvest must refuse: %+v", p)
+	}
+
+	unreadable := lpProposal("harvest")
+	unreadable.Detail = json.RawMessage(`{"intents":["lp_collect"]}`)
+	if p := PlanLPAction(unreadable, lpRow(), lpPosition("1000000", true), lpNPM, 0); p.Refusal == "" {
+		t.Fatalf("a harvest without numbers must refuse: %+v", p)
+	}
+
+	noLiq := lpProposal("harvest")
+	noLiq.Detail = json.RawMessage(`{"fees_owed0":"1","fees_owed1":"0"}`)
+	if p := PlanLPAction(noLiq, lpRow(), lpPosition("0", true), lpNPM, 0); p.Refusal == "" {
+		t.Fatalf("a harvest on an empty position must refuse: %+v", p)
+	}
+}
+
 func TestPlanRefusesMissingPlanAndBadInputs(t *testing.T) {
 	noPlan := lpProposal("rebalance")
 	noPlan.Detail = json.RawMessage(`{"slippage_bps":50}`)

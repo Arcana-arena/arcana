@@ -35,6 +35,8 @@ type fakeChain struct {
 	slot0Fn     func(pool string) (*big.Int, int32, error)
 	spacingFn   func(pool string) (int64, error)
 	priceFn     func(pool, tok string) (float64, error)
+	feeGrowthFn func(pool string) (g0, g1 *big.Int, err error)
+	tickFeeFn   func(pool string, tick int32) (o0, o1 *big.Int, err error)
 }
 
 func (f *fakeChain) BlockNumber(context.Context) (int64, error) { return f.headFn() }
@@ -58,6 +60,18 @@ func (f *fakeChain) TickSpacing(_ context.Context, pool string) (int64, error) {
 }
 func (f *fakeChain) PoolPrice(_ context.Context, pool, tok string, _, _ int) (float64, error) {
 	return f.priceFn(pool, tok)
+}
+func (f *fakeChain) FeeGrowthGlobal(_ context.Context, pool string) (*big.Int, *big.Int, error) {
+	if f.feeGrowthFn != nil {
+		return f.feeGrowthFn(pool)
+	}
+	return big.NewInt(0), big.NewInt(0), nil
+}
+func (f *fakeChain) TickFeeGrowthOutside(_ context.Context, pool string, tick int32) (*big.Int, *big.Int, error) {
+	if f.tickFeeFn != nil {
+		return f.tickFeeFn(pool, tick)
+	}
+	return big.NewInt(0), big.NewInt(0), nil
 }
 
 type fakeStore struct {
@@ -173,6 +187,7 @@ func testCfg() *config.Config {
 		PositionManager:        npmAddr,
 		LPRebalanceRangePct:    0.05,
 		LPRebalanceSlippageBps: 50,
+		LPHarvestMinUSD:        0.5,
 		QuoteToken:             config.QuoteToken{Symbol: "USDG", Address: usdgAddr, Decimals: 6},
 		Tokens:                 []config.Token{{Symbol: "NVDA", Address: nvdaAddr, Decimals: 18}},
 	}
@@ -182,14 +197,16 @@ func oneSqrt() *big.Int { return new(big.Int).Lsh(big.NewInt(1), 96) }
 
 func position(liquidity int64) *chain.Position {
 	return &chain.Position{
-		Token0:      nvdaAddr,
-		Token1:      usdgAddr,
-		Fee:         500,
-		TickLower:   -1000,
-		TickUpper:   1000,
-		Liquidity:   big.NewInt(liquidity),
-		TokensOwed0: big.NewInt(0),
-		TokensOwed1: big.NewInt(0),
+		Token0:                   nvdaAddr,
+		Token1:                   usdgAddr,
+		Fee:                      500,
+		TickLower:                -1000,
+		TickUpper:                1000,
+		Liquidity:                big.NewInt(liquidity),
+		FeeGrowthInside0LastX128: big.NewInt(0),
+		FeeGrowthInside1LastX128: big.NewInt(0),
+		TokensOwed0:              big.NewInt(0),
+		TokensOwed1:              big.NewInt(0),
 	}
 }
 
@@ -263,6 +280,86 @@ func TestSyncDiscoversAndProposesRebalance(t *testing.T) {
 	}
 	if !st.beatCalled || st.beatBlock == nil || *st.beatBlock != 1001 {
 		t.Fatalf("expected heartbeat with cursor 1001, got %v", st.beatBlock)
+	}
+}
+
+func TestSyncProposesHarvestWhenFeesCrossTheThreshold(t *testing.T) {
+	ch := healthyChain(0) // in range
+	q128sum := new(big.Int).Lsh(big.NewInt(1), 128)
+	// 1000 units of token0 growth on 1e15 liquidity = 1e18 raw token0 = 1 NVDA
+	// at the fake $200 price — $200 accrued, far over the $0.50 threshold.
+	ch.feeGrowthFn = func(string) (*big.Int, *big.Int, error) {
+		return new(big.Int).Mul(big.NewInt(1000), q128sum), big.NewInt(0), nil
+	}
+	st := walletStore(withCursor(1), withOpenRow("7"))
+	sy := New(ch, st, testCfg())
+
+	res, err := sy.SyncOnce(context.Background())
+	if err != nil {
+		t.Fatalf("SyncOnce: %v", err)
+	}
+	if res.Proposed != 1 || res.Errors != 0 {
+		t.Fatalf("unexpected result: %+v", res)
+	}
+	if len(st.upserts) != 1 || st.upserts[0].Recommendation == nil || *st.upserts[0].Recommendation != "harvest" {
+		t.Fatalf("the registry row should say harvest, got %+v", st.upserts)
+	}
+	if len(st.proposed) != 1 || st.proposed[0].Recommendation != "harvest" {
+		t.Fatalf("expected one harvest proposal, got %+v", st.proposed)
+	}
+	if !strings.Contains(string(st.proposed[0].Detail), `"intents":["lp_collect"]`) {
+		t.Fatalf("a harvest is one collect, got %s", st.proposed[0].Detail)
+	}
+	if !strings.Contains(string(st.proposed[0].Detail), "1000000000000000000") {
+		t.Fatalf("the proposal should carry the exact accrual, got %s", st.proposed[0].Detail)
+	}
+}
+
+func TestSyncKeepsHoldWhenFeesAreBelowTheThreshold(t *testing.T) {
+	ch := healthyChain(0)
+	q128sum := new(big.Int).Lsh(big.NewInt(1), 128)
+	// 2 units on 1e15 liquidity = 2e15 raw = 0.002 NVDA = $0.40, under $0.50.
+	ch.feeGrowthFn = func(string) (*big.Int, *big.Int, error) {
+		return new(big.Int).Mul(big.NewInt(2), q128sum), big.NewInt(0), nil
+	}
+	st := walletStore(withCursor(1), withOpenRow("7"))
+	sy := New(ch, st, testCfg())
+
+	res, err := sy.SyncOnce(context.Background())
+	if err != nil {
+		t.Fatalf("SyncOnce: %v", err)
+	}
+	if res.Proposed != 0 {
+		t.Fatalf("under the threshold there is nothing to propose: %+v", res)
+	}
+	if st.upserts[0].Recommendation == nil || *st.upserts[0].Recommendation != "hold" {
+		t.Fatalf("expected hold, got %+v", st.upserts[0].Recommendation)
+	}
+}
+
+// An unreadable accrual is not zero fees: the row keeps 'hold', the error is
+// recorded, and a standing proposal is left alone — guessing here would either
+// fire a pointless collect or supersede a harvest that was real.
+func TestSyncLeavesProposalsAloneWhenFeeAccrualIsUnreadable(t *testing.T) {
+	ch := healthyChain(0)
+	ch.feeGrowthFn = func(string) (*big.Int, *big.Int, error) {
+		return nil, nil, errors.New("fee growth unreadable")
+	}
+	st := walletStore(withCursor(1), withOpenRow("7"), withAction("7", "harvest"))
+	sy := New(ch, st, testCfg())
+
+	res, err := sy.SyncOnce(context.Background())
+	if err != nil {
+		t.Fatalf("SyncOnce: %v", err)
+	}
+	if res.Errors != 1 {
+		t.Fatalf("the unreadable accrual must be recorded: %+v", res)
+	}
+	if len(st.superseded) != 0 || len(st.proposed) != 0 {
+		t.Fatalf("proposals must be left alone, superseded=%v proposed=%v", st.superseded, st.proposed)
+	}
+	if st.upserts[0].Recommendation == nil || *st.upserts[0].Recommendation != "hold" {
+		t.Fatalf("expected hold, got %+v", st.upserts[0].Recommendation)
 	}
 }
 
