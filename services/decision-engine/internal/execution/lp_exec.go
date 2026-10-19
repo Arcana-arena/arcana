@@ -67,9 +67,69 @@ func lpGasLimit(intent string) uint64 {
 		return 250_000
 	case "lp_burn":
 		return 150_000
+	case "approve":
+		return 100_000
 	default:
 		return 300_000
 	}
+}
+
+// lpApprovalIntents derives the approve steps a mint needs RIGHT NOW.
+//
+// They are derived at execution time rather than printed by the planner
+// because they depend on the wallet's current allowance, which the planner
+// cannot see; and they go FIRST in the sequence because a refusal on an
+// approval must not leave a position already decreased and burned with no
+// re-mint. The amount approved is the plan's desired amount — an allowance for
+// this mint, not a standing right (the signer refuses the infinite idiom
+// anyway).
+func (b *Broker) lpApprovalIntents(ctx context.Context, plan LPActionPlan, wallet string) ([]LPIntent, error) {
+	var mint map[string]any
+	for _, in := range plan.Intents {
+		if in.Intent == "lp_mint" {
+			mint = in.Body
+			break
+		}
+	}
+	if mint == nil {
+		return nil, nil // closes need no approvals
+	}
+	spender, _ := mint["router"].(string)
+	type leg struct {
+		token   string
+		desired string
+	}
+	legs := []leg{}
+	if v, ok := mint["token_in"].(string); ok {
+		if d, ok := mint["amount0_desired"].(string); ok {
+			legs = append(legs, leg{v, d})
+		}
+	}
+	if v, ok := mint["token_out"].(string); ok {
+		if d, ok := mint["amount1_desired"].(string); ok {
+			legs = append(legs, leg{v, d})
+		}
+	}
+	var out []LPIntent
+	for _, l := range legs {
+		want, ok := new(big.Int).SetString(l.desired, 10)
+		if !ok || want.Sign() <= 0 {
+			continue // a zero leg needs no allowance
+		}
+		have, err := b.rpc.Allowance(ctx, l.token, wallet, spender)
+		if err != nil {
+			return nil, fmt.Errorf("read allowance of %s to %s: %w", l.token, spender, err)
+		}
+		if have.Cmp(want) >= 0 {
+			continue
+		}
+		out = append(out, LPIntent{Intent: "approve", Body: map[string]any{
+			"amount":   l.desired,
+			"router":   spender,
+			"token_in": l.token,
+		}})
+	}
+	return out, nil
 }
 
 // ExecuteLPPlan runs an assembled plan through the signer and the chain.
@@ -112,7 +172,14 @@ func (b *Broker) ExecuteLPPlan(ctx context.Context, agentID, wallet string, plan
 		return res
 	}
 
-	for i, in := range plan.Intents {
+	pre, err := b.lpApprovalIntents(ctx, plan, wallet)
+	if err != nil {
+		sr := LPStepResult{Step: 1, Intent: "approve", Status: "fault", Error: err.Error()}
+		return fail(sr)
+	}
+	steps := append(pre, plan.Intents...)
+
+	for i, in := range steps {
 		sr := LPStepResult{Step: i + 1, Intent: in.Intent}
 
 		// The signer request is the SAME body the planner printed: marshalling
