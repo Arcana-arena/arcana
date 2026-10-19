@@ -117,7 +117,11 @@ func TestPlanConservesValue(t *testing.T) {
 
 	a0, _ := new(big.Int).SetString(p.Amount0Desired, 10)
 	a1, _ := new(big.Int).SetString(p.Amount1Desired, 10)
-	value := float64(a0.Int64())/1e18 + float64(a1.Int64())/1e18
+	toFloat := func(v *big.Int) float64 {
+		f, _ := new(big.Float).Quo(new(big.Float).SetInt(v), big.NewFloat(1e18)).Float64()
+		return f
+	}
+	value := toFloat(a0) + toFloat(a1)
 	if math.Abs(value-1000) > 1 {
 		t.Fatalf("plan value = %.4f USD, want ~1000", value)
 	}
