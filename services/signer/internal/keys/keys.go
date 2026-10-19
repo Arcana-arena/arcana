@@ -51,6 +51,10 @@ const SeedMinBytes = 32
 // small number of keys owners have imported instead.
 type Keyring struct {
 	seed []byte
+	// Where the seed came from, for the boot log. The Option A file and an
+	// Option B KMS-unsealed blob produce the SAME keyring — the whole point of
+	// the seal is that nothing downstream can tell the difference.
+	source string
 	// Where owner-supplied keys live. Empty disables import entirely, which
 	// is the correct state for a deployment that has not opted into it.
 	importDir string
@@ -82,8 +86,20 @@ func LoadKeyring(path string) (*Keyring, error) {
 	if err != nil {
 		return nil, fmt.Errorf("master seed: %w", err)
 	}
+	seed, err := seedFromBytes(raw)
+	if err != nil {
+		return nil, err
+	}
+	return &Keyring{seed: seed, source: "file-backed master seed (option A)"}, nil
+}
+
+// seedFromBytes validates the master seed's material, wherever it came from:
+// the file on disk or a KMS unseal. One parser, so the two sources cannot
+// disagree about what a seed is.
+//
+// Accept hex or raw bytes; hex is what an operator will paste.
+func seedFromBytes(raw []byte) ([]byte, error) {
 	text := strings.TrimSpace(string(raw))
-	// Accept hex or raw bytes; hex is what an operator will paste.
 	seed, err := hex.DecodeString(strings.TrimPrefix(text, "0x"))
 	if err != nil {
 		seed = []byte(text)
@@ -93,7 +109,7 @@ func LoadKeyring(path string) (*Keyring, error) {
 			"master seed is %d bytes; at least %d are required. A short seed is a passphrase, "+
 				"and a passphrase is not entropy", len(seed), SeedMinBytes)
 	}
-	return &Keyring{seed: seed}, nil
+	return seed, nil
 }
 
 // WithImportDir enables owner-supplied keys, stored in dir.
@@ -127,7 +143,7 @@ func NewKeyringFromSeed(seed []byte) (*Keyring, error) {
 	if len(seed) < SeedMinBytes {
 		return nil, errors.New("seed too short")
 	}
-	return &Keyring{seed: append([]byte(nil), seed...)}, nil
+	return &Keyring{seed: append([]byte(nil), seed...), source: "in-memory seed"}, nil
 }
 
 // derive returns the agent's private key. Never exported, never returned to a

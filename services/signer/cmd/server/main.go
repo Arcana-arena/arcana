@@ -59,6 +59,10 @@ type server struct {
 func main() {
 	port := envOr("PORT", "8085")
 	seedPath := envOr("SIGNER_MASTER_SEED_FILE", "/etc/arcana/signer/master.key")
+	// "file" is option A (the plaintext seed on disk); "kms" is option B (a
+	// sealed blob unsealed at boot). See internal/keys/vault.go for why the
+	// seed is sealed rather than generated inside the KMS.
+	seedSource := envOr("SIGNER_SEED_SOURCE", "file")
 	allowPath := envOr("SIGNER_ALLOWLIST_FILE", "allowlist/robinhood-mainnet.json")
 	// Owner-supplied keys. Empty disables import entirely, which is the right
 	// state for a deployment that has not opted into it: an unset variable
@@ -126,14 +130,14 @@ func main() {
 
 	// The seed is loaded last, so a misconfiguration elsewhere fails before a
 	// key is ever in memory.
-	ring, err := keys.LoadKeyring(seedPath)
+	ring, seedRef, err := loadKeyring(seedSource, seedPath)
 	if err != nil {
 		// WITHOUT A SEED THE SERVICE STILL BOOTS AND SERVES /healthz, and every
 		// signing request is REFUSED with the reason named. Same shape as the
 		// vendor key and the LLM key: a visible stand-down, never a substitution.
 		log.Printf("WARN: signer INACTIVE: %v", err)
 		log.Printf("WARN: every signing request will be refused with reason 'signer_not_configured'. "+
-			"No key material is held. Create the seed with: "+
+			"No key material is held. File source: create the seed with: "+
 			"sudo install -o arcana-signer -g arcana-signer -m 0400 /dev/null %s", seedPath)
 	} else {
 		if importDir != "" {
@@ -150,7 +154,7 @@ func main() {
 				"every wallet is derived from the master seed")
 		}
 		srv.ring = ring
-		log.Printf("signer ACTIVE: %s (seed %s)", ring.Describe(), seedPath)
+		log.Printf("signer ACTIVE: %s (%s)", ring.Describe(), seedRef)
 	}
 
 	// Drop any endpoint that cannot serve eth_call, loudly, before the first
@@ -799,6 +803,45 @@ func envOr(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// loadKeyring builds the keyring from the configured seed source and names it
+// for the boot log, never the secret.
+//
+// AN UNKNOWN SOURCE IS FATAL. It is a typo in the deployment, and a signer
+// that cannot say where its keys come from must not run quietly. A source that
+// is known but unreachable — a missing file, missing KMS credentials, a
+// refused decrypt — stands the signer down instead: it boots and refuses every
+// signature, the same visible stand-down the file path has always used.
+func loadKeyring(source, seedPath string) (*keys.Keyring, string, error) {
+	switch source {
+	case "file":
+		ring, err := keys.LoadKeyring(seedPath)
+		return ring, "seed " + seedPath, err
+	case "kms":
+		blobPath := envOr("SIGNER_SEED_KMS_FILE", "/etc/arcana/signer/master.key.kms")
+		opener, err := keys.NewAWSKMS(keys.AWSKMSConfig{
+			// Explicit SIGNER_KMS_* names first, the AWS-standard names second:
+			// a deployment that already has AWS tooling configured should not
+			// need a second copy of the same credentials.
+			Region:          envOr("SIGNER_KMS_REGION", os.Getenv("AWS_REGION")),
+			KeyID:           os.Getenv("SIGNER_KMS_KEY_ID"),
+			AccessKeyID:     envOr("SIGNER_KMS_ACCESS_KEY_ID", os.Getenv("AWS_ACCESS_KEY_ID")),
+			SecretAccessKey: envOr("SIGNER_KMS_SECRET_ACCESS_KEY", os.Getenv("AWS_SECRET_ACCESS_KEY")),
+			SessionToken:    os.Getenv("AWS_SESSION_TOKEN"),
+			Endpoint:        os.Getenv("SIGNER_KMS_ENDPOINT"),
+		})
+		if err != nil {
+			return nil, "", err
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		ring, err := keys.LoadKeyringSealed(ctx, blobPath, opener)
+		return ring, "sealed seed " + blobPath + ", " + opener.Describe(), err
+	default:
+		log.Fatalf("SIGNER_SEED_SOURCE %q is not a source this signer knows; it knows \"file\" and \"kms\"", source)
+		return nil, "", nil
+	}
 }
 
 func envInt(k string, def int) int {

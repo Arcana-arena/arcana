@@ -83,10 +83,14 @@ var ErrImportUnsupported = errors.New(
 
 // Describe reports what is holding the keys.
 func (k *Keyring) Describe() string {
-	if k.importDir != "" {
-		return "file-backed master seed (option A), owner-imported keys enabled"
+	src := k.source
+	if src == "" {
+		src = "master seed"
 	}
-	return "file-backed master seed (option A), derived keys only"
+	if k.importDir != "" {
+		return src + ", owner-imported keys enabled"
+	}
+	return src + ", derived keys only"
 }
 
 // Compile-time proof that the file-backed keyring satisfies the interface.

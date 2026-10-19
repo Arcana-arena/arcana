@@ -167,6 +167,99 @@ physically separate places, and a **recovery drill that is performed rather than
 documented** — the precedent being `arcana-restore-test.sh`, which proves the
 database restores instead of claiming it.
 
+> **Correction, 2026-10-19.** The seed was in fact rotated on 2026-09-11
+> ([waiting-on-owner.md §2](./waiting-on-owner.md#2-kms-and-replacing-the-phase-7-seed)
+> records the procedure, the failure on its first attempt, and the proof), and
+> the platform has been signing real transactions under it since — the first
+> swap that day, and today's live execution path. What did **not** happen is the
+> custody swap: the seed is still a plaintext file on the host, which is exactly
+> what option A costs. "Replace before funding" therefore still binds every
+> future funding decision, including the first real liquidity position.
+
+### Option B, prepared and dormant (2026-10-19)
+
+The swap `vault.go` describes — "one new implementation and one line at boot" —
+is built and tested; what is left is the owner's account and key.
+
+`SIGNER_SEED_SOURCE=kms` loads a **sealed** seed: the master seed encrypted
+with a KMS key, decrypted once at boot, never written to disk. The sealed and
+plaintext seeds are proven to derive the same wallets
+(`internal/keys/awskms_test.go`); nothing downstream can tell the difference.
+
+What the signer does, precisely:
+
+- **One KMS API call, ever.** `TrentService.Decrypt`. Sealing is
+  `aws kms encrypt` in the runbook — the key-holding process has no Encrypt, no
+  key generation, no SDK, no ambient credential discovery.
+- **SigV4 is implemented in-tree** (`internal/keys/awskms.go`) and asserted
+  against AWS's own published test vectors (`aws-sig-v4-test-suite`,
+  `get-vanilla` and `post-x-www-form-urlencoded`), so it is checked by the
+  vendor's numbers rather than by agreeing with itself.
+- **Required configuration is required:** `SIGNER_KMS_KEY_ID`, a region
+  (`SIGNER_KMS_REGION` or `AWS_REGION`), credentials
+  (`SIGNER_KMS_ACCESS_KEY_ID`/`AWS_ACCESS_KEY_ID` and
+  `SIGNER_KMS_SECRET_ACCESS_KEY`/`AWS_SECRET_ACCESS_KEY`; optional
+  `AWS_SESSION_TOKEN`). Anything missing **stands the signer down** — it boots
+  and refuses every signature — because a decrypt path that "found credentials
+  somewhere" is the property an attacker benefits from. An unknown
+  `SIGNER_SEED_SOURCE` is fatal.
+- **A refused or unreachable decrypt is not a fallback to option A.** Could not
+  read is not the same as fine, the same rule the chain checks follow.
+
+The runbook (steps marked OWNER are the part that needs an account):
+
+```bash
+# 0. OWNER: create the KMS key, and an IAM identity that may ONLY kms:Decrypt.
+aws kms create-key --description "arcana signer master seed"
+
+# 1. Seal the seed. This is operator tooling, not a signer feature.
+aws kms encrypt --key-id <key-id> \
+  --plaintext fileb:///etc/arcana/signer/master.key \
+  --output text --query CiphertextBlob | base64 -d > /tmp/master.key.kms
+sudo install -o arcana-signer -g arcana-signer -m 0400 \
+  /tmp/master.key.kms /etc/arcana/signer/master.key.kms
+rm -f /tmp/master.key.kms
+
+# 2. Point the unit at it. The secret goes in a 0600 file, not the unit —
+#    units are committed to git.
+sudo systemctl edit arcana-signer.service
+#   [Service]
+#   Environment=SIGNER_SEED_SOURCE=kms
+#   Environment=SIGNER_KMS_KEY_ID=<key-id>
+#   Environment=SIGNER_KMS_REGION=<region>
+#   EnvironmentFile=/etc/arcana/signer/kms.env   # SIGNER_KMS_ACCESS_KEY_ID=… etc, 0600
+
+sudo systemctl restart arcana-signer
+journalctl -u arcana-signer -n 20 --no-pager
+#   expect: signer ACTIVE: KMS-sealed master seed (option B) …
+
+# 3. Prove it before shredding the plaintext seed.
+bash infra/verify/signer-isolation-verify.sh
+bash infra/backup/arcana-seed-restore-test.sh          # the drill, against the KMS-loaded signer
+sudo shred -u /etc/arcana/signer/master.key            # only after both are green
+```
+
+### Backing the seed up, and the drill that proves it
+
+A backup that has never been restored is not a backup, and a seed never re-
+loaded is a seed nobody has proven still derives the wallets.
+
+- `infra/backup/arcana-seed-backup.sh` makes the artifact option A needs: one
+  openssl-encrypted file (AES-256-CBC, PBKDF2, 600k iterations) that the script
+  **verifies by decrypting it back and comparing byte for byte** before calling
+  it a backup. The passphrase never touches disk; putting the file in two
+  physically separate places is the owner's act
+  ([waiting-on-owner.md](./waiting-on-owner.md) §5). In KMS mode the script
+  refuses on purpose: the sealed blob is already ciphertext and a `cp` is the
+  right backup.
+- `infra/backup/arcana-seed-restore-test.sh` performs the drill. It starts a
+  second signer in a sandbox on a COPY of the seed — or on a decrypted backup
+  (`--from-encrypted`) — asks it for a real agent's address, and compares that
+  with the live signer's answer for the same agent. Equal addresses mean the
+  seed material reproduces the wallets. The sandbox is pointed at a dead RPC so
+  it cannot learn anything from the chain, the copy is shredded on exit, and
+  the live signer is only ever read.
+
 ## The blocklist exception, and why it is not a flag
 
 The signer asks every token two questions before it will sign: **are you

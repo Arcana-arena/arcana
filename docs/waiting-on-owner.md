@@ -16,6 +16,7 @@ Nothing here is a blocker for anything else.
 | ~~2~~ | ~~KMS decision + a new seed~~ | **SEED DONE 2026-09-11.** KMS deferred by the owner: option A (file-backed) stays for now | — |
 | ~~3~~ | ~~The first mainnet swap~~ | **DONE 2026-09-11** — $2 executed on chain, filled exactly as simulated | — |
 | ~~4~~ | ~~`AUTH_ADMIN_WALLETS`~~ | **DONE 2026-09-11** — set, and proved from both sides: it refuses a non-admin AND admits a configured one | — |
+| 5 | KMS option B: an account, a key, a seal, two backup copies | **Code DONE 2026-10-19** — the swap is built, tested and dormant (`SIGNER_SEED_SOURCE=kms`); see §2 | funding any wallet with real money |
 
 ---
 
@@ -124,6 +125,30 @@ quietly not offering something the product promised.
 A compile-time assertion proves the file-backed keyring still satisfies it, so
 a mismatch surfaces at build time rather than when the second implementation
 arrives.
+
+**Option B, shape 2 — the swap is built (2026-10-19).** The decision left was
+provider and account; the mechanism no longer waits on either:
+
+- `SIGNER_SEED_SOURCE=kms` unseals the seed with ONE AWS KMS call
+  (`TrentService.Decrypt`) at boot. No SDK: SigV4 is in-tree and asserted
+  against AWS's own published test vectors; no plaintext seed is ever written
+  to disk; the sealed and plaintext seeds are proven to derive the same
+  wallets (`internal/keys/awskms_test.go`).
+- Missing configuration **stands the signer down** (boots, refuses every
+  signature) rather than falling back to anything ambient. An unknown
+  `SIGNER_SEED_SOURCE` is fatal.
+- Sealing is operator tooling (`aws kms encrypt`) — the signer implements no
+  Encrypt, no key generation, no credential discovery.
+- `infra/backup/arcana-seed-backup.sh` produces a verified encrypted backup of
+  the current seed; `infra/backup/arcana-seed-restore-test.sh` performs the
+  recovery drill (a second signer on a copy of the seed must derive the same
+  address as the live one). The drill is runnable today, against the live seed,
+  without touching it.
+
+The owner's part, still: create the KMS key (AWS, or GCP as a second Opener),
+seal `/etc/arcana/signer/master.key`, flip `SIGNER_SEED_SOURCE=kms`, and put
+the resulting blob — already ciphertext — in two physically separate places.
+The full runbook is in [signer.md](./signer.md#option-b-prepared-and-dormant-2026-10-19).
 
 ### Replacing the phase-7 seed
 
