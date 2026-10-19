@@ -6,12 +6,12 @@ import (
 )
 
 const (
-	lpNPM     = "0x73991a25c818bf1f1128deaab1492d45638de0d3"
-	lpWallet  = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	lpNVDA    = "0x1111111111111111111111111111111111111111"
-	lpUSDG    = "0x5fc5360d0400a0fd4f9a3e0e1e2f0a1a2b3c4d5e"
-	lpAgent   = "agent-1"
-	lpTokenID = "7"
+	lpNPM      = "0x73991a25c818bf1f1128deaab1492d45638de0d3"
+	lpWallet   = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	lpNVDA     = "0x1111111111111111111111111111111111111111"
+	lpUSDG     = "0x5fc5360d0400a0fd4f9a3e0e1e2f0a1a2b3c4d5e"
+	lpAgent    = "agent-1"
+	lpTokenID  = "7"
 	lpDeadline = int64(1800000000)
 )
 

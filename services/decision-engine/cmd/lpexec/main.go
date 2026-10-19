@@ -56,13 +56,13 @@ type positionResponse struct {
 }
 
 type summary struct {
-	Arbitrage       string                    `json:"arbitrage"`
-	PositionManager string                    `json:"position_manager"`
-	DeadlineUnix    int64                     `json:"deadline_unix"`
-	Proposals       int                       `json:"proposals"`
-	Planned         int                       `json:"planned"`
-	Refused         int                       `json:"refused"`
-	Plans           []execution.LPActionPlan  `json:"plans"`
+	Arbitrage       string                   `json:"arbitrage"`
+	PositionManager string                   `json:"position_manager"`
+	DeadlineUnix    int64                    `json:"deadline_unix"`
+	Proposals       int                      `json:"proposals"`
+	Planned         int                      `json:"planned"`
+	Refused         int                      `json:"refused"`
+	Plans           []execution.LPActionPlan `json:"plans"`
 }
 
 func main() {
