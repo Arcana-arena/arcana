@@ -195,6 +195,91 @@ func scanLPPositions(rows pgx.Rows) ([]LPPosition, error) {
 	return out, nil
 }
 
+// LPExecutionStep is one intent's recorded outcome, joined with the action it
+// belongs to — the public activity feed's row.
+type LPExecutionStep struct {
+	ID             int64     `json:"id"`
+	TS             time.Time `json:"ts"`
+	ActionID       int64     `json:"action_id"`
+	TokenID        string    `json:"token_id"`
+	AgentID        string    `json:"agent_id"`
+	Recommendation string    `json:"recommendation"`
+	Step           int       `json:"step"`
+	Intent         string    `json:"intent"`
+	Status         string    `json:"status"`
+	TxHash         string    `json:"tx_hash,omitempty"`
+	GasUsed        string    `json:"gas_used,omitempty"`
+	Error          string    `json:"error,omitempty"`
+}
+
+// RecentLPExecutions returns the latest execution steps, newest first.
+func (s *Store) RecentLPExecutions(ctx context.Context, limit int) ([]LPExecutionStep, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT s.id, s.ts, s.action_id, a.token_id, a.agent_id::text, a.recommendation,
+		       s.step, s.intent, s.status,
+		       coalesce(s.tx_hash, ''), coalesce(s.gas_used, ''), coalesce(s.error, '')
+		FROM lp_execution_steps s
+		JOIN lp_position_actions a ON a.id = s.action_id
+		ORDER BY s.ts DESC, s.id DESC
+		LIMIT $1`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("recent lp executions: %w", err)
+	}
+	defer rows.Close()
+	out := []LPExecutionStep{}
+	for rows.Next() {
+		var e LPExecutionStep
+		if err := rows.Scan(
+			&e.ID, &e.TS, &e.ActionID, &e.TokenID, &e.AgentID, &e.Recommendation,
+			&e.Step, &e.Intent, &e.Status, &e.TxHash, &e.GasUsed, &e.Error,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// LPOpen is one position-open audit row.
+type LPOpen struct {
+	ID      int64     `json:"id"`
+	TS      time.Time `json:"ts"`
+	AgentID string    `json:"agent_id"`
+	Symbol  string    `json:"symbol"`
+	Pool    string    `json:"pool"`
+	TokenID string    `json:"token_id,omitempty"`
+	TxHash  string    `json:"tx_hash,omitempty"`
+	SizeUSD float64   `json:"size_usd"`
+	Status  string    `json:"status"`
+	Error   string    `json:"error,omitempty"`
+}
+
+// RecentLPOpens returns the latest position opens, newest first.
+func (s *Store) RecentLPOpens(ctx context.Context, limit int) ([]LPOpen, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, ts, agent_id::text, symbol, pool,
+		       coalesce(token_id, ''), coalesce(tx_hash, ''), size_usd, status, coalesce(error, '')
+		FROM lp_opens
+		ORDER BY ts DESC, id DESC
+		LIMIT $1`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("recent lp opens: %w", err)
+	}
+	defer rows.Close()
+	out := []LPOpen{}
+	for rows.Next() {
+		var o LPOpen
+		if err := rows.Scan(
+			&o.ID, &o.TS, &o.AgentID, &o.Symbol, &o.Pool,
+			&o.TokenID, &o.TxHash, &o.SizeUSD, &o.Status, &o.Error,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
 // LPAction is one action the loop proposed: what it would ask the signer for
 // when a position is out of range (rebalance) or empty (close). status is
 // "proposed" while the recommendation that produced it still holds, then

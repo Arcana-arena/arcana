@@ -100,6 +100,8 @@ func main() {
 	mux.HandleFunc("GET /v1/arbitrage/lp/position", srv.handleLPPosition)
 	mux.HandleFunc("GET /v1/arbitrage/lp/positions", srv.handleLPPositions)
 	mux.HandleFunc("GET /v1/arbitrage/lp/actions", srv.handleLPActions)
+	mux.HandleFunc("GET /v1/arbitrage/lp/executions", srv.handleLPExecutions)
+	mux.HandleFunc("GET /v1/arbitrage/lp/opens", srv.handleLPOpens)
 	mux.HandleFunc("POST /internal/v1/arbitrage/scan", guard.Wrap(srv.handleScan))
 	mux.HandleFunc("POST /internal/v1/arbitrage/lp/sync", guard.Wrap(srv.handleLPSync))
 
@@ -480,6 +482,46 @@ func (s *server) handleLPActions(w http.ResponseWriter, r *http.Request) {
 		"note": "proposed actions only. Nothing executes them: no ARCANA code path calls " +
 			"the signer's lp_collect/lp_decrease/lp_burn/lp_mint shapes yet.",
 	})
+}
+
+// handleLPExecutions lists the latest recorded execution steps — what the
+// executor signed, sent and was answered with, newest first. READ-ONLY.
+//
+//	GET /v1/arbitrage/lp/executions?limit=50
+func (s *server) handleLPExecutions(w http.ResponseWriter, r *http.Request) {
+	limit := atoiDefault(r.URL.Query().Get("limit"), 50)
+	if limit < 1 {
+		limit = 50
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	rows, err := s.lpreg.Executions(r.Context(), limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "executions_unavailable", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"executions": rows})
+}
+
+// handleLPOpens lists the latest position opens — which agent, which plan,
+// what size, which tokenId and transaction. READ-ONLY.
+//
+//	GET /v1/arbitrage/lp/opens?limit=50
+func (s *server) handleLPOpens(w http.ResponseWriter, r *http.Request) {
+	limit := atoiDefault(r.URL.Query().Get("limit"), 50)
+	if limit < 1 {
+		limit = 50
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	rows, err := s.lpreg.Opens(r.Context(), limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "opens_unavailable", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"opens": rows})
 }
 
 // handleLPSync runs one registry pass now — for the verification suite, and

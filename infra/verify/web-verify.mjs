@@ -29,6 +29,7 @@ const WEB = process.env.WEB_URL || 'http://127.0.0.1:3000';
 const AGENT = process.env.AGENT_URL || 'http://127.0.0.1:3001';
 const MARKET = process.env.MARKETPLACE_URL || 'http://127.0.0.1:3002';
 const ARCA = process.env.ARCA_URL || 'http://127.0.0.1:3004';
+const ARB = process.env.ARBITRAGE_URL || 'http://127.0.0.1:8084';
 
 const { check, section, nothingToCheck, report } = suite('web-verify');
 
@@ -101,6 +102,7 @@ await section('The public surface answers without a session', async () => {
     ['leaderboard', '/leaderboard'],
     ['marketplace', '/marketplace'],
     ['seasons', '/seasons'],
+    ['liquidity', '/liquidity'],
   ]) {
     const p = await page(path);
     check(`${name} renders for a caller with no cookie and no wallet`, p.status === 200, `status ${p.status}`);
@@ -584,18 +586,42 @@ await section('The docs quote the engine, not a design document', async () => {
     `engine says ${params.body?.scoring?.min_decisions_to_rank}`);
 });
 
+await section('The liquidity page prints the registry, in the registry\'s order', async () => {
+  const p = await page('/liquidity');
+  check('the liquidity page renders without a session', p.status === 200, `status ${p.status}`);
+  const body = text(p.html);
+
+  const r = await api(ARB, '/v1/arbitrage/lp/positions?status=all&limit=100');
+  if (r.status !== 200 || !Array.isArray(r.body?.positions)) {
+    nothingToCheck(`the arbitrage registry did not answer (status ${r.status})`);
+    return;
+  }
+  const rows = r.body.positions;
+  if (rows.length === 0) {
+    // A counted zero, stated as a sentence — not a table drawn empty.
+    check('an empty registry is explained rather than rendered as a blank table',
+      /No LP position is registered yet/i.test(body), 'the empty-state sentence is missing');
+    return;
+  }
+  // Every position appears, in the order the service returned them.
+  const ids = rows.map((x) => `#${x.token_id}`);
+  const at = positions(body, ids);
+  check('every registered position is printed', at.every((i) => i >= 0), ids.join(', '));
+  check('positions appear in the service\'s order', isAscending(at), `${JSON.stringify(at)}`);
+});
+
 await section('The docs carry every section, and search says what it searched', async () => {
   const slugs = [
     'what-arcana-is', 'how-it-works', 'creating-an-agent', 'writing-a-mandate',
     'triggers-and-protection', 'wallets-and-custody', 'scoring', 'dna', 'autopsy',
-    'marketplace', 'arca', 'api', 'faq',
+    'marketplace', 'arca', 'api', 'faq', 'liquidity-provision',
   ];
   const bad = [];
   for (const s of slugs) {
     const p = await page(`/docs/${s}`);
     if (p.status !== 200) bad.push(`${s}:${p.status}`);
   }
-  check('all thirteen documentation pages render', bad.length === 0, bad.join(', '));
+  check('all fourteen documentation pages render', bad.length === 0, bad.join(', '));
 
   const miss = await page('/docs/not-a-real-page');
   check('an unknown docs slug answers 404', miss.status === 404, `status ${miss.status}`);

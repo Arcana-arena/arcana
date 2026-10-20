@@ -34,6 +34,9 @@ export const MARKETPLACE_API = process.env.MARKETPLACE_API || 'http://127.0.0.1:
 // ARCA_API; the default must not name a port nothing listens on.
 export const ARCA_API = process.env.ARCA_API || 'http://127.0.0.1:3004';
 export const MARKET_API = process.env.MARKET_API || 'http://127.0.0.1:8083';
+// The read-only market-intelligence service: arbitrage opportunities and the LP
+// position registry. It signs nothing, so reading it needs no credential.
+export const ARBITRAGE_API = process.env.ARBITRAGE_API || 'http://127.0.0.1:8084';
 
 /**
  * WHY `cache: 'no-store'` IS NOT NEGOTIABLE HERE. Next will happily serve a
@@ -113,6 +116,8 @@ export const marketplace = <T>(path: string) => read<T>(MARKETPLACE_API, path);
 export const arca = <T>(path: string) => read<T>(ARCA_API, path);
 /** market-data. The universe an agent may trade comes from here, never from a copy. */
 export const market = <T>(path: string) => read<T>(MARKET_API, path);
+/** arbitrage. The LP registry, its proposals, and what the executor did. */
+export const arbitrage = <T>(path: string) => read<T>(ARBITRAGE_API, path);
 
 /** Build a query string, dropping only genuinely absent values — not falsy ones. */
 export function qs(params: Record<string, string | number | boolean | null | undefined>): string {

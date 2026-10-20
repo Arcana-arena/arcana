@@ -67,6 +67,8 @@ type Store interface {
 	DiscoveryBlock(ctx context.Context) (int64, bool, error)
 	LPPositions(ctx context.Context, status string, limit int) ([]store.LPPosition, error)
 	ProposedActions(ctx context.Context, limit int) ([]store.LPAction, error)
+	RecentLPExecutions(ctx context.Context, limit int) ([]store.LPExecutionStep, error)
+	RecentLPOpens(ctx context.Context, limit int) ([]store.LPOpen, error)
 }
 
 // ErrBusy is returned when a pass is already running. The trigger endpoint and
@@ -93,10 +95,22 @@ func (s *Syncer) Positions(ctx context.Context, status string, limit int) ([]sto
 	return s.store.LPPositions(ctx, status, limit)
 }
 
-// ProposedActions returns the outstanding proposals — the read side of what a
-// future executor would pick up, exposed so an operator can see it now.
+// ProposedActions returns the outstanding proposals — the read side of what the
+// executor picks up, exposed so an operator can see it now.
 func (s *Syncer) ProposedActions(ctx context.Context, limit int) ([]store.LPAction, error) {
 	return s.store.ProposedActions(ctx, limit)
+}
+
+// Executions returns the latest recorded execution steps for the public
+// activity feed.
+func (s *Syncer) Executions(ctx context.Context, limit int) ([]store.LPExecutionStep, error) {
+	return s.store.RecentLPExecutions(ctx, limit)
+}
+
+// Opens returns the latest recorded position opens for the public activity
+// feed.
+func (s *Syncer) Opens(ctx context.Context, limit int) ([]store.LPOpen, error) {
+	return s.store.RecentLPOpens(ctx, limit)
 }
 
 // Result summarizes one pass.

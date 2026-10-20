@@ -23,9 +23,10 @@
  */
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
-import { agent as publicRead, marketplace } from '@/lib/api';
+import { agent as publicRead, arbitrage, marketplace } from '@/lib/api';
 import { authed, getSession } from '@/lib/session';
 import { addr, int, num, score as fmtScore, txShort, utc, utcDate } from '@/lib/format';
+import type { LPOpen, LPPosition, LPStep, LPVenues } from '@/lib/lp';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { Key, Lbl, StatusTag, Tag } from '@/components/ds/primitives';
@@ -43,6 +44,7 @@ import { ListingPanel } from './ListingPanel';
 import { CompetitionPanel, type EntryCompetition } from './CompetitionPanel';
 import { VisibilityPanel, type VisibilityDecision } from './VisibilityPanel';
 import { CapitalMandatePanel } from './CapitalMandatePanel';
+import { LiquidityPanel } from './LiquidityPanel';
 import type { CapitalMandateView } from './actions';
 import type { Attention, Dashboard, Triggers, WalletBalances, WalletTransactions } from '../../shapes';
 import type { AgentIntelligence } from '@/lib/types';
@@ -199,6 +201,31 @@ export default async function ManageAgentPage({
 
   // Only on the manage tab, and after ownership is known from the reads above.
   const capitalR = tab === 'manage' ? await authed<CapitalMandateView>(`/v1/agents/${id}/capital/mandate`) : null;
+
+  // LIQUIDITY PROVISION, read-only from here. Opening, harvesting and closing
+  // are executor acts with their own capped tools; a browser button would imply
+  // the platform can move this agent's funds from a click, and it cannot.
+  const lp = tab === 'manage'
+    ? await Promise.all([
+        arbitrage<{ positions: LPPosition[] }>('/v1/arbitrage/lp/positions?status=all&limit=200'),
+        arbitrage<{ executions: LPStep[] }>('/v1/arbitrage/lp/executions?limit=200'),
+        arbitrage<{ opens: LPOpen[] }>('/v1/arbitrage/lp/opens?limit=100'),
+        arbitrage<LPVenues>('/v1/arbitrage/venues'),
+      ])
+    : null;
+  const lpPositionsR = lp ? lp[0] : null;
+  const lpExecutionsR = lp ? lp[1] : null;
+  const lpOpensR = lp ? lp[2] : null;
+  const lpVenuesR = lp ? lp[3] : null;
+  const lpOwn = lpPositionsR?.ok ? lpPositionsR.data.positions.filter((p) => p.agent_id === id) : [];
+  const lpState =
+    lpPositionsR === null
+      ? ''
+      : !lpPositionsR.ok
+        ? 'unavailable'
+        : lpOwn.length === 0
+          ? 'no LP position'
+          : `${lpOwn.length} position${lpOwn.length === 1 ? '' : 's'}`;
 
   if (!walletR.ok && (walletR.status === 403 || walletR.status === 404)) {
     return (
@@ -411,6 +438,26 @@ export default async function ManageAgentPage({
                   <CapitalMandatePanel agentId={id} initial={capitalR.data} editable={a.status !== 'retired'} />
                 ) : (
                   <Failed what="The capital mandate" error={capitalR} />
+                )}
+              </Fold>
+            ) : null}
+
+            {/* LIQUIDITY PROVISION. Owner-visible, not owner-editable: the
+                executor's own capped tools open and manage positions, and the
+                public registry is where the same rows are readable. */}
+            {lpPositionsR ? (
+              <Fold title="Liquidity provision" state={lpState}>
+                {lpPositionsR.ok ? (
+                  <LiquidityPanel
+                    positions={lpOwn}
+                    executions={lpExecutionsR?.ok ? lpExecutionsR.data.executions.filter((e) => e.agent_id === id) : []}
+                    executionsError={lpExecutionsR && !lpExecutionsR.ok ? lpExecutionsR : null}
+                    opens={lpOpensR?.ok ? lpOpensR.data.opens.filter((o) => o.agent_id === id) : []}
+                    opensError={lpOpensR && !lpOpensR.ok ? lpOpensR : null}
+                    venues={lpVenuesR?.ok ? lpVenuesR.data : null}
+                  />
+                ) : (
+                  <Failed what="This agent's liquidity positions" error={lpPositionsR} />
                 )}
               </Fold>
             ) : null}

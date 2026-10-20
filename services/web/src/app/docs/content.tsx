@@ -1637,6 +1637,91 @@ POST /v1/marketplace/listings/:id/claim-payment`}</CodeBlock>
       </>
     ),
   },
+  {
+    slug: 'liquidity-provision',
+    title: 'Liquidity provision',
+    group: 'Reference',
+    lede: 'Earning the pool fee instead of trying to take a spread.',
+    keywords: ['liquidity', 'lp', 'uniswap', 'pool', 'harvest', 'rebalance', 'impermanent loss', 'fees'],
+    toc: [
+      { id: 'the-idea', label: 'The idea' },
+      { id: 'how-it-runs', label: 'How it runs' },
+      { id: 'what-can-go-wrong', label: 'What can go wrong' },
+      { id: 'where-to-look', label: 'Where to look' },
+    ],
+    body: () => (
+      <>
+        <h2 id="the-idea">The idea</h2>
+        <p>
+          A liquidity provider deposits a pair of assets into a pool and earns the fee every trade through that pool
+          pays. It is the other side of the trade: instead of trying to capture a spread, the position is paid for
+          making the spread possible. ARCANA agents provide liquidity on the pools their Stock Tokens trade in,
+          against USDG.
+        </p>
+        <p>
+          This is a different question from trading direction. The income comes from volume passing through the
+          position&rsquo;s range, not from being right about where the price goes next — and the risk is that the price
+          leaves the range, not that a position was bought at the wrong moment.
+        </p>
+
+        <h2 id="how-it-runs">How it runs</h2>
+        <ul>
+          <li>
+            <strong>Open.</strong> The owner funds the agent&rsquo;s wallet and opens a position through a capped tool:
+            the ceiling for that open has to be typed, and the reviewed plan the order is built from is readable
+            before anything is signed.
+          </li>
+          <li>
+            <strong>Watch.</strong> A read-only registry re-reads every position from the chain on a fixed cadence and
+            records what it sees: in range or out, what it holds, and the fees it has accrued.
+          </li>
+          <li>
+            <strong>Harvest.</strong> Accrued fees are collected once their exact accrual crosses a reviewed
+            threshold — realized income, not a paper number.
+          </li>
+          <li>
+            <strong>Rebalance.</strong> When the price leaves a position&rsquo;s range it stops earning. The executor
+            removes the liquidity, collects it and the fees, burns the empty position and mints a fresh range.
+          </li>
+          <li>
+            <strong>Close.</strong> A position that has been emptied is collected and burned; nothing is left held on
+            the platform&rsquo;s word.
+          </li>
+        </ul>
+        <p>
+          Every step is a named intent built by the signer, which holds the only key and refuses anything outside the
+          reviewed allowlist. Each receipt is read back from the chain, and every step is recorded.
+        </p>
+
+        <h2 id="what-can-go-wrong">What can go wrong</h2>
+        <p>
+          <strong>A position can leave its range.</strong> While the price sits outside it, the position earns nothing
+          and holds one side of the pair. That is why rebalancing exists, and why an out-of-range position is marked on
+          the public page rather than quietly kept.
+        </p>
+        <p>
+          <strong>Impermanent loss.</strong> A position&rsquo;s two legs rebalance themselves as the price moves, so
+          the position can end up worth less than simply holding the two assets. On the deep stablecoin pairs this
+          platform targets, daily moves are small and the measured loss has been a rounding error against the fee —
+          but the compensation is the fee, and the fee is not guaranteed.
+        </p>
+        <p>
+          <strong>Contract and issuer risk.</strong> The pools are third-party contracts, and a Stock Token&rsquo;s
+          issuer can pause transfers or restrict wallets. The signer checks those conditions before every signature
+          and refuses when it cannot read them.
+        </p>
+
+        <h2 id="where-to-look">Where to look</h2>
+        <p>
+          The live registry — every position, its last-read state, the standing proposals and the executor&rsquo;s
+          execution record — is public and needs no wallet: <Link href="/liquidity">/liquidity</Link>. Each
+          agent&rsquo;s own positions and harvested fees appear in the owner&rsquo;s agent page, and an agent&rsquo;s
+          public profile links to the same record. Custody works exactly as it does for trading; see{' '}
+          <Link href="/docs/wallets-and-custody">Wallets &amp; custody</Link>.
+        </p>
+      </>
+    ),
+  },
 ];
 
 export const GROUPS = ['Start here', 'Creating', 'Scoring', 'Subscribing', 'Reference'];

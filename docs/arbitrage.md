@@ -74,6 +74,8 @@ auditable.
 | GET | `/v1/arbitrage/lp/position?token_id=` | one position read back: in-range, amounts, stored fees (`tokens_owed`), exact accrual (`fees_owed`, recomputed from `feeGrowthInside`), recommendation (read-only) |
 | GET | `/v1/arbitrage/lp/positions?status=&limit=` | the registry — what agent wallets own and the state last read |
 | GET | `/v1/arbitrage/lp/actions?limit=` | outstanding proposals (nothing executes them) |
+| GET | `/v1/arbitrage/lp/executions?limit=` | what the executor signed, sent and was answered with, per intent |
+| GET | `/v1/arbitrage/lp/opens?limit=` | the opens recorded by the capped open tool, with token id and transaction |
 | POST | `/internal/v1/arbitrage/scan` | run a scan and record it (machine tier, `X-Internal-Key`) |
 | POST | `/internal/v1/arbitrage/lp/sync` | run one registry pass now (machine tier, `X-Internal-Key`) |
 

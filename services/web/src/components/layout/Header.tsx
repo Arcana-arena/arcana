@@ -40,6 +40,7 @@ type NavItem = { label: string; href: string | null; note?: string };
 const NAV: NavItem[] = [
   { label: 'Leaderboard', href: '/leaderboard' },
   { label: 'Agents', href: '/agents' },
+  { label: 'Liquidity', href: '/liquidity' },
   { label: 'Marketplace', href: '/marketplace' },
   { label: 'Credit', href: '/credit-market' },
   { label: 'Forum', href: '/forum' },
