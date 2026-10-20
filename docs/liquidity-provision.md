@@ -62,13 +62,16 @@ The website renders the registry read-only under the service's own name,
 holdings, stored fees, verdict), the standing proposals, the executor's
 per-intent record and the recorded opens. Each agent's own page carries an
 **Arbitrage tab** with the same rows for that agent plus its harvest history and
-opens, and the creator dashboard's agent table carries a per-agent line
-(`Arbitrage · n positions · in range / out of range`, or `Arbitrage unknown`
-when the registry could not be read — never a silent zero). Nothing there is
-computed in the browser — every value is the arbitrage service's report, and
-`web-verify` checks the rendered page against the API, in the API's order. The
-public docs include an arbitrage page that says plainly that the strategy
-underneath the name is liquidity provision.
+opens — and, at the top of it, the **opt-in switch** the creator controls (off
+for every agent until switched on; disabling stops new exposure while harvesting
+and closing continue, see migration 0069). The creator dashboard's agent table
+carries a per-agent line (`Arbitrage on/off · n positions · in range / out of
+range`, `· winding down` when a position is held with the feature switched off,
+or `Arbitrage unknown` when the registry could not be read — never a silent
+zero). Nothing there is computed in the browser — every value is the arbitrage
+service's report, and `web-verify` checks the rendered page against the API, in
+the API's order. The public docs include an arbitrage page that says plainly
+that the strategy underneath the name is liquidity provision.
 
 ## Phased build (real money → checkpoints)
 

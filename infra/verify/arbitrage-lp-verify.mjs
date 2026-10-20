@@ -246,10 +246,40 @@ await run.section('Exact fees equal what the chain\'s own collect() would pay', 
   const ref0 = BigInt('0x' + word(raw, 1)).toString();
   const ref1 = BigInt('0x' + word(raw, 2)).toString();
 
-  run.check(`fees_owed0 equals the collect() simulation exactly (tokenId ${found.id})`,
-    found.fees.fees_owed0 === ref0, `${found.fees.fees_owed0} vs ${ref0}`);
-  run.check('fees_owed1 equals the collect() simulation exactly',
-    found.fees.fees_owed1 === ref1, `${found.fees.fees_owed1} vs ${ref1}`);
+  // THE SERVICE'S NUMBER IS READ AGAIN AFTER THE SIMULATION, AND THAT IS NOT A
+  // WEAKENING — it is what makes this an assertion about the arithmetic rather
+  // than about the clock. Fees only ever grow, so a live pool trading between
+  // the two reads makes the contract's number land strictly between them: on
+  // 2026-10-20 that was 306 raw units on a single position, and the check failed
+  // a service whose math was right. A value OUTSIDE the window is still a
+  // failure, and when nothing traded in the window the exactness assertion runs
+  // as it always did.
+  const again = await get(`/v1/arbitrage/lp/position?token_id=${found.id}`);
+  const after = again.status === 200 ? again.body.position : null;
+  const between = (ref, a, b) => {
+    const x = BigInt(ref);
+    const lo = BigInt(a) < BigInt(b) ? BigInt(a) : BigInt(b);
+    const hi = BigInt(a) < BigInt(b) ? BigInt(b) : BigInt(a);
+    return x >= lo && x <= hi;
+  };
+  const quiet = after !== null && after.fees_owed0 === found.fees.fees_owed0 && after.fees_owed1 === found.fees.fees_owed1;
+
+  run.check(`fees_owed0 is what collect() pays (tokenId ${found.id})`,
+    after === null ? found.fees.fees_owed0 === ref0 : between(ref0, found.fees.fees_owed0, after.fees_owed0),
+    `${found.fees.fees_owed0} → ${ref0} → ${after?.fees_owed0 ?? 'n/a'}`);
+  run.check('fees_owed1 is what collect() pays',
+    after === null ? found.fees.fees_owed1 === ref1 : between(ref1, found.fees.fees_owed1, after.fees_owed1),
+    `${found.fees.fees_owed1} → ${ref1} → ${after?.fees_owed1 ?? 'n/a'}`);
+  for (const [side, ref, before, now] of [['0', ref0, found.fees.fees_owed0, after?.fees_owed0], ['1', ref1, found.fees.fees_owed1, after?.fees_owed1]]) {
+    if (quiet) {
+      run.check(`and with nothing traded in the window, fees_owed${side} is exact`,
+        before === ref, `${before} vs ${ref}`);
+    } else {
+      run.nothingToCheck(
+        `the pool traded during the check (fees_owed${side} ${before} → ${now}), so the simulation is compared against ` +
+        `the window rather than for equality — the window check above is the assertion`);
+    }
+  }
   run.check('the exact fees are at least the stored tokens_owed',
     BigInt(found.fees.fees_owed0) >= BigInt(found.fees.tokens_owed0)
       && BigInt(found.fees.fees_owed1) >= BigInt(found.fees.tokens_owed1),
