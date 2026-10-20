@@ -799,6 +799,18 @@ await section('An arena whose gate cannot be read does not read as open', async 
 // ---------------------------------------------------------------------------
 
 await section('The landing page shows what it cannot source, rather than a plausible number', async () => {
+  // THE READS BRACKET THE RENDER. This platform records decisions continuously,
+  // so a total read AFTER the page can be one decision newer than the page it is
+  // compared against. That is what failed this section on 2026-10-20 — 240273,
+  // then 240501, a different number on every run — and it was the harness racing
+  // the clock, not a stale page. Reading the same endpoints before AND after the
+  // render is what keeps the assertion about the page: a value the page shows
+  // must lie inside the window the two reads bound, and a value outside both is
+  // still a failure.
+  const [statsBefore, feedBefore] = await Promise.all([
+    api(AGENT, '/v1/stats'),
+    api(AGENT, '/v1/decisions/recent?limit=8'),
+  ]);
   const p = await page('/');
   const t = text(p.html);
   check('the landing page renders', p.status === 200, `status ${p.status}`);
@@ -812,30 +824,52 @@ await section('The landing page shows what it cannot source, rather than a plaus
   check('no statistic is published as an apology',
     !/no source/i.test(t), 'a "no source" tile is still being shown to visitors');
 
-  const stats = await api(AGENT, '/v1/stats');
-  if (stats.status !== 200) {
-    check('the platform statistics are readable', false, `status ${stats.status}`);
+  const statsAfter = await api(AGENT, '/v1/stats');
+  if (statsBefore.status !== 200 || statsAfter.status !== 200) {
+    check('the platform statistics are readable', false,
+      `status ${statsBefore.status} before the render, ${statsAfter.status} after`);
   } else {
-    const st = stats.body;
+    const tile = (name, pick) => ({ name, before: pick(statsBefore.body), after: pick(statsAfter.body) });
     const tiles = [
-      ['agents', st.agents?.total],
-      ['active agents', st.agents?.active],
-      ['decisions', st.decisions?.total],
-      ['settled executions', st.executions?.settled],
-      ['creators', st.creators?.total],
-      ['seasons running', st.seasons?.running],
-      ['latest block', st.chain?.last_block_seen],
-    ];
-    const missing = tiles
-      .filter(([, v]) => typeof v === 'number')
-      .filter(([, v]) => !t.includes(Number(v).toLocaleString('en-US')) && !t.includes(String(v)))
-      .map(([name, v]) => `${name}=${v}`);
-    check('every headline statistic on the page is the one the API counted',
-      missing.length === 0, `not found on the page: ${missing.join(', ')}`);
+      tile('agents', (s) => s.agents?.total),
+      tile('active agents', (s) => s.agents?.active),
+      tile('decisions', (s) => s.decisions?.total),
+      tile('settled executions', (s) => s.executions?.settled),
+      tile('creators', (s) => s.creators?.total),
+      tile('seasons running', (s) => s.seasons?.running),
+      tile('latest block', (s) => s.chain?.last_block_seen),
+    ].filter((x) => typeof x.before === 'number' || typeof x.after === 'number');
+
+    const shown = (v) => typeof v === 'number' && (t.includes(Number(v).toLocaleString('en-US')) || t.includes(String(v)));
+    // Every integer the page printed, so a value that moved between the two
+    // reads is still recognisable without rendering a second page.
+    const printed = [...t.matchAll(/\d{1,3}(?:,\d{3})+|\d+/g)]
+      .map((m) => Number(m[0].replace(/,/g, '')))
+      .filter((n) => Number.isFinite(n));
+
+    const missing = [];
+    let skewed = 0;
+    for (const { name, before, after } of tiles) {
+      if (shown(before) || shown(after)) continue;
+      // Moved between the reads: the page may legitimately show any value in
+      // between, and only one OUTSIDE the window is a page that is not reading.
+      if (typeof before === 'number' && typeof after === 'number' && before !== after) {
+        const lo = Math.min(before, after);
+        const hi = Math.max(before, after);
+        if (printed.some((n) => n >= lo && n <= hi)) {
+          skewed += 1;
+          continue;
+        }
+      }
+      missing.push(`${name}=${after ?? before}`);
+    }
+    check('every headline statistic on the page is one the API counted around the render',
+      missing.length === 0,
+      `not found on the page: ${missing.join(', ')}${skewed ? ` (${skewed} moved between the two reads)` : ''}`);
 
     // A CONSTANT WOULD PASS THE CHECK ABOVE if every total happened to be the
     // same. Requiring them to differ is what separates reading from printing.
-    const distinct = new Set(tiles.map(([, v]) => String(v)));
+    const distinct = new Set(tiles.map(({ before, after }) => String(after ?? before)));
     if (distinct.size < 3) {
       nothingToCheck(`the platform totals are nearly all the same value right now ` +
         `(${[...distinct].join(',')}), so this run cannot tell a read from a constant`);
@@ -851,10 +885,22 @@ await section('The landing page shows what it cannot source, rather than a plaus
   } else if (feed.body.items.length === 0) {
     nothingToCheck('no decision has been recorded, so the hero feed has nothing to render');
   } else {
-    const names = feed.body.items.map((i) => i.agent_name);
+    // THE ROWS THAT EXISTED BEFORE THE PAGE MUST BE ON IT, IN THE API'S ORDER.
+    // A decision that landed after the render is the feed working, not the page
+    // withholding — and comparing against the post-render read is what made this
+    // check flaky against a platform that never stops deciding. When the feed
+    // moved, the skew is said out loud rather than hidden.
+    const moved = feed.body.items.map((i) => i.agent_name);
+    const names = feedBefore.body?.items?.length
+      ? feedBefore.body.items.map((i) => i.agent_name)
+      : moved;
     const absent = names.filter((nm) => !t.includes(nm));
-    check('the live decision feed shows the agents the API returned',
+    check('the live decision feed shows the agents the API counted around the render',
       absent.length === 0, `missing from the page: ${[...new Set(absent)].join(', ')}`);
+    if (feedBefore.body?.items?.length && moved.join('|') !== names.join('|')) {
+      nothingToCheck('a decision landed between the render and the second read, so the newest rows are compared against ' +
+        'the pre-render snapshot on purpose');
+    }
     // ORDER, not just presence — the feed is ordered by the database and a page
     // that re-sorted it would still contain every name.
     //
@@ -865,7 +911,7 @@ await section('The landing page shows what it cannot source, rather than a plaus
     // is the same assertion without the false failure.
     const firstSeen = [...new Set(names)];
     const pos = positions(t, firstSeen);
-    check('and in the order the API returned them', isAscending(pos.filter((p) => p >= 0)),
+    check('and in the order the API returned them', isAscending(pos.filter((x) => x >= 0)),
       `${firstSeen.join(', ')} at ${pos.join(', ')}`);
   }
 
