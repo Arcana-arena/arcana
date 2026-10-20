@@ -48,10 +48,10 @@ function AgentCell({ id }: { id: string }) {
 export default async function LiquidityPage() {
   const [venuesR, positionsR, actionsR, executionsR, opensR] = await Promise.all([
     arbitrage<LPVenues>('/v1/arbitrage/venues'),
-    arbitrage<{ positions: LPPosition[] }>('/v1/arbitrage/positions?status=all&limit=100'),
-    arbitrage<{ actions: LPAction[] }>('/v1/arbitrage/actions?limit=50'),
-    arbitrage<{ executions: LPStep[] }>('/v1/arbitrage/executions?limit=50'),
-    arbitrage<{ opens: LPOpen[] }>('/v1/arbitrage/opens?limit=20'),
+    arbitrage<{ positions: LPPosition[] }>('/v1/arbitrage/lp/positions?status=all&limit=100'),
+    arbitrage<{ actions: LPAction[] }>('/v1/arbitrage/lp/actions?limit=50'),
+    arbitrage<{ executions: LPStep[] }>('/v1/arbitrage/lp/executions?limit=50'),
+    arbitrage<{ opens: LPOpen[] }>('/v1/arbitrage/lp/opens?limit=20'),
   ]);
 
   const token = tokenIndex(venuesR.ok ? venuesR.data : null);
