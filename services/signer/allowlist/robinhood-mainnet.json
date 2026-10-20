@@ -347,6 +347,24 @@
         "control_revert_data": "0x",
         "note": "isBlocked(address) does not exist on this token. Measured 2026-10-15 on chain 4663 (selector 0xfbac3951): eth_call reverts with an empty payload, and eth_call of 0xdeadbeef — a selector that exists nowhere — reverts identically, exactly as on the nine primary tokens, RBLX, LLY, IBM, MRNA, NU, JNJ, BA, NFLX, UPS and COST, which share its beacon and implementation. paused() is NOT excepted: it answers false on this token and is still enforced."
       }
+    },
+    {
+      "symbol": "LULU",
+      "address": "0x4e62068525Ab11FE768e29dfD00ef909B9803016",
+      "decimals": 18,
+      "pool": "0x0f4227d27082b3bca6818381b9ea6460275e49f4",
+      "pool_fee": 3000,
+      "market": "secondary",
+      "referee_pool": "0x19757223628da89569f9a2488af6c45cb9824ea1",
+      "referee_pool_fee": 10000,
+      "market_note": "SECONDARY MARKET, listed 2026-10-20. No Chainlink feed exists for LULU on this chain, so the engine reads the 1% pool for the same pair before every LULU swap and refuses the trade (price_divergence) when the two pools are more than 2% apart, or when the referee pool cannot be read (referee_unreadable). Both pools read live: 0.3% at 97.6736 USDG, 1% at 96.9947 USDG, both from factory 0x1f7d7550b1b028f7571e69a784071f0205fd2efa, which is the factory SwapRouter02 reports. Evidence for the token itself is in services/market-data/config/robinhood-chain.json and docs/secondary-market.md.",
+      "blocklist_unreadable": {
+        "verified_at": "2026-10-20",
+        "revert_data": "0x",
+        "control_selector": "0xdeadbeef",
+        "control_revert_data": "0x",
+        "note": "isBlocked(address) does not exist on this token. Measured 2026-10-20 on chain 4663 (selector 0xfbac3951): eth_call reverts with an empty payload, and eth_call of 0xdeadbeef — a selector that exists nowhere — reverts identically, exactly as on the nine primary tokens, RBLX, LLY, IBM, MRNA, NU, JNJ, BA, NFLX, UPS, COST and PFE, which share its beacon and implementation. paused() is NOT excepted: it answers false on this token and is still enforced."
+      }
     }
   ],
   "limits": {

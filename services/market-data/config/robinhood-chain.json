@@ -257,6 +257,20 @@
       "referee_pool": "0xa26df7296ef5dfc727f3bc6f1e9050e6b62e6abf",
       "referee_pool_fee": 10000,
       "listing_note": "SECONDARY MARKET, listed 2026-10-15. Read live before this entry was written: name() = \"Pfizer • Robinhood Token\", symbol PFE, 18 decimals, behind the same beacon (0xe10b…1b00) and implementation (0xb354…5ae2, 11,614 bytes) as every primary token, paused() = false. Chainlink publishes NO PFE feed on this chain (its tokenized-equity feed directory for robinhood-mainnet, re-read 2026-10-15, lists 58 feeds and none PFE), so the price is refereed by the 1% pool for the same pair instead. Exactly two pools exist for the pair, both from 0x1f7d…2efa with USDG as token0 (PFE's address sorts above USDG's): 0.3% at 0xc7d5…e7f (29.2354 USDG, ~$48k of quote in reserves) and 1% at 0xa26d…abf (29.1906 USDG, ~$1.1k); 0.15% apart, inside the 2% tolerance. The 0.3% pool is traded because its fee is a third of the other's and it is far the deeper — about $815k of in-range liquidity against about $51k in the 1% pool: ~0.002% impact at $10, ~0.024% at $100, ~0.245% at $1,000, ~2.4% at $10,000. The 1% pool is the only other pool, so it referees; it is thin, so about $500 moves it 2%, which stops PFE trades (price_divergence) until the pools agree again. That is the cost of availability, not of safety: fooling the check still needs the 0.3% pool moved, about $8k at 2%, and that is where the money is."
+    },
+    {
+      "symbol": "LULU",
+      "sector": "Consumer Discretionary",
+      "address": "0x4e62068525Ab11FE768e29dfD00ef909B9803016",
+      "decimals": 18,
+      "pool": "0x0f4227d27082b3bca6818381b9ea6460275e49f4",
+      "pool_fee": 3000,
+      "feed": "",
+      "feed_name": "",
+      "market": "secondary",
+      "referee_pool": "0x19757223628da89569f9a2488af6c45cb9824ea1",
+      "referee_pool_fee": 10000,
+      "listing_note": "SECONDARY MARKET, listed 2026-10-20. Read live before this entry was written: name() = \"Lululemon • Robinhood Token\", symbol LULU, 18 decimals, behind the same beacon (0xe10b…1b00) and implementation (0xb354…5ae2, 11,614 bytes) as every primary token, paused() = false. Chainlink publishes NO LULU feed on this chain (its tokenized-equity feed directory for robinhood-mainnet, re-read 2026-10-20, lists 58 feeds and none LULU), so the price is refereed by the 1% pool for the same pair instead. Two live pools exist for the pair, both from 0x1f7d…2efa with LULU as token0 (its address sorts below USDG's), and a 0.05% pool that is initialised but holds nothing: 0.3% at 0x0f42…49f4 (97.6736 USDG, ~$21k of quote in reserves) and 1% at 0x1975…4ea1 (96.9947 USDG, ~$32); 0.70% apart, inside the 2% tolerance. The 0.3% pool is traded because its fee is a third of the other's and it is far the deeper — about $3.07M of in-range liquidity against about $10k in the 1% pool: ~0.001% impact at $10, ~0.007% at $100, ~0.065% at $1,000, ~0.65% at $10,000, so only COST and NFLX are cheaper to trade at size in the secondary market. The 1% pool is the only other live pool, so it referees; it is thin, so about $100 moves it 2% — level with BA's, the thinnest referee the market has accepted — which stops LULU trades (price_divergence) until the pools agree again. That is the cost of availability, not of safety: fooling the check still needs the 0.3% pool moved, about $31k at 2%, and that is where the money is."
     }
   ]
 }

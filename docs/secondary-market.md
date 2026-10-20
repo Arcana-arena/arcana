@@ -9,12 +9,13 @@ price on this chain. It holds **RBLX** (Roblox), listed 2026-09-27, **LLY**
 (Moderna), listed 2026-10-02, **NU** (Nu Holdings) and **JNJ** (Johnson &
 Johnson), both listed 2026-10-04, **BA** (Boeing), listed 2026-10-06, **NFLX**
 (Netflix), listed 2026-10-09, **UPS**, listed 2026-10-11, **COST**
-(Costco), listed 2026-10-13, and **PFE** (Pfizer), listed 2026-10-15. The
+(Costco), listed 2026-10-13, **PFE** (Pfizer), listed 2026-10-15, and **LULU**
+(Lululemon), listed 2026-10-20. The
 sections below record RBLX, the first; LLY, IBM, MRNA, NU, JNJ, BA, NFLX, UPS,
-COST and PFE have their own sections ([LLY](#lly-eli-lilly), [IBM](#ibm),
+COST, PFE and LULU have their own sections ([LLY](#lly-eli-lilly), [IBM](#ibm),
 [MRNA](#mrna-moderna), [NU](#nu-nu-holdings), [JNJ](#jnj-johnson--johnson),
 [BA](#ba-boeing), [NFLX](#nflx-netflix), [UPS](#ups), [COST](#cost-costco),
-[PFE](#pfe-pfizer)) with the same evidence.
+[PFE](#pfe-pfizer), [LULU](#lulu-lululemon)) with the same evidence.
 
 Related: [go-no-go-stock-tokens.md](./go-no-go-stock-tokens.md) (the permission
 this rests on), [market-data.md](./market-data.md), [execution.md](./execution.md),
@@ -576,6 +577,60 @@ thinner than any referee the market has accepted, and TTWO has only an empty
 still, but it has a Chainlink feed (`GLD / USD`, read live 2026-10-15 at 374.31
 against a 0.3% pool at 375.21), so it belongs in the primary market rather than
 here.
+
+## LULU (Lululemon)
+
+Listed 2026-10-20 with the same checks, read live that day. Chainlink's
+tokenized-equity feed directory for Robinhood Chain, re-read the same day,
+lists 58 feeds and none for LULU.
+
+| Check | Result |
+|---|---|
+| `name()` / `symbol()` / `decimals()` | `Lululemon • Robinhood Token` / `LULU` / 18 |
+| Address | `0x4e62068525Ab11FE768e29dfD00ef909B9803016` |
+| Beacon / implementation | `0xe10b…1b00` / `0xb354…5ae2`, 11,614 bytes, the same as every other token |
+| `paused()` | `false` |
+| `isBlocked(address)` | reverts, empty payload; `0xdeadbeef` reverts identically |
+
+The address came from the issuer's own contract registry for chain 4663; the
+name, beacon and implementation above are what prove it.
+
+LULU has two live pools against USDG, both from factory `0x1f7d…2efa` with LULU
+as token0, and a third at 0.05% that is initialised but holds nothing. There is
+no 0.01% pool for the pair.
+
+| | Traded pool | Referee pool |
+|---|---|---|
+| Fee | 0.3% (3000) | 1% (10000) |
+| Address | `0x0f4227d27082b3bca6818381b9ea6460275e49f4` | `0x19757223628da89569f9a2488af6c45cb9824ea1` |
+| Price, 2026-10-20 | 97.6736 USDG | 96.9947 USDG |
+| Reserves | ~$21k | ~$32 |
+
+The two were 0.70% apart, inside the 2% tolerance. The 0.3% pool is traded
+because its fee is a third of the other's and it is far the deeper — about
+$3.07M of in-range liquidity against about $10k in the 1% pool. That is what an
+agent pays, and only COST's and NFLX's traded pools are cheaper at size:
+
+| Buy size | $10 | $100 | $1,000 | $10,000 |
+|---|---|---|---|---|
+| Impact, 0.3% pool | 0.001% | 0.007% | 0.065% | 0.653% |
+
+The 1% pool is the only other live pool, so it referees. It is thin — about
+$100 moves it 2%, level with BA's, the thinnest referee the market has accepted
+— and as with BA the cost is availability and not safety: someone who moves the
+1% pool stops LULU trades (`price_divergence`) until the pools agree again;
+they do not set a price. Fooling the check needs the 0.3% pool moved 2% as
+well, about $31k, and that is where the money is.
+
+LULU was passed over at PFE's listing five days earlier, when its 0.3% pool
+held about $580k of in-range liquidity; it has since deepened to about $3.07M,
+which retires that reason. It is now the deepest traded pool among the feedless
+tokens that have a usable referee. HIMS (~$20.2M) and AMC (~$2.6M) are deeper
+and both still have a 1% pool that about $8 and $12 move 2%, so they would halt
+on almost any trade; TTWO (~$1.8M), AVGO (~$1.1M), FIG (~$1.1M), SNAP (~$0.9M)
+and BE (~$0.6M) have no live second pool at all. RIVN (~$374k traded, ~$114k
+referee) and NET (~$72k traded, ~$31k referee) were the next candidates with a
+usable referee.
 
 ## What this leaves out
 
