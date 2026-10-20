@@ -30,6 +30,11 @@ const (
 	selOwnerOf     = "0x6352211e" // ownerOf(uint256) (ERC721)
 	selTotalSupply = "0x18160ddd" // totalSupply()
 	selGetPool     = "0x1698ee82" // getPool(address,address,uint24) on the v3 factory
+	// getReserves() on a Uniswap-V2 pair. V2 venues are priced from reserves and
+	// not with the v3 reader: slot0() does not exist on a V2 pair, so calling it
+	// returns a revert — which is what "arbitrage AAPL uniswap-v2-0xd0bb… price:
+	// execution reverted" was, five times a scan, until 2026-10-20.
+	selGetReserves = "0x0902f1ac" // getReserves() on a Uniswap-V2 pair
 
 	// Fee accounting, for exact accrual rather than the stored tokensOwed.
 	selFeeGrowthGlobal0 = "0xf3058399" // feeGrowthGlobal0X128() on the pool
@@ -228,6 +233,65 @@ func (c *Client) PoolPrice(ctx context.Context, pool, tokenAddr string, tokenDec
 	out, _ := human.Float64()
 	if !(out > 0) || math.IsInf(out, 0) || math.IsNaN(out) {
 		return 0, fmt.Errorf("pool price is not a usable number: %v", out)
+	}
+	return out, nil
+}
+
+// V2Quote reads a Uniswap-V2 pair's spot price for a token, quoted in the quote
+// token, and returns it with the pair's quote-side reserve in raw units.
+//
+// WHY A SEPARATE READER, AND WHY THE RESERVE COMES BACK WITH THE PRICE. V2 has
+// no sqrtPriceX96 and no in-range liquidity: the price is reserves of one side
+// divided by the other, and the only measure of how much a pair can absorb is
+// how much of the quote side it actually holds. Returning both means a caller
+// cannot price a dust pair and then treat it as tradeable — the number that
+// says it is dust arrives in the same call as the number that says what it is
+// worth per token.
+func (c *Client) V2Quote(ctx context.Context, pair, tokenAddr string, tokenDec, quoteDec int) (float64, string, error) {
+	raw, err := c.Call(ctx, pair, selGetReserves)
+	if err != nil {
+		return 0, "", err
+	}
+	w := words(raw)
+	if len(w) < 2 {
+		return 0, "", fmt.Errorf("getReserves returned %d words, expected at least 2", len(w))
+	}
+	reserve0, reserve1 := wordToBig(w[0]), wordToBig(w[1])
+
+	token0Raw, err := c.Call(ctx, pair, selToken0)
+	if err != nil {
+		return 0, "", err
+	}
+	token0 := wordToAddress(words(token0Raw)[0])
+	tokenIsToken0 := strings.EqualFold(token0, tokenAddr)
+
+	price, err := v2PriceFromReserves(reserve0, reserve1, tokenIsToken0, tokenDec, quoteDec)
+	if err != nil {
+		return 0, "", err
+	}
+	quoteReserve := reserve0
+	if tokenIsToken0 {
+		quoteReserve = reserve1
+	}
+	return price, quoteReserve.String(), nil
+}
+
+// v2PriceFromReserves is the arithmetic, separated from the RPC so it can be
+// tested against known reserves: (quote / token) corrected by the two decimal
+// scales — the same correction PoolPrice applies on both sides of an inversion.
+func v2PriceFromReserves(reserve0, reserve1 *big.Int, tokenIsToken0 bool, tokenDec, quoteDec int) (float64, error) {
+	tokenReserve, quoteReserve := reserve0, reserve1
+	if !tokenIsToken0 {
+		tokenReserve, quoteReserve = reserve1, reserve0
+	}
+	if tokenReserve.Sign() == 0 || quoteReserve.Sign() == 0 {
+		return 0, errors.New("pair has no reserves on one side")
+	}
+	ratio := new(big.Float).Quo(new(big.Float).SetInt(quoteReserve), new(big.Float).SetInt(tokenReserve))
+	ratio.Mul(ratio, big.NewFloat(math.Pow(10, float64(tokenDec-quoteDec))))
+	out, _ := ratio.Float64()
+	if !(out > 0) || math.IsInf(out, 0) || math.IsNaN(out) {
+		return 0, fmt.Errorf("pair price is not a usable number: %v", out)
 	}
 	return out, nil
 }

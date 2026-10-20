@@ -39,14 +39,20 @@ Two reviewed files, never runtime settings:
 
 ## Quote and classification model
 
-For each venue the scanner reads the Uniswap v3 spot price (`slot0`) and the
-in-range liquidity (`liquidity()`). The executable quotes are the mid price
-fee-adjusted:
+Each venue is read by its own DEX: a Uniswap v3 pool with `slot0` (spot price)
+and `liquidity()` (in-range liquidity); a Uniswap v2 pair with `getReserves()`
+and `token0()`, priced as `(quote_reserve / token_reserve) × 10^(token_dec −
+quote_dec)` and carrying its quote-side reserve as the audit value. Mixing the
+two readers is what made every v2 venue log `execution reverted` on every scan
+until 2026-10-20 — `slot0()` on a v2 pair does not exist.
+
+The executable quotes are the mid price fee-adjusted:
 
 - `buy_price = mid × (1 + fee_bps/10000)`
 - `sell_price = mid × (1 − fee_bps/10000)`
 
-For each token it picks the cheapest buy venue and the dearest sell venue, then:
+For each token the scanner picks the two **distinct pools** with the largest
+`sell_price − buy_price`, then:
 
 - `gross_spread_bps = (sell_price − buy_price) / buy_price × 10000` — already
   net of both venues' fees, because the fees are inside the quotes.
@@ -55,6 +61,24 @@ For each token it picks the cheapest buy venue and the dearest sell venue, then:
 
 A row is `executable` when `est_net_profit_bps ≥ min_net_profit_bps`, else
 `indicative`.
+
+**Two rules keep rows honest, added 2026-10-20 after the live scanner was
+audited against its own output:**
+
+1. **Distinct pools, not distinct venue names.** A token whose venues are one
+   pool produced a row comparing that pool with itself: bought at
+   `mid × (1+fee)` and sold at `mid × (1−fee)`, i.e. exactly −2×fee. That is the
+   round-trip cost, not an opportunity, and it was the only row every
+   single-venue token ever recorded. Those tokens produce **no row** and are
+   counted in the scan's `single_venue_tokens` instead.
+2. **A venue that cannot carry the reference size cannot make a row
+   `executable`.** A v2 pair whose quote-side reserve is below
+   `reference_size_usd` is dust: the config lists those pairs "so the scanner can
+   measure them, not because they are tradeable" (see `extra_venues`), and a
+   price that looks profitable there says nothing about a fill. Such rows are
+   recorded `indicative` and the reason is logged. Only v2 venues can be
+   checked this way today; v3 venues carry no reserve figure, so the
+   `impact_buffer_bps` placeholder stands in for them.
 
 **Price impact is not yet computed from liquidity.** `impact_buffer_bps` is a
 deliberate first-slice placeholder (default 0.1%), documented in the config;

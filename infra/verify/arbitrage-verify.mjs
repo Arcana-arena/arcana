@@ -79,6 +79,17 @@ await run.section('A scan records opportunities with consistent arithmetic', asy
   run.check('scan returns 200', res.status === 200, `got ${res.status} ${JSON.stringify(body)}`);
   run.check('scan reports the token count it was asked to scan', body?.scanned_tokens === tokenCount,
     `${body?.scanned_tokens} vs ${tokenCount}`);
+  // EVERY VENUE READ SUCCEEDS. The v2 venues were failing this on every scan
+  // until 2026-10-20, when the scanner was still pricing them with the v3
+  // reader (slot0() on a v2 pair). A non-zero count here is a scanner reading
+  // the wrong contract, not a market condition.
+  run.check('the scan reports no venue read errors', body?.errors === 0, `errors=${body?.errors} note=${body?.note}`);
+
+  const ven = await get('/v1/arbitrage/venues');
+  const venuesByToken = new Map();
+  for (const t of ven.body?.tokens ?? []) {
+    for (const v of t.venues ?? []) venuesByToken.set(`${t.symbol}|${v.id}`, (v.pool ?? '').toLowerCase());
+  }
 
   const r = await get('/v1/arbitrage/opportunities');
   const rows = r.body?.opportunities;
@@ -87,6 +98,7 @@ await run.section('A scan records opportunities with consistent arithmetic', asy
     let consistent = true;
     let statusSane = true;
     let executableImpliesProfit = true;
+    let distinctPools = true;
     let detail = '';
     for (const o of rows) {
       if (!(o.buy_price > 0) || !(o.sell_price > 0)) { consistent = false; detail = `${o.symbol} non-positive price`; }
@@ -97,10 +109,20 @@ await run.section('A scan records opportunities with consistent arithmetic', asy
       }
       if (!['indicative', 'executable'].includes(o.status)) { statusSane = false; detail = `${o.symbol} status ${o.status}`; }
       if (o.status === 'executable' && o.est_net_profit_bps < 0) { executableImpliesProfit = false; detail = `${o.symbol} executable but net<0`; }
+      // A ROW MUST COMPARE TWO POOLS. One pool bought and sold against itself
+      // measures the round trip through its own fee — always negative, never an
+      // opportunity — and that was the only row single-venue tokens recorded.
+      const buyPool = venuesByToken.get(`${o.symbol}|${o.venue_buy}`);
+      const sellPool = venuesByToken.get(`${o.symbol}|${o.venue_sell}`);
+      if (!buyPool || !sellPool || buyPool === sellPool) {
+        distinctPools = false;
+        detail = `${o.symbol} compares ${o.venue_buy} with ${o.venue_sell} (${buyPool} / ${sellPool})`;
+      }
     }
     run.check('buy/sell prices are positive and spread matches the quotes', consistent, detail);
     run.check('status is only indicative or executable', statusSane, detail);
     run.check('executable rows have non-negative net profit', executableImpliesProfit, detail);
+    run.check('every row compares two distinct pools', distinctPools, detail);
   }
 });
 
