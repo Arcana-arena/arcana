@@ -12,7 +12,7 @@ signer, discovery by the loop, rebalance (two approvals, `decrease`, `collect`,
 `burn`, `mint`), harvest (a real swap's fees proposed at the exact accrual and
 paid to the wallet to the base unit), and close (`collect`, `burn`). Every
 transaction mined, every step recorded, the chain checked afterwards.
-**43/43 checks** (`infra/verify/lpexec-anvil-e2e.sh`). The production unit
+**57/57 checks** (`infra/verify/lpexec-anvil-e2e.sh`). The production unit
 carries `LP_EXECUTE=1`; it is **inert until a position exists**.
 
 ## Opening a position — the one action the loop cannot propose
