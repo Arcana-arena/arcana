@@ -31,7 +31,11 @@ func TestV2PriceFromReserves(t *testing.T) {
 		{"token is token0", token18, quote6, true, 18, 6, 340},
 		{"token is token1", quote6, token18, false, 18, 6, 340},
 		{"equal decimals", scaled(2, 6), scaled(1, 6), true, 6, 6, 0.5},
-		{"one wei against one dollar", big.NewInt(1), scaled(1, 6), true, 18, 6, 1e-6},
+		// A single wei of an 18-decimal token against one dollar is an absurd
+		// price, and the reserves say so: 1e6/1 × 10^12. The point of the case is
+		// that the decimal correction lands on the right side of the division —
+		// the first version of this test expected 1e-6 and was wrong.
+		{"one wei against one dollar", big.NewInt(1), scaled(1, 6), true, 18, 6, 1e18},
 	}
 	for _, c := range cases {
 		got, err := v2PriceFromReserves(c.reserve0, c.reserve1, c.tokenIs0, c.tokenDec, c.quoteDec)
