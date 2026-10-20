@@ -307,7 +307,11 @@ func withEnabled(agentIDs ...string) func(*fakeStore) {
 
 func TestSyncDiscoversAndProposesRebalance(t *testing.T) {
 	ch := healthyChain(5000) // above the position's [-1000, 1000) range
-	st := walletStore(withCursor(1))
+	// THE CREATOR HAS SWITCHED IT ON. Proposing a rebalance is now gated on the
+	// opt-in, so a test that asserts "discovery leads to a proposal" has to say
+	// so — TestDisabledAgentGetsNoRebalanceProposal is the same setup with the
+	// switch off, and it asserts the opposite.
+	st := walletStore(withCursor(1), withEnabled("agent-1"))
 	sy := New(ch, st, testCfg())
 
 	res, err := sy.SyncOnce(context.Background())
