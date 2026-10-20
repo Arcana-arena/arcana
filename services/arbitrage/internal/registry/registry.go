@@ -137,13 +137,13 @@ func (s *Syncer) AllAgentSettings(ctx context.Context, limit int) ([]store.Agent
 
 // Result summarizes one pass.
 type Result struct {
-	Watched    int    `json:"watched"`
-	Discovered int    `json:"discovered"`
-	Synced     int    `json:"synced"`
-	Skipped    int    `json:"skipped"`
-	Proposed   int    `json:"proposed"`
-	Closed     int    `json:"closed"`
-	Open       int    `json:"open"`
+	Watched    int `json:"watched"`
+	Discovered int `json:"discovered"`
+	Synced     int `json:"synced"`
+	Skipped    int `json:"skipped"`
+	Proposed   int `json:"proposed"`
+	Closed     int `json:"closed"`
+	Open       int `json:"open"`
 	// Enabled is how many agents the creator has switched arbitrage on for.
 	// Zero is a normal state, not an error: the feature is opt-in.
 	Enabled int    `json:"enabled"`

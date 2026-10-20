@@ -435,8 +435,12 @@ func TestSyncSupersedesProposalWhenBackInRange(t *testing.T) {
 }
 
 func TestSyncKeepsProposalWhileItStillHolds(t *testing.T) {
+	// THE AGENT IS ENABLED, AND THAT IS NOW PART OF THE SETUP. A standing
+	// rebalance belongs to an agent whose creator has arbitrage switched on;
+	// with the switch off, the same proposal is superseded on purpose
+	// (TestDisabledAgentSupersedesAStandingRebalance covers that direction).
 	ch := healthyChain(5000)
-	st := walletStore(withCursor(1001), withOpenRow("7"), withAction("7", "rebalance"))
+	st := walletStore(withCursor(1001), withOpenRow("7"), withAction("7", "rebalance"), withEnabled("agent-1"))
 	sy := New(ch, st, testCfg())
 
 	res, err := sy.SyncOnce(context.Background())
