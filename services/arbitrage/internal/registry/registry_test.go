@@ -82,6 +82,8 @@ type fakeStore struct {
 	closed     []string
 	superseded []string
 	proposed   []store.LPAction
+	steps      []store.LPExecutionStep
+	opens      []store.LPOpen
 
 	beatCalled bool
 	beatBlock  *int64
@@ -176,6 +178,19 @@ func (s *fakeStore) LPPositions(context.Context, string, int) ([]store.LPPositio
 
 func (s *fakeStore) ProposedActions(context.Context, int) ([]store.LPAction, error) {
 	return s.proposed, nil
+}
+
+// The public activity feeds. The fake answers with the same rows the tests put
+// in, so a read path added to the Store interface cannot sit unimplemented here
+// — which is what `go vet` caught on 2026-10-20, hours after the endpoints
+// shipped: the production store had them, the fake did not, and the package did
+// not compile until it did.
+func (s *fakeStore) RecentLPExecutions(context.Context, int) ([]store.LPExecutionStep, error) {
+	return s.steps, nil
+}
+
+func (s *fakeStore) RecentLPOpens(context.Context, int) ([]store.LPOpen, error) {
+	return s.opens, nil
 }
 
 // --- helpers -----------------------------------------------------------------
