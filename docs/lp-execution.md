@@ -5,15 +5,36 @@ The LP registry loop (`services/arbitrage`, migration 0065) ends at a
 position needs — a fresh range for a rebalance, or collect+burn for an empty
 position. `arcana-lpexec` is the executor that acts on it.
 
-**Status 2026-10-20: BUILT, PROVEN, AND ARMED.** The armed path ran end to end
+**Status 2026-10-20: BUILT, PROVEN, AND ARMED.** The full path ran end to end
 on an **anvil fork of Robinhood Chain** — the real NonfungiblePositionManager,
-the real USDG and Stock Token, a real position minted on the fork — with the
-real signer binary: two approvals, `decrease`, `collect`, `burn`, `mint`, six
-transactions all mined, the action recorded as executed, the old NFT gone and
-the new one owned by the agent and in range. 31/31 checks
-(`infra/verify/lpexec-anvil-e2e.sh`). The production unit carries
-`LP_EXECUTE=1`; it is **inert until a proposal exists**, and none can exist
-until an agent owns a position (i.e. until funding).
+the real USDG and Stock Token — with the real signer binary: open through the
+signer, discovery by the loop, rebalance (two approvals, `decrease`, `collect`,
+`burn`, `mint`), harvest (a real swap's fees proposed at the exact accrual and
+paid to the wallet to the base unit), and close (`collect`, `burn`). Every
+transaction mined, every step recorded, the chain checked afterwards.
+**43/43 checks** (`infra/verify/lpexec-anvil-e2e.sh`). The production unit
+carries `LP_EXECUTE=1`; it is **inert until a position exists**.
+
+## Opening a position — the one action the loop cannot propose
+
+The loop only observes positions that exist. The first position (and any new
+allocation) is created through `lpexec --open`:
+
+```bash
+# LP_EXECUTE=1 arms it; LP_MAX_OPEN_USD is the owner's ceiling for this act and
+# is REQUIRED — an unset cap is a refusal, not an unlimited one.
+LP_EXECUTE=1 LP_MAX_OPEN_USD=100 lpexec --open \
+  --agent <agent-uuid> --symbol NVDA --size-usd 50 --range-pct 0.05
+```
+
+It fetches the reviewed plan from `GET /v1/arbitrage/lp/plan`, checks the
+wallet holds both legs, derives approvals to the position manager (only when
+the allowance is short), signs `lp_mint` through the signer, broadcasts, reads
+the receipt, extracts the new tokenId from the ERC-721 Transfer log, and
+records the act in `lp_opens` (migration 0068) — agent, plan, size, tokenId,
+transaction. The registry then discovers the position through the loop's own
+Transfer-log discovery within one `LP_SYNC_INTERVAL`; nothing else writes
+`lp_positions`.
 
 ## The intent sequence, and why this order
 
@@ -109,10 +130,11 @@ automatically**. Sequence the funding accordingly:
    `signer-isolation-verify` 15/15, `arcana-seed-restore-test.sh` PASS against
    the KMS-loaded signer. See [signer.md](./signer.md).
 1. **The first real position (owner-approved amount).** Fund one agent wallet
-   with the approved USDG plus gas, then mint with a reviewed plan from
-   `GET /v1/arbitrage/lp/plan` — the same intent the executor sends. From the
-   moment the registry discovers the position (≤ 5 minutes), the executor owns
-   its management for as long as it is funded.
+   with the approved USDG plus gas, then open through the tool above with that
+   amount as the size and as `LP_MAX_OPEN_USD` — the same signer intent the
+   executor uses, with a cap that had to be typed. From the moment the registry
+   discovers the position (≤ 5 minutes), the executor owns its management for
+   as long as it is funded.
 2. **Watch it.** The registry syncs every 5 minutes; an out-of-range position
    produces a proposal within one sync and the executor acts on it within the
    next timer tick. `lp_execution_steps` is the audit trail; the signer's daily

@@ -25,11 +25,15 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"net/http"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -59,6 +63,47 @@ type positionResponse struct {
 	Position execution.LPPositionRead `json:"position"`
 }
 
+// planResponse is the reviewed plan GET /v1/arbitrage/lp/plan answers with.
+// PoolFee is in BASIS POINTS (the venue's fee_bps); the signer takes the fee
+// TIER, which is bps × 100.
+type planResponse struct {
+	Symbol  string `json:"symbol"`
+	Pool    string `json:"pool"`
+	PoolFee int    `json:"pool_fee"`
+	Token0  string `json:"token0"`
+	Token1  string `json:"token1"`
+	Plan    *struct {
+		TickLower      int32  `json:"tick_lower"`
+		TickUpper      int32  `json:"tick_upper"`
+		Amount0Desired string `json:"amount0_desired"`
+		Amount1Desired string `json:"amount1_desired"`
+		Amount0Min     string `json:"amount0_min"`
+		Amount1Min     string `json:"amount1_min"`
+	} `json:"plan"`
+}
+
+type openStep struct {
+	Step    int    `json:"step"`
+	Intent  string `json:"intent"`
+	Status  string `json:"status"`
+	TxHash  string `json:"tx_hash,omitempty"`
+	TokenID string `json:"token_id,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+type openSummary struct {
+	Opened  bool       `json:"opened"`
+	AgentID string     `json:"agent_id"`
+	Symbol  string     `json:"symbol"`
+	Pool    string     `json:"pool"`
+	TokenID string     `json:"token_id,omitempty"`
+	TxHash  string     `json:"tx_hash,omitempty"`
+	SizeUSD float64    `json:"size_usd"`
+	CapUSD  float64    `json:"cap_usd"`
+	Error   string     `json:"error,omitempty"`
+	Steps   []openStep `json:"steps"`
+}
+
 type summary struct {
 	Armed           bool                     `json:"armed"`
 	Arbitrage       string                   `json:"arbitrage"`
@@ -74,14 +119,31 @@ type summary struct {
 func main() {
 	log.SetFlags(log.LstdFlags | log.LUTC)
 
+	openMode := flag.Bool("open", false, "open one new LP position through the signer (requires LP_EXECUTE=1 and LP_MAX_OPEN_USD)")
+	openSymbol := flag.String("symbol", "", "symbol to open (with --open)")
+	openSizeUSD := flag.Float64("size-usd", 0, "USD value of the new position (with --open)")
+	openRangePct := flag.Float64("range-pct", 0.05, "range around the current tick, symmetric in price (with --open)")
+	openSlippageBps := flag.Float64("slippage-bps", 50, "slippage floor for the mint amounts (with --open)")
+	openAgent := flag.String("agent", "", "agent id whose wallet opens the position (with --open)")
+	flag.Parse()
+
 	arb := envOr("ARBITRAGE_URL", "http://127.0.0.1:8084")
 	armed := os.Getenv("LP_EXECUTE") == "1"
+	if *openMode && !armed {
+		// Opening spends; it is armed by the same switch as the executor, so
+		// there is one thing to audit rather than two.
+		log.Fatalf("--open signs and broadcasts; set LP_EXECUTE=1 to arm it")
+	}
 	if armed {
 		// A VERIFICATION MAY NOT SPEND. Same refusal the pacer and the guard
 		// carry, in the binary rather than in the suite.
 		if v := os.Getenv("ARCANA_VERIFICATION"); v != "" {
 			log.Fatalf("refusing: ARCANA_VERIFICATION is set and LP_EXECUTE=1 would sign and broadcast real transactions")
 		}
+	}
+	if *openMode {
+		runOpen(arb, *openAgent, strings.ToUpper(strings.TrimSpace(*openSymbol)), *openSizeUSD, *openRangePct, *openSlippageBps)
+		return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -253,6 +315,181 @@ func armedDeps() (*execution.Broker, *store.Store, func(), error) {
 		return nil, nil, nil, fmt.Errorf("database: %w", err)
 	}
 	return execution.NewBroker(cfg, rpc, signer), store.New(pool), pool.Close, nil
+}
+
+// runOpen opens one position: a reviewed plan, an explicit per-open cap, the
+// signer, the broadcast, and the receipt. It is the only path that creates a
+// position; everything afterwards is the registry loop and the executor.
+//
+// THE CAP IS REQUIRED AND CHECKED BEFORE ANYTHING IS SIGNED: LP_MAX_OPEN_USD is
+// the owner's ceiling for this act, and an unset cap is a refusal rather than
+// an unlimited one.
+func runOpen(arb, agent, symbol string, sizeUSD, rangePct, slippageBps float64) {
+	if agent == "" {
+		log.Fatalf("--agent is required with --open: the position must belong to an agent's wallet")
+	}
+	if symbol == "" {
+		log.Fatalf("--symbol is required with --open")
+	}
+	if !(sizeUSD > 0) {
+		log.Fatalf("--size-usd must be positive")
+	}
+	capUSD, err := strconv.ParseFloat(strings.TrimSpace(os.Getenv("LP_MAX_OPEN_USD")), 64)
+	if err != nil || capUSD <= 0 {
+		log.Fatalf("LP_MAX_OPEN_USD is required for --open: no cap, no open")
+	}
+	if sizeUSD > capUSD {
+		log.Fatalf("refusing: size %.2f exceeds the per-open cap LP_MAX_OPEN_USD=%.2f", sizeUSD, capUSD)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	var venues venuesResponse
+	if err := getJSON(ctx, arb+"/v1/arbitrage/venues", &venues); err != nil {
+		log.Fatalf("read venues: %v", err)
+	}
+	if venues.PositionManager == "" {
+		log.Fatalf("the arbitrage side has no position manager configured")
+	}
+
+	qs := url.Values{}
+	qs.Set("symbol", symbol)
+	qs.Set("size_usd", strconv.FormatFloat(sizeUSD, 'f', -1, 64))
+	qs.Set("range_pct", strconv.FormatFloat(rangePct, 'f', -1, 64))
+	qs.Set("slippage_bps", strconv.FormatFloat(slippageBps, 'f', -1, 64))
+	var plan planResponse
+	if err := getJSON(ctx, arb+"/v1/arbitrage/lp/plan?"+qs.Encode(), &plan); err != nil {
+		log.Fatalf("read the plan: %v", err)
+	}
+	if plan.Plan == nil || plan.Token0 == "" || plan.Token1 == "" || plan.Pool == "" {
+		log.Fatalf("the plan is incomplete; refusing to sign it")
+	}
+	if plan.Plan.TickLower >= plan.Plan.TickUpper {
+		log.Fatalf("the plan's range is empty or inverted (%d >= %d)", plan.Plan.TickLower, plan.Plan.TickUpper)
+	}
+	if plan.PoolFee <= 0 {
+		log.Fatalf("the plan names no pool fee")
+	}
+	d0, ok0 := new(big.Int).SetString(plan.Plan.Amount0Desired, 10)
+	d1, ok1 := new(big.Int).SetString(plan.Plan.Amount1Desired, 10)
+	if !ok0 || !ok1 || (d0.Sign() == 0 && d1.Sign() == 0) {
+		log.Fatalf("the plan's amounts are not usable (%q, %q)", plan.Plan.Amount0Desired, plan.Plan.Amount1Desired)
+	}
+
+	wallet := signerWallet(ctx, agent)
+	broker, st, closeStore, err := armedDeps()
+	if err != nil {
+		log.Fatalf("arm: %v", err)
+	}
+	defer closeStore()
+
+	have0, err := broker.TokenBalanceOf(ctx, plan.Token0, wallet)
+	if err != nil {
+		log.Fatalf("read token0 balance: %v", err)
+	}
+	have1, err := broker.TokenBalanceOf(ctx, plan.Token1, wallet)
+	if err != nil {
+		log.Fatalf("read token1 balance: %v", err)
+	}
+	if have0.Cmp(d0) < 0 || have1.Cmp(d1) < 0 {
+		log.Fatalf("the wallet cannot cover the mint: holds %s/%s and the plan needs %s/%s (token0/token1, base units)",
+			have0, have1, d0, d1)
+	}
+
+	mint := execution.LPIntent{Intent: "lp_mint", Body: map[string]any{
+		"amount":          "0",
+		"router":          venues.PositionManager,
+		"token_in":        plan.Token0,
+		"token_out":       plan.Token1,
+		"fee":             uint32(plan.PoolFee * 100), // basis points → fee tier
+		"tick_lower":      plan.Plan.TickLower,
+		"tick_upper":      plan.Plan.TickUpper,
+		"amount0_desired": plan.Plan.Amount0Desired,
+		"amount1_desired": plan.Plan.Amount1Desired,
+		"amount0_min":     plan.Plan.Amount0Min,
+		"amount1_min":     plan.Plan.Amount1Min,
+		"deadline":        strconv.FormatInt(execution.LPPlanDeadline(time.Now()), 10),
+	}}
+	lp := execution.LPActionPlan{AgentID: agent, Recommendation: "open", Intents: []execution.LPIntent{mint}}
+	log.Printf("opening %s for agent %s: $%.2f, range [%d,%d], fee tier %d",
+		symbol, agent, sizeUSD, plan.Plan.TickLower, plan.Plan.TickUpper, plan.PoolFee*100)
+
+	// The wallet is the signer's derivation, not a database record that could
+	// have drifted; the signer re-checks ownership of everything it signs.
+	res := broker.ExecuteLPPlan(ctx, agent, wallet, lp, nil)
+
+	planJSON, _ := json.Marshal(plan)
+	row := store.LPOpen{
+		AgentID: agent, Symbol: symbol, Pool: plan.Pool,
+		SizeUSD: sizeUSD, Plan: planJSON, Status: "failed", Error: res.Error,
+	}
+	out := openSummary{
+		AgentID: agent, Symbol: symbol, Pool: plan.Pool,
+		SizeUSD: sizeUSD, CapUSD: capUSD, Error: res.Error,
+		Steps: []openStep{},
+	}
+	for _, sr := range res.Steps {
+		out.Steps = append(out.Steps, openStep{
+			Step: sr.Step, Intent: sr.Intent, Status: sr.Status,
+			TxHash: sr.TxHash, TokenID: sr.TokenID, Error: sr.Error,
+		})
+		if sr.Intent == "lp_mint" {
+			if sr.TxHash != "" {
+				out.TxHash = sr.TxHash
+			}
+			if sr.TokenID != "" {
+				out.TokenID = sr.TokenID
+			}
+		}
+	}
+	if res.Status == "executed" {
+		out.Opened = true
+		row.Status = "executed"
+		row.TokenID = out.TokenID
+		row.TxHash = out.TxHash
+	}
+	if err := st.RecordLPOpen(ctx, row); err != nil {
+		log.Printf("ERROR record open: %v", err)
+	}
+	if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
+		log.Printf("write summary: %v", err)
+	}
+	if !out.Opened {
+		log.Fatalf("open failed: %s", res.Error)
+	}
+	log.Printf("opened position %s (tx %s); the registry discovers it within one LP_SYNC_INTERVAL", out.TokenID, out.TxHash)
+}
+
+// signerWallet asks the signer for the agent's wallet — the authoritative
+// derivation, not a database record that could drift.
+func signerWallet(ctx context.Context, agent string) string {
+	base := envOr("SIGNER_URL", "http://127.0.0.1:8085")
+	key := os.Getenv("INTERNAL_API_KEY")
+	if key == "" {
+		log.Fatalf("INTERNAL_API_KEY is required: reading a wallet is machine-tier information")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/internal/v1/signer/wallets/"+agent, nil)
+	if err != nil {
+		log.Fatalf("wallet request: %v", err)
+	}
+	req.Header.Set("X-Internal-Key", key)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Fatalf("read wallet: %v", err)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+	if res.StatusCode != http.StatusOK {
+		log.Fatalf("read wallet: HTTP %d: %s", res.StatusCode, trim(string(body), 200))
+	}
+	var w struct {
+		Address string `json:"address"`
+	}
+	if err := json.Unmarshal(body, &w); err != nil || w.Address == "" {
+		log.Fatalf("read wallet: unreadable answer")
+	}
+	return w.Address
 }
 
 // readPosition fetches the live position. It never returns a fatal error: a

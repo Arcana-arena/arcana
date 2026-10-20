@@ -6,8 +6,39 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 )
+
+// transferTopic is the ERC-721 Transfer event signature.
+const transferTopic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+
+// mintedTokenID reads the new position's id out of the mint receipt: an
+// ERC-721 Transfer from the zero address to this wallet, emitted by the
+// position manager. The id exists nowhere else until someone enumerates the
+// NFT — this is how the executor learns what it just created.
+func mintedTokenID(rcpt *Receipt, npm, wallet string) string {
+	if rcpt == nil || npm == "" {
+		return ""
+	}
+	to := strings.ToLower(strings.TrimPrefix(wallet, "0x"))
+	for _, l := range rcpt.Logs {
+		if !strings.EqualFold(l.Address, npm) || len(l.Topics) != 4 {
+			continue
+		}
+		if !strings.EqualFold(l.Topics[0], transferTopic) {
+			continue
+		}
+		if len(l.Topics[2]) < 40 || !strings.HasSuffix(strings.ToLower(l.Topics[2]), to) {
+			continue
+		}
+		id := new(big.Int)
+		if _, ok := id.SetString(strings.TrimPrefix(l.Topics[3], "0x"), 16); ok && id.Sign() > 0 {
+			return id.String()
+		}
+	}
+	return ""
+}
 
 // LP execution: sign one intent, broadcast it, read its receipt — in order,
 // stopping at the first outcome that is not a success.
@@ -39,6 +70,9 @@ type LPStepResult struct {
 	Status  string `json:"status"` // broadcast|mined|reverted|unresolved|refused|blocked|fault
 	TxHash  string `json:"tx_hash,omitempty"`
 	GasUsed string `json:"gas_used,omitempty"`
+	// TokenID is the position NFT a mined lp_mint created, read from the
+	// receipt's ERC-721 Transfer log — the only place the id exists.
+	TokenID string `json:"token_id,omitempty"`
 	Error   string `json:"error,omitempty"`
 }
 
@@ -268,11 +302,30 @@ func (b *Broker) ExecuteLPPlan(ctx context.Context, agentID, wallet string, plan
 		}
 		sr.Status = "mined"
 		sr.GasUsed = rcpt.GasUsed
+		if in.Intent == "lp_mint" {
+			spender, _ := in.Body["router"].(string)
+			sr.TokenID = mintedTokenID(rcpt, spender, wallet)
+			if sr.TokenID == "" {
+				// The mint was mined; not finding the NFT id is a record
+				// problem, not a transaction problem. Say so rather than
+				// returning a step that silently lacks the thing the caller
+				// needs to manage the position.
+				sr.Status = "unresolved"
+				sr.Error = "minted, but no ERC-721 Transfer to this wallet was found in the receipt"
+				return fail(sr)
+			}
+		}
 		emit(sr)
 	}
 
 	res.Status = "executed"
 	return res
+}
+
+// TokenBalanceOf reads an ERC-20 balance for an address. The open path uses it
+// to know the wallet can cover both legs before anything is signed.
+func (b *Broker) TokenBalanceOf(ctx context.Context, token, wallet string) (*big.Int, error) {
+	return b.rpc.TokenBalance(ctx, token, wallet)
 }
 
 // LPPlanDeadline is how long an armed run's mint/decrease deadline lasts from

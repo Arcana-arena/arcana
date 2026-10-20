@@ -196,12 +196,20 @@ func (c *RPC) SendRaw(ctx context.Context, raw string) (string, error) {
 	return c.hexString(ctx, "eth_sendRawTransaction", []any{raw})
 }
 
+// ReceiptLog is the part of one receipt log the executor reads: the contract
+// and its topics. ERC-721 Transfer carries from, to and tokenId in topics 1-3.
+type ReceiptLog struct {
+	Address string   `json:"address"`
+	Topics  []string `json:"topics"`
+}
+
 // Receipt is the part of a transaction receipt this package acts on.
 type Receipt struct {
-	Status      string `json:"status"`
-	BlockNumber string `json:"blockNumber"`
-	GasUsed     string `json:"gasUsed"`
-	EffGasPrice string `json:"effectiveGasPrice"`
+	Status      string       `json:"status"`
+	BlockNumber string       `json:"blockNumber"`
+	GasUsed     string       `json:"gasUsed"`
+	EffGasPrice string       `json:"effectiveGasPrice"`
+	Logs        []ReceiptLog `json:"logs"`
 }
 
 // Mined reports true when the receipt is the transaction's final answer.

@@ -139,5 +139,9 @@ Status 2026-10-18:
    (`fees_owed0/1` on `/lp/position`, verified against `collect()`); the
    registry still records stored `tokensOwed`, so persisting exact fees per
    sync would be a deliberate schema addition, not a drive-by.
-6. **Small real position — NOT STARTED.** A capped, owner-approved deposit,
-   watched end-to-end before any scale-up.
+6. **Small real position — NOT STARTED (owner-funded).** A capped,
+   owner-approved deposit, watched end-to-end before any scale-up. The open
+   path is built and proven: `lpexec --open --agent … --symbol … --size-usd …
+   --range-pct …` with `LP_MAX_OPEN_USD` as the typed ceiling, recording the
+   act in `lp_opens` (migration 0068); the registry discovers the position
+   within one sync and the executor manages it from then on.

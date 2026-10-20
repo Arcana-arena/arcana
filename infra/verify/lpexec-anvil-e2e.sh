@@ -400,6 +400,72 @@ FINAL_PROPOSALS="$(jq -r '.proposals' "$WORK/final.json" 2>/dev/null)"
 [ "$FINAL_RC" = 0 ] && [ "$FINAL_PROPOSALS" = "0" ] \
   && ok "nothing left to execute" || no "final run" "rc=$FINAL_RC proposals=$FINAL_PROPOSALS"
 
+# --- 17. open through the signer --------------------------------------------
+say "17. open a position through the signer (the path the first deposit uses)"
+env -i PATH="$PATH" HOME=/home/ubuntu \
+  ARBITRAGE_URL="$ARB_URL" LP_EXECUTE=1 LP_MAX_OPEN_USD=100 \
+  DATABASE_URL="${PGTEST}?sslmode=disable" \
+  SIGNER_URL="$SIGNER_URL" INTERNAL_API_KEY="$KEY" \
+  EXECUTION_RPC_URLS="$ANVIL_URL" \
+  EXECUTION_ALLOWLIST_FILE="$REPO/services/signer/allowlist/robinhood-mainnet.json" \
+  "$REPO/scheduler-bin/lpexec" --open --symbol NVDA --size-usd 50 --range-pct 0.05 --agent "$AGENT" \
+  >"$WORK/open.json" 2>"$WORK/open.log"
+OPEN_RC=$?
+[ "$OPEN_RC" = 0 ] && ok "the open exits 0" || no "open exit" "$OPEN_RC: $(tail -3 "$WORK/open.log")"
+OPEN_ID="$(jq -r '.token_id // empty' "$WORK/open.json" 2>/dev/null)"
+OPEN_TX="$(jq -r '.tx_hash // empty' "$WORK/open.json" 2>/dev/null)"
+[ -n "$OPEN_ID" ] && ok "the open reports tokenId $OPEN_ID (tx ${OPEN_TX:0:18}…)" || no "open tokenId" "$(head -c 300 "$WORK/open.json" 2>/dev/null)"
+OPEN_OWNER="$(cast call "$NPM" "ownerOf(uint256)(address)" "$OPEN_ID" --rpc-url "$ANVIL_URL" 2>/dev/null)"
+[ "$(lower "$OPEN_OWNER")" = "$(lower "$AGENT_ADDR")" ] && ok "the opened position is owned by the agent" || no "open owner" "$OPEN_OWNER"
+OPEN_LIQ="$(cast call --json "$NPM" "positions(uint256)(uint96,address,address,address,uint24,int24,int24,uint128,uint256,uint256,uint128,uint128)" "$OPEN_ID" --rpc-url "$ANVIL_URL" | jq -r '.[7]')"
+[ "$OPEN_LIQ" != "0" ] && ok "the opened position has liquidity $OPEN_LIQ" || no "open liquidity" "$OPEN_LIQ"
+OPEN_ROW="$(psql "${PGTEST}?sslmode=disable" -Atc "SELECT status || '|' || coalesce(token_id,'') FROM lp_opens WHERE token_id = '$OPEN_ID'")"
+[ "$OPEN_ROW" = "executed|$OPEN_ID" ] && ok "lp_opens records the open as executed" || no "lp_opens row" "$OPEN_ROW"
+
+# --- 18. the registry discovers it ------------------------------------------
+say "18. the registry discovers the opened position from Transfer logs"
+SYNC2="$(curl -s -m 60 -X POST -H "X-Internal-Key: $KEY" "$ARB_URL/internal/v1/arbitrage/lp/sync")"
+[ "$(echo "$SYNC2" | jq -r '.discovered')" -ge 1 ] && ok "the sync discovered the new position" || no "discovery" "$(echo "$SYNC2" | head -c 200)"
+DISC_ROW="$(psql "${PGTEST}?sslmode=disable" -Atc "SELECT status || '|' || provenance FROM lp_positions WHERE token_id = '$OPEN_ID'")"
+[ "$DISC_ROW" = "open|live" ] && ok "the registry row is open and live" || no "registry row" "$DISC_ROW"
+
+# --- 19. close path ----------------------------------------------------------
+say "19. close path: a liquidity-drained position gets collect + burn"
+# Drain the opened position directly, the way an operator tool would, leaving
+# liquidity 0 and tokensOwed > 0 — the 'empty' verdict the loop reads.
+DRAIN_LIQ="$(cast call --json "$NPM" "positions(uint256)(uint96,address,address,address,uint24,int24,int24,uint128,uint256,uint256,uint128,uint128)" "$OPEN_ID" --rpc-url "$ANVIL_URL" | jq -r '.[7]')"
+DRAIN_DEADLINE=$(( $(date +%s) + 900 ))
+cast rpc anvil_impersonateAccount "$AGENT_ADDR" --rpc-url "$ANVIL_URL" >/dev/null
+DRAIN_JSON="$(cast send --json --unlocked --from "$AGENT_ADDR" "$NPM" \
+  "decreaseLiquidity((uint256,uint128,uint256,uint256,uint256))" \
+  "($OPEN_ID,$DRAIN_LIQ,0,0,$DRAIN_DEADLINE)" --rpc-url "$ANVIL_URL")"
+[ "$(echo "$DRAIN_JSON" | jq -r .status)" = "0x1" ] && ok "the position was drained to liquidity 0" || no "drain" "$(echo "$DRAIN_JSON" | head -c 200)"
+cast rpc anvil_stopImpersonatingAccount "$AGENT_ADDR" --rpc-url "$ANVIL_URL" >/dev/null
+curl -s -m 60 -X POST -H "X-Internal-Key: $KEY" "$ARB_URL/internal/v1/arbitrage/lp/sync" >/dev/null
+CLOSE_PROP="$(curl -s -m 30 "$ARB_URL/v1/arbitrage/lp/actions" | jq -c --arg id "$OPEN_ID" '.actions[] | select(.token_id == $id)')"
+[ "$(echo "$CLOSE_PROP" | jq -r .recommendation)" = "empty" ] && ok "the loop proposes a close" || no "close proposal" "$CLOSE_PROP"
+CLOSE_ID="$(echo "$CLOSE_PROP" | jq -r .id)"
+env -i PATH="$PATH" HOME=/home/ubuntu \
+  ARBITRAGE_URL="$ARB_URL" LP_EXECUTE=1 \
+  DATABASE_URL="${PGTEST}?sslmode=disable" \
+  SIGNER_URL="$SIGNER_URL" INTERNAL_API_KEY="$KEY" \
+  EXECUTION_RPC_URLS="$ANVIL_URL" \
+  EXECUTION_ALLOWLIST_FILE="$REPO/services/signer/allowlist/robinhood-mainnet.json" \
+  "$REPO/scheduler-bin/lpexec" >"$WORK/close.json" 2>"$WORK/close.log"
+CLOSE_RC=$?
+[ "$CLOSE_RC" = 0 ] && ok "the close exits 0" || no "close exit" "$CLOSE_RC: $(tail -3 "$WORK/close.log")"
+[ "$(jq -r '.executions[0].status' "$WORK/close.json" 2>/dev/null)" = "executed" ] \
+  && ok "the close executed" || no "close execution" "$(jq -c '.executions[0] | {status,error}' "$WORK/close.json" 2>/dev/null)"
+[ "$(jq -c '.executions[0].steps | map(.intent)' "$WORK/close.json" 2>/dev/null)" = '["lp_collect","lp_burn"]' ] \
+  && ok "close sequence: collect, then burn" || no "close steps" "$(jq -c '.executions[0].steps' "$WORK/close.json" 2>/dev/null)"
+if cast call "$NPM" "ownerOf(uint256)(address)" "$OPEN_ID" --rpc-url "$ANVIL_URL" >/dev/null 2>&1; then
+  no "the closed position is burned" "ownerOf still answers"
+else
+  ok "the closed position is burned (ownerOf reverts)"
+fi
+DB_CLOSE="$(psql "${PGTEST}?sslmode=disable" -Atc "SELECT status FROM lp_position_actions WHERE id = $CLOSE_ID")"
+[ "$DB_CLOSE" = "executed" ] && ok "the close action is recorded as executed" || no "close action status" "$DB_CLOSE"
+
 # --- verdict -----------------------------------------------------------------
 echo
 echo "========================================"
@@ -409,6 +475,8 @@ if [ "$FAIL" -gt 0 ]; then
   echo "$FAILURES"
   exit 1
 fi
-echo "lpexec-anvil-e2e: the armed executor rebalanced a real position on a fork of"
-echo "Robinhood Chain: two approvals, decrease, collect, burn, mint — all mined,"
-echo "all recorded, and the chain agrees."
+echo "lpexec-anvil-e2e: the full LP path ran on a fork of Robinhood Chain:"
+echo "open through the signer, discovery by the loop, rebalance (approve, decrease,"
+echo "collect, burn, mint), harvest (exact accrual paid to the wallet), and close"
+echo "(collect, burn) — every transaction mined, every step recorded, and the"
+echo "chain agrees."

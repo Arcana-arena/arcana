@@ -9,8 +9,47 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"time"
 )
+
+// LPOpen is one recorded position open — the audit row for an `lpexec --open`.
+type LPOpen struct {
+	AgentID string
+	Symbol  string
+	Pool    string
+	TokenID string
+	TxHash  string
+	SizeUSD float64
+	Status  string
+	Error   string
+	Plan    json.RawMessage
+	TS      time.Time
+}
+
+// RecordLPOpen appends one open. Append-only: an open happened once; a later
+// failure is its own row, never an edit of this one.
+func (s *Store) RecordLPOpen(ctx context.Context, o LPOpen) error {
+	var tokenArg, hashArg, errArg any
+	if o.TokenID != "" {
+		tokenArg = o.TokenID
+	}
+	if o.TxHash != "" {
+		hashArg = o.TxHash
+	}
+	if o.Error != "" {
+		errArg = o.Error
+	}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO lp_opens (agent_id, symbol, pool, token_id, tx_hash, size_usd, status, error, plan)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)`,
+		o.AgentID, o.Symbol, o.Pool, tokenArg, hashArg, o.SizeUSD, o.Status, errArg, string(o.Plan))
+	if err != nil {
+		return fmt.Errorf("record lp open %s: %w", o.Symbol, err)
+	}
+	return nil
+}
 
 // ClaimLPAction moves one proposed action to executing, atomically.
 //
