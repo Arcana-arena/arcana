@@ -59,11 +59,14 @@ near zero, so the fee is close to free money.
 
 The website renders the registry read-only: `/liquidity` lists every position
 (pair, range, in/out of range, holdings, stored fees, verdict), the standing
-proposals, the executor's per-intent record and the recorded opens. An agent's
-owner page carries the same rows for that agent plus its harvest history.
-Nothing there is computed in the browser — every value is the arbitrage
-service's report, and `web-verify` checks the rendered page against the API,
-in the API's order. The public docs include a liquidity-provision page.
+proposals, the executor's per-intent record and the recorded opens. Each agent's
+own page carries a **Liquidity tab** with the same rows for that agent plus its
+harvest history and opens, and the creator dashboard's agent table carries a
+per-agent line (`LP · n positions · in range / out of range`, or `LP unknown`
+when the registry could not be read — never a silent zero). Nothing there is
+computed in the browser — every value is the arbitrage service's report, and
+`web-verify` checks the rendered page against the API, in the API's order. The
+public docs include a liquidity-provision page.
 
 ## Phased build (real money → checkpoints)
 

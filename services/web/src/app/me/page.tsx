@@ -26,8 +26,10 @@
  */
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { arbitrage } from '@/lib/api';
 import { authed, getSession } from '@/lib/session';
 import { addr, int, score as fmtScore, utc } from '@/lib/format';
+import type { LPPosition } from '@/lib/lp';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { StatusTag } from '@/components/ds/primitives';
@@ -102,6 +104,20 @@ export default async function MePage() {
   const retired = d.agents.filter((a) => a.status === 'retired');
   const attentionFor = (id: string) => d.attention.filter((x) => x.agent_id === id);
 
+  // THE LP REGISTRY, PER AGENT. The arbitrage service is read-only, so this is
+  // a public read even behind the session. A failed read stays `null` and the
+  // row says "unknown" — it must not look like an agent with no position.
+  const lpR = await arbitrage<{ positions: LPPosition[] }>('/v1/arbitrage/lp/positions?status=open&limit=200');
+  const lpByAgent = lpR.ok
+    ? lpR.data.positions.reduce((m, p) => {
+        const cur = m.get(p.agent_id) ?? { count: 0, out: 0 };
+        cur.count += 1;
+        if (p.in_range === false) cur.out += 1;
+        m.set(p.agent_id, cur);
+        return m;
+      }, new Map<string, { count: number; out: number }>())
+    : null;
+
   return (
     <Shell
       creatorId={creator_id}
@@ -151,7 +167,7 @@ export default async function MePage() {
             {d.slots.free > 0 ? <Link href="/me/agents/new">Create a new one</Link> : null}
           </Empty>
         ) : (
-          <AgentTable agents={live} attentionFor={attentionFor} />
+          <AgentTable agents={live} attentionFor={attentionFor} lpByAgent={lpByAgent} />
         )}
       </section>
 
@@ -159,7 +175,7 @@ export default async function MePage() {
         <details className="fold" style={{ marginTop: 18 }}>
           <summary>Retired · {int(retired.length)}</summary>
           <div style={{ marginTop: 10 }}>
-            <AgentTable agents={retired} attentionFor={() => []} />
+            <AgentTable agents={retired} attentionFor={() => []} lpByAgent={lpByAgent} />
           </div>
         </details>
       ) : null}
@@ -234,7 +250,15 @@ function ago(ts: string | null): string {
   return `${Math.floor(mins / 1440)}d ago`;
 }
 
-function AgentTable({ agents, attentionFor }: { agents: DashboardAgent[]; attentionFor: (id: string) => Attention[] }) {
+function AgentTable({
+  agents,
+  attentionFor,
+  lpByAgent,
+}: {
+  agents: DashboardAgent[];
+  attentionFor: (id: string) => Attention[];
+  lpByAgent: Map<string, { count: number; out: number }> | null;
+}) {
   return (
     <div className="scroll-x">
       <table className="table agent-rows">
@@ -250,7 +274,7 @@ function AgentTable({ agents, attentionFor }: { agents: DashboardAgent[]; attent
         </thead>
         <tbody>
           {agents.map((a) => (
-            <AgentRow key={a.id} a={a} attention={attentionFor(a.id)} />
+            <AgentRow key={a.id} a={a} attention={attentionFor(a.id)} lpByAgent={lpByAgent} />
           ))}
         </tbody>
       </table>
@@ -258,9 +282,18 @@ function AgentTable({ agents, attentionFor }: { agents: DashboardAgent[]; attent
   );
 }
 
-function AgentRow({ a, attention }: { a: DashboardAgent; attention: Attention[] }) {
+function AgentRow({
+  a,
+  attention,
+  lpByAgent,
+}: {
+  a: DashboardAgent;
+  attention: Attention[];
+  lpByAgent: Map<string, { count: number; out: number }> | null;
+}) {
   const items = [...attention].sort((x, y) => ORDER.indexOf(x.kind) - ORDER.indexOf(y.kind));
   const live = a.status === 'active' || a.status === 'paused';
+  const lp = lpByAgent?.get(a.id) ?? null;
 
   return (
     <tr>
@@ -276,6 +309,28 @@ function AgentRow({ a, attention }: { a: DashboardAgent; attention: Attention[] 
           <Link href={`/me/agents/${a.id}`} className="m3">
             manage →
           </Link>
+        </div>
+        {/* LIQUIDITY PROVISION, as a line on the row it belongs to. The tab is
+            where the detail lives; this says whether there is anything to see.
+            An unreadable registry says so rather than reading as "none". */}
+        <div style={{ fontSize: 10.5, marginTop: 2 }}>
+          {lpByAgent === null ? (
+            <span
+              className="m3"
+              title="The LP registry could not be read, so this is unknown rather than zero."
+            >
+              LP unknown
+            </span>
+          ) : lp ? (
+            <Link href={`/me/agents/${a.id}?tab=liquidity`} className={lp.out > 0 ? 'am' : 'm2'}>
+              LP · {int(lp.count)} position{lp.count === 1 ? '' : 's'}
+              {lp.out > 0 ? ` · ${int(lp.out)} out of range` : ' · in range'}
+            </Link>
+          ) : (
+            <Link href={`/me/agents/${a.id}?tab=liquidity`} className="m3">
+              no LP position
+            </Link>
+          )}
         </div>
       </td>
       <td data-label="Status">

@@ -92,6 +92,7 @@ const TABS = [
   { key: 'manage', label: 'Manage' },
   { key: 'wallet', label: 'Wallet' },
   { key: 'triggers', label: 'Triggers' },
+  { key: 'liquidity', label: 'Liquidity' },
 ];
 
 type SP = { [k: string]: string | string[] | undefined };
@@ -202,10 +203,13 @@ export default async function ManageAgentPage({
   // Only on the manage tab, and after ownership is known from the reads above.
   const capitalR = tab === 'manage' ? await authed<CapitalMandateView>(`/v1/agents/${id}/capital/mandate`) : null;
 
-  // LIQUIDITY PROVISION, read-only from here. Opening, harvesting and closing
-  // are executor acts with their own capped tools; a browser button would imply
-  // the platform can move this agent's funds from a click, and it cannot.
-  const lp = tab === 'manage'
+  // LIQUIDITY PROVISION — the arbitrage service's per-agent surface. It is a
+  // TAB of its own, not a fold inside Manage: this is where the agent's income
+  // is earned, so it belongs beside the wallet and the triggers. Read-only from
+  // here: opening, harvesting and closing are executor acts with their own
+  // capped tools, and a browser button would imply the platform can move this
+  // agent's funds from a click.
+  const lp = tab === 'liquidity'
     ? await Promise.all([
         arbitrage<{ positions: LPPosition[] }>('/v1/arbitrage/lp/positions?status=all&limit=200'),
         arbitrage<{ executions: LPStep[] }>('/v1/arbitrage/lp/executions?limit=200'),
@@ -218,14 +222,6 @@ export default async function ManageAgentPage({
   const lpOpensR = lp ? lp[2] : null;
   const lpVenuesR = lp ? lp[3] : null;
   const lpOwn = lpPositionsR?.ok ? lpPositionsR.data.positions.filter((p) => p.agent_id === id) : [];
-  const lpState =
-    lpPositionsR === null
-      ? ''
-      : !lpPositionsR.ok
-        ? 'unavailable'
-        : lpOwn.length === 0
-          ? 'no LP position'
-          : `${lpOwn.length} position${lpOwn.length === 1 ? '' : 's'}`;
 
   if (!walletR.ok && (walletR.status === 403 || walletR.status === 404)) {
     return (
@@ -442,25 +438,9 @@ export default async function ManageAgentPage({
               </Fold>
             ) : null}
 
-            {/* LIQUIDITY PROVISION. Owner-visible, not owner-editable: the
-                executor's own capped tools open and manage positions, and the
-                public registry is where the same rows are readable. */}
-            {lpPositionsR ? (
-              <Fold title="Liquidity provision" state={lpState}>
-                {lpPositionsR.ok ? (
-                  <LiquidityPanel
-                    positions={lpOwn}
-                    executions={lpExecutionsR?.ok ? lpExecutionsR.data.executions.filter((e) => e.agent_id === id) : []}
-                    executionsError={lpExecutionsR && !lpExecutionsR.ok ? lpExecutionsR : null}
-                    opens={lpOpensR?.ok ? lpOpensR.data.opens.filter((o) => o.agent_id === id) : []}
-                    opensError={lpOpensR && !lpOpensR.ok ? lpOpensR : null}
-                    venues={lpVenuesR?.ok ? lpVenuesR.data : null}
-                  />
-                ) : (
-                  <Failed what="This agent's liquidity positions" error={lpPositionsR} />
-                )}
-              </Fold>
-            ) : null}
+            {/* LIQUIDITY PROVISION lives on its own tab, beside the wallet and
+                the triggers — it is where this agent's income is earned. */}
+
 
             <Fold
               title="Competitions"
@@ -532,6 +512,41 @@ export default async function ManageAgentPage({
             >
               <ListingPanel agentId={id} listing={listing} agentStatus={a.status} creatorCanBePaid={creatorCanBePaid} />
             </Fold>
+          </div>
+        ) : null}
+
+        {tab === 'liquidity' ? (
+          <div style={{ display: 'grid', gap: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+              <div>
+                <h2 style={{ margin: 0 }}>Liquidity provision</h2>
+                <div className="m2" style={{ fontSize: 12.5, marginTop: 4 }}>
+                  The arbitrage service&rsquo;s registry and execution record for this agent.
+                </div>
+              </div>
+              <Link href="/liquidity" style={{ fontSize: 12 }}>
+                Public registry →
+              </Link>
+            </div>
+            <Callout tone="note">
+              <strong>This is where the agent earns the pool fee.</strong> Positions are opened by you through the
+              executor&rsquo;s capped open command; from then on the executor harvests fees once their exact accrual
+              crosses a reviewed threshold, rebalances a range the price has left, and closes emptied positions. Nothing
+              on this tab changes them — a browser click cannot move this agent&rsquo;s funds, so this page reports
+              what the registry reads from the chain.
+            </Callout>
+            {lpPositionsR && !lpPositionsR.ok ? (
+              <Failed what="This agent's liquidity positions" error={lpPositionsR} />
+            ) : lpPositionsR ? (
+              <LiquidityPanel
+                positions={lpOwn}
+                executions={lpExecutionsR?.ok ? lpExecutionsR.data.executions.filter((e) => e.agent_id === id) : []}
+                executionsError={lpExecutionsR && !lpExecutionsR.ok ? lpExecutionsR : null}
+                opens={lpOpensR?.ok ? lpOpensR.data.opens.filter((o) => o.agent_id === id) : []}
+                opensError={lpOpensR && !lpOpensR.ok ? lpOpensR : null}
+                venues={lpVenuesR?.ok ? lpVenuesR.data : null}
+              />
+            ) : null}
           </div>
         ) : null}
 
