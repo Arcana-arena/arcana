@@ -55,6 +55,16 @@ provision does not need a spread to exist — it *earns the fee the takers pay*
 and is compensated for inventory risk. On WETH/USDG the inventory risk (IL) is
 near zero, so the fee is close to free money.
 
+## Public surface
+
+The website renders the registry read-only: `/liquidity` lists every position
+(pair, range, in/out of range, holdings, stored fees, verdict), the standing
+proposals, the executor's per-intent record and the recorded opens. An agent's
+owner page carries the same rows for that agent plus its harvest history.
+Nothing there is computed in the browser — every value is the arbitrage
+service's report, and `web-verify` checks the rendered page against the API,
+in the API's order. The public docs include a liquidity-provision page.
+
 ## Phased build (real money → checkpoints)
 
 Status 2026-10-18:
