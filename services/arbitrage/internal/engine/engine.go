@@ -40,9 +40,9 @@ func (e *Engine) Recent(ctx context.Context, limit int) ([]store.OpportunityRow,
 
 // ScanResult summarizes one scan.
 type ScanResult struct {
-	ScannedTokens int    `json:"scanned_tokens"`
-	Opportunities int    `json:"opportunities"`
-	Errors        int    `json:"errors"`
+	ScannedTokens int `json:"scanned_tokens"`
+	Opportunities int `json:"opportunities"`
+	Errors        int `json:"errors"`
 	// SingleVenue counts tokens whose venues did not include two distinct
 	// pools. They produce no row on purpose: comparing a pool with itself
 	// measures its own round trip, which is not an opportunity.

@@ -17,8 +17,8 @@ func scaled(v int64, dec int) *big.Int {
 // so the same pair must price identically whichever side the token landed on —
 // and the decimal correction must be applied exactly once.
 func TestV2PriceFromReserves(t *testing.T) {
-	token18 := scaled(1000, 18)     // 1000 tokens
-	quote6 := scaled(340000, 6)     // 340,000 USDG
+	token18 := scaled(1000, 18) // 1000 tokens
+	quote6 := scaled(340000, 6) // 340,000 USDG
 	cases := []struct {
 		name     string
 		reserve0 *big.Int
