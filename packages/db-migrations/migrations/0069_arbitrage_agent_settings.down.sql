@@ -1,0 +1,12 @@
+-- 0069_arbitrage_agent_settings.down.sql
+--
+-- Dropping this table forgets who had arbitrage switched on. That fails SAFE in
+-- one direction and is honest about what it loses in the other:
+--
+--   * No row means disabled, so every agent becomes disabled — which stops the
+--     two actions that create exposure (opening, rebalancing).
+--   * Harvesting and closing keep running under the wind-down rule, so the
+--     positions that exist are not stranded by the rollback.
+--   * What is lost is the record of which creator asked for the feature and
+--     when — the same one-way loss 0068 documents for its audit trail.
+DROP TABLE IF EXISTS arbitrage_agent_settings;

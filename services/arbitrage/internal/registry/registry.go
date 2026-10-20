@@ -69,6 +69,11 @@ type Store interface {
 	ProposedActions(ctx context.Context, limit int) ([]store.LPAction, error)
 	RecentLPExecutions(ctx context.Context, limit int) ([]store.LPExecutionStep, error)
 	RecentLPOpens(ctx context.Context, limit int) ([]store.LPOpen, error)
+	// The opt-in: who may be given new exposure, and the owner's switch.
+	EnabledAgentIDs(ctx context.Context) ([]string, error)
+	AgentSetting(ctx context.Context, agentID string) (store.AgentSetting, error)
+	SetAgentSetting(ctx context.Context, agentID string, enabled bool, actor string) (store.AgentSetting, error)
+	AllAgentSettings(ctx context.Context, limit int) ([]store.AgentSetting, error)
 }
 
 // ErrBusy is returned when a pass is already running. The trigger endpoint and
@@ -113,6 +118,23 @@ func (s *Syncer) Opens(ctx context.Context, limit int) ([]store.LPOpen, error) {
 	return s.store.RecentLPOpens(ctx, limit)
 }
 
+// AgentSetting reads one agent's arbitrage switch. A missing row comes back as
+// store.ErrNoSetting with Enabled=false — the default, not a failure.
+func (s *Syncer) AgentSetting(ctx context.Context, agentID string) (store.AgentSetting, error) {
+	return s.store.AgentSetting(ctx, agentID)
+}
+
+// SetAgentSetting writes the switch. The actor is recorded: this is a creator's
+// decision about their agent's funds and it has to have a name against it.
+func (s *Syncer) SetAgentSetting(ctx context.Context, agentID string, enabled bool, actor string) (store.AgentSetting, error) {
+	return s.store.SetAgentSetting(ctx, agentID, enabled, actor)
+}
+
+// AllAgentSettings lists the switches that have been touched.
+func (s *Syncer) AllAgentSettings(ctx context.Context, limit int) ([]store.AgentSetting, error) {
+	return s.store.AllAgentSettings(ctx, limit)
+}
+
 // Result summarizes one pass.
 type Result struct {
 	Watched    int    `json:"watched"`
@@ -122,8 +144,11 @@ type Result struct {
 	Proposed   int    `json:"proposed"`
 	Closed     int    `json:"closed"`
 	Open       int    `json:"open"`
-	Errors     int    `json:"errors"`
-	Note       string `json:"note,omitempty"`
+	// Enabled is how many agents the creator has switched arbitrage on for.
+	// Zero is a normal state, not an error: the feature is opt-in.
+	Enabled int    `json:"enabled"`
+	Errors  int    `json:"errors"`
+	Note    string `json:"note,omitempty"`
 }
 
 // outcome is what one refresh did for a position. "Not an error" and "written"
@@ -186,6 +211,21 @@ func (s *Syncer) SyncOnce(ctx context.Context) (*Result, error) {
 	for _, p := range open {
 		known[p.TokenID] = true
 	}
+
+	// WHO MAY BE GIVEN NEW EXPOSURE. Read once per pass, and an unreadable set
+	// is treated as EMPTY rather than as "everyone": the failure mode of a
+	// settings read must be that nothing new is opened, never that everything
+	// is. Harvests and closes still run for every agent (see refreshOne).
+	enabled := map[string]bool{}
+	if ids, err := s.store.EnabledAgentIDs(ctx); err != nil {
+		record(fmt.Errorf("arbitrage settings: %w (treating every agent as disabled this pass)", err))
+	} else {
+		for _, id := range ids {
+			enabled[id] = true
+		}
+	}
+	res.Enabled = len(enabled)
+
 	tally := func(o outcome, proposed bool) {
 		switch o {
 		case outcomeClosed:
@@ -200,7 +240,7 @@ func (s *Syncer) SyncOnce(ctx context.Context) (*Result, error) {
 		}
 	}
 	for _, p := range open {
-		o, proposed, err := s.refreshOne(ctx, npm, p, true, byWallet)
+		o, proposed, err := s.refreshOne(ctx, npm, p, true, byWallet, enabled)
 		if err != nil {
 			record(err)
 		}
@@ -221,7 +261,7 @@ func (s *Syncer) SyncOnce(ctx context.Context) (*Result, error) {
 	res.Discovered = len(fresh)
 	res.Watched += len(fresh)
 	for _, f := range fresh {
-		o, proposed, err := s.refreshOne(ctx, npm, f, false, byWallet)
+		o, proposed, err := s.refreshOne(ctx, npm, f, false, byWallet, enabled)
 		if err != nil {
 			record(err)
 		}
@@ -314,7 +354,7 @@ func (s *Syncer) discover(ctx context.Context, npm string, wallets []string, byW
 // holds, and is superseded when it stops. known distinguishes a registry row
 // from a freshly discovered tokenId — a discovery that turns out not to be an
 // agent-owned position is simply not registered.
-func (s *Syncer) refreshOne(ctx context.Context, npm string, row store.LPPosition, known bool, byWallet map[string]store.AgentWallet) (outcome, bool, error) {
+func (s *Syncer) refreshOne(ctx context.Context, npm string, row store.LPPosition, known bool, byWallet map[string]store.AgentWallet, enabled map[string]bool) (outcome, bool, error) {
 	tokenID, ok := new(big.Int).SetString(row.TokenID, 10)
 	if !ok || tokenID.Sign() <= 0 {
 		return outcomeSkipped, false, fmt.Errorf("token id %q is not a positive integer", row.TokenID)
@@ -438,6 +478,31 @@ func (s *Syncer) refreshOne(ctx context.Context, npm string, row store.LPPositio
 		}
 		return outcomeSynced, false, nil
 	}
+	for _, a := range pending {
+		if a.Recommendation == rec {
+			return outcomeSynced, false, nil
+		}
+	}
+
+	// THE OPT-IN GATE, AND WHAT IT DOES NOT BLOCK. A rebalance removes the
+	// position and MINTS A NEW ONE — it is new exposure, and an agent whose
+	// creator has arbitrage switched off does not get new exposure. The gate
+	// runs BEFORE the "this proposal already exists" shortcut below, so a
+	// rebalance queued before the switch was flipped is superseded rather than
+	// left standing for the executor to pick up.
+	//
+	// Harvests and closes are deliberately NOT blocked: the wind-down rule in
+	// migration 0069 keeps collecting fees and burning emptied positions, so
+	// turning the feature off cannot strand funds in a pool.
+	if !enabled[agent.AgentID] && rec == "rebalance" {
+		if len(pending) > 0 {
+			if err := s.store.SupersedeActions(ctx, npm, row.TokenID); err != nil {
+				return outcomeSynced, false, err
+			}
+		}
+		return outcomeSynced, false, nil
+	}
+
 	for _, a := range pending {
 		if a.Recommendation == rec {
 			return outcomeSynced, false, nil

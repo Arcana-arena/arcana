@@ -328,3 +328,44 @@ export async function activateCapitalMandate(agentId: string) {
 export async function stopCapitalMandate(agentId: string) {
   return capitalCall(agentId, '/stop', 'POST', {});
 }
+
+// ---------------------------------------------------------------- arbitrage
+
+/** One agent's arbitrage switch, as the arbitrage service reports it. */
+export type ArbitrageSettingView = {
+  agent_id: string;
+  /** false when no row exists: "never asked for" and "switched off" are both off. */
+  exists: boolean;
+  enabled: boolean;
+  enabled_at: string | null;
+  disabled_at: string | null;
+  updated_by?: string;
+  updated_at: string | null;
+};
+
+/**
+ * Switch this agent's arbitrage on or off — the creator's decision, per agent.
+ *
+ * THE SERVICE'S OWN ANSWER IS RETURNED, REFUSALS INCLUDED. Enabling without a
+ * wallet, or on a retired agent, comes back with the sentence that names the
+ * step to take first; a generic "could not save" would leave the owner trying
+ * the same switch again. Disabling is never a way to strand funds: the loop
+ * keeps harvesting and closing (the wind-down rule), which the panel says.
+ */
+export async function saveArbitrage(
+  agentId: string,
+  enabled: boolean,
+): Promise<{ ok: true; data: ArbitrageSettingView } | Fail> {
+  const r = await authed<ArbitrageSettingView>(`/v1/agents/${agentId}/arbitrage`, {
+    method: 'PUT',
+    body: { enabled },
+  });
+  if (r.ok) {
+    revalidatePath(`/me/agents/${agentId}`);
+    revalidatePath('/me');
+    revalidatePath('/arbitrage');
+    return { ok: true, data: r.data };
+  }
+  const msg = asRecord(r.body).message;
+  return { ok: false, status: r.status, reason: typeof msg === 'string' ? msg : r.reason, code: codeOf(r.body) };
+}

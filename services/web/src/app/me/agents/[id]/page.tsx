@@ -45,7 +45,8 @@ import { CompetitionPanel, type EntryCompetition } from './CompetitionPanel';
 import { VisibilityPanel, type VisibilityDecision } from './VisibilityPanel';
 import { CapitalMandatePanel } from './CapitalMandatePanel';
 import { ArbitragePanel } from './ArbitragePanel';
-import type { CapitalMandateView } from './actions';
+import { ArbitrageSwitch } from './ArbitrageSwitch';
+import type { ArbitrageSettingView, CapitalMandateView } from './actions';
 import type { Attention, Dashboard, Triggers, WalletBalances, WalletTransactions } from '../../shapes';
 import type { AgentIntelligence } from '@/lib/types';
 
@@ -222,6 +223,12 @@ export default async function ManageAgentPage({
   const lpOpensR = lp ? lp[2] : null;
   const lpVenuesR = lp ? lp[3] : null;
   const lpOwn = lpPositionsR?.ok ? lpPositionsR.data.positions.filter((p) => p.agent_id === id) : [];
+
+  // THE OWNER'S OWN SWITCH for this agent. Read through agent-service because
+  // that is where ownership is checked; the arbitrage service's copy of the
+  // same row is what the loop gates on.
+  const arbSettingR =
+    tab === 'arbitrage' ? await authed<ArbitrageSettingView>(`/v1/agents/${id}/arbitrage`) : null;
 
   if (!walletR.ok && (walletR.status === 403 || walletR.status === 404)) {
     return (
@@ -536,6 +543,13 @@ export default async function ManageAgentPage({
               on this tab changes them — a browser click cannot move this agent&rsquo;s funds, so this page reports
               what the registry reads from the chain.
             </Callout>
+            {arbSettingR ? (
+              arbSettingR.ok ? (
+                <ArbitrageSwitch agentId={id} initial={arbSettingR.data} agentStatus={a.status} />
+              ) : (
+                <Failed what="This agent's arbitrage switch" error={arbSettingR} />
+              )
+            ) : null}
             {lpPositionsR && !lpPositionsR.ok ? (
               <Failed what="This agent's arbitrage positions" error={lpPositionsR} />
             ) : lpPositionsR ? (

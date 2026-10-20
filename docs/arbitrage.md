@@ -86,6 +86,51 @@ exact impact via an `exactInputSingle` simulation replaces it in a later slice.
 The raw `liquidity()` value is still recorded per row, so the placeholder is
 auditable.
 
+## The opt-in: who may use it
+
+**Arbitrage is OFF for every agent until its creator switches it on.** Migration
+`0069_arbitrage_agent_settings` holds one row per agent that has been switched,
+and an **absent row means disabled** — so every agent that existed before the
+feature and every agent created after it starts off, with no backfill.
+
+The owner's side:
+
+| Where | What |
+|---|---|
+| `GET /v1/agents/:id/arbitrage` 🔒 | the agent's switch (owner only; agent-service checks ownership) |
+| `PUT /v1/agents/:id/arbitrage` 🔒 | `{"enabled": true\|false}` — the creator's decision, recorded with the wallet that made it |
+| Agent page → **Arbitrage** tab | the same control, with what each state does and does not stop |
+
+The machine side (agent-service is the only caller):
+
+| Where | What |
+|---|---|
+| `GET /v1/arbitrage/agents/settings?limit=` | the switches that have been touched (public; an absent agent is disabled) |
+| `GET /v1/arbitrage/agents/{agent_id}/settings` | one agent's switch; a missing row answers `exists:false, enabled:false` — the default, not a 404 |
+| `POST /internal/v1/arbitrage/agents/{agent_id}/settings` | `{"enabled":bool,"actor":"0x…"}` — machine tier (`X-Internal-Key`); `enabled` and `actor` are both required and neither defaults |
+
+**What "off" gates, and what it deliberately does not** (the wind-down rule):
+
+- **Gated:** opening a new position, and rebalancing a range the price has left —
+  a rebalance burns the old position and mints a new one, which is new exposure.
+  A rebalance proposal queued *before* the switch was flipped is superseded by
+  the pass that sees the switch off, so the executor cannot pick up a decision
+  its owner has already revoked.
+- **Not gated:** harvesting accrued fees, and closing a position that has been
+  emptied. Neither adds exposure or moves a range, and switching the feature off
+  must not strand funds in a pool or leave collectable fees uncollected.
+
+The gate is applied in three places, deliberately: the LP loop refuses to
+propose (the normal path), `lpexec` refuses to sign a rebalance for a disabled
+agent (defence in depth against a queue older than the switch), and the
+`--open` command refuses outright — opening is the one act that creates a
+position. Every one of them treats an **unreadable** setting as OFF: a feature
+that gates somebody else's funds may only fail in the direction of not acting.
+
+Enabling is refused when the agent is retired, or when it has no trading wallet
+(a position belongs to that wallet) — the refusal names the missing step rather
+than appearing to succeed.
+
 ## Endpoints
 
 | Method | Path | Purpose |

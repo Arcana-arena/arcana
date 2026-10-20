@@ -119,6 +119,18 @@ export default async function MePage() {
       }, new Map<string, { count: number; out: number }>())
     : null;
 
+  // WHO HAS ARBITRAGE SWITCHED ON. An agent with no row is DISABLED — that is
+  // what an absent row means everywhere else (migration 0069), so the set is
+  // built from the enabled rows alone and its absence from the map is the off
+  // state rather than a missing answer. An unreadable list stays null and the
+  // row says so.
+  const arbR = await arbitrage<{ settings: Array<{ agent_id: string; enabled: boolean }> }>(
+    '/v1/arbitrage/agents/settings?limit=500',
+  );
+  const arbEnabled = arbR.ok
+    ? new Set(arbR.data.settings.filter((s) => s.enabled).map((s) => s.agent_id))
+    : null;
+
   return (
     <Shell
       creatorId={creator_id}
@@ -168,7 +180,7 @@ export default async function MePage() {
             {d.slots.free > 0 ? <Link href="/me/agents/new">Create a new one</Link> : null}
           </Empty>
         ) : (
-          <AgentTable agents={live} attentionFor={attentionFor} lpByAgent={lpByAgent} />
+          <AgentTable agents={live} attentionFor={attentionFor} lpByAgent={lpByAgent} arbEnabled={arbEnabled} />
         )}
       </section>
 
@@ -176,7 +188,7 @@ export default async function MePage() {
         <details className="fold" style={{ marginTop: 18 }}>
           <summary>Retired · {int(retired.length)}</summary>
           <div style={{ marginTop: 10 }}>
-            <AgentTable agents={retired} attentionFor={() => []} lpByAgent={lpByAgent} />
+            <AgentTable agents={retired} attentionFor={() => []} lpByAgent={lpByAgent} arbEnabled={arbEnabled} />
           </div>
         </details>
       ) : null}
@@ -255,10 +267,12 @@ function AgentTable({
   agents,
   attentionFor,
   lpByAgent,
+  arbEnabled,
 }: {
   agents: DashboardAgent[];
   attentionFor: (id: string) => Attention[];
   lpByAgent: Map<string, { count: number; out: number }> | null;
+  arbEnabled: Set<string> | null;
 }) {
   return (
     <div className="scroll-x">
@@ -275,7 +289,7 @@ function AgentTable({
         </thead>
         <tbody>
           {agents.map((a) => (
-            <AgentRow key={a.id} a={a} attention={attentionFor(a.id)} lpByAgent={lpByAgent} />
+            <AgentRow key={a.id} a={a} attention={attentionFor(a.id)} lpByAgent={lpByAgent} arbEnabled={arbEnabled} />
           ))}
         </tbody>
       </table>
@@ -287,14 +301,17 @@ function AgentRow({
   a,
   attention,
   lpByAgent,
+  arbEnabled,
 }: {
   a: DashboardAgent;
   attention: Attention[];
   lpByAgent: Map<string, { count: number; out: number }> | null;
+  arbEnabled: Set<string> | null;
 }) {
   const items = [...attention].sort((x, y) => ORDER.indexOf(x.kind) - ORDER.indexOf(y.kind));
   const live = a.status === 'active' || a.status === 'paused';
   const lp = lpByAgent?.get(a.id) ?? null;
+  const on = arbEnabled?.has(a.id) ?? false;
 
   return (
     <tr>
@@ -311,25 +328,24 @@ function AgentRow({
             manage →
           </Link>
         </div>
-        {/* ARBITRAGE, as a line on the row it belongs to. The tab is where the
-            detail lives; this says whether there is anything to see. An
-            unreadable registry says so rather than reading as "none". */}
+        {/* ARBITRAGE, as a line on the row it belongs to: the switch the creator
+            controls, and what is actually open. Off with positions open is said
+            in amber — the position is winding down, not abandoned. An
+            unreadable registry says so rather than reading as "off". */}
         <div style={{ fontSize: 10.5, marginTop: 2 }}>
-          {lpByAgent === null ? (
+          {lpByAgent === null || arbEnabled === null ? (
             <span
               className="m3"
-              title="The arbitrage registry could not be read, so this is unknown rather than zero."
+              title="The arbitrage service could not be read, so this is unknown rather than off."
             >
               Arbitrage unknown
             </span>
-          ) : lp ? (
-            <Link href={`/me/agents/${a.id}?tab=arbitrage`} className={lp.out > 0 ? 'am' : 'm2'}>
-              Arbitrage · {int(lp.count)} position{lp.count === 1 ? '' : 's'}
-              {lp.out > 0 ? ` · ${int(lp.out)} out of range` : ' · in range'}
-            </Link>
           ) : (
-            <Link href={`/me/agents/${a.id}?tab=arbitrage`} className="m3">
-              no arbitrage position
+            <Link href={`/me/agents/${a.id}?tab=arbitrage`} className={!on && lp ? 'am' : on ? 'm2' : 'm3'}>
+              Arbitrage {on ? 'on' : 'off'}
+              {lp ? ` · ${int(lp.count)} position${lp.count === 1 ? '' : 's'}` : ' · no position'}
+              {on && lp ? (lp.out > 0 ? ` · ${int(lp.out)} out of range` : ' · in range') : ''}
+              {!on && lp ? ' · winding down' : ''}
             </Link>
           )}
         </div>

@@ -116,6 +116,31 @@ type summary struct {
 	Executions      []execution.LPExecResult `json:"executions,omitempty"`
 }
 
+// agentArbitrageEnabled asks the arbitrage service whether a creator has
+// switched the feature on for this agent.
+//
+// AN ABSENT SETTING IS DISABLED, and so is an unreadable one: the caller gets
+// an error and refuses. The only direction this function may fail in is "do not
+// act" — a feature that gates somebody else's funds must never be enabled by a
+// timeout.
+func agentArbitrageEnabled(ctx context.Context, arb, agentID string) (bool, error) {
+	var resp struct {
+		Setting struct {
+			AgentID string `json:"agent_id"`
+			Enabled bool   `json:"enabled"`
+			Exists  bool   `json:"exists"`
+		} `json:"setting"`
+	}
+	path := arb + "/v1/arbitrage/agents/" + url.PathEscape(agentID) + "/settings"
+	if err := getJSON(ctx, path, &resp); err != nil {
+		return false, err
+	}
+	if resp.Setting.AgentID == "" {
+		return false, fmt.Errorf("the settings answer named no agent")
+	}
+	return resp.Setting.Enabled, nil
+}
+
 func main() {
 	log.SetFlags(log.LstdFlags | log.LUTC)
 
@@ -186,6 +211,31 @@ func main() {
 	}
 
 	for _, p := range actions.Actions {
+		// THE OPT-IN, CHECKED HERE TOO. The loop already refuses to propose a
+		// rebalance for a disabled agent, so reaching this line with one means
+		// the queue is older than the switch (or something wrote to it
+		// directly). Either way: nothing that CREATES EXPOSURE is signed for an
+		// agent whose creator has arbitrage switched OFF.
+		//
+		// HARVESTS AND CLOSES ARE NOT BLOCKED, on purpose — the wind-down rule
+		// (migration 0069): collecting fees and burning an emptied position add
+		// no exposure, and switching the feature off must not strand funds in a
+		// pool. An unreadable setting refuses everything: "we could not find out"
+		// must never sign.
+		if p.Recommendation == "rebalance" {
+			if ok, err := agentArbitrageEnabled(ctx, arb, p.AgentID); err != nil {
+				out.Refused++
+				log.Printf("token %s (agent %s, %s): REFUSED — the arbitrage setting could not be read: %v",
+					p.TokenID, p.AgentID, p.Recommendation, err)
+				continue
+			} else if !ok {
+				out.Refused++
+				log.Printf("token %s (agent %s, %s): REFUSED — arbitrage is not enabled for this agent (the creator's setting); nothing was signed",
+					p.TokenID, p.AgentID, p.Recommendation)
+				continue
+			}
+		}
+
 		pos, why := readPosition(ctx, arb, p.TokenID)
 		if why != "" {
 			// Not a fatal error: this one proposal is refused with the reason
@@ -344,6 +394,17 @@ func runOpen(arb, agent, symbol string, sizeUSD, rangePct, slippageBps float64) 
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+
+	// THE OPT-IN COMES FIRST, BEFORE ANY PLAN IS BUILT. Opening creates new
+	// exposure on the agent's own funds; if its creator has not switched
+	// arbitrage on, there is nothing to review. An unreadable setting refuses:
+	// the default when nobody can be asked is OFF, never "carry on".
+	if ok, err := agentArbitrageEnabled(ctx, arb, agent); err != nil {
+		log.Fatalf("could not read the arbitrage setting for agent %s: %v — refusing to open", agent, err)
+	} else if !ok {
+		log.Fatalf("refusing: arbitrage is not enabled for agent %s — its creator has not switched it on "+
+			"(the agent's Arbitrage tab; an agent with no setting is DISABLED)", agent)
+	}
 
 	var venues venuesResponse
 	if err := getJSON(ctx, arb+"/v1/arbitrage/venues", &venues); err != nil {

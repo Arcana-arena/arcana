@@ -38,7 +38,9 @@ import { AgentPacingService } from './pacing.service';
 import { PauseAgentDto, SetRiskDto } from './dto/lifecycle.dto';
 import { CapitalMandateDto } from './dto/capital-mandate.dto';
 import { CapitalManualDto } from './dto/capital-manual.dto';
+import { ArbitrageSettingDto } from './dto/arbitrage-setting.dto';
 import { CapitalMandateService } from './capital-mandate.service';
+import { ArbitrageClient } from '../arbitrage/arbitrage.client';
 import { parsePage } from '../common/pagination';
 import { ambiguousRiskKeys, unrecognisedRiskKeys } from './risk-profile';
 import { maskAgentEntity } from '../intelligence/intelligence';
@@ -124,6 +126,7 @@ export class AgentsController {
     private readonly triggersSvc: AgentTriggersService,
     private readonly walletView: AgentWalletViewService,
     private readonly intelligence: IntelligenceService,
+    private readonly arbitrage: ArbitrageClient,
   ) {}
 
   // --- 🔑 login required ----------------------------------------------------
@@ -277,6 +280,64 @@ export class AgentsController {
   async activateCapitalMandate(@Param('id', ParseUuidAllPipe) id: string, @CurrentWallet() wallet: string) {
     await this.ownership.assertOwnsAgent(wallet, id);
     return this.capitalMandates.activate(id);
+  }
+
+  /**
+   * 🔒 This agent's arbitrage switch. The creator decides; the default is OFF
+   * for every agent, existing or new.
+   *
+   * READ FROM THE ARBITRAGE SERVICE, not from a copy: that row is what the LP
+   * loop gates on, and a page showing a cached "enabled" while the loop reads
+   * "disabled" is the exact disagreement this route exists to make impossible.
+   */
+  @Get(':id/arbitrage')
+  @UseGuards(JwtAuthGuard)
+  async arbitrageSetting(@Param('id', ParseUuidAllPipe) id: string, @CurrentWallet() wallet: string) {
+    await this.ownership.assertOwnsAgent(wallet, id);
+    return this.arbitrage.get(id);
+  }
+
+  /**
+   * 🔒 Switch this agent's arbitrage on or off.
+   *
+   * ENABLING NEEDS A WALLET: positions belong to the agent's own wallet, so
+   * there is nothing to switch on without one — the answer is a refusal that
+   * names the missing step, not a switch that appears to work. A retired agent
+   * cannot be enabled either; its record is frozen and it decides nothing.
+   *
+   * DISABLING NEVER STRANDS FUNDS. Harvests and closes keep running for a
+   * disabled agent (the wind-down rule, migration 0069); what stops is new
+   * exposure — opening, and rebalancing a range the price has left.
+   */
+  @Put(':id/arbitrage')
+  @UseGuards(JwtAuthGuard)
+  async setArbitrage(
+    @Param('id', ParseUuidAllPipe) id: string,
+    @Body() dto: ArbitrageSettingDto,
+    @CurrentWallet() wallet: string,
+  ) {
+    await this.ownership.assertOwnsAgent(wallet, id);
+    if (dto.enabled) {
+      const agent = await this.agents.findOne(id);
+      if (agent.status === 'retired') {
+        throw new BadRequestException({
+          code: 'agent_retired',
+          message:
+            'This agent is retired and cannot be given new work. Arbitrage cannot be switched on for it — ' +
+            'its record is frozen.',
+        });
+      }
+      const w = await this.agentWallets.find(id);
+      if (!w || !w.address) {
+        throw new BadRequestException({
+          code: 'no_wallet',
+          message:
+            'This agent has no trading wallet yet, and a position belongs to that wallet. Derive one on the ' +
+            'agent page (Wallet tab) first — then arbitrage can be switched on.',
+        });
+      }
+    }
+    return this.arbitrage.set(id, dto.enabled, wallet);
   }
 
   /**

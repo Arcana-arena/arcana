@@ -39,6 +39,12 @@ Environment=SIGNER_URL=http://127.0.0.1:8085
 # /v1/docs/parameters asks arca-service for the subscription terms rather than
 # restating them: a copy here would be the figure a buyer actually reads.
 Environment=ARCA_SERVICE_URL=http://127.0.0.1:3004
+# The arbitrage opt-in, per agent. The write goes through here because
+# ownership is checked here; the arbitrage service accepts it only on the
+# machine tier, with the internal key, and records the creator wallet as the
+# actor. A read of this URL is public, so a misconfigured key still renders the
+# truth instead of failing the page.
+Environment=ARBITRAGE_URL=http://127.0.0.1:8084
 # Secrets (AUTH_JWT_SIGNING_KEY, INTERNAL_API_KEY) come from this file at
 # mode 600. They are NEVER inline here: unit files are world-readable and
 # systemctl show prints Environment= to any user.

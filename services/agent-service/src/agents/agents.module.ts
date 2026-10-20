@@ -17,11 +17,12 @@ import { AgentLifecycleService } from './lifecycle.service';
 import { AgentTriggersService } from './triggers.service';
 import { AgentWalletViewService } from './wallet-view.service';
 import { AgentPacingService } from './pacing.service';
+import { ArbitrageClient } from '../arbitrage/arbitrage.client';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Agent, AgentWallet]), EntitlementsModule, AuthModule],
   controllers: [AgentsController, InternalAgentPacingController],
-  providers: [AgentsService, AgentWalletsService, DecisionClient, AgentOverviewService, AgentPositionsService, AgentCapitalService, CapitalMandateService, MarketPriceClient, AgentLifecycleService, AgentTriggersService, AgentWalletViewService, AgentPacingService],
+  providers: [AgentsService, AgentWalletsService, DecisionClient, AgentOverviewService, AgentPositionsService, AgentCapitalService, CapitalMandateService, MarketPriceClient, AgentLifecycleService, AgentTriggersService, AgentWalletViewService, AgentPacingService, ArbitrageClient],
   // AgentWalletViewService is exported so the creator dashboard reads gas with
   // the wallet tab's own measurement instead of a second definition of "low".
   // AgentPositionsService is exported so the creator portfolio reads positions

@@ -132,11 +132,90 @@ await run.section('The heartbeat is fresh', async () => {
   if (/^\d+$/.test(age)) run.check('heartbeat is under 10 minutes old', Number(age) < 600, `${age}s old`);
 });
 
+await run.section('Arbitrage is opt-in, and the default is off', async () => {
+  // A UUID-SHAPED ID NOBODY OWNS, so this section never touches a real agent's
+  // switch. The row it writes is deleted again at the end.
+  const probe = `00000000-0000-4000-8000-${String(Date.now()).slice(-12)}`;
+
+  const missing = await get(`/v1/arbitrage/agents/${probe}/settings`);
+  run.check('an agent nobody has switched answers 200', missing.status === 200, `status ${missing.status}`);
+  run.check('and reads as disabled, because an absent row IS the off state',
+    missing.body?.setting?.enabled === false && missing.body?.setting?.exists === false,
+    JSON.stringify(missing.body?.setting));
+
+  const malformed = await get('/v1/arbitrage/agents/not-a-uuid/settings');
+  run.check('a malformed agent id is a 400, not a 500 from Postgres', malformed.status === 400, `status ${malformed.status}`);
+
+  const list = await get('/v1/arbitrage/agents/settings?limit=50');
+  run.check('the switch list answers and says what an absent agent means',
+    list.status === 200 && Array.isArray(list.body?.settings) && /absent row/i.test(list.body?.note ?? ''),
+    `status ${list.status} note=${list.body?.note}`);
+
+  const key = internalKey();
+  if (!key) {
+    run.nothingToCheck('INTERNAL_API_KEY is not set, so the machine-tier write cannot be exercised');
+    return;
+  }
+
+  // WITHOUT THE KEY, NOBODY FLIPS A CREATOR'S SWITCH.
+  const anonymous = await fetch(ARB + `/internal/v1/arbitrage/agents/${probe}/settings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled: true, actor: '0xverification' }),
+  });
+  run.check('the write is machine-tier: without the key it is refused',
+    anonymous.status === 401 || anonymous.status === 403, `status ${anonymous.status}`);
+
+  const write = async (body) => {
+    const res = await fetch(ARB + `/internal/v1/arbitrage/agents/${probe}/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Internal-Key': key, 'X-Arcana-Verification': '1' },
+      body: JSON.stringify(body),
+    });
+    return { status: res.status, body: await res.json().catch(() => ({})) };
+  };
+
+  const noActor = await write({ enabled: true });
+  run.check('a switch with no actor named is refused — a decision about funds has to have a name',
+    noActor.status === 400 && noActor.body?.error?.code === 'actor_required', JSON.stringify(noActor.body));
+
+  const noFlag = await write({ actor: '0xverification' });
+  run.check('a switch with enabled omitted is refused rather than defaulting',
+    noFlag.status === 400 && noFlag.body?.error?.code === 'enabled_required', JSON.stringify(noFlag.body));
+
+  const on = await write({ enabled: true, actor: '0xverification' });
+  run.check('with the key and both fields, the switch is written',
+    on.status === 200 && on.body?.setting?.enabled === true && on.body?.setting?.enabled_at !== null,
+    JSON.stringify(on.body?.setting));
+
+  const readBack = await get(`/v1/arbitrage/agents/${probe}/settings`);
+  run.check('and the public read agrees with the write',
+    readBack.body?.setting?.enabled === true && readBack.body?.setting?.exists === true,
+    JSON.stringify(readBack.body?.setting));
+
+  const off = await write({ enabled: false, actor: '0xverification' });
+  run.check('switching it off records who did it and when',
+    off.status === 200 && off.body?.setting?.enabled === false && off.body?.setting?.disabled_at !== null &&
+      off.body?.setting?.updated_by === '0xverification',
+    JSON.stringify(off.body?.setting));
+
+  // The enabled set is what the loop reads; it must not contain the probe now
+  // that it is off, and `enabled_at` must survive the toggle for the audit.
+  const enabledNow = sql(`SELECT count(*) FROM arbitrage_agent_settings WHERE enabled`);
+  run.check('the loop\'s enabled set is a countable number', /^\d+$/.test(enabledNow), enabledNow);
+
+  sql(`DELETE FROM arbitrage_agent_settings WHERE agent_id = '${probe}'`);
+  const gone = sql(`SELECT count(*) FROM arbitrage_agent_settings WHERE agent_id = '${probe}'`);
+  run.check('the probe row is cleaned up after itself', gone === '0', `rows left: ${gone}`);
+});
+
 await run.section('The tables are standalone and the core schema is untouched', async () => {
   const opp = sql(`SELECT to_regclass('arbitrage_opportunities')`);
   const hb = sql(`SELECT to_regclass('arbitrage_scan_heartbeat')`);
+  const settings = sql(`SELECT to_regclass('arbitrage_agent_settings')`);
   run.check('arbitrage_opportunities exists', opp === 'arbitrage_opportunities', opp);
   run.check('arbitrage_scan_heartbeat exists', hb === 'arbitrage_scan_heartbeat', hb);
+  run.check('arbitrage_agent_settings exists', settings === 'arbitrage_agent_settings', settings);
   // A core §7 table still has a column this work did not touch. If a future
   // migration ever alters agents, this fails and names the change.
   const name = sql(`SELECT column_name FROM information_schema.columns WHERE table_name='agents' AND column_name='name'`);

@@ -14,11 +14,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"math/big"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -102,8 +104,13 @@ func main() {
 	mux.HandleFunc("GET /v1/arbitrage/lp/actions", srv.handleLPActions)
 	mux.HandleFunc("GET /v1/arbitrage/lp/executions", srv.handleLPExecutions)
 	mux.HandleFunc("GET /v1/arbitrage/lp/opens", srv.handleLPOpens)
+	// THE OPT-IN, read publicly and written by agent-service (which is where
+	// ownership is checked). An absent row means disabled — see migration 0069.
+	mux.HandleFunc("GET /v1/arbitrage/agents/settings", srv.handleAgentSettingsList)
+	mux.HandleFunc("GET /v1/arbitrage/agents/{agent_id}/settings", srv.handleAgentSetting)
 	mux.HandleFunc("POST /internal/v1/arbitrage/scan", guard.Wrap(srv.handleScan))
 	mux.HandleFunc("POST /internal/v1/arbitrage/lp/sync", guard.Wrap(srv.handleLPSync))
+	mux.HandleFunc("POST /internal/v1/arbitrage/agents/{agent_id}/settings", guard.Wrap(srv.handleSetAgentSetting))
 
 	// The continuous scanner. Disabled by an empty or invalid SCAN_INTERVAL, so
 	// the service can run as a pure HTTP API (or under a systemd timer) without
@@ -484,8 +491,95 @@ func (s *server) handleLPActions(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleLPExecutions lists the latest recorded execution steps — what the
-// executor signed, sent and was answered with, newest first. READ-ONLY.
+// uuidish is the shape Postgres will accept for a uuid column. A malformed id
+// has to be a 400 here: passing it through would turn a bad request into a 500
+// from the database, and a 500 reads as "the service is broken".
+var uuidish = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// handleAgentSettingsList lists the arbitrage switches a creator has touched.
+// READ-ONLY, public: an agent with no row here is disabled, and the note says
+// so rather than leaving an empty list to be read as "nobody decides anything".
+//
+//	GET /v1/arbitrage/agents/settings?limit=200
+func (s *server) handleAgentSettingsList(w http.ResponseWriter, r *http.Request) {
+	limit := atoiDefault(r.URL.Query().Get("limit"), 200)
+	if limit < 1 {
+		limit = 200
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	rows, err := s.lpreg.AllAgentSettings(r.Context(), limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "settings_unavailable", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"settings": rows,
+		"note": "arbitrage is opt-in per agent. An agent with no row here is DISABLED: " +
+			"an absent row and enabled=false mean the same thing.",
+	})
+}
+
+// handleAgentSetting reads one agent's switch. A missing row answers 200 with
+// enabled=false and exists=false — the default, not a 404.
+//
+//	GET /v1/arbitrage/agents/{agent_id}/settings
+func (s *server) handleAgentSetting(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("agent_id")
+	if !uuidish.MatchString(id) {
+		writeError(w, http.StatusBadRequest, "invalid_agent_id", "agent_id must be a UUID")
+		return
+	}
+	set, err := s.lpreg.AgentSetting(r.Context(), id)
+	if err != nil && !errors.Is(err, store.ErrNoSetting) {
+		writeError(w, http.StatusInternalServerError, "settings_unavailable", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"setting": set})
+}
+
+// handleSetAgentSetting writes one agent's switch. MACHINE TIER (X-Internal-Key)
+// and called by agent-service, which is the only place that knows whether the
+// caller owns the agent.
+//
+//	POST /internal/v1/arbitrage/agents/{agent_id}/settings
+//	{"enabled": true, "actor": "0x…"}
+func (s *server) handleSetAgentSetting(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("agent_id")
+	if !uuidish.MatchString(id) {
+		writeError(w, http.StatusBadRequest, "invalid_agent_id", "agent_id must be a UUID")
+		return
+	}
+	var body struct {
+		Enabled *bool  `json:"enabled"`
+		Actor   string `json:"actor"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_body", "a JSON body with enabled and actor is required")
+		return
+	}
+	if body.Enabled == nil {
+		// A missing field is not false: writing the wrong state for somebody's
+		// agent because a field was omitted is exactly what this guard prevents.
+		writeError(w, http.StatusBadRequest, "enabled_required", "enabled must be true or false, explicitly")
+		return
+	}
+	if strings.TrimSpace(body.Actor) == "" {
+		writeError(w, http.StatusBadRequest, "actor_required",
+			"actor is required: a switch about somebody's funds has to have a name against it")
+		return
+	}
+	set, err := s.lpreg.SetAgentSetting(r.Context(), id, *body.Enabled, body.Actor)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "settings_write_failed", err.Error())
+		return
+	}
+	log.Printf("arbitrage settings: agent %s enabled=%v by %s", id, set.Enabled, set.UpdatedBy)
+	writeJSON(w, http.StatusOK, map[string]any{"setting": set})
+}
+
+// handleLPExecutions lists the latest recorded execution steps — what the executor signed, sent and was answered with, newest first. READ-ONLY.
 //
 //	GET /v1/arbitrage/lp/executions?limit=50
 func (s *server) handleLPExecutions(w http.ResponseWriter, r *http.Request) {

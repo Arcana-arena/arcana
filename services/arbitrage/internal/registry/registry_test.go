@@ -85,6 +85,12 @@ type fakeStore struct {
 	steps      []store.LPExecutionStep
 	opens      []store.LPOpen
 
+	// The opt-in: which agents the creator has switched arbitrage on for.
+	enabledIDs     []string
+	settingExists  bool
+	settingEnabled bool
+	settings       []store.AgentSetting
+
 	beatCalled bool
 	beatBlock  *int64
 	beatErr    string
@@ -193,6 +199,30 @@ func (s *fakeStore) RecentLPOpens(context.Context, int) ([]store.LPOpen, error) 
 	return s.opens, nil
 }
 
+// --- the opt-in --------------------------------------------------------------
+
+// THE FAKE ANSWERS WITH THE SAME DEFAULT THE DATABASE DOES: an agent that is not
+// in enabledIDs is disabled, and a missing row is not an error.
+func (s *fakeStore) EnabledAgentIDs(context.Context) ([]string, error) {
+	return s.enabledIDs, nil
+}
+
+func (s *fakeStore) AgentSetting(_ context.Context, agentID string) (store.AgentSetting, error) {
+	if !s.settingExists {
+		return store.AgentSetting{AgentID: agentID}, store.ErrNoSetting
+	}
+	return store.AgentSetting{AgentID: agentID, Exists: true, Enabled: s.settingEnabled}, nil
+}
+
+func (s *fakeStore) SetAgentSetting(_ context.Context, agentID string, enabled bool, _ string) (store.AgentSetting, error) {
+	s.settingExists, s.settingEnabled = true, enabled
+	return store.AgentSetting{AgentID: agentID, Exists: true, Enabled: enabled}, nil
+}
+
+func (s *fakeStore) AllAgentSettings(context.Context, int) ([]store.AgentSetting, error) {
+	return s.settings, nil
+}
+
 // --- helpers -----------------------------------------------------------------
 
 func testCfg() *config.Config {
@@ -265,6 +295,12 @@ func withOpenRow(tokenID string) func(*fakeStore) {
 	return func(s *fakeStore) {
 		s.rows = append(s.rows, store.LPPosition{PositionManager: npmAddr, TokenID: tokenID, AgentID: "agent-1", Wallet: walletA, Status: "open"})
 	}
+}
+
+// withEnabled switches arbitrage on for the named agents. Nothing else in these
+// tests enables it, which is the point: the default is off.
+func withEnabled(agentIDs ...string) func(*fakeStore) {
+	return func(s *fakeStore) { s.enabledIDs = agentIDs }
 }
 
 // --- tests -------------------------------------------------------------------
@@ -521,5 +557,90 @@ func TestSyncRefusesSecondConcurrentPass(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("first pass did not finish")
+	}
+}
+
+// --- the opt-in gate ---------------------------------------------------------
+
+// THE DEFAULT IS OFF, AND OFF MEANS NO NEW EXPOSURE. An out-of-range position
+// of a disabled agent is still refreshed — the record stays truthful — but the
+// rebalance that would mint a new position is not proposed.
+func TestDisabledAgentGetsNoRebalanceProposal(t *testing.T) {
+	st := walletStore(withCursor(1))
+	sy := New(healthyChain(5000), st, testCfg()) // price above the range
+
+	res, err := sy.SyncOnce(context.Background())
+	if err != nil {
+		t.Fatalf("SyncOnce: %v", err)
+	}
+	if res.Synced != 1 || res.Errors != 0 {
+		t.Fatalf("the position should still be refreshed: %+v", res)
+	}
+	if res.Enabled != 0 {
+		t.Fatalf("nothing is enabled in this test, got %d", res.Enabled)
+	}
+	if len(st.proposed) != 0 {
+		t.Fatalf("a disabled agent was proposed for: %+v", st.proposed)
+	}
+	// The row itself still says rebalance: the registry reports the truth about
+	// the chain, and the gate decides what may be DONE about it.
+	if len(st.upserts) != 1 || st.upserts[0].Recommendation == nil || *st.upserts[0].Recommendation != "rebalance" {
+		t.Fatalf("the registry row should still read rebalance, got %+v", st.upserts)
+	}
+}
+
+// A REBALANCE QUEUED BEFORE THE SWITCH WAS FLIPPED IS SUPERSEDED, so the
+// executor cannot pick up a decision its owner has already revoked.
+func TestDisabledAgentSupersedesAStandingRebalance(t *testing.T) {
+	st := walletStore(withCursor(1001), withOpenRow("7"), withAction("7", "rebalance"))
+	sy := New(healthyChain(5000), st, testCfg())
+
+	res, err := sy.SyncOnce(context.Background())
+	if err != nil {
+		t.Fatalf("SyncOnce: %v", err)
+	}
+	if res.Proposed != 0 || len(st.proposed) != 0 {
+		t.Fatalf("expected no proposal, got %+v", st.proposed)
+	}
+	if len(st.superseded) == 0 {
+		t.Fatal("the standing rebalance should have been superseded")
+	}
+}
+
+// THE WIND-DOWN RULE: switching arbitrage off must not strand fees. A harvest
+// is income, not new exposure, so a disabled agent still gets it.
+func TestDisabledAgentStillGetsHarvest(t *testing.T) {
+	ch := healthyChain(0) // in range
+	q128sum := new(big.Int).Lsh(big.NewInt(1), 128)
+	ch.feeGrowthFn = func(string) (*big.Int, *big.Int, error) {
+		return new(big.Int).Mul(big.NewInt(1000), q128sum), big.NewInt(0), nil
+	}
+	st := walletStore(withCursor(1), withOpenRow("7"))
+	sy := New(ch, st, testCfg())
+
+	res, err := sy.SyncOnce(context.Background())
+	if err != nil {
+		t.Fatalf("SyncOnce: %v", err)
+	}
+	if res.Proposed != 1 || len(st.proposed) != 1 || st.proposed[0].Recommendation != "harvest" {
+		t.Fatalf("a disabled agent should still be able to harvest its fees: %+v", st.proposed)
+	}
+}
+
+// AND THE GATE DOES NOT OVER-BLOCK: an enabled agent gets exactly what it got
+// before the switch existed.
+func TestEnabledAgentGetsTheRebalance(t *testing.T) {
+	st := walletStore(withCursor(1), withEnabled("agent-1"))
+	sy := New(healthyChain(5000), st, testCfg())
+
+	res, err := sy.SyncOnce(context.Background())
+	if err != nil {
+		t.Fatalf("SyncOnce: %v", err)
+	}
+	if res.Enabled != 1 {
+		t.Fatalf("expected one enabled agent, got %d", res.Enabled)
+	}
+	if len(st.proposed) != 1 || st.proposed[0].Recommendation != "rebalance" {
+		t.Fatalf("an enabled agent should still be proposed for: %+v", st.proposed)
 	}
 }
