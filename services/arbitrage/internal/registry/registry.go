@@ -478,11 +478,6 @@ func (s *Syncer) refreshOne(ctx context.Context, npm string, row store.LPPositio
 		}
 		return outcomeSynced, false, nil
 	}
-	for _, a := range pending {
-		if a.Recommendation == rec {
-			return outcomeSynced, false, nil
-		}
-	}
 
 	// THE OPT-IN GATE, AND WHAT IT DOES NOT BLOCK. A rebalance removes the
 	// position and MINTS A NEW ONE — it is new exposure, and an agent whose
