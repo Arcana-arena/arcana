@@ -104,9 +104,10 @@ export default async function MePage() {
   const retired = d.agents.filter((a) => a.status === 'retired');
   const attentionFor = (id: string) => d.attention.filter((x) => x.agent_id === id);
 
-  // THE LP REGISTRY, PER AGENT. The arbitrage service is read-only, so this is
-  // a public read even behind the session. A failed read stays `null` and the
-  // row says "unknown" — it must not look like an agent with no position.
+  // THE ARBITRAGE REGISTRY, PER AGENT. The arbitrage service is read-only, so
+  // this is a public read even behind the session. A failed read stays `null`
+  // and the row says "unknown" — it must not look like an agent with no
+  // position.
   const lpR = await arbitrage<{ positions: LPPosition[] }>('/v1/arbitrage/lp/positions?status=open&limit=200');
   const lpByAgent = lpR.ok
     ? lpR.data.positions.reduce((m, p) => {
@@ -310,25 +311,25 @@ function AgentRow({
             manage →
           </Link>
         </div>
-        {/* LIQUIDITY PROVISION, as a line on the row it belongs to. The tab is
-            where the detail lives; this says whether there is anything to see.
-            An unreadable registry says so rather than reading as "none". */}
+        {/* ARBITRAGE, as a line on the row it belongs to. The tab is where the
+            detail lives; this says whether there is anything to see. An
+            unreadable registry says so rather than reading as "none". */}
         <div style={{ fontSize: 10.5, marginTop: 2 }}>
           {lpByAgent === null ? (
             <span
               className="m3"
-              title="The LP registry could not be read, so this is unknown rather than zero."
+              title="The arbitrage registry could not be read, so this is unknown rather than zero."
             >
-              LP unknown
+              Arbitrage unknown
             </span>
           ) : lp ? (
-            <Link href={`/me/agents/${a.id}?tab=liquidity`} className={lp.out > 0 ? 'am' : 'm2'}>
-              LP · {int(lp.count)} position{lp.count === 1 ? '' : 's'}
+            <Link href={`/me/agents/${a.id}?tab=arbitrage`} className={lp.out > 0 ? 'am' : 'm2'}>
+              Arbitrage · {int(lp.count)} position{lp.count === 1 ? '' : 's'}
               {lp.out > 0 ? ` · ${int(lp.out)} out of range` : ' · in range'}
             </Link>
           ) : (
-            <Link href={`/me/agents/${a.id}?tab=liquidity`} className="m3">
-              no LP position
+            <Link href={`/me/agents/${a.id}?tab=arbitrage`} className="m3">
+              no arbitrage position
             </Link>
           )}
         </div>

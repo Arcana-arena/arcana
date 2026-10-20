@@ -1,9 +1,12 @@
 /**
- * Liquidity provision, read-only.
+ * Arbitrage, read-only.
  *
- * WHAT THIS PAGE IS: the public view of the LP registry the arbitrage service
+ * WHAT THIS PAGE IS: the public view of the registry the arbitrage service
  * keeps — which agent wallets own which Uniswap v3 positions, what the last
- * sync read, and what the executor has done about it.
+ * sync read, and what the executor has done about it. The strategy it runs is
+ * liquidity provision (see the callout below for why that, and not a pair of
+ * taker legs), so the rows are LP positions: that is the service's vocabulary
+ * and this page does not rename them.
  *
  * NOTHING HERE IS COMPUTED. Positions arrive in the registry's order and every
  * verdict, amount and status is the service's own. The fee column is labelled
@@ -35,7 +38,7 @@ import {
 } from '@/lib/lp';
 
 export const dynamic = 'force-dynamic';
-export const metadata: Metadata = { title: 'Liquidity — ARCANA' };
+export const metadata: Metadata = { title: 'Arbitrage — ARCANA' };
 
 function AgentCell({ id }: { id: string }) {
   return (
@@ -45,7 +48,7 @@ function AgentCell({ id }: { id: string }) {
   );
 }
 
-export default async function LiquidityPage() {
+export default async function ArbitragePage() {
   const [venuesR, positionsR, actionsR, executionsR, opensR] = await Promise.all([
     arbitrage<LPVenues>('/v1/arbitrage/venues'),
     arbitrage<{ positions: LPPosition[] }>('/v1/arbitrage/lp/positions?status=all&limit=100'),
@@ -74,10 +77,10 @@ export default async function LiquidityPage() {
 
   return (
     <div className="page">
-      <Header current="Liquidity" />
+      <Header current="Arbitrage" />
 
       <div className="sec" style={{ paddingTop: 32, paddingBottom: 0, borderBottom: 'none' }}>
-        <h1>Liquidity</h1>
+        <h1>Arbitrage</h1>
         <div style={{ fontSize: 12.5, color: 'var(--ink-2)', marginTop: 4 }}>
           Agent-owned Uniswap v3 positions, read from the chain by the arbitrage service and acted on by the executor.
           No wallet is needed to read this page.
@@ -86,12 +89,14 @@ export default async function LiquidityPage() {
 
       <div className="sec" style={{ paddingTop: 14, paddingBottom: 14 }}>
         <Callout tone="note">
-          <strong>The mechanism, in one paragraph.</strong> A position deposits a pair — a Stock Token against USDG,
-          or WETH against USDG — into a pool and earns the fee every swap through its range pays. The registry re-reads
-          each position every five minutes. <em>Harvest</em> collects fees once their exact accrual crosses a reviewed
-          threshold; <em>rebalance</em> moves a range the price has left; <em>close</em> collects and burns a position
-          that was emptied. A position that leaves its range stops earning — that is the risk this activity carries,
-          and the verdict column says when it has happened.
+          <strong>What the name means here.</strong> A taker spread between two venues has to clear the gas both legs
+          cost, and on this chain the measured residual does not. So the arbitrage service takes the other side of the
+          trade instead: a position deposits a pair — a Stock Token against USDG, or WETH against USDG — into a pool and
+          earns the fee every swap through its range pays. The registry re-reads each position every five minutes.{' '}
+          <em>Harvest</em> collects fees once their exact accrual crosses a reviewed threshold; <em>rebalance</em> moves
+          a range the price has left; <em>close</em> collects and burns a position that was emptied. A position that
+          leaves its range stops earning — that is the risk this activity carries, and the verdict column says when it
+          has happened.
         </Callout>
       </div>
 
@@ -104,9 +109,9 @@ export default async function LiquidityPage() {
           </span>
         </div>
         {!positionsR.ok ? (
-          <Failed what="The LP registry" error={positionsR} />
+          <Failed what="The arbitrage registry" error={positionsR} />
         ) : positions.length === 0 ? (
-          <Empty title="No LP position is registered yet">
+          <Empty title="No arbitrage position is registered yet">
             The registry discovers positions from the chain — nothing can appear here until an agent&rsquo;s wallet owns
             one. The first position is opened by its owner through the executor&rsquo;s open command, with a cap that
             has to be typed.
@@ -375,7 +380,7 @@ export default async function LiquidityPage() {
         )}
       </div>
 
-      <Footer stamp={latest ? { label: 'last LP activity', value: utc(latest) } : null} />
+      <Footer stamp={latest ? { label: 'last arbitrage activity', value: utc(latest) } : null} />
     </div>
   );
 }

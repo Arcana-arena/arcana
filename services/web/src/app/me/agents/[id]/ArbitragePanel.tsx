@@ -1,6 +1,8 @@
 /**
- * One agent's liquidity provision: the positions it owns, the fees recorded
- * against them, and the harvest/close steps the executor has taken.
+ * One agent's arbitrage — the registry the arbitrage service keeps for it: the
+ * positions it owns, the fees recorded against them, and the harvest/close
+ * steps the executor has taken. The strategy is liquidity provision, so the
+ * rows are LP positions and are named that way.
  *
  * SERVER-RENDERED AND READ-ONLY, LIKE THE REST OF THE PAGE. Opening, arming and
  * closing are executor acts with their own capped tools; there is deliberately
@@ -22,7 +24,7 @@ import {
   type LPVenues,
 } from '@/lib/lp';
 
-export function LiquidityPanel({
+export function ArbitragePanel({
   positions,
   executions,
   executionsError,
@@ -42,11 +44,11 @@ export function LiquidityPanel({
 
   if (positions.length === 0) {
     return (
-      <Empty title="This agent holds no LP position">
+      <Empty title="This agent holds no arbitrage position">
         The registry has no position for this agent&rsquo;s wallet. A position is opened by its owner through the
         executor&rsquo;s capped open command after funding the wallet — the platform cannot open one from here.
         <div style={{ marginTop: 10 }}>
-          The public registry is at <a href="/liquidity">/liquidity</a>.
+          The public registry is at <a href="/arbitrage">/arbitrage</a>.
         </div>
       </Empty>
     );

@@ -44,7 +44,7 @@ import { ListingPanel } from './ListingPanel';
 import { CompetitionPanel, type EntryCompetition } from './CompetitionPanel';
 import { VisibilityPanel, type VisibilityDecision } from './VisibilityPanel';
 import { CapitalMandatePanel } from './CapitalMandatePanel';
-import { LiquidityPanel } from './LiquidityPanel';
+import { ArbitragePanel } from './ArbitragePanel';
 import type { CapitalMandateView } from './actions';
 import type { Attention, Dashboard, Triggers, WalletBalances, WalletTransactions } from '../../shapes';
 import type { AgentIntelligence } from '@/lib/types';
@@ -92,7 +92,7 @@ const TABS = [
   { key: 'manage', label: 'Manage' },
   { key: 'wallet', label: 'Wallet' },
   { key: 'triggers', label: 'Triggers' },
-  { key: 'liquidity', label: 'Liquidity' },
+  { key: 'arbitrage', label: 'Arbitrage' },
 ];
 
 type SP = { [k: string]: string | string[] | undefined };
@@ -203,13 +203,13 @@ export default async function ManageAgentPage({
   // Only on the manage tab, and after ownership is known from the reads above.
   const capitalR = tab === 'manage' ? await authed<CapitalMandateView>(`/v1/agents/${id}/capital/mandate`) : null;
 
-  // LIQUIDITY PROVISION — the arbitrage service's per-agent surface. It is a
-  // TAB of its own, not a fold inside Manage: this is where the agent's income
-  // is earned, so it belongs beside the wallet and the triggers. Read-only from
-  // here: opening, harvesting and closing are executor acts with their own
-  // capped tools, and a browser button would imply the platform can move this
-  // agent's funds from a click.
-  const lp = tab === 'liquidity'
+  // ARBITRAGE — the arbitrage service's per-agent surface, and the strategy it
+  // runs here is liquidity provision. It is a TAB of its own, not a fold inside
+  // Manage: this is where the agent's income is earned, so it belongs beside the
+  // wallet and the triggers. Read-only from here: opening, harvesting and
+  // closing are executor acts with their own capped tools, and a browser button
+  // would imply the platform can move this agent's funds from a click.
+  const lp = tab === 'arbitrage'
     ? await Promise.all([
         arbitrage<{ positions: LPPosition[] }>('/v1/arbitrage/lp/positions?status=all&limit=200'),
         arbitrage<{ executions: LPStep[] }>('/v1/arbitrage/lp/executions?limit=200'),
@@ -515,16 +515,17 @@ export default async function ManageAgentPage({
           </div>
         ) : null}
 
-        {tab === 'liquidity' ? (
+        {tab === 'arbitrage' ? (
           <div style={{ display: 'grid', gap: 14 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
               <div>
-                <h2 style={{ margin: 0 }}>Liquidity provision</h2>
+                <h2 style={{ margin: 0 }}>Arbitrage</h2>
                 <div className="m2" style={{ fontSize: 12.5, marginTop: 4 }}>
-                  The arbitrage service&rsquo;s registry and execution record for this agent.
+                  The arbitrage service&rsquo;s registry and execution record for this agent. The strategy it runs is
+                  liquidity provision: positions earn the pool fee.
                 </div>
               </div>
-              <Link href="/liquidity" style={{ fontSize: 12 }}>
+              <Link href="/arbitrage" style={{ fontSize: 12 }}>
                 Public registry →
               </Link>
             </div>
@@ -536,9 +537,9 @@ export default async function ManageAgentPage({
               what the registry reads from the chain.
             </Callout>
             {lpPositionsR && !lpPositionsR.ok ? (
-              <Failed what="This agent's liquidity positions" error={lpPositionsR} />
+              <Failed what="This agent's arbitrage positions" error={lpPositionsR} />
             ) : lpPositionsR ? (
-              <LiquidityPanel
+              <ArbitragePanel
                 positions={lpOwn}
                 executions={lpExecutionsR?.ok ? lpExecutionsR.data.executions.filter((e) => e.agent_id === id) : []}
                 executionsError={lpExecutionsR && !lpExecutionsR.ok ? lpExecutionsR : null}

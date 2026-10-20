@@ -57,16 +57,18 @@ near zero, so the fee is close to free money.
 
 ## Public surface
 
-The website renders the registry read-only: `/liquidity` lists every position
-(pair, range, in/out of range, holdings, stored fees, verdict), the standing
-proposals, the executor's per-intent record and the recorded opens. Each agent's
-own page carries a **Liquidity tab** with the same rows for that agent plus its
-harvest history and opens, and the creator dashboard's agent table carries a
-per-agent line (`LP · n positions · in range / out of range`, or `LP unknown`
+The website renders the registry read-only under the service's own name,
+**Arbitrage**: `/arbitrage` lists every position (pair, range, in/out of range,
+holdings, stored fees, verdict), the standing proposals, the executor's
+per-intent record and the recorded opens. Each agent's own page carries an
+**Arbitrage tab** with the same rows for that agent plus its harvest history and
+opens, and the creator dashboard's agent table carries a per-agent line
+(`Arbitrage · n positions · in range / out of range`, or `Arbitrage unknown`
 when the registry could not be read — never a silent zero). Nothing there is
 computed in the browser — every value is the arbitrage service's report, and
 `web-verify` checks the rendered page against the API, in the API's order. The
-public docs include a liquidity-provision page.
+public docs include an arbitrage page that says plainly that the strategy
+underneath the name is liquidity provision.
 
 ## Phased build (real money → checkpoints)
 

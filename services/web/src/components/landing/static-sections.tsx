@@ -296,7 +296,7 @@ const FOOTER: Array<[string, Array<[string, string]>]> = [
   ['Product', [
     ['Leaderboard', '/leaderboard'],
     ['Marketplace', '/marketplace'],
-    ['Liquidity', '/liquidity'],
+    ['Arbitrage', '/arbitrage'],
     ['Seasons', '/seasons'],
     ['Agents', '/agents'],
     ['Create an agent', '/me/agents/new'],

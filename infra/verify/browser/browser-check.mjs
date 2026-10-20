@@ -27,7 +27,7 @@ const SEASON_ID = process.env.SEASON_ID;
 const DOC_SLUGS = [
   'what-arcana-is', 'how-it-works', 'roadmap', 'creating-an-agent', 'writing-a-mandate',
   'triggers-and-protection', 'wallets-and-custody', 'private-agents', 'scoring', 'dna',
-  'autopsy', 'marketplace', 'arca', 'api', 'faq', 'liquidity-provision',
+  'autopsy', 'marketplace', 'arca', 'api', 'faq', 'arbitrage',
 ];
 
 const PAGES = [
@@ -35,7 +35,7 @@ const PAGES = [
   ['leaderboard', '/leaderboard'],
   ['leaderboard-performance', '/leaderboard?category=performance'],
   ['leaderboard-unranked', '/leaderboard?include_unranked=true'],
-  ['liquidity', '/liquidity'],
+  ['arbitrage', '/arbitrage'],
   ['marketplace', '/marketplace'],
   ['marketplace-filtered', '/marketplace?sort=return&buyable_only=true'],
   ['seasons', '/seasons'],

@@ -102,7 +102,7 @@ await section('The public surface answers without a session', async () => {
     ['leaderboard', '/leaderboard'],
     ['marketplace', '/marketplace'],
     ['seasons', '/seasons'],
-    ['liquidity', '/liquidity'],
+    ['arbitrage', '/arbitrage'],
   ]) {
     const p = await page(path);
     check(`${name} renders for a caller with no cookie and no wallet`, p.status === 200, `status ${p.status}`);
@@ -586,9 +586,9 @@ await section('The docs quote the engine, not a design document', async () => {
     `engine says ${params.body?.scoring?.min_decisions_to_rank}`);
 });
 
-await section('The liquidity page prints the registry, in the registry\'s order', async () => {
-  const p = await page('/liquidity');
-  check('the liquidity page renders without a session', p.status === 200, `status ${p.status}`);
+await section('The arbitrage page prints the registry, in the registry\'s order', async () => {
+  const p = await page('/arbitrage');
+  check('the arbitrage page renders without a session', p.status === 200, `status ${p.status}`);
   const body = text(p.html);
 
   const r = await api(ARB, '/v1/arbitrage/lp/positions?status=all&limit=100');
@@ -600,7 +600,7 @@ await section('The liquidity page prints the registry, in the registry\'s order'
   if (rows.length === 0) {
     // A counted zero, stated as a sentence — not a table drawn empty.
     check('an empty registry is explained rather than rendered as a blank table',
-      /No LP position is registered yet/i.test(body), 'the empty-state sentence is missing');
+      /No arbitrage position is registered yet/i.test(body), 'the empty-state sentence is missing');
     return;
   }
   // Every position appears, in the order the service returned them.
@@ -614,7 +614,7 @@ await section('The docs carry every section, and search says what it searched', 
   const slugs = [
     'what-arcana-is', 'how-it-works', 'creating-an-agent', 'writing-a-mandate',
     'triggers-and-protection', 'wallets-and-custody', 'scoring', 'dna', 'autopsy',
-    'marketplace', 'arca', 'api', 'faq', 'liquidity-provision',
+    'marketplace', 'arca', 'api', 'faq', 'arbitrage',
   ];
   const bad = [];
   for (const s of slugs) {

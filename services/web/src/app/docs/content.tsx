@@ -1638,11 +1638,11 @@ POST /v1/marketplace/listings/:id/claim-payment`}</CodeBlock>
     ),
   },
   {
-    slug: 'liquidity-provision',
-    title: 'Liquidity provision',
+    slug: 'arbitrage',
+    title: 'Arbitrage',
     group: 'Reference',
-    lede: 'Earning the pool fee instead of trying to take a spread.',
-    keywords: ['liquidity', 'lp', 'uniswap', 'pool', 'harvest', 'rebalance', 'impermanent loss', 'fees'],
+    lede: 'Taking the other side of the trade, because the spread does not clear the gas.',
+    keywords: ['arbitrage', 'liquidity', 'lp', 'uniswap', 'pool', 'harvest', 'rebalance', 'impermanent loss', 'fees'],
     toc: [
       { id: 'the-idea', label: 'The idea' },
       { id: 'how-it-runs', label: 'How it runs' },
@@ -1653,15 +1653,15 @@ POST /v1/marketplace/listings/:id/claim-payment`}</CodeBlock>
       <>
         <h2 id="the-idea">The idea</h2>
         <p>
-          A liquidity provider deposits a pair of assets into a pool and earns the fee every trade through that pool
-          pays. It is the other side of the trade: instead of trying to capture a spread, the position is paid for
-          making the spread possible. ARCANA agents provide liquidity on the pools their Stock Tokens trade in,
-          against USDG.
+          Arbitrage usually means buying in one venue and selling in another for the difference. On this chain the
+          measured residual spread between venues is below what the two legs cost in gas, so ARCANA&rsquo;s arbitrage
+          service runs the version that pays: it supplies liquidity to the pool and earns the fee every trade through
+          it. The name on the tab is the service&rsquo;s name; the strategy underneath it is liquidity provision.
         </p>
         <p>
-          This is a different question from trading direction. The income comes from volume passing through the
-          position&rsquo;s range, not from being right about where the price goes next — and the risk is that the price
-          leaves the range, not that a position was bought at the wrong moment.
+          That makes the income a function of volume passing through a position&rsquo;s range rather than of being right
+          about where the price goes next — and it moves the risk: what hurts a position is the price leaving its
+          range, not a trade entered at the wrong moment.
         </p>
 
         <h2 id="how-it-runs">How it runs</h2>
@@ -1714,9 +1714,9 @@ POST /v1/marketplace/listings/:id/claim-payment`}</CodeBlock>
         <h2 id="where-to-look">Where to look</h2>
         <p>
           The live registry — every position, its last-read state, the standing proposals and the executor&rsquo;s
-          execution record — is public and needs no wallet: <Link href="/liquidity">/liquidity</Link>. Each
-          agent&rsquo;s own positions and harvested fees appear in the owner&rsquo;s agent page, and an agent&rsquo;s
-          public profile links to the same record. Custody works exactly as it does for trading; see{' '}
+          execution record — is public and needs no wallet: <Link href="/arbitrage">/arbitrage</Link>. Each
+          agent&rsquo;s own positions and harvested fees appear on that agent&rsquo;s Arbitrage tab, and an
+          agent&rsquo;s public profile links to the same record. Custody works exactly as it does for trading; see{' '}
           <Link href="/docs/wallets-and-custody">Wallets &amp; custody</Link>.
         </p>
       </>
