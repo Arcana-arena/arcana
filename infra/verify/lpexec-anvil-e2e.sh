@@ -128,6 +128,15 @@ curl -s -m 5 "$SIGNER_URL/healthz" | grep -q '"signer_configured":true' \
 AGENT_ADDR="$(curl -s -m 5 -H "X-Internal-Key: $KEY" "$SIGNER_URL/internal/v1/signer/wallets/$AGENT" | jq -r .address)"
 [ -n "$AGENT_ADDR" ] && [ "$AGENT_ADDR" != "null" ] && ok "agent wallet derived: $AGENT_ADDR" || { no "agent wallet derived"; exit 1; }
 
+# THE WALLET ROW agent-service WRITES. The LP loop verifies ownership by looking
+# the chain's owner up in this table — without it a pass skips every position
+# with "no agent wallets to check ownership against", which is what made the
+# pass-side half of the opt-in gate untestable here until 2026-10-20.
+psql "${PGTEST}?sslmode=disable" -q -c \
+  "INSERT INTO agents (id, name, mandate, strategy_type) VALUES ('$AGENT', 'lpexec e2e', '{}'::jsonb, 'stock_tokens') ON CONFLICT (id) DO NOTHING;" \
+  -c "INSERT INTO agent_wallets (agent_id, address, provenance) VALUES ('$AGENT', '$(lower "$AGENT_ADDR")', 'derived') ON CONFLICT (agent_id) DO UPDATE SET address = EXCLUDED.address;" \
+  && ok "the agent and its wallet are in the database the loop reads" || no "agent wallet row"
+
 # --- 4. fund the agent wallet ------------------------------------------------
 say "4. fund the agent wallet on the fork"
 cast rpc anvil_setBalance "$AGENT_ADDR" 0x8ac7230489e80000 --rpc-url "$ANVIL_URL" >/dev/null
@@ -408,9 +417,11 @@ POS2_TU="$(echo "$POS2" | jq -r '.position.tick_upper')"
 
 psql "${PGTEST}?sslmode=disable" -q <<SQL || { no "insert agent/registry for harvest"; exit 1; }
 INSERT INTO agents (id, name, risk_profile, asset_universe)
-VALUES ('$AGENT', 'lpexec e2e', '{}'::jsonb, 'stock_tokens');
+VALUES ('$AGENT', 'lpexec e2e', '{}'::jsonb, 'stock_tokens')
+ON CONFLICT (id) DO NOTHING;
 INSERT INTO agent_wallets (agent_id, address, provenance)
-VALUES ('$AGENT', '$(lower "$AGENT_ADDR")', 'derived');
+VALUES ('$AGENT', '$(lower "$AGENT_ADDR")', 'derived')
+ON CONFLICT (agent_id) DO NOTHING;
 INSERT INTO lp_positions
   (position_manager, token_id, agent_id, wallet, pool, token0, token1, fee_tier,
    tick_lower, tick_upper, liquidity, tokens_owed0, tokens_owed1,
