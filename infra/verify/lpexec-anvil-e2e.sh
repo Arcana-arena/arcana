@@ -204,6 +204,11 @@ POS_TU="$(echo "$POS_JSON"   | jq -r '.position.tick_upper')"
 [ "$POS_LIQ" != "0" ] && ok "the position has liquidity $POS_LIQ" || no "position liquidity"
 
 # --- 7. registry row + proposed action --------------------------------------
+# PROVENANCE IS 'live', NOT 'verification', AND THAT IS THE POINT OF THIS SUITE
+# NOW: the pass only manages rows it believes are real (OpenLPPositions filters
+# provenance = 'live'), so a verification-stamped row would make the loop gate
+# in 7c and 7d untestable here. The loop runs nowhere else in this harness —
+# LP_SYNC_INTERVAL=0, and every pass below is triggered explicitly.
 say "7. registry row and a proposed rebalance, in the shapes the loop writes"
 PLAN_JSON="$(curl -s -m 30 "$ARB_URL/v1/arbitrage/lp/plan?symbol=NVDA&size_usd=100&range_pct=0.05")"
 echo "$PLAN_JSON" | jq -e '.plan.tick_lower < .plan.tick_upper' >/dev/null \
@@ -218,10 +223,7 @@ INSERT INTO lp_positions
 VALUES
   ('$NPM', '$OLD_ID', '$AGENT', '$(lower "$AGENT_ADDR")', '$POOL', '$(lower "$TOKEN0")', '$(lower "$TOKEN1")', $POOL_FEE,
    $POS_TL, $POS_TU, '$POS_LIQ', '0', '0',
-   $POS_TICK, false, '$POS_A0', '$POS_A1', 'rebalance', 'open', 'verification');
-
-INSERT INTO lp_position_actions (position_manager, token_id, agent_id, recommendation, detail)
-VALUES ('$NPM', '$OLD_ID', '$AGENT', 'rebalance', '$DETAIL'::jsonb);
+   $POS_TICK, false, '$POS_A0', '$POS_A1', 'rebalance', 'open', 'live');
 SQL
 ACTION_ID="$(psql "${PGTEST}?sslmode=disable" -Atc "SELECT max(id) FROM lp_position_actions")"
 ok "action $ACTION_ID proposed"
@@ -285,11 +287,12 @@ curl -s -m 90 -X POST -H "X-Internal-Key: $KEY" "$ARB_URL/internal/v1/arbitrage/
 jq -e '.enabled == 1' "$WORK/sync-enabled.json" >/dev/null \
   && ok "the pass reports one enabled agent" || no "enabled count after switch" "$(jq -c . "$WORK/sync-enabled.json")"
 NEW_ACTION="$(psql "${PGTEST}?sslmode=disable" -Atc "SELECT max(id) FROM lp_position_actions WHERE token_id = '$OLD_ID' AND status = 'proposed'")"
-if [ -n "$NEW_ACTION" ] && [ "$NEW_ACTION" != "" ]; then
+NEW_REC="$(psql "${PGTEST}?sslmode=disable" -Atc "SELECT recommendation FROM lp_position_actions WHERE id = ${NEW_ACTION:-0}")"
+if [ -n "$NEW_ACTION" ] && [ "$NEW_REC" = "rebalance" ]; then
   ok "an enabled agent gets a fresh rebalance proposal (action $NEW_ACTION)"
   ACTION_ID="$NEW_ACTION"
 else
-  no "a proposal after enabling" "$(jq -c . "$WORK/sync-enabled.json")"
+  no "a proposal after enabling" "action=${NEW_ACTION:-none} recommendation=${NEW_REC:-none} $(jq -c . "$WORK/sync-enabled.json")"
 fi
 
 # --- 8. plan mode ------------------------------------------------------------
