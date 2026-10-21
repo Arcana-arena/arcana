@@ -12,7 +12,7 @@ signer, discovery by the loop, rebalance (two approvals, `decrease`, `collect`,
 `burn`, `mint`), harvest (a real swap's fees proposed at the exact accrual and
 paid to the wallet to the base unit), and close (`collect`, `burn`). Every
 transaction mined, every step recorded, the chain checked afterwards.
-**57/57 checks** (`infra/verify/lpexec-anvil-e2e.sh`). The production unit
+**72/72 checks** (`infra/verify/lpexec-anvil-e2e.sh`). The production unit
 carries `LP_EXECUTE=1`; it is **inert until a position exists**.
 
 ## Opening a position — the one action the loop cannot propose
@@ -108,6 +108,13 @@ out-of-range position with **exactly** the allowance that mint consumes (so the
 executor's own approval path has to run), writes the registry row and the
 proposed action in the loop's shapes, and then:
 
+- the OPT-IN GATE, from both sides, while the creator has not switched arbitrage
+  on: the armed run refuses that action (and says why), signs nothing and leaves
+  the agent wallet's nonce unmoved; the next pass reads the chain, computes
+  `rebalance`, and supersedes the standing proposal instead of leaving it;
+- the creator switches it on through the machine-tier endpoint (the same call
+  without the key is refused), and the very next pass proposes a fresh
+  rebalance — so the enabled path is proven on the same fork, not assumed;
 - PLAN mode prints four intents in the contract's order;
 - EXECUTE mode sends six transactions — two approvals, decrease, collect, burn,
   mint — all `0x1`;
@@ -116,7 +123,8 @@ proposed action in the loop's shapes, and then:
   liquidity, and the current tick is inside the new range;
 - a second armed run finds nothing to execute and sends nothing.
 
-Nothing there touched the production database or the live chain's state.
+**72/72 checks.** Nothing there touched the production database or the live
+chain's state.
 
 ## Funding — what remains is the owner's, and the order matters
 
