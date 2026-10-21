@@ -235,6 +235,9 @@ VALUES
   ('$NPM', '$OLD_ID', '$AGENT', '$(lower "$AGENT_ADDR")', '$POOL', '$(lower "$TOKEN0")', '$(lower "$TOKEN1")', $POOL_FEE,
    $POS_TL, $POS_TU, '$POS_LIQ', '0', '0',
    $POS_TICK, false, '$POS_A0', '$POS_A1', 'rebalance', 'open', 'live');
+
+INSERT INTO lp_position_actions (position_manager, token_id, agent_id, recommendation, detail)
+VALUES ('$NPM', '$OLD_ID', '$AGENT', 'rebalance', '$DETAIL'::jsonb);
 SQL
 ACTION_ID="$(psql "${PGTEST}?sslmode=disable" -Atc "SELECT max(id) FROM lp_position_actions")"
 [ -n "$ACTION_ID" ] && ok "action $ACTION_ID proposed" || { no "action proposed" "the insert wrote no row"; exit 1; }
