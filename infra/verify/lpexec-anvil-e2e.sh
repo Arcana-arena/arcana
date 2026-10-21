@@ -132,10 +132,12 @@ AGENT_ADDR="$(curl -s -m 5 -H "X-Internal-Key: $KEY" "$SIGNER_URL/internal/v1/si
 # the chain's owner up in this table — without it a pass skips every position
 # with "no agent wallets to check ownership against", which is what made the
 # pass-side half of the opt-in gate untestable here until 2026-10-20.
-psql "${PGTEST}?sslmode=disable" -q -c \
-  "INSERT INTO agents (id, name, mandate, strategy_type) VALUES ('$AGENT', 'lpexec e2e', '{}'::jsonb, 'stock_tokens') ON CONFLICT (id) DO NOTHING;" \
+psql "${PGTEST}?sslmode=disable" -q -v ON_ERROR_STOP=1 \
+  -c "INSERT INTO agents (id, name, risk_profile, asset_universe) VALUES ('$AGENT', 'lpexec e2e', '{}'::jsonb, 'stock_tokens') ON CONFLICT (id) DO NOTHING;" \
   -c "INSERT INTO agent_wallets (agent_id, address, provenance) VALUES ('$AGENT', '$(lower "$AGENT_ADDR")', 'derived') ON CONFLICT (agent_id) DO UPDATE SET address = EXCLUDED.address;" \
-  && ok "the agent and its wallet are in the database the loop reads" || no "agent wallet row"
+  >/dev/null 2>"$WORK/agent-row.err" \
+  && ok "the agent and its wallet are in the database the loop reads" \
+  || no "agent wallet row" "$(tail -2 "$WORK/agent-row.err")"
 
 # --- 4. fund the agent wallet ------------------------------------------------
 say "4. fund the agent wallet on the fork"
@@ -224,7 +226,7 @@ echo "$PLAN_JSON" | jq -e '.plan.tick_lower < .plan.tick_upper' >/dev/null \
   && ok "a mint plan is available for the rebalance" || { no "mint plan" "$(echo "$PLAN_JSON" | head -c 200)"; exit 1; }
 DETAIL="$(echo "$PLAN_JSON" | jq -c '{plan: .plan, slippage_bps: 50}')"
 
-psql "${PGTEST}?sslmode=disable" -q <<SQL || { no "insert registry/action"; exit 1; }
+psql "${PGTEST}?sslmode=disable" -q -v ON_ERROR_STOP=1 <<SQL || { no "insert registry/action"; exit 1; }
 INSERT INTO lp_positions
   (position_manager, token_id, agent_id, wallet, pool, token0, token1, fee_tier,
    tick_lower, tick_upper, liquidity, tokens_owed0, tokens_owed1,
@@ -235,7 +237,7 @@ VALUES
    $POS_TICK, false, '$POS_A0', '$POS_A1', 'rebalance', 'open', 'live');
 SQL
 ACTION_ID="$(psql "${PGTEST}?sslmode=disable" -Atc "SELECT max(id) FROM lp_position_actions")"
-ok "action $ACTION_ID proposed"
+[ -n "$ACTION_ID" ] && ok "action $ACTION_ID proposed" || { no "action proposed" "the insert wrote no row"; exit 1; }
 
 # --- 7b. the opt-in gate, at the executor ------------------------------------
 # THE AGENT HAS NO SETTINGS ROW AT ALL, which is the documented default: OFF.
