@@ -20,7 +20,15 @@
 #      approval path has to run;
 #   6. a temporary arbitrage instance against the fork (no background loops);
 #   7. a registry row + a `proposed` rebalance action, exactly the shapes the
-#      loop writes;
+#      loop writes — stamped by a creator who has NOT switched arbitrage on;
+#  7b. the OPT-IN GATE at the executor: the armed run refuses that action, the
+#      log says why, the wallet's nonce does not move, and the action stays
+#      `proposed` (nothing was signed for a disabled agent);
+#  7c. the OPT-IN GATE at the loop: one pass reads the chain, computes
+#      `rebalance`, and supersedes the standing proposal instead of leaving it;
+#  7d. the creator switches it on through the machine-tier endpoint (and the
+#      same call without the key is refused), the next pass proposes a fresh
+#      rebalance — the enabled path, proven on the same fork;
 #   8. lpexec in PLAN mode: four intents, in the contract's order;
 #   9. lpexec in EXECUTE mode: approve×2, decrease, collect, burn, mint —
 #      signed by the signer, broadcast, receipts read, recorded;
@@ -217,6 +225,72 @@ VALUES ('$NPM', '$OLD_ID', '$AGENT', 'rebalance', '$DETAIL'::jsonb);
 SQL
 ACTION_ID="$(psql "${PGTEST}?sslmode=disable" -Atc "SELECT max(id) FROM lp_position_actions")"
 ok "action $ACTION_ID proposed"
+
+# --- 7b. the opt-in gate, at the executor ------------------------------------
+# THE AGENT HAS NO SETTINGS ROW AT ALL, which is the documented default: OFF.
+# The action below was inserted straight into the database — exactly the "stale
+# queue" case the executor's own check exists for — and it must NOT be signed.
+say "7b. the executor refuses a rebalance for an agent whose creator has not switched it on"
+NO_SETTING="$(curl -s -m 10 "$ARB_URL/v1/arbitrage/agents/$AGENT/settings" | jq -c .setting)"
+[ "$(echo "$NO_SETTING" | jq -r .exists)" = "false" ] && [ "$(echo "$NO_SETTING" | jq -r .enabled)" = "false" ] \
+  && ok "an agent nobody has switched reads enabled=false, exists=false" || no "default setting" "$NO_SETTING"
+NO_KEY_STATUS="$(curl -s -o /dev/null -m 10 -w '%{http_code}' -X POST -H 'content-type: application/json' \
+  -d '{"enabled":true,"actor":"0xe2e"}' "$ARB_URL/internal/v1/arbitrage/agents/$AGENT/settings")"
+[ "$NO_KEY_STATUS" = "403" ] && ok "the switch is machine-tier: without the key it is refused" || no "unauthorised switch" "$NO_KEY_STATUS"
+
+NONCE_BEFORE_GATE="$(cast nonce "$AGENT_ADDR" --rpc-url "$ANVIL_URL")"
+env -i PATH="$PATH" HOME=/home/ubuntu \
+  ARBITRAGE_URL="$ARB_URL" LP_EXECUTE=1 \
+  DATABASE_URL="${PGTEST}?sslmode=disable" \
+  SIGNER_URL="$SIGNER_URL" INTERNAL_API_KEY="$KEY" \
+  EXECUTION_RPC_URLS="$ANVIL_URL" \
+  EXECUTION_ALLOWLIST_FILE="$REPO/services/signer/allowlist/robinhood-mainnet.json" \
+  "$REPO/scheduler-bin/lpexec" >"$WORK/gate.json" 2>"$WORK/gate.log"
+GATE_RC=$?
+[ "$GATE_RC" = 0 ] && ok "the refused run still exits 0 (a refusal is a recorded fact, not a fault)" \
+  || no "refused run exit" "$GATE_RC: $(tail -3 "$WORK/gate.log")"
+grep -q 'arbitrage is not enabled for this agent' "$WORK/gate.log" \
+  && ok "and it says why: arbitrage is not enabled for this agent" || no "refusal reason" "$(tail -3 "$WORK/gate.log")"
+[ "$(jq -r '.executions | length' "$WORK/gate.json" 2>/dev/null)" = "0" ] \
+  && ok "nothing was signed or broadcast" || no "executions on a refused run" "$(jq -c '.executions' "$WORK/gate.json" 2>/dev/null)"
+NONCE_AFTER_GATE="$(cast nonce "$AGENT_ADDR" --rpc-url "$ANVIL_URL")"
+[ "$NONCE_BEFORE_GATE" = "$NONCE_AFTER_GATE" ] \
+  && ok "the agent wallet's nonce did not move (no transaction reached the chain)" \
+  || no "nonce moved on a refused run" "$NONCE_BEFORE_GATE -> $NONCE_AFTER_GATE"
+[ "$(psql "${PGTEST}?sslmode=disable" -Atc "SELECT status FROM lp_position_actions WHERE id = $ACTION_ID")" = "proposed" ] \
+  && ok "the action is left as proposed for the switch to decide" || no "action status after refusal"
+
+# --- 7c. the opt-in gate, at the loop ----------------------------------------
+# The pass reads the chain, computes `rebalance` for this out-of-range position,
+# and must supersede the standing proposal instead of leaving it for the
+# executor — the same rule 7b just exercised from the other side.
+say "7c. the pass supersedes a rebalance for a disabled agent and proposes nothing"
+curl -s -m 90 -X POST -H "X-Internal-Key: $KEY" "$ARB_URL/internal/v1/arbitrage/lp/sync" >"$WORK/sync-disabled.json"
+jq -e '.enabled == 0' "$WORK/sync-disabled.json" >/dev/null \
+  && ok "the pass reports zero enabled agents" || no "enabled count" "$(jq -c . "$WORK/sync-disabled.json")"
+[ "$(psql "${PGTEST}?sslmode=disable" -Atc "SELECT status FROM lp_position_actions WHERE id = $ACTION_ID")" = "superseded" ] \
+  && ok "the standing rebalance was superseded by the pass" || no "superseded by the pass"
+LEFT="$(psql "${PGTEST}?sslmode=disable" -Atc "SELECT count(*) FROM lp_position_actions WHERE token_id = '$OLD_ID' AND status = 'proposed'")"
+[ "$LEFT" = "0" ] && ok "and nothing was proposed in its place" || no "proposals left" "$LEFT"
+
+# --- 7d. the creator switches it on ------------------------------------------
+say "7d. the creator switches it on, and the same pass now proposes"
+ENABLE_JSON="$(curl -s -m 15 -X POST -H "X-Internal-Key: $KEY" -H 'content-type: application/json' \
+  -d '{"enabled":true,"actor":"0xe2e-creator"}' "$ARB_URL/internal/v1/arbitrage/agents/$AGENT/settings")"
+[ "$(echo "$ENABLE_JSON" | jq -r '.setting.enabled')" = "true" ] \
+  && ok "the switch is on, with the actor recorded" || no "enable" "$(echo "$ENABLE_JSON" | head -c 200)"
+[ "$(echo "$ENABLE_JSON" | jq -r '.setting.updated_by')" = "0xe2e-creator" ] \
+  && ok "the audit trail names who flipped it" || no "actor recorded" "$ENABLE_JSON"
+curl -s -m 90 -X POST -H "X-Internal-Key: $KEY" "$ARB_URL/internal/v1/arbitrage/lp/sync" >"$WORK/sync-enabled.json"
+jq -e '.enabled == 1' "$WORK/sync-enabled.json" >/dev/null \
+  && ok "the pass reports one enabled agent" || no "enabled count after switch" "$(jq -c . "$WORK/sync-enabled.json")"
+NEW_ACTION="$(psql "${PGTEST}?sslmode=disable" -Atc "SELECT max(id) FROM lp_position_actions WHERE token_id = '$OLD_ID' AND status = 'proposed'")"
+if [ -n "$NEW_ACTION" ] && [ "$NEW_ACTION" != "" ]; then
+  ok "an enabled agent gets a fresh rebalance proposal (action $NEW_ACTION)"
+  ACTION_ID="$NEW_ACTION"
+else
+  no "a proposal after enabling" "$(jq -c . "$WORK/sync-enabled.json")"
+fi
 
 # --- 8. plan mode ------------------------------------------------------------
 say "8. PLAN mode: the four intents, in the contract's order"
