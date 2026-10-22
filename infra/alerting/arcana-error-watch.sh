@@ -51,14 +51,19 @@ for unit in $UNITS; do
   fi
 
   if ! out="$(journalctl "${args[@]}" 2>&1)"; then
-    # A CURSOR CAN BE INVALIDATED BY JOURNAL ROTATION. `journalctl --vacuum-size`
-    # (run on 2026-10-22 to free a full disk) deleted the files the stored cursor
-    # pointed into, and from then on every run failed with "cannot read the
-    # journal" — a monitor that dies after a cleanup is a monitor that reports
-    # nothing exactly when the box has just been through something.
-    #
-    # Re-anchor to the last interval and say so. The gap is bounded (15 minutes)
-    # and printed, which is the honest trade: a stated gap beats a dead watch.
+    # QUIET IS NOT UNREADABLE. With --show-cursor, journalctl exits 1 and prints
+    # NOTHING when no entry matches the window — verified 2026-10-22 against a
+    # service that had logged nothing for fifteen minutes. This watch called that
+    # "cannot read the journal" and failed on every quiet unit, which is most of
+    # them most of the time. Nothing matched, so there is nothing to scan: leave
+    # the cursor alone (the next run still covers the gap) and move on.
+    if [ -z "$out" ]; then
+      continue
+    fi
+    # A CURSOR CAN ALSO BE INVALIDATED BY JOURNAL ROTATION. `journalctl
+    # --vacuum-size` (run on 2026-10-22 to free a full disk) deleted the files a
+    # stored cursor pointed into. Re-anchor to the last interval and say so; a
+    # stated gap beats a dead watch.
     if [ -s "$cursor_file" ]; then
       echo "error-watch: cursor for $unit no longer exists (journal rotated); re-reading the last 15 minutes" >&2
       rm -f "$cursor_file"
