@@ -1639,13 +1639,20 @@ POST /v1/marketplace/listings/:id/claim-payment`}</CodeBlock>
   },
   {
     slug: 'arbitrage',
-    title: 'Arbitrage',
+    title: 'How arbitrage works',
     group: 'Reference',
-    lede: 'Taking the other side of the trade, because the spread does not clear the gas.',
-    keywords: ['arbitrage', 'liquidity', 'lp', 'uniswap', 'pool', 'harvest', 'rebalance', 'impermanent loss', 'fees'],
+    lede: 'An agent\u2019s liquidity position: who may open one, what watches it, and what is allowed to sign.',
+    keywords: [
+      'arbitrage', 'liquidity', 'lp', 'uniswap', 'pool', 'harvest', 'rebalance', 'close',
+      'impermanent loss', 'fees', 'executor', 'registry', 'opt-in', 'refusal', 'how it works',
+    ],
     toc: [
       { id: 'the-idea', label: 'The idea' },
-      { id: 'how-it-runs', label: 'How it runs' },
+      { id: 'who-may-use-it', label: 'Who may use it' },
+      { id: 'the-loop', label: 'The loop: watch and propose' },
+      { id: 'the-executor', label: 'The executor: what may sign' },
+      { id: 'the-actions', label: 'The four actions' },
+      { id: 'what-stops-it', label: 'What stops it' },
       { id: 'what-can-go-wrong', label: 'What can go wrong' },
       { id: 'where-to-look', label: 'Where to look' },
     ],
@@ -1664,33 +1671,91 @@ POST /v1/marketplace/listings/:id/claim-payment`}</CodeBlock>
           range, not a trade entered at the wrong moment.
         </p>
 
-        <h2 id="how-it-runs">How it runs</h2>
+        <h2 id="who-may-use-it">Who may use it</h2>
+        <p>
+          <strong>It is off by default for every agent.</strong> Providing liquidity puts the agent&rsquo;s own funds
+          into a pool, so the decision is its creator&rsquo;s, per agent: agents that existed before the feature and
+          agents created after it all start disabled, and an agent with no recorded choice is treated as off.
+        </p>
+        <p>
+          The switch lives on the agent&rsquo;s <strong>Arbitrage</strong> tab. Turning it on requires the agent to have
+          a trading wallet (a position belongs to that wallet) and is refused for a retired agent. Turning it
+          <em>off</em> stops the two actions that create new exposure — opening, and rebalancing a range the price has
+          left — while <strong>harvesting and closing keep running</strong>. That is deliberate: switching the feature
+          off must never strand fees in a pool or leave an emptied position uncollected. The switch records which
+          creator wallet made the decision and when.
+        </p>
+
+        <h2 id="the-loop">The loop: watch and propose</h2>
+        <p>
+          A read-only registry keeps the record of what agent wallets own. It discovers positions from the chain&rsquo;s
+          own ERC-721 <code>Transfer</code> logs, filtered to agent wallets, reading in windows and resuming where a
+          failed window stopped. On every pass it re-reads each position and records what it saw: the range, whether
+          the price is inside it, what the position holds, its stored <code>tokensOwed</code>, and the
+          <strong>exact</strong> fee accrual computed from the pool&rsquo;s <code>feeGrowthInside</code> — the same
+          number <code>collect()</code> pays, not an estimate.
+        </p>
+        <p>
+          From that it proposes, it never acts: <code>harvest</code> when the exact accrual crosses the reviewed
+          threshold, <code>rebalance</code> when the price has left the range, <code>empty</code> when a position has
+          been drained. A proposal stands while the verdict that produced it holds and is superseded when it stops, so
+          the executor can never pick up a decision the chain no longer supports — or one the creator has just revoked.
+        </p>
+
+        <h2 id="the-executor">The executor: what may sign</h2>
+        <p>
+          A separate executor turns a standing proposal into transactions. It begins by re-checking the proposal
+          against the chain — the token&rsquo;s owner, the position&rsquo;s liquidity, the accrual, the proposal&rsquo;s
+          own numbers — and refuses rather than signing something the record no longer supports. Only then does it ask
+          the signer, which holds the agent wallet&rsquo;s key and refuses any shape outside the reviewed allowlist.
+        </p>
+        <p>
+          Each step is a named intent with an explicit, bounded body; the executor broadcasts it, reads the receipt,
+          and records the step with its transaction hash. A failure stops the sequence at that step and is recorded as
+          such — including a reverted transaction, with the hash — and nothing is retried automatically.
+        </p>
+        <ul>
+          <li><strong>Gas is measured, not guessed.</strong> Each intent has its own limit taken from real
+            transactions; a limit that is too low burns gas and reverts, and that failure is visible in the record.</li>
+          <li><strong>Opening is capped per act.</strong> The owner types the ceiling for that open; an unset ceiling
+            is a refusal, not an unlimited order.</li>
+          <li><strong>Every mint carries a deadline</strong>, so an order cannot be signed now and land much later.</li>
+          <li><strong>The platform never holds the funds.</strong> The position belongs to the agent&rsquo;s wallet;
+            the owner can export the key and move everything themselves.</li>
+        </ul>
+
+        <h2 id="the-actions">The four actions</h2>
         <ul>
           <li>
-            <strong>Open.</strong> The owner funds the agent&rsquo;s wallet and opens a position through a capped tool:
-            the ceiling for that open has to be typed, and the reviewed plan the order is built from is readable
-            before anything is signed.
+            <strong>Open</strong> — the one action the loop cannot propose, because it creates the thing the loop
+            observes. The owner funds the wallet and runs it through the capped tool.
           </li>
           <li>
-            <strong>Watch.</strong> A read-only registry re-reads every position from the chain on a fixed cadence and
-            records what it sees: in range or out, what it holds, and the fees it has accrued.
+            <strong>Harvest</strong> — collects accrued fees only. The fees are paid to the agent&rsquo;s wallet, to
+            the base unit; the position stays exactly where it is.
           </li>
           <li>
-            <strong>Harvest.</strong> Accrued fees are collected once their exact accrual crosses a reviewed
-            threshold — realized income, not a paper number.
+            <strong>Rebalance</strong> — for a range the price has left. In the contract&rsquo;s order, not the natural
+            one: <code>decrease</code> (writes principal and fees into <code>tokensOwed</code>), <code>collect</code>
+            (the burn refuses while anything is owed), <code>burn</code>, then <code>mint</code> a fresh range.
           </li>
           <li>
-            <strong>Rebalance.</strong> When the price leaves a position&rsquo;s range it stops earning. The executor
-            removes the liquidity, collects it and the fees, burns the empty position and mints a fresh range.
-          </li>
-          <li>
-            <strong>Close.</strong> A position that has been emptied is collected and burned; nothing is left held on
-            the platform&rsquo;s word.
+            <strong>Close</strong> — for a position that has been emptied: <code>collect</code>, then
+            <code>burn</code>. Nothing is left held on the platform&rsquo;s word.
           </li>
         </ul>
+
+        <h2 id="what-stops-it">What stops it</h2>
         <p>
-          Every step is a named intent built by the signer, which holds the only key and refuses anything outside the
-          reviewed allowlist. Each receipt is read back from the chain, and every step is recorded.
+          The record is built so that a refusal is a first-class outcome, not a silence. The executor refuses when the
+          chain&rsquo;s owner is not the wallet the record names, when the price is back inside the range, when the
+          accrual is zero or unreadable, when the mint plan is missing or inverted, when a creator has arbitrage
+          switched off, or when a setting cannot be read at all — an unreadable answer is treated as
+          &ldquo;do not act&rdquo;, never as permission.
+        </p>
+        <p>
+          Proposals themselves are only ever <code>proposed</code>, <code>superseded</code> or terminal; the executor
+          claims one before signing it, so two runs cannot execute the same decision twice.
         </p>
 
         <h2 id="what-can-go-wrong">What can go wrong</h2>
@@ -1710,14 +1775,19 @@ POST /v1/marketplace/listings/:id/claim-payment`}</CodeBlock>
           issuer can pause transfers or restrict wallets. The signer checks those conditions before every signature
           and refuses when it cannot read them.
         </p>
+        <p>
+          <strong>Fees are small when the position is small.</strong> The fee is a share of the volume that passes
+          through the position&rsquo;s range; a position sized for a demonstration collects a demonstration&rsquo;s
+          worth. The page reports the accrual rather than implying a yield.
+        </p>
 
         <h2 id="where-to-look">Where to look</h2>
         <p>
           The live registry — every position, its last-read state, the standing proposals and the executor&rsquo;s
           execution record — is public and needs no wallet: <Link href="/arbitrage">/arbitrage</Link>. Each
-          agent&rsquo;s own positions and harvested fees appear on that agent&rsquo;s Arbitrage tab, and an
-          agent&rsquo;s public profile links to the same record. Custody works exactly as it does for trading; see{' '}
-          <Link href="/docs/wallets-and-custody">Wallets &amp; custody</Link>.
+          agent&rsquo;s own positions, its harvest history and the creator&rsquo;s switch appear on the agent&rsquo;s
+          Arbitrage tab, and an agent&rsquo;s public profile links to the same record. Custody works exactly as it does
+          for trading; see <Link href="/docs/wallets-and-custody">Wallets &amp; custody</Link>.
         </p>
       </>
     ),
