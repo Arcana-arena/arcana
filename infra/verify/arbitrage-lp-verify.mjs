@@ -365,10 +365,18 @@ await run.section('Nothing has ever asked the signer for an lp_* shape', async (
       // — the first position cannot be a claimed proposal, because it is the
       // thing proposals are about. lp_mint is therefore recorded in either
       // table, and the sum is what has to cover the signings.
+      //
+      // ANY TERMINAL STATUS WITH A HASH COUNTS — mined, reverted or unresolved.
+      // The invariant is "nothing signed is unaccounted for", not "everything
+      // succeeded": the first real harvest's collect reverted out-of-gas and is
+      // recorded with its transaction hash, which is exactly the audit trail
+      // this check exists to guarantee. Counting only mined rows would call that
+      // truthful record a missing one.
       const steps = Number(sql(
-        `SELECT count(*) FROM lp_execution_steps WHERE intent = '${intent}' AND status = 'mined' AND tx_hash IS NOT NULL`));
+        `SELECT count(*) FROM lp_execution_steps WHERE intent = '${intent}'
+           AND tx_hash IS NOT NULL AND status IN ('mined', 'reverted', 'unresolved')`));
       const opens = intent === 'lp_mint'
-        ? Number(sql(`SELECT count(*) FROM lp_opens WHERE status = 'executed' AND tx_hash IS NOT NULL`))
+        ? Number(sql(`SELECT count(*) FROM lp_opens WHERE tx_hash IS NOT NULL`))
         : 0;
       const recorded = steps + opens;
       if (!(recorded >= signed)) {
