@@ -360,11 +360,22 @@ await run.section('Nothing has ever asked the signer for an lp_* shape', async (
   } else {
     const unrecorded = [];
     for (const [intent, signed] of byIntent) {
-      const recorded = Number(sql(
+      // TWO RECORDING PATHS, ONE REQUIREMENT. A claim (decrease/collect/burn/
+      // mint of a rebalance) writes lp_execution_steps; an OPEN writes lp_opens
+      // — the first position cannot be a claimed proposal, because it is the
+      // thing proposals are about. lp_mint is therefore recorded in either
+      // table, and the sum is what has to cover the signings.
+      const steps = Number(sql(
         `SELECT count(*) FROM lp_execution_steps WHERE intent = '${intent}' AND status = 'mined' AND tx_hash IS NOT NULL`));
-      if (!(recorded >= signed)) unrecorded.push(`${intent}: signed ${signed}, recorded ${recorded}`);
+      const opens = intent === 'lp_mint'
+        ? Number(sql(`SELECT count(*) FROM lp_opens WHERE status = 'executed' AND tx_hash IS NOT NULL`))
+        : 0;
+      const recorded = steps + opens;
+      if (!(recorded >= signed)) {
+        unrecorded.push(`${intent}: signed ${signed}, recorded ${recorded} (steps ${steps}, opens ${opens})`);
+      }
     }
-    run.check('every lp_* intent the signer built is recorded as a mined step with its transaction',
+    run.check('every lp_* intent the signer built is recorded, with its transaction',
       unrecorded.length === 0,
       unrecorded.length ? unrecorded.join(' | ') : `${hits.length} signing(s) across ${byIntent.size} intent(s)`);
   }
