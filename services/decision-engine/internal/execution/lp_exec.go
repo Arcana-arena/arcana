@@ -91,16 +91,23 @@ type LPExecResult struct {
 // position is the expensive one, a burn of an empty position the cheapest. An
 // over-generous limit reserves more gas than the wallet may hold; an
 // under-generous one burns the reserve and reverts.
+//
+// MEASURED, NOT GUESSED (2026-10-22, on the live chain with the real position):
+// a collect of accrued fees cost 286,174 gas against a 250,000 limit — the
+// first real harvest reverted out-of-gas with 248,584 used, and the signature
+// and calldata were both correct. The limits below are the measured cost with
+// room to spare; unused gas is refunded, so the only cost of headroom is that
+// the balance check reserves it.
 func lpGasLimit(intent string) uint64 {
 	switch intent {
 	case "lp_mint":
-		return 700_000
+		return 800_000 // measured 482,732 on a fork
 	case "lp_decrease":
-		return 350_000
+		return 500_000 // measured 246,870 on the live chain (1 unit; full reads similar)
 	case "lp_collect":
-		return 250_000
+		return 500_000 // measured 286,174 on the live chain
 	case "lp_burn":
-		return 150_000
+		return 250_000
 	case "approve":
 		return 100_000
 	default:
