@@ -41,7 +41,13 @@ for unit in $UNITS; do
   else
     # First run: look back one interval rather than at the whole history, which
     # was already read by a person when this watch was written.
-    args+=(--since "-15min")
+    #
+    # ONE TOKEN, `--since=-15min`, NOT `--since -15min`. journalctl's option
+    # parser reads the second form's value as an option (it starts with a dash),
+    # exits 1 and prints nothing — so every unit that had no cursor yet (the two
+    # newer services) failed this watch on its first read, forever, with an empty
+    # error message. Found 2026-10-22.
+    args+=(--since=-15min)
   fi
 
   if ! out="$(journalctl "${args[@]}" 2>&1)"; then
@@ -56,7 +62,7 @@ for unit in $UNITS; do
     if [ -s "$cursor_file" ]; then
       echo "error-watch: cursor for $unit no longer exists (journal rotated); re-reading the last 15 minutes" >&2
       rm -f "$cursor_file"
-      args=(--no-pager -o cat -u "$unit" --show-cursor --since "-15min")
+      args=(--no-pager -o cat -u "$unit" --show-cursor --since=-15min)
       if ! out="$(journalctl "${args[@]}" 2>&1)"; then
         echo "error-watch: cannot read the journal of $unit: $out" >&2
         status=1

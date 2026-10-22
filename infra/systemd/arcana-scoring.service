@@ -37,9 +37,14 @@ RestartSec=5
 # allowed to swap does not fail fast, it thrashes.
 MemoryMax=700M
 MemorySwapMax=128M
-# Background work: it must never outrank the API, the pacer or the executor.
+# Background work must not outrank the API, the pacer or the executor for CPU.
+# DISK IS DELIBERATELY *NOT* THROTTLED: the first version set
+# IOSchedulingClass=idle and a daily batch that measures 181s took over nine
+# minutes behind the pacer's writes — slow enough to hit its own client timeout,
+# which is a failure this service manufactures for itself. The memory cgroup and
+# the statement timeout are the guards against a host-wide outage; they do not
+# need the disk starved as well.
 Nice=10
-IOSchedulingClass=idle
 CPUWeight=20
 
 [Install]
