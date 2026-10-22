@@ -5,18 +5,31 @@ The LP registry loop (`services/arbitrage`, migration 0065) ends at a
 position needs — a fresh range for a rebalance, or collect+burn for an empty
 position. `arcana-lpexec` is the executor that acts on it.
 
-**Status 2026-10-22: LIVE — ONE REAL POSITION OPEN AND MANAGED.** The first
-position on the real chain was opened through the capped path:
-**tokenId 1482899**, QQQ/USDG 0.05%, ticks [210090, 211100], **$18.00**,
-agent `JohndoeAgent` (its creator switched arbitrage on for it, and the switch
-records which wallet did so). Transaction
+**Status 2026-10-22: LIVE — ONE REAL POSITION OPEN AND MANAGED, AND A REAL
+HARVEST COLLECTED.** The first position on the real chain was opened through
+the capped path: **tokenId 1482899**, QQQ/USDG 0.05%, ticks [210090, 211100],
+**$18.00**, agent `JohndoeAgent` (its creator switched arbitrage on for it, and
+the switch records which wallet did so). Transaction
 `0xeb96eef1670f8635dbaa74185b0bb5774d7f85a4798e7c5cb42c7119eef1612b`; the
 next registry pass discovered it, read it back equal to the chain's own
 `positions()` (liquidity `13503122875284`), found it **in range**, and holds it
 at `hold` with a `$0.50` harvest threshold. The whole open — two approvals and
 the mint — cost **0.0000131 ETH** of the agent's own gas (the chain's base fee
-is ~0.02 gwei; `eth_gasPrice` suggests 20). It is recorded in `lp_opens`, and
-the position is visible at `/arbitrage` and on the agent's Arbitrage tab.
+is ~0.02 gwei; `eth_gasPrice` suggests 20).
+
+The harvest path then ran on real money: the loop proposed `lp_collect` at the
+exact accrual, the production unit claimed it, the signer signed, and the
+receipt came back mined (`0x6b1cfae9bd088c3f0c85cb692b932e05d8d81dd2085cf83f0703c7681882e90c`,
+257,882 gas). The position's exact fees went `[2439, 4013404123064]` → `[0, 0]`
+and the agent's wallet gained **exactly** `2439` USDG base units and
+`4013404123064` QQQ base units — token for token, no round-trip.
+
+**That first attempt reverted out-of-gas, and the reason is worth keeping:** a
+collect needs **286,174** gas and the executor's per-shape limit was
+**250,000** (it used 248,584 and reverted). The signature and calldata were
+correct; the limit was a guess. It is now measured per shape (see
+`lpGasLimit`), and the failed attempt is kept in `lp_position_actions` with its
+transaction hash — a refusal or revert is a recorded fact, never a retry.
 
 **Before that, the same path was proven on an anvil fork** — the real
 NonfungiblePositionManager, the real USDG and Stock Token — with the real signer
