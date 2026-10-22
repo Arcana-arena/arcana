@@ -24,10 +24,28 @@ type BatchResult struct {
 	Skipped   int `json:"skipped"`
 }
 
+// BOUNDS ON ONE BATCH. The job fires every five minutes on a 2 GB host, and
+// until 2026-10-22 this loop had no ceiling at all: a run that outlived its
+// client's patience kept working, pushed the box into swap, and the machine was
+// unreachable for about a hundred minutes (no OOM line — it thrashed, it did not
+// die). Two bounds now make a pathological run FAIL LOCALLY instead:
+//
+//   - per agent: one agent that cannot be scored in 45s is skipped and named in
+//     the log, instead of taking the whole batch with it;
+//   - the batch: the service always returns within its own budget, whatever the
+//     data does. The unit's cgroup limit (MemoryMax) is the second, harder wall.
+const (
+	perAgentBudget = 45 * time.Second
+	totalBudget    = 8 * time.Minute
+)
+
 // RunBatch recomputes scores for every active agent that has a portfolio.
 // Idempotent: each run appends a NEW snapshot row (append-only per §12), it
 // never mutates previous rows. Safe to run repeatedly.
-func (e *Engine) RunBatch(ctx context.Context) (*BatchResult, error) {
+func (e *Engine) RunBatch(parent context.Context) (*BatchResult, error) {
+	ctx, cancel := context.WithTimeout(parent, totalBudget)
+	defer cancel()
+
 	agents, err := e.store.ActiveScorableAgents(ctx)
 	if err != nil {
 		return nil, err
@@ -35,7 +53,16 @@ func (e *Engine) RunBatch(ctx context.Context) (*BatchResult, error) {
 
 	res := &BatchResult{}
 	for _, ap := range agents {
-		if err := e.scoreAgent(ctx, ap); err != nil {
+		// Stop cleanly if the batch budget is gone: a half-scored batch that
+		// returns is worth more than one that keeps the host swapping.
+		if ctx.Err() != nil {
+			log.Printf("score batch: budget exhausted after %d agents; the rest are skipped", res.Processed+res.Skipped)
+			break
+		}
+		actx, acancel := context.WithTimeout(ctx, perAgentBudget)
+		err := e.scoreAgent(actx, ap)
+		acancel()
+		if err != nil {
 			log.Printf("score agent %s: %v", ap.AgentID, err)
 			res.Skipped++
 			continue

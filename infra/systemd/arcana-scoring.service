@@ -28,5 +28,19 @@ ExecStart=/home/ubuntu/arcana/scheduler-bin/scoring-engine
 Restart=on-failure
 RestartSec=5
 
+# A 2 GB HOST, AND A BATCH THAT WALKS THE WHOLE RECORD. On 2026-10-22 a batch
+# with no ceiling pushed this box into swap and it stopped answering on port 22
+# and 443 for about a hundred minutes. There was no OOM line: it thrashed, it
+# did not die. These bounds make that failure mode LOCAL and loud — the cgroup
+# kills the batch, systemd restarts the service, and the rest of the platform
+# keeps running. The swap ceiling matters as much as the memory one: a cgroup
+# allowed to swap does not fail fast, it thrashes.
+MemoryMax=700M
+MemorySwapMax=128M
+# Background work: it must never outrank the API, the pacer or the executor.
+Nice=10
+IOSchedulingClass=idle
+CPUWeight=20
+
 [Install]
 WantedBy=multi-user.target

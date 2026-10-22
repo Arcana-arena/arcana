@@ -31,7 +31,13 @@ Environment=SCORING_URL=http://localhost:8082
 # systemctl show prints Environment= to any user.
 EnvironmentFile=-/home/ubuntu/arcana/.env.auth
 ExecStart=/usr/bin/flock -n /tmp/arcana-scoring.lock /home/ubuntu/arcana/infra/systemd/arca-job.sh scoring-batch ${SCORING_URL}/internal/v1/scoring/batch
-TimeoutStartSec=120
+# THE CLIENT MUST OUTLAST THE SERVER'S BUDGET. The batch engine gives itself 8
+# minutes; the client's curl used to abort at 120s, so a slow-but-working run
+# could never be observed as a success — the unit timed out while the service
+# kept working on the request, which is what happened every morning at 06:30 and
+# what made 2026-10-22's manual probe look harmless when it was not.
+Environment=ARCA_JOB_MAX_TIME=540
+TimeoutStartSec=600
 
 [Install]
 WantedBy=multi-user.target

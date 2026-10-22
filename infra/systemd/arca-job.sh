@@ -30,7 +30,12 @@ if [ -z "${INTERNAL_API_KEY:-}" ]; then
   exit 1
 fi
 
-response=$(curl -sS --max-time 120 -X POST -H "X-Internal-Key: $INTERNAL_API_KEY" -w $'\n%{http_code}' "$URL" 2>&1)
+# THE CLIENT TIMEOUT IS NOT THE JOB'S BUDGET. It only says how long this script
+# waits before calling the service unreachable. It must exceed the server's own
+# budget for the job (see arcana-scoring.service / the engine's totalBudget), or
+# a working run is reported as a timeout while the service keeps computing.
+MAX_TIME="${ARCA_JOB_MAX_TIME:-120}"
+response=$(curl -sS --max-time "$MAX_TIME" -X POST -H "X-Internal-Key: $INTERNAL_API_KEY" -w $'\n%{http_code}' "$URL" 2>&1)
 curl_status=$?
 
 http_code=$(printf '%s' "$response" | tail -n 1)

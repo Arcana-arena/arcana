@@ -45,9 +45,28 @@ for unit in $UNITS; do
   fi
 
   if ! out="$(journalctl "${args[@]}" 2>&1)"; then
-    echo "error-watch: cannot read the journal of $unit: $out" >&2
-    status=1
-    continue
+    # A CURSOR CAN BE INVALIDATED BY JOURNAL ROTATION. `journalctl --vacuum-size`
+    # (run on 2026-10-22 to free a full disk) deleted the files the stored cursor
+    # pointed into, and from then on every run failed with "cannot read the
+    # journal" — a monitor that dies after a cleanup is a monitor that reports
+    # nothing exactly when the box has just been through something.
+    #
+    # Re-anchor to the last interval and say so. The gap is bounded (15 minutes)
+    # and printed, which is the honest trade: a stated gap beats a dead watch.
+    if [ -s "$cursor_file" ]; then
+      echo "error-watch: cursor for $unit no longer exists (journal rotated); re-reading the last 15 minutes" >&2
+      rm -f "$cursor_file"
+      args=(--no-pager -o cat -u "$unit" --show-cursor --since "-15min")
+      if ! out="$(journalctl "${args[@]}" 2>&1)"; then
+        echo "error-watch: cannot read the journal of $unit: $out" >&2
+        status=1
+        continue
+      fi
+    else
+      echo "error-watch: cannot read the journal of $unit: $out" >&2
+      status=1
+      continue
+    fi
   fi
 
   new_cursor="$(printf '%s\n' "$out" | sed -n 's/^-- cursor: //p' | tail -1)"
