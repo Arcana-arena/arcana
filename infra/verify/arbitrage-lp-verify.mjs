@@ -214,6 +214,22 @@ await run.section('Exact fees equal what the chain\'s own collect() would pay', 
   const MAX_U128 = 'f'.repeat(32).padStart(64, '0');
   let found = null;
   let reason = '';
+  // THE REGISTRY'S OWN POSITIONS FIRST. They are the ones the platform manages,
+  // so they are the sample this check is actually about — the stride scan below
+  // only existed because no such position existed until 2026-10-22.
+  try {
+    const reg = await fetch(`${ARB}/v1/arbitrage/lp/positions?status=open&limit=10`).then((r) => r.json());
+    for (const p of reg?.positions ?? []) {
+      const r = await get(`/v1/arbitrage/lp/position?token_id=${p.token_id}`);
+      if (r.status !== 200) continue;
+      let owner;
+      try {
+        owner = '0x' + word(await rpcCall(npm, '0x6352211e' + pad(p.token_id)), 1).slice(24);
+      } catch { continue; }
+      found = { id: p.token_id, owner, fees: r.body.position };
+      break;
+    }
+  } catch { /* fall through to the stride scan */ }
   for (let i = 1; i <= 40 && !found; i++) {
     const id = total - BigInt(i * 137);
     if (id <= 0n) break;
@@ -325,7 +341,33 @@ await run.section('Nothing has ever asked the signer for an lp_* shape', async (
     return;
   }
   const hits = log.split('\n').filter((l) => /signed intent=lp_/.test(l));
-  run.check('zero lp_* signings in the signer journal', hits.length === 0, hits.slice(0, 3).join(' | '));
+  // THE INVARIANT MOVED, ON PURPOSE, ON 2026-10-22. It used to be "zero lp_*
+  // signings": the executor was disarmed and the claim this suite defends was
+  // that the loop proposes and nothing signs. The executor is armed now and has
+  // signed a real lp_mint, so the honest contract is the one that still catches
+  // the failure mode: NOTHING SIGNED MAY BE UNRECORDED. Every lp_* intent the
+  // signer built has to correspond to an execution step the executor wrote,
+  // with a transaction hash and a mined status — a signature with no recorded
+  // step is a transaction nobody can account for, which is exactly what this
+  // suite exists to make impossible.
+  const byIntent = new Map();
+  for (const l of hits) {
+    const m = /signed intent=(lp_[a-z]+)/.exec(l);
+    if (m) byIntent.set(m[1], (byIntent.get(m[1]) ?? 0) + 1);
+  }
+  if (hits.length === 0) {
+    run.nothingToCheck('the signer has built no lp_* intent yet, so "nothing signed is unrecorded" has nothing to check');
+  } else {
+    const unrecorded = [];
+    for (const [intent, signed] of byIntent) {
+      const recorded = Number(sql(
+        `SELECT count(*) FROM lp_execution_steps WHERE intent = '${intent}' AND status = 'mined' AND tx_hash IS NOT NULL`));
+      if (!(recorded >= signed)) unrecorded.push(`${intent}: signed ${signed}, recorded ${recorded}`);
+    }
+    run.check('every lp_* intent the signer built is recorded as a mined step with its transaction',
+      unrecorded.length === 0,
+      unrecorded.length ? unrecorded.join(' | ') : `${hits.length} signing(s) across ${byIntent.size} intent(s)`);
+  }
 });
 
 process.exit(run.report());
