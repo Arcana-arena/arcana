@@ -5,15 +5,29 @@ The LP registry loop (`services/arbitrage`, migration 0065) ends at a
 position needs — a fresh range for a rebalance, or collect+burn for an empty
 position. `arcana-lpexec` is the executor that acts on it.
 
-**Status 2026-10-20: BUILT, PROVEN, AND ARMED.** The full path ran end to end
-on an **anvil fork of Robinhood Chain** — the real NonfungiblePositionManager,
-the real USDG and Stock Token — with the real signer binary: open through the
-signer, discovery by the loop, rebalance (two approvals, `decrease`, `collect`,
-`burn`, `mint`), harvest (a real swap's fees proposed at the exact accrual and
-paid to the wallet to the base unit), and close (`collect`, `burn`). Every
-transaction mined, every step recorded, the chain checked afterwards.
+**Status 2026-10-22: LIVE — ONE REAL POSITION OPEN AND MANAGED.** The first
+position on the real chain was opened through the capped path:
+**tokenId 1482899**, QQQ/USDG 0.05%, ticks [210090, 211100], **$18.00**,
+agent `JohndoeAgent` (its creator switched arbitrage on for it, and the switch
+records which wallet did so). Transaction
+`0xeb96eef1670f8635dbaa74185b0bb5774d7f85a4798e7c5cb42c7119eef1612b`; the
+next registry pass discovered it, read it back equal to the chain's own
+`positions()` (liquidity `13503122875284`), found it **in range**, and holds it
+at `hold` with a `$0.50` harvest threshold. The whole open — two approvals and
+the mint — cost **0.0000131 ETH** of the agent's own gas (the chain's base fee
+is ~0.02 gwei; `eth_gasPrice` suggests 20). It is recorded in `lp_opens`, and
+the position is visible at `/arbitrage` and on the agent's Arbitrage tab.
+
+**Before that, the same path was proven on an anvil fork** — the real
+NonfungiblePositionManager, the real USDG and Stock Token — with the real signer
+binary: open through the signer, discovery by the loop, rebalance (two
+approvals, `decrease`, `collect`, `burn`, `mint`), harvest (a real swap's fees
+proposed at the exact accrual and paid to the wallet to the base unit), and
+close (`collect`, `burn`). Every transaction mined, every step recorded, the
+chain checked afterwards, and the opt-in gate exercised in both directions.
 **72/72 checks** (`infra/verify/lpexec-anvil-e2e.sh`). The production unit
-carries `LP_EXECUTE=1`; it is **inert until a position exists**.
+carries `LP_EXECUTE=1`; it acts only on what the loop proposes, and the loop
+proposes only for agents their creator has switched arbitrage on.
 
 ## Opening a position — the one action the loop cannot propose
 
