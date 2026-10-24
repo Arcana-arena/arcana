@@ -271,6 +271,20 @@
       "referee_pool": "0x19757223628da89569f9a2488af6c45cb9824ea1",
       "referee_pool_fee": 10000,
       "listing_note": "SECONDARY MARKET, listed 2026-10-20. Read live before this entry was written: name() = \"Lululemon • Robinhood Token\", symbol LULU, 18 decimals, behind the same beacon (0xe10b…1b00) and implementation (0xb354…5ae2, 11,614 bytes) as every primary token, paused() = false. Chainlink publishes NO LULU feed on this chain (its tokenized-equity feed directory for robinhood-mainnet, re-read 2026-10-20, lists 58 feeds and none LULU), so the price is refereed by the 1% pool for the same pair instead. Two live pools exist for the pair, both from 0x1f7d…2efa with LULU as token0 (its address sorts below USDG's), and a 0.05% pool that is initialised but holds nothing: 0.3% at 0x0f42…49f4 (97.6736 USDG, ~$21k of quote in reserves) and 1% at 0x1975…4ea1 (96.9947 USDG, ~$32); 0.70% apart, inside the 2% tolerance. The 0.3% pool is traded because its fee is a third of the other's and it is far the deeper — about $3.07M of in-range liquidity against about $10k in the 1% pool: ~0.001% impact at $10, ~0.007% at $100, ~0.065% at $1,000, ~0.65% at $10,000, so only COST and NFLX are cheaper to trade at size in the secondary market. The 1% pool is the only other live pool, so it referees; it is thin, so about $100 moves it 2% — level with BA's, the thinnest referee the market has accepted — which stops LULU trades (price_divergence) until the pools agree again. That is the cost of availability, not of safety: fooling the check still needs the 0.3% pool moved, about $31k at 2%, and that is where the money is."
+    },
+    {
+      "symbol": "GME",
+      "sector": "Consumer Discretionary",
+      "address": "0x1b0E319c6A659F002271B69dB8A7df2F911c153E",
+      "decimals": 18,
+      "pool": "0xE2b46c905E12Ab8E2f864e4821a4325884C1B126",
+      "pool_fee": 500,
+      "feed": "",
+      "feed_name": "",
+      "market": "secondary",
+      "referee_pool": "0xE9713f453aDB9245B19559790c96F470a18F2fDF",
+      "referee_pool_fee": 10000,
+      "listing_note": "SECONDARY MARKET, listed 2026-10-22. Read live before this entry was written: name() = \"GameStop • Robinhood Token\", symbol GME, 18 decimals, behind the same beacon (0xe10b…1b00) and implementation (0xb354…5ae2, 11,614 bytes) as every primary token, paused() = false, uiMultiplier() = 1e18. Chainlink publishes NO GME feed on this chain, so the 1% pool for the same pair referees it. Pools, both from 0x1f7d…2efa with GME as token0 (its address sorts below USDG's): 0.05% at 0xE2b4…B126 (24.7431 USDG, ~$791k of in-range liquidity) and 1% at 0xE971…2fDF (24.8399 USDG, ~$2.60M); 0.39% apart, inside the 2% tolerance. The 0.05% pool is traded because its fee is a twentieth of the other's and its depth is enough: ~0.003% impact at $10, ~0.025% at $100, ~0.25% at $1,000, ~2.5% at $10,000. The 1% pool is the deeper of the two, so it referees; about $25.5k moves it 2%, and about $7.8k moves the traded pool 2% — fooling the check needs both, about $33k, which is where the money is."
     }
   ]
 }

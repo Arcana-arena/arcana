@@ -9,13 +9,13 @@ price on this chain. It holds **RBLX** (Roblox), listed 2026-09-27, **LLY**
 (Moderna), listed 2026-10-02, **NU** (Nu Holdings) and **JNJ** (Johnson &
 Johnson), both listed 2026-10-04, **BA** (Boeing), listed 2026-10-06, **NFLX**
 (Netflix), listed 2026-10-09, **UPS**, listed 2026-10-11, **COST**
-(Costco), listed 2026-10-13, **PFE** (Pfizer), listed 2026-10-15, and **LULU**
-(Lululemon), listed 2026-10-20. The
+(Costco), listed 2026-10-13, **PFE** (Pfizer), listed 2026-10-15, **LULU**
+(Lululemon), listed 2026-10-20, and **GME** (GameStop), listed 2026-10-22. The
 sections below record RBLX, the first; LLY, IBM, MRNA, NU, JNJ, BA, NFLX, UPS,
-COST, PFE and LULU have their own sections ([LLY](#lly-eli-lilly), [IBM](#ibm),
+COST, PFE, LULU and GME have their own sections ([LLY](#lly-eli-lilly), [IBM](#ibm),
 [MRNA](#mrna-moderna), [NU](#nu-nu-holdings), [JNJ](#jnj-johnson--johnson),
 [BA](#ba-boeing), [NFLX](#nflx-netflix), [UPS](#ups), [COST](#cost-costco),
-[PFE](#pfe-pfizer), [LULU](#lulu-lululemon)) with the same evidence.
+[PFE](#pfe-pfizer), [LULU](#lulu-lululemon), [GME](#gme-gamestop)) with the same evidence.
 
 Related: [go-no-go-stock-tokens.md](./go-no-go-stock-tokens.md) (the permission
 this rests on), [market-data.md](./market-data.md), [execution.md](./execution.md),
@@ -631,6 +631,42 @@ on almost any trade; TTWO (~$1.8M), AVGO (~$1.1M), FIG (~$1.1M), SNAP (~$0.9M)
 and BE (~$0.6M) have no live second pool at all. RIVN (~$374k traded, ~$114k
 referee) and NET (~$72k traded, ~$31k referee) were the next candidates with a
 usable referee.
+
+## GME — GameStop
+
+GME was listed on **2026-10-22**. Read live before the entry was written:
+`name()` = "GameStop • Robinhood Token", symbol GME, 18 decimals, behind the
+same beacon (`0xe10b…1b00`) and implementation (`0xb354…5ae2`, 11,614 bytes) as
+every other Stock Token, `paused()` = false, `uiMultiplier()` = 1e18. Chainlink
+publishes no GME feed on this chain, so a second pool referees the price.
+
+GME is token0 in every pool for the pair (its address sorts below USDG's), all
+from factory `0x1f7d…2efa`. A third pool at 0.3% exists holding about $24k —
+too thin to trade and not used:
+
+| | Traded pool | Referee pool |
+|---|---|---|
+| Fee | 0.05% (500) | 1% (10000) |
+| Address | `0xE2b46c905E12Ab8E2f864e4821a4325884C1B126` | `0xE9713f453aDB9245B19559790c96F470a18F2fDF` |
+| Price, 2026-10-22 | 24.7431 USDG | 24.8399 USDG |
+| In-range liquidity | ~$791k | ~$2.60M |
+
+The two are **0.39% apart**, inside the 2% tolerance. The 0.05% pool is traded
+because its fee is a twentieth of the other's and its depth is enough at the
+sizes agents trade: about 0.003% impact at $10 and 0.025% at $100.
+
+The referee is also the deeper pool, which is the first time the market has had
+that: about **$25.5k** moves it 2%, against about **$7.8k** for the traded pool.
+Fooling the check therefore needs both — roughly **$33k** — and the cheaper side
+to move is the larger of the two, not the smaller. That is the opposite of the
+thin referees (BA, LULU) the market has accepted so far, where a few hundred
+dollars halts a symbol.
+
+Why this one and not a deeper name: the unlisted tokens with deeper traded pools
+still have no usable referee. HIMS (~$20.2M) and AMC (~$2.6M) have 1% pools that
+about $8 and $12 move 2%; TTWO, AVGO, FIG, SNAP and BE have no live second pool
+at all. GME is the deepest unlisted name whose referee is deep enough to be
+worth trusting.
 
 ## What this leaves out
 

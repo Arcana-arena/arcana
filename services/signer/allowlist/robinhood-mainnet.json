@@ -365,6 +365,24 @@
         "control_revert_data": "0x",
         "note": "isBlocked(address) does not exist on this token. Measured 2026-10-20 on chain 4663 (selector 0xfbac3951): eth_call reverts with an empty payload, and eth_call of 0xdeadbeef — a selector that exists nowhere — reverts identically, exactly as on the nine primary tokens, RBLX, LLY, IBM, MRNA, NU, JNJ, BA, NFLX, UPS, COST and PFE, which share its beacon and implementation. paused() is NOT excepted: it answers false on this token and is still enforced."
       }
+    },
+    {
+      "symbol": "GME",
+      "address": "0x1b0E319c6A659F002271B69dB8A7df2F911c153E",
+      "decimals": 18,
+      "pool": "0xE2b46c905E12Ab8E2f864e4821a4325884C1B126",
+      "pool_fee": 500,
+      "market": "secondary",
+      "referee_pool": "0xE9713f453aDB9245B19559790c96F470a18F2fDF",
+      "referee_pool_fee": 10000,
+      "market_note": "SECONDARY MARKET, listed 2026-10-22. No Chainlink feed exists for GME on this chain, so the engine reads the 1% pool for the same pair before every GME swap and refuses the trade (price_divergence) when the two pools are more than 2% apart, or when the referee pool cannot be read (referee_unreadable). Both pools read live: 0.05% at 24.7431 USDG, 1% at 24.8399 USDG (0.39% apart), both from factory 0x1f7d7550b1b028f7571e69a784071f0205fd2efa, which is the factory SwapRouter02 reports. Evidence for the token itself is in services/market-data/config/robinhood-chain.json and docs/secondary-market.md.",
+      "blocklist_unreadable": {
+        "verified_at": "2026-10-22",
+        "revert_data": "0x",
+        "control_selector": "0xdeadbeef",
+        "control_revert_data": "0x",
+        "note": "isBlocked(address) does not exist on this token. Measured 2026-10-22 on chain 4663: eth_call of isBlocked(address) reverts with an empty payload, and eth_call of 0xdeadbeef — a selector that exists nowhere — reverts identically, exactly as on every other Stock Token here, which share its beacon (0xe10b…1b00) and implementation (0xb354…5ae2, 11,614 bytes). paused() is NOT excepted: it answers false on this token and is still enforced."
+      }
     }
   ],
   "limits": {
