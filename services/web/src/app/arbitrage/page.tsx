@@ -28,16 +28,22 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { arbitrage, type Err } from '@/lib/api';
-import { int, num, utc } from '@/lib/format';
+import { int, num, tone, usd, utc, addr } from '@/lib/format';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { Empty, Failed } from '@/components/ds/states';
-import { ActivityTable, PositionsTable, type ActivityRow } from '@/components/arbitrage/Positions';
+import {
+  ActivityTable,
+  PositionsTable,
+  RealisedTable,
+  type ActivityRow,
+} from '@/components/arbitrage/Positions';
 import {
   stepTone,
   tokenIndex,
   type LPAction,
   type LPOpen,
+  type LPPnL,
   type LPPosition,
   type LPStep,
   type LPVenues,
@@ -47,12 +53,13 @@ export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Arbitrage — ARCANA' };
 
 export default async function ArbitragePage() {
-  const [venuesR, positionsR, actionsR, executionsR, opensR] = await Promise.all([
+  const [venuesR, positionsR, actionsR, executionsR, opensR, pnlR] = await Promise.all([
     arbitrage<LPVenues>('/v1/arbitrage/venues'),
     arbitrage<{ positions: LPPosition[] }>('/v1/arbitrage/lp/positions?status=all&limit=100'),
     arbitrage<{ actions: LPAction[] }>('/v1/arbitrage/lp/actions?limit=50'),
     arbitrage<{ executions: LPStep[] }>('/v1/arbitrage/lp/executions?limit=50'),
     arbitrage<{ opens: LPOpen[] }>('/v1/arbitrage/lp/opens?limit=20'),
+    arbitrage<LPPnL>('/v1/arbitrage/lp/pnl?status=all&limit=100'),
   ]);
 
   const token = tokenIndex(venuesR.ok ? venuesR.data : null);
@@ -147,6 +154,12 @@ export default async function ArbitragePage() {
               {latest ? utc(latest).slice(0, 16) : '—'}
             </div>
           </div>
+          <div>
+            <div className="k">Realised net</div>
+            <div className={`v ${pnlR.ok ? tone(pnlR.data.totals.net_usdg) : ''}`}>
+              {pnlR.ok ? usd(pnlR.data.totals.net_usdg, 4) : 'not read'}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -189,6 +202,50 @@ export default async function ArbitragePage() {
           </Empty>
         ) : (
           <PositionsTable positions={positions} token={token} showAgent />
+        )}
+      </div>
+
+      {/* ------------------------------------------------------------ realised */}
+      <div className="sec" style={{ paddingTop: 22 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
+          <h2>Realised</h2>
+          <span className="mono m2" style={{ fontSize: 12 }}>
+            {pnlR.ok ? `as of ${utc(pnlR.data.as_of).slice(0, 16)}` : ''}
+          </span>
+        </div>
+        {!pnlR.ok ? (
+          <Failed what="The realised PnL" error={pnlR} />
+        ) : pnlR.data.positions.length === 0 ? (
+          <Empty title="Nothing has been realised yet">
+            A position appears here once the executor has sent a transaction for it. The figures are what the collect
+            transactions actually paid out, minus the gas they and the open burned.
+          </Empty>
+        ) : (
+          <>
+            <div className="lp-strip" style={{ marginTop: 12 }} role="group" aria-label="Realised totals">
+              <div>
+                <div className="k">Collected fees</div>
+                <div className="v">{usd(pnlR.data.totals.fees_value_usdg, 4)}</div>
+              </div>
+              <div>
+                <div className="k">Gas</div>
+                <div className="v">{usd(pnlR.data.totals.gas_value_usdg, 4)}</div>
+              </div>
+              <div>
+                <div className="k">Net</div>
+                <div className={`v ${tone(pnlR.data.totals.net_usdg)}`}>{usd(pnlR.data.totals.net_usdg, 4)}</div>
+              </div>
+            </div>
+            <RealisedTable rows={pnlR.data.positions} />
+            <p className="m2" style={{ fontSize: 12, marginTop: 10, lineHeight: 1.55 }}>
+              Realised only: what the collect transactions paid out, minus gas they and the open burned. Fees still
+              accruing inside a position, and the position&rsquo;s own value change, are not counted.
+              {pnlR.data.valuation.gas.weth_usdg !== null
+                ? ` Fees are valued at each pool's current price; gas at ${usd(pnlR.data.valuation.gas.weth_usdg, 2)} per ${pnlR.data.valuation.gas.symbol.split('/')[0]} from pool ${addr(pnlR.data.valuation.gas.pool)}.`
+                : ` Gas is not priced: ${pnlR.data.valuation.gas.error ?? 'no WETH/USDG pool could be read'}.`}
+              {pnlR.data.totals.complete ? '' : ' Some receipts or prices could not be read, so the totals are incomplete.'}
+            </p>
+          </>
         )}
       </div>
 

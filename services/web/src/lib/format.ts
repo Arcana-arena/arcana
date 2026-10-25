@@ -56,6 +56,19 @@ export function money(v: unknown, dp = 2): string {
   return v.toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp });
 }
 
+/**
+ * A signed dollar amount: −$0.0437. The sign is in the text, not only in the
+ * colour, so a loss is readable without seeing the hue. Absent stays absent.
+ */
+export function usd(v: unknown, dp = 2): string {
+  if (!isNum(v)) return ABSENT;
+  const sign = v < 0 ? '\u2212' : '';
+  return `${sign}$${Math.abs(v).toLocaleString('en-US', {
+    minimumFractionDigits: dp,
+    maximumFractionDigits: dp,
+  })}`;
+}
+
 /** 0x7a3f…c21e — the shape an address is recognised by. Never invented. */
 export function addr(a: unknown): string {
   if (typeof a !== 'string' || a.length < 12) return typeof a === 'string' && a ? a : ABSENT;

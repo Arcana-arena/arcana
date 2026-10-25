@@ -16,9 +16,17 @@
  */
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { ago, int, num, txShort, utc } from '@/lib/format';
+import { ago, int, num, txShort, tone, usd, utc } from '@/lib/format';
 import { Tag } from '@/components/ds/primitives';
-import { REC_TONE, shortId, stepTone, units, type LPPosition, type LPVenueToken } from '@/lib/lp';
+import {
+  REC_TONE,
+  shortId,
+  stepTone,
+  units,
+  type LPPosition,
+  type LPPnLPosition,
+  type LPVenueToken,
+} from '@/lib/lp';
 
 export function ScrollRegion({
   label,
@@ -234,6 +242,76 @@ export type ActivityRow = {
   statusClass: string;
   tx?: string;
 };
+
+/**
+ * What the position has actually earned: collected fees minus gas, per row.
+ *
+ * The sign is printed, not only coloured, and a null means the service could
+ * not establish the number — it is not a zero. Fees still accruing inside the
+ * position are absent here on purpose; the accretion is in the position table
+ * above and the sentence under this one says so.
+ */
+export function RealisedTable({ rows }: { rows: LPPnLPosition[] }) {
+  return (
+    <ScrollRegion label="Realised profit and loss" hint="Scroll the table sideways for net and harvests.">
+      <table className="table" style={{ marginTop: 10 }}>
+        <thead>
+          <tr>
+            <th style={{ width: 160 }}>Pair</th>
+            <th className="r" style={{ width: 190 }}>Collected</th>
+            <th className="r" style={{ width: 180 }}>Gas</th>
+            <th className="r" style={{ width: 130 }}>Net</th>
+            <th style={{ width: 170 }}>Harvests</th>
+            <th style={{ width: 100 }}>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((p) => {
+            const last = p.harvests.length > 0 ? p.harvests[p.harvests.length - 1] : null;
+            return (
+              <tr key={`${p.position_manager}-${p.token_id}`}>
+                <td>
+                  <span className="mono">
+                    {p.token0.symbol} / {p.token1.symbol}
+                  </span>
+                  <div className="m2" style={{ fontSize: 11.5, marginTop: 2 }}>
+                    #{p.token_id}
+                  </div>
+                </td>
+                <td className="mono r">
+                  {num(p.token0.human, 8)} {p.token0.symbol}
+                  <br />
+                  {num(p.token1.human, 8)} {p.token1.symbol}
+                </td>
+                <td className="mono r">
+                  {usd(p.gas.value_usdg, 4)}
+                  <div className="m2" style={{ fontSize: 11.5, marginTop: 2 }}>
+                    {p.gas.txs} tx{p.gas.reverted > 0 ? `, ${p.gas.reverted} reverted` : ''} · {num(p.gas.gas_eth, 8)} ETH
+                  </div>
+                </td>
+                <td className={`mono r ${tone(p.net_usdg)}`} title="collected fees minus gas, both valued at their current prices">
+                  {usd(p.net_usdg, 4)}
+                </td>
+                <td className="mono">
+                  {last ? (
+                    <span title={last.tx_hash}>
+                      {p.harvests.length} collect{p.harvests.length === 1 ? '' : 's'} · {txShort(last.tx_hash)}
+                    </span>
+                  ) : (
+                    <span className="m2">none</span>
+                  )}
+                </td>
+                <td>
+                  <Tag tone={p.status === 'open' ? 'neutral' : 'outline'}>{p.status}</Tag>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </ScrollRegion>
+  );
+}
 
 export function ActivityTable({ rows, label }: { rows: ActivityRow[]; label: string }) {
   return (

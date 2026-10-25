@@ -74,6 +74,66 @@ export type LPOpen = {
   error?: string;
 };
 
+/** One side of a realised amount: raw chain integer and its decimal value. */
+export type LPPnLToken = { symbol: string; decimals: number; raw: string; human: number };
+
+export type LPPnLHarvest = {
+  ts?: string;
+  tx_hash: string;
+  status: string;
+  amount0: string;
+  amount1: string;
+  gas_eth: number;
+};
+
+export type LPPnLGas = {
+  txs: number;
+  reverted: number;
+  gas_used: string;
+  gas_eth: number;
+  value_usdg: number | null;
+};
+
+/**
+ * Realised PnL for one position, as the arbitrage service computes it: fees a
+ * collect transaction actually paid out, minus the gas every transaction for
+ * the position burned. Null means the number could not be established, which
+ * the service says out loud rather than printing a zero.
+ */
+export type LPPnLPosition = {
+  position_manager: string;
+  token_id: string;
+  agent_id: string;
+  wallet: string;
+  status: string;
+  token0: LPPnLToken;
+  token1: LPPnLToken;
+  fees_value_usdg: number | null;
+  gas: LPPnLGas;
+  net_usdg: number | null;
+  harvests: LPPnLHarvest[];
+  unreadable?: string[];
+};
+
+export type LPPnL = {
+  as_of: string;
+  note: string;
+  valuation: {
+    fees: string;
+    gas: { symbol: string; pool: string; weth_usdg: number | null; error: string | null };
+  };
+  positions: LPPnLPosition[];
+  totals: {
+    positions: number;
+    fees_value_usdg: number;
+    gas_value_usdg: number;
+    net_usdg: number;
+    complete: boolean;
+  };
+  steps_scanned: number;
+  truncated: boolean;
+};
+
 export type REC = 'hold' | 'harvest' | 'rebalance' | 'empty';
 
 export const REC_TONE: Record<string, 'neutral' | 'accent' | 'amber' | 'outline'> = {
