@@ -10,12 +10,14 @@ price on this chain. It holds **RBLX** (Roblox), listed 2026-09-27, **LLY**
 Johnson), both listed 2026-10-04, **BA** (Boeing), listed 2026-10-06, **NFLX**
 (Netflix), listed 2026-10-09, **UPS**, listed 2026-10-11, **COST**
 (Costco), listed 2026-10-13, **PFE** (Pfizer), listed 2026-10-15, **LULU**
-(Lululemon), listed 2026-10-20, and **GME** (GameStop), listed 2026-10-22. The
+(Lululemon), listed 2026-10-20, **GME** (GameStop), listed 2026-10-22, and
+**QUBT** (Quantum Computing), listed 2026-10-22. The
 sections below record RBLX, the first; LLY, IBM, MRNA, NU, JNJ, BA, NFLX, UPS,
-COST, PFE, LULU and GME have their own sections ([LLY](#lly-eli-lilly), [IBM](#ibm),
+COST, PFE, LULU, GME and QUBT have their own sections ([LLY](#lly-eli-lilly), [IBM](#ibm),
 [MRNA](#mrna-moderna), [NU](#nu-nu-holdings), [JNJ](#jnj-johnson--johnson),
 [BA](#ba-boeing), [NFLX](#nflx-netflix), [UPS](#ups), [COST](#cost-costco),
-[PFE](#pfe-pfizer), [LULU](#lulu-lululemon), [GME](#gme-gamestop)) with the same evidence.
+[PFE](#pfe-pfizer), [LULU](#lulu-lululemon), [GME](#gme-gamestop),
+[QUBT](#qubt-quantum-computing)) with the same evidence.
 
 Related: [go-no-go-stock-tokens.md](./go-no-go-stock-tokens.md) (the permission
 this rests on), [market-data.md](./market-data.md), [execution.md](./execution.md),
@@ -667,6 +669,41 @@ still have no usable referee. HIMS (~$20.2M) and AMC (~$2.6M) have 1% pools that
 about $8 and $12 move 2%; TTWO, AVGO, FIG, SNAP and BE have no live second pool
 at all. GME is the deepest unlisted name whose referee is deep enough to be
 worth trusting.
+
+## QUBT — Quantum Computing
+
+QUBT was listed on **2026-10-22**. Read live before the entry was written:
+`name()` = "Quantum Computing • Robinhood Token", symbol QUBT, 18 decimals,
+behind the same beacon (`0xe10b…1b00`) and implementation (`0xb354…5ae2`,
+11,614 bytes) as every other Stock Token, `paused()` = false,
+`uiMultiplier()` = 1e18. Chainlink publishes no QUBT feed on this chain, so a
+second pool referees the price.
+
+QUBT is token0 in every pool for the pair (its address sorts below USDG's), all
+from factory `0x1f7d…2efa`. A 0.01% pool exists and holds nothing:
+
+| | Traded pool | Referee pool |
+|---|---|---|
+| Fee | 0.3% (3000) | 1% (10000) |
+| Address | `0x227Bbce9A81B3694b01754298a983Be3F9E44A93` | `0x2E2a857C08aD6C09f1d1EC4FDB4Cc7cd06cF17f4` |
+| Price, 2026-10-22 | 6.5585 USDG | 6.5530 USDG |
+| In-range liquidity | ~$328k | ~$120k |
+
+The two are **0.08% apart**, inside the 2% tolerance. The 0.3% pool is traded
+because its fee is a third of the other's and it is the deeper of the two:
+about 0.006% impact at $10 and 0.061% at $100.
+
+Both sides cost real money to move: about **$3.3k** moves the traded pool 2%,
+about **$1.2k** the referee. That referee is thinner than GME's, but about ten
+times BA's or LULU's and thicker than PFE's (~$500); fooling the check needs
+both, roughly **$4.5k**, and the larger side is the traded pool.
+
+Why this one out of 24 unlisted feedless names with a live USDG pool, scanned
+2026-10-22: it had the best referee among pairs whose traded pool is also usable.
+MSTR's 1% pool is far deeper ($5.5M) but its 0.3% side holds only $76k, so the
+traded pool would be the thinnest in the market; RDDT ($6.3M at 1%), AMC
+($2.2M at 0.3%) and HIMS ($20.3M at 0.3%) all referee through a pool that a few
+hundred dollars moves 2%.
 
 ## What this leaves out
 
