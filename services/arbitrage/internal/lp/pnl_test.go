@@ -41,8 +41,8 @@ func TestHumanKeepsSmallSides(t *testing.T) {
 }
 
 func TestValueUSDAddsBothSides(t *testing.T) {
-	a0, _ := new(big.Int).SetString("2439", 10)             // USDG, 6 decimals
-	a1, _ := new(big.Int).SetString("4013404123064", 10)    // QQQ, 18 decimals
+	a0, _ := new(big.Int).SetString("2439", 10)          // USDG, 6 decimals
+	a1, _ := new(big.Int).SetString("4013404123064", 10) // QQQ, 18 decimals
 	got := ValueUSD(a0, a1, 6, 18, 1, 700)
 	want := 0.002439 + 0.000004013404123064*700
 	if diff := got - want; diff > 1e-9 || diff < -1e-9 {

@@ -322,10 +322,10 @@ func (s *server) handleLPPnL(w http.ResponseWriter, r *http.Request) {
 	valuation := map[string]any{
 		"fees": "each position's pair at its own pool's current spot price; the quote side is 1",
 		"gas": map[string]any{
-			"symbol":   "WETH/" + s.cfg.QuoteToken.Symbol,
-			"pool":     wethPool,
+			"symbol":    "WETH/" + s.cfg.QuoteToken.Symbol,
+			"pool":      wethPool,
 			"weth_usdg": nil,
-			"error":    nil,
+			"error":     nil,
 		},
 	}
 	gasVal := valuation["gas"].(map[string]any)
@@ -347,7 +347,7 @@ func (s *server) handleLPPnL(w http.ResponseWriter, r *http.Request) {
 		"valuation": valuation,
 		"positions": rows,
 		"totals": map[string]any{
-			"positions":      len(rows),
+			"positions":       len(rows),
 			"fees_value_usdg": round6(sumFees),
 			"gas_value_usdg":  round6(sumGas),
 			"net_usdg":        round6(sumFees - sumGas),
