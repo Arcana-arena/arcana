@@ -56,8 +56,8 @@ func TestValueUSDAddsBothSides(t *testing.T) {
 func TestGasWeiNeedsBothFactors(t *testing.T) {
 	used := big.NewInt(257882)
 	price := big.NewInt(20784000)
-	if got := GasWei(used, price); got == nil || got.String() != "5359756848000" {
-		t.Errorf("GasWei = %v, want 5359756848000", got)
+	if got := GasWei(used, price); got == nil || got.String() != "5359819488000" {
+		t.Errorf("GasWei = %v, want 5359819488000", got)
 	}
 	if got := GasWei(used, nil); got != nil {
 		t.Errorf("GasWei with no price = %v, want nil (unpriced is not free)", got)
