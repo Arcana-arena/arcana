@@ -1,23 +1,26 @@
 /**
  * One agent's arbitrage — the registry the arbitrage service keeps for it: the
- * positions it owns, the fees recorded against them, and the harvest/close
- * steps the executor has taken. The strategy is liquidity provision, so the
- * rows are LP positions and are named that way.
+ * positions it owns, the fees recorded against them, and the harvest/open steps
+ * the executor has taken. The strategy is liquidity provision, so the rows are
+ * LP positions and are named that way.
+ *
+ * STATE FIRST, THEN THE RECORD. The three facts an owner opens this tab for
+ * (how many positions, how many are inside their range, when the last sync
+ * happened) are one strip above the tables. The range is drawn, not encoded in
+ * ticks, and harvests and opens share one timeline instead of two tables.
  *
  * SERVER-RENDERED AND READ-ONLY, LIKE THE REST OF THE PAGE. Opening, arming and
  * closing are executor acts with their own capped tools; there is deliberately
  * no button here that would imply a browser click can move this agent's funds.
  */
 import type { Err } from '@/lib/api';
-import { ago, int, num, txShort, utc } from '@/lib/format';
-import { Tag } from '@/components/ds/primitives';
+import { num, utc } from '@/lib/format';
 import { Empty, Failed } from '@/components/ds/states';
+import { ActivityTable, PositionsTable, type ActivityRow } from '@/components/arbitrage/Positions';
 import {
-  REC_TONE,
   shortId,
   stepTone,
   tokenIndex,
-  units,
   type LPOpen,
   type LPPosition,
   type LPStep,
@@ -40,13 +43,12 @@ export function ArbitragePanel({
   venues: LPVenues | null;
 }) {
   const token = tokenIndex(venues);
-  const harvests = executions.filter((e) => e.intent === 'lp_collect');
 
   if (positions.length === 0) {
     return (
       <Empty title="This agent holds no arbitrage position">
         The registry has no position for this agent&rsquo;s wallet. A position is opened by its owner through the
-        executor&rsquo;s capped open command after funding the wallet — the platform cannot open one from here.
+        executor&rsquo;s capped open command after funding the wallet, and the platform cannot open one from here.
         <div style={{ marginTop: 10 }}>
           The public registry is at <a href="/arbitrage">/arbitrage</a>.
         </div>
@@ -54,188 +56,82 @@ export function ArbitragePanel({
     );
   }
 
+  const open = positions.filter((p) => p.status === 'open');
+  const inRange = open.filter((p) => p.in_range === true).length;
+  const syncs = positions.map((p) => p.last_synced_at).filter((x): x is string => Boolean(x)).sort();
+  const lastSync = syncs.length > 0 ? syncs[syncs.length - 1] : null;
+
+  const harvests = executions.filter((e) => e.intent === 'lp_collect');
+  const events: ActivityRow[] = [
+    ...harvests.map((e: LPStep) => ({
+      key: `h-${e.id}`,
+      ts: e.ts,
+      kind: 'HARVEST',
+      agentId: e.agent_id,
+      position: `#${e.token_id}`,
+      detail: e.intent,
+      note: e.error ? e.error.slice(0, 90) : undefined,
+      status: e.status,
+      statusClass: stepTone(e.status),
+      tx: e.tx_hash,
+    })),
+    ...opens.map((o: LPOpen) => ({
+      key: `o-${o.id}`,
+      ts: o.ts,
+      kind: 'OPEN',
+      agentId: o.agent_id,
+      position: o.token_id ? `#${o.token_id}` : null,
+      detail: o.symbol,
+      note: `${num(o.size_usd, 2)} USD`,
+      status: o.status,
+      statusClass: o.status === 'executed' ? 'up' : 'dn',
+      tx: o.tx_hash,
+    })),
+  ].sort((a, b) => (b.ts ?? '').localeCompare(a.ts ?? ''));
+
   return (
     <div style={{ display: 'grid', gap: 18 }}>
-      <div className="scroll-x">
-        <table className="table">
-          <thead>
-            <tr>
-              <th style={{ width: 150 }}>Pair</th>
-              <th className="r" style={{ width: 120 }}>
-                Range (ticks)
-              </th>
-              <th style={{ width: 70 }}>In range</th>
-              <th style={{ width: 170 }}>Holds</th>
-              <th style={{ width: 190 }}>Stored fees</th>
-              <th style={{ width: 90 }}>Verdict</th>
-              <th style={{ width: 70 }}>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {positions.map((p) => {
-              const t0 = token(p.token0);
-              const t1 = token(p.token1);
-              const a0 = units(p.amount0, t0.decimals);
-              const a1 = units(p.amount1, t1.decimals);
-              const f0 = units(p.tokens_owed0, t0.decimals);
-              const f1 = units(p.tokens_owed1, t1.decimals);
-              return (
-                <tr key={`${p.position_manager}-${p.token_id}`}>
-                  <td>
-                    <span className="mono">
-                      {t0.symbol} / {t1.symbol}
-                    </span>
-                    <div className="m3" style={{ fontSize: 10.5 }}>
-                      #{p.token_id} · {(p.fee_tier / 10000).toFixed(2)}%
-                    </div>
-                  </td>
-                  <td className="r mono" style={{ fontSize: 11 }}>
-                    {int(p.tick_lower)} … {int(p.tick_upper)}
-                  </td>
-                  <td>
-                    {p.in_range === null ? (
-                      <span className="m3">—</span>
-                    ) : p.in_range ? (
-                      <Tag tone="accent">IN</Tag>
-                    ) : (
-                      <Tag tone="amber">OUT</Tag>
-                    )}
-                  </td>
-                  <td className="mono" style={{ fontSize: 11 }}>
-                    {a0 === null && a1 === null ? (
-                      <span className="m3">—</span>
-                    ) : (
-                      <>
-                        {num(a0, 4)} {t0.symbol}
-                        <br />
-                        {num(a1, 4)} {t1.symbol}
-                      </>
-                    )}
-                  </td>
-                  <td className="mono" style={{ fontSize: 11 }}>
-                    {f0 === null && f1 === null ? (
-                      <span className="m3">—</span>
-                    ) : (
-                      <>
-                        {num(f0, 4)} {t0.symbol} · {num(f1, 4)} {t1.symbol}
-                      </>
-                    )}
-                  </td>
-                  <td>
-                    {p.recommendation ? (
-                      <Tag tone={REC_TONE[p.recommendation] ?? 'neutral'}>{p.recommendation}</Tag>
-                    ) : (
-                      <span className="m3">—</span>
-                    )}
-                  </td>
-                  <td className="m2" style={{ fontSize: 11 }}>
-                    {p.status}
-                    <div className="m3" style={{ fontSize: 10 }} title={p.last_synced_at ?? undefined}>
-                      {p.last_synced_at ? ago(p.last_synced_at) : 'never synced'}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      <div className="lp-strip" style={{ marginTop: 0 }} role="group" aria-label="This agent's arbitrage state">
+        <div>
+          <div className="k">Open positions</div>
+          <div className="v">{open.length}</div>
+        </div>
+        <div>
+          <div className="k">In range</div>
+          <div className="v">{open.length === 0 ? '—' : `${inRange} of ${open.length}`}</div>
+        </div>
+        <div>
+          <div className="k">Last sync</div>
+          <div className="v" style={{ fontSize: 13 }}>
+            {lastSync ? utc(lastSync).slice(0, 16) : 'never'}
+          </div>
+        </div>
       </div>
 
       <section>
-        <div className="k">Fees harvested by the executor</div>
-        {executionsError ? (
-          <div style={{ marginTop: 8 }}>
-            <Failed what="This agent's execution record" error={executionsError} />
-          </div>
-        ) : harvests.length === 0 ? (
-          <div className="m3" style={{ fontSize: 11.5, marginTop: 6, lineHeight: 1.45 }}>
-            No fee harvest is recorded for this agent. Fees stay in the position (the stored figure above) until a
-            harvest crosses the reviewed threshold, a rebalance, or a close.
-          </div>
-        ) : (
-          <div className="scroll-x">
-            <table className="table" style={{ marginTop: 8, fontSize: 11.5 }}>
-              <thead>
-                <tr>
-                  <th style={{ width: 130 }}>When</th>
-                  <th style={{ width: 90 }}>Position</th>
-                  <th style={{ width: 90 }}>Status</th>
-                  <th>Tx</th>
-                </tr>
-              </thead>
-              <tbody>
-                {harvests.map((e) => (
-                  <tr key={e.id}>
-                    <td className="mono m2" style={{ whiteSpace: 'nowrap' }} title={e.ts}>
-                      {utc(e.ts).slice(0, 16)}
-                    </td>
-                    <td className="mono">#{e.token_id}</td>
-                    <td className={stepTone(e.status)} style={{ fontSize: 11 }}>
-                      {e.status}
-                    </td>
-                    <td className="mono m2">
-                      {e.tx_hash ? <span title={e.tx_hash}>{txShort(e.tx_hash)}</span> : <span className="m3">not sent</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <div className="k">Positions held</div>
+        <PositionsTable positions={positions} token={token} dense />
       </section>
 
       <section>
-        <div className="k">Positions opened through the platform</div>
-        {opensError ? (
-          <div style={{ marginTop: 8 }}>
-            <Failed what="This agent's opens" error={opensError} />
+        <div className="k">Executor activity</div>
+        {executionsError || opensError ? (
+          <div style={{ display: 'grid', gap: 10, marginTop: 8 }}>
+            {executionsError ? <Failed what="This agent's execution record" error={executionsError} /> : null}
+            {opensError ? <Failed what="This agent's opens" error={opensError} /> : null}
           </div>
-        ) : opens.length === 0 ? (
-          <div className="m3" style={{ fontSize: 11.5, marginTop: 6, lineHeight: 1.45 }}>
-            No open is recorded for this agent. The first position is opened by its owner through the executor&rsquo;s
-            open command, with a cap that has to be typed for that act.
-          </div>
+        ) : events.length === 0 ? (
+          <p className="m2" style={{ fontSize: 12.5, marginTop: 6, lineHeight: 1.5 }}>
+            No fee harvest or open is recorded for this agent. Fees stay in the position (the stored figure above)
+            until a harvest crosses the reviewed threshold, a rebalance, or a close.
+          </p>
         ) : (
-          <div className="scroll-x">
-            <table className="table" style={{ marginTop: 8, fontSize: 11.5 }}>
-              <thead>
-                <tr>
-                  <th style={{ width: 130 }}>When</th>
-                  <th style={{ width: 90 }}>Symbol</th>
-                  <th className="r" style={{ width: 90 }}>
-                    Size (USD)
-                  </th>
-                  <th style={{ width: 90 }}>Token id</th>
-                  <th style={{ width: 90 }}>Status</th>
-                  <th>Tx</th>
-                </tr>
-              </thead>
-              <tbody>
-                {opens.map((o) => (
-                  <tr key={o.id}>
-                    <td className="mono m2" style={{ whiteSpace: 'nowrap' }} title={o.ts}>
-                      {utc(o.ts).slice(0, 16)}
-                    </td>
-                    <td className="mono">{o.symbol}</td>
-                    <td className="r mono">{num(o.size_usd, 2)}</td>
-                    <td className="mono">{o.token_id ? `#${o.token_id}` : <span className="m3">—</span>}</td>
-                    <td className={o.status === 'executed' ? 'up' : 'dn'} style={{ fontSize: 11 }}>
-                      {o.status}
-                    </td>
-                    <td className="mono m2">
-                      {o.tx_hash ? <span title={o.tx_hash}>{txShort(o.tx_hash)}</span> : <span className="m3">—</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ActivityTable rows={events} label="This agent's harvests and opens" />
         )}
       </section>
 
-      <div className="m3" style={{ fontSize: 10.5, lineHeight: 1.45 }}>
-        Agent <span className="mono">{shortId(positions[0].agent_id)}</span> · wallet{' '}
-        <span className="mono">{positions[0].wallet}</span>
+      <div className="m2 mono" style={{ fontSize: 11.5, lineHeight: 1.45 }}>
+        Agent {shortId(positions[0].agent_id)} · wallet {positions[0].wallet}
       </div>
     </div>
   );

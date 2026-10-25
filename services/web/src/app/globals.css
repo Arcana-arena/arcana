@@ -444,6 +444,76 @@ h2 { font-size: 22px; }
    scrolls sideways. */
 .scroll-x { overflow-x: auto; }
 
+/* A region that scrolls must be reachable without a pointer. The ring is the
+   only thing that says "this area takes focus", and it is the reason the
+   arbitrage tables can be read on a laptop narrower than their content. */
+.scroll-x:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+/* --------------------------------------------------------------- arbitrage
+   State strip: the facts a monitor page exists to convey, above the tables.
+   Mechanism row: three one-sentence steps, side by side, no decoration. */
+.lp-strip {
+  display: flex;
+  flex-wrap: wrap;
+  border: 1px solid var(--color-divider);
+  margin-top: 16px;
+}
+.lp-strip > div {
+  padding: 9px 16px;
+  border-right: 1px solid var(--color-divider);
+  min-width: 148px;
+}
+.lp-strip > div:last-child { border-right: none; }
+.lp-strip .k { margin-bottom: 3px; }
+.lp-strip .v {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 15px;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.lp-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border: 1px solid var(--color-divider);
+}
+.lp-steps > div { padding: 12px 16px; border-right: 1px solid var(--color-divider); }
+.lp-steps > div:last-child { border-right: none; }
+.lp-steps p { margin: 6px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); }
+
+/* The range rail: bounds at the ends, the current tick marked between them.
+   Out-of-range and unread states are drawn, never only coloured — each one
+   carries its own caption and its own accessible name. */
+.lp-range { min-width: 150px; }
+.lp-rail {
+  position: relative;
+  height: 6px;
+  background: var(--color-neutral-300);
+  border: 1px solid var(--color-divider);
+}
+.lp-rail-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--color-accent-300); }
+.lp-rail-mark { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--color-accent); }
+.lp-rail-out .lp-rail-fill { background: var(--amber-dim); }
+.lp-rail-out .lp-rail-mark { background: var(--amber); }
+.lp-rail-unknown {
+  background: repeating-linear-gradient(90deg, var(--color-neutral-300) 0 5px, transparent 5px 10px);
+}
+.lp-rail-cap {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--ink-2);
+}
+.table-dense { font-size: 12px; }
+
+@media (max-width: 720px) {
+  .lp-steps { grid-template-columns: 1fr; }
+  .lp-steps > div { border-right: none; border-bottom: 1px solid var(--color-divider); }
+  .lp-steps > div:last-child { border-bottom: none; }
+  .lp-strip > div { flex: 1 1 46%; border-bottom: 1px solid var(--color-divider); }
+}
+
 /* ------------------------------------------------------- landing page grids */
 
 /* A bordered 3-across block whose cells share one outer rule rather than each
