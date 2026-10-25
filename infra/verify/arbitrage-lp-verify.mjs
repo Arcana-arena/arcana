@@ -14,6 +14,12 @@ import { suite } from './lib/sections.mjs';
 const ARB = process.env.ARBITRAGE_URL || 'http://127.0.0.1:8084';
 const DB = process.env.DATABASE_URL || 'postgres://arcana:arcana@localhost:5432/arcana?sslmode=disable';
 
+// Collect(uint256 indexed tokenId, address recipient, uint256 amount0, uint256
+// amount1) on the NonfungiblePositionManager. The PnL section below re-reads
+// each harvest receipt from the chain and decodes this event itself, so the
+// endpoint's numbers are checked against the transaction rather than trusted.
+const COLLECT_TOPIC = '0x40d0efd1a53d60ecbf40971b9daf7dc90178c3aadc7aab1765632738fa8b8f01';
+
 const sql = (q) => execFileSync('psql', [DB, '-At', '-q', '-c', q], { encoding: 'utf8' }).trim();
 
 function internalKey() {
@@ -386,6 +392,86 @@ await run.section('Nothing has ever asked the signer for an lp_* shape', async (
     run.check('every lp_* intent the signer built is recorded, with its transaction',
       unrecorded.length === 0,
       unrecorded.length ? unrecorded.join(' | ') : `${hits.length} signing(s) across ${byIntent.size} intent(s)`);
+  }
+});
+
+await run.section('PnL is the receipts, recomputed', async () => {
+  const pnl = await get('/v1/arbitrage/lp/pnl?status=all');
+  run.check('lp pnl returns 200', pnl.status === 200, `got ${pnl.status} ${JSON.stringify(pnl.body).slice(0, 200)}`);
+  run.check('pnl positions is an array', Array.isArray(pnl.body?.positions), typeof pnl.body?.positions);
+  run.check('pnl states that it is realised only',
+    typeof pnl.body?.note === 'string' && /REALISED ONLY/.test(pnl.body.note),
+    'the note does not say what is excluded');
+  run.check('gas either names the pool it was priced from or says why not',
+    /^0x[0-9a-f]{40}$/i.test(pnl.body?.valuation?.gas?.pool ?? '') ||
+      typeof pnl.body?.valuation?.gas?.error === 'string',
+    JSON.stringify(pnl.body?.valuation?.gas));
+
+  if (!npm) {
+    run.nothingToCheck('no position manager is configured, so receipts cannot be attributed');
+    return;
+  }
+
+  const rpc = process.env.RPC_URL || 'https://rpc.mainnet.chain.robinhood.com';
+  const rpcCall = async (method, params) => {
+    const res = await fetch(rpc, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+    });
+    const body = await res.json();
+    if (body.error) throw new Error(body.error.message);
+    return body.result;
+  };
+  const word = (hex, i) => BigInt('0x' + hex.slice(2 + 64 * i, 2 + 64 * (i + 1)));
+
+  const rows = Array.isArray(pnl.body?.positions) ? pnl.body.positions : [];
+  let checked = 0;
+  const bad = [];
+  for (const row of rows) {
+    for (const h of row.harvests ?? []) {
+      let rc;
+      try {
+        rc = await rpcCall('eth_getTransactionReceipt', [h.tx_hash]);
+      } catch (e) {
+        bad.push(`${h.tx_hash}: ${e.message}`);
+        continue;
+      }
+      const want = BigInt(row.token_id);
+      const log = (rc.logs ?? []).find(
+        (l) =>
+          l.address.toLowerCase() === npm.toLowerCase() &&
+          (l.topics?.[0] ?? '').toLowerCase() === COLLECT_TOPIC &&
+          word(l.topics[1], 0) === want,
+      );
+      if (!log) {
+        bad.push(`${h.tx_hash}: no Collect event for #${row.token_id}`);
+        continue;
+      }
+      const a0 = word(log.data, 1);
+      const a1 = word(log.data, 2);
+      if (a0.toString() !== h.amount0 || a1.toString() !== h.amount1) {
+        bad.push(`${h.tx_hash}: api ${h.amount0}/${h.amount1}, chain ${a0}/${a1}`);
+      }
+      if (BigInt(row.gas.gas_used) < BigInt(rc.gasUsed)) {
+        bad.push(`#${row.token_id}: gas_used ${row.gas.gas_used} is less than the harvest's own ${BigInt(rc.gasUsed)}`);
+      }
+      checked++;
+    }
+    if (row.net_usdg != null && row.fees_value_usdg != null && row.gas?.value_usdg != null) {
+      const diff = Math.abs(row.net_usdg - (row.fees_value_usdg - row.gas.value_usdg));
+      if (diff > 1e-5) bad.push(`#${row.token_id}: net ${row.net_usdg} != fees ${row.fees_value_usdg} - gas ${row.gas.value_usdg}`);
+    }
+  }
+
+  if (checked === 0) {
+    run.nothingToCheck('no harvest transaction exists yet, so there is no collected amount to recompute');
+  } else {
+    run.check(
+      `every harvest's collected amounts equal its own receipt, and net = fees - gas (${checked} harvest(s))`,
+      bad.length === 0,
+      bad.join(' | '),
+    );
   }
 });
 

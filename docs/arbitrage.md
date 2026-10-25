@@ -142,6 +142,7 @@ than appearing to succeed.
 | GET | `/v1/arbitrage/lp/plan?symbol=&size_usd=&range_pct=` | a concrete `lp_mint` plan for the token's v3 pool (read-only) |
 | GET | `/v1/arbitrage/lp/position?token_id=` | one position read back: in-range, amounts, stored fees (`tokens_owed`), exact accrual (`fees_owed`, recomputed from `feeGrowthInside`), recommendation (read-only) |
 | GET | `/v1/arbitrage/lp/positions?status=&limit=` | the registry — what agent wallets own and the state last read |
+| GET | `/v1/arbitrage/lp/pnl?status=&limit=` | realised PnL per position: fees the collect transactions paid out, minus gas they and the open burned |
 | GET | `/v1/arbitrage/lp/actions?limit=` | outstanding proposals (nothing executes them) |
 | GET | `/v1/arbitrage/lp/executions?limit=` | what the executor signed, sent and was answered with, per intent |
 | GET | `/v1/arbitrage/lp/opens?limit=` | the opens recorded by the capped open tool, with token id and transaction |
@@ -160,6 +161,35 @@ because the providers cap a recipient-filtered `eth_getLogs` at 100,000 blocks
 (measured 2026-10-19), so the loop reads in windows and resumes where a failed
 window stopped instead of moving past it. A pass already running answers 409
 (`sync_busy`) rather than stacking: the endpoint and the loop share one syncer.
+
+## PnL, defined
+
+`/v1/arbitrage/lp/pnl` answers one question: what has this position actually
+earned after what it cost. It is **realised only**, and the response says so in
+its own `note`.
+
+| Counted | Where it comes from |
+|---|---|
+| Collected fees | The position manager's `Collect` event on each **mined** receipt, for actions whose intents are a harvest (`lp_collect` and nothing else). A collect that follows a decrease, burn or mint also pays out principal, so those are excluded: booking them would count the owner's own capital as profit. |
+| Gas | Every transaction the platform sent for the position: the open (`lp_opens.tx_hash`), each executor step, and attempts that reverted. Each receipt's `gasUsed × effectiveGasPrice`. A reverted transaction still burns gas. |
+
+| Not counted | Why |
+|---|---|
+| Fees still accruing in the position | They are not realised. `/v1/arbitrage/lp/position?token_id=` reports the exact accrual (`fees_owed`) via `feeGrowthInside`. |
+| The position's own value change | Impermanent loss and price moves are not income. The position endpoint reports what it holds now. |
+| Gas for transactions the platform never sent | There are none to read, and assuming one would invent a cost. |
+
+**Valuation is as-of-now.** Fees arrive in the position's pair and are priced at
+that pair's own pool spot price at request time; the quote side is $1. Gas is
+priced at the deepest live `WETH/USDG` pool among the 0.01%, 0.05%, 0.3% and 1%
+tiers, from the reviewed WETH address in `config/robinhood-arbitrage.json`. If
+that pool cannot be read the endpoint still reports gas in ETH and leaves the
+USD value `null` with the reason, rather than converting at a guessed rate. A
+null on any side makes `totals.complete` false.
+
+Because the numbers come from receipts, they can be checked against the chain:
+`arbitrage-lp-verify` re-reads every harvest transaction, decodes the `Collect`
+event itself, and asserts the endpoint's amounts and `net = fees − gas` match.
 
 ## Schema
 

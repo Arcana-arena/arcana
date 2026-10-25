@@ -14,6 +14,12 @@
   "lp_rebalance_note": "What the LP sync loop proposes when a position is out of range: a new +/-5% range around the current tick (symmetric in price, snapped to the pool's tick spacing) sized for the position's current USD value, with a 0.5% slippage floor on the mint amounts. Proposals only — nothing executes them yet.",
   "lp_harvest_min_usd": 0.5,
   "lp_harvest_note": "The exact fee accrual (feeGrowthInside, the number collect() pays) at which an in-range position gets a harvest proposal. On this chain a collect costs a fraction of a cent of gas, so this is about avoiding dust transactions and proposal churn, not gas. A position accruing $0.50 may take days at a $500 size; raise or lower it deliberately, in this file.",
+  "weth": {
+    "symbol": "WETH",
+    "address": "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+    "decimals": 18,
+    "note": "Official Robinhood Chain WETH, from the issuer's token contracts page and the same address the platform's L2 contracts list carries. Used ONLY to price gas in the LP PnL endpoint: fees arrive in a position's pair, gas is paid in ETH, and the conversion is read from the deepest live WETH/USDG pool at request time rather than baked in here. If the pool cannot be read the endpoint reports gas in ETH and leaves the USD value null."
+  },
   "extra_venues": [
     { "token": "AAPL", "dex": "uniswap-v2", "pool": "0xd0bbf7df4e357eb3d6276df5a5903bd42bbf3647", "fee_bps": 30, "note": "dust: USDG reserve ~$0 (go/no-go 2026-10-18)" },
     { "token": "NVDA", "dex": "uniswap-v2", "pool": "0xee6f200063a53fe9450578d99c0f8ead4952c97a", "fee_bps": 30, "note": "dust" },

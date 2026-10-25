@@ -44,6 +44,11 @@ const (
 	// The ERC-721 Transfer event topic, used to discover position NFTs by
 	// recipient without knowing a tokenId in advance.
 	topicTransfer = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+	// Collect(uint256 indexed tokenId, address recipient, uint256 amount0,
+	// uint256 amount1) on the NonfungiblePositionManager. This is the event that
+	// carries what a collect actually paid out; the pool's own Collect event has
+	// a different signature and is not what the executor's transactions emit.
+	topicCollect = "0x40d0efd1a53d60ecbf40971b9daf7dc90178c3aadc7aab1765632738fa8b8f01"
 )
 
 // Client calls eth_call against a list of endpoints, in order, and remembers
@@ -608,4 +613,122 @@ func (c *Client) PositionTransfersTo(ctx context.Context, contract string, to []
 		out = append(out, TransferLog{Block: block, To: wordToAddress(strings.TrimPrefix(e.Topics[2], "0x")), TokenID: id})
 	}
 	return out, nil
+}
+
+// --- receipts ----------------------------------------------------------------
+
+// Log is one receipt log, kept as topics and data so the caller decodes only
+// the events it asked for.
+type Log struct {
+	Address string   `json:"address"`
+	Topics  []string `json:"topics"`
+	Data    string   `json:"data"`
+}
+
+// Receipt is the part of a transaction receipt this service reads: whether it
+// succeeded, what it cost, and its logs. GasUsed and GasPrice are nil when the
+// provider omitted them, which is reported as "unpriced" rather than as zero —
+// a missing number is not a free transaction.
+type Receipt struct {
+	Success  bool
+	GasUsed  *big.Int
+	GasPrice *big.Int
+	Logs     []Log
+}
+
+// Receipt reads one transaction receipt. A transaction that has not been mined
+// has no receipt and is an error here, not an empty success.
+func (c *Client) Receipt(ctx context.Context, txHash string) (*Receipt, error) {
+	label := "receipt " + txHash
+	raw, _, err := c.doRPC(ctx, "eth_getTransactionReceipt", []any{txHash}, label,
+		func(r json.RawMessage) error {
+			if len(r) == 0 || string(r) == "null" {
+				return errors.New("no receipt")
+			}
+			return nil
+		})
+	if err != nil {
+		return nil, err
+	}
+	var body struct {
+		Status            string `json:"status"`
+		GasUsed           string `json:"gasUsed"`
+		EffectiveGasPrice string `json:"effectiveGasPrice"`
+		Logs              []Log  `json:"logs"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", label, err)
+	}
+	hexToInt := func(h string) *big.Int {
+		if strings.TrimSpace(h) == "" || h == "0x" {
+			return nil
+		}
+		n, ok := new(big.Int).SetString(strings.TrimPrefix(h, "0x"), 16)
+		if !ok {
+			return nil
+		}
+		return n
+	}
+	return &Receipt{
+		Success:  body.Status == "0x1",
+		GasUsed:  hexToInt(body.GasUsed),
+		GasPrice: hexToInt(body.EffectiveGasPrice),
+		Logs:     body.Logs,
+	}, nil
+}
+
+// CollectForToken returns the amounts a receipt's NonfungiblePositionManager
+// Collect event paid for one position. A receipt with no Collect for that
+// tokenId returns found=false: "this transaction did not collect that
+// position", which is different from "it collected nothing".
+func CollectForToken(rc *Receipt, npm, tokenID string) (amount0, amount1 *big.Int, found bool) {
+	id, ok := new(big.Int).SetString(strings.TrimSpace(tokenID), 10)
+	if !ok {
+		return nil, nil, false
+	}
+	want := padUint(id)
+	for _, lg := range rc.Logs {
+		if !strings.EqualFold(lg.Address, npm) {
+			continue
+		}
+		if len(lg.Topics) < 2 || !strings.EqualFold(lg.Topics[0], topicCollect) {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimPrefix(lg.Topics[1], "0x"), want) {
+			continue
+		}
+		w := words(lg.Data)
+		if len(w) < 3 {
+			continue
+		}
+		// data is (recipient, amount0, amount1); the recipient is informational.
+		return wordToBig(w[1]), wordToBig(w[2]), true
+	}
+	return nil, nil, false
+}
+
+// DeepestPool returns the pool with the largest current in-range liquidity
+// among the given fee tiers. Used to price WETH, which has pools at several
+// tiers; taking the first one that exists would price gas from a pool nobody
+// trades through.
+func (c *Client) DeepestPool(ctx context.Context, factory, tokenA, tokenB string, fees []uint32) (string, *big.Int, error) {
+	var best string
+	var bestLiq *big.Int
+	for _, fee := range fees {
+		pool, err := c.GetPool(ctx, factory, tokenA, tokenB, fee)
+		if err != nil || pool == "" {
+			continue
+		}
+		liq, err := c.Liquidity(ctx, pool)
+		if err != nil {
+			continue
+		}
+		if bestLiq == nil || liq.Cmp(bestLiq) > 0 {
+			best, bestLiq = pool, liq
+		}
+	}
+	if best == "" {
+		return "", nil, errors.New("no pool for the pair at any of the checked fee tiers")
+	}
+	return best, bestLiq, nil
 }

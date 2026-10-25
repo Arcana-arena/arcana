@@ -101,6 +101,7 @@ func main() {
 	mux.HandleFunc("GET /v1/arbitrage/lp/plan", srv.handleLPPlan)
 	mux.HandleFunc("GET /v1/arbitrage/lp/position", srv.handleLPPosition)
 	mux.HandleFunc("GET /v1/arbitrage/lp/positions", srv.handleLPPositions)
+	mux.HandleFunc("GET /v1/arbitrage/lp/pnl", srv.handleLPPnL)
 	mux.HandleFunc("GET /v1/arbitrage/lp/actions", srv.handleLPActions)
 	mux.HandleFunc("GET /v1/arbitrage/lp/executions", srv.handleLPExecutions)
 	mux.HandleFunc("GET /v1/arbitrage/lp/opens", srv.handleLPOpens)

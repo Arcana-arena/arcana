@@ -43,7 +43,11 @@ type Config struct {
 	// collect costs a fraction of a cent of gas, so the threshold is about
 	// avoiding dust transactions and proposal churn, not about gas.
 	LPHarvestMinUSD float64 `json:"lp_harvest_min_usd"`
-	Tokens          []Token `json:"tokens"`
+	// WETH is used only to price gas: a position's fees are collected in its own
+	// pair, while gas is paid in ETH. Absent means gas is reported in ETH and
+	// not converted, rather than converted at a guessed rate.
+	WETH   *QuoteToken `json:"weth,omitempty"`
+	Tokens []Token     `json:"tokens"`
 }
 
 // QuoteToken is the pair's quote side (USDG).
@@ -99,7 +103,12 @@ type extraFile struct {
 	LPRebalanceRangePct    float64 `json:"lp_rebalance_range_pct"`
 	LPRebalanceSlippageBps float64 `json:"lp_rebalance_slippage_bps"`
 	LPHarvestMinUSD        float64 `json:"lp_harvest_min_usd"`
-	ExtraVenues            []struct {
+	WETH                   *struct {
+		Symbol   string `json:"symbol"`
+		Address  string `json:"address"`
+		Decimals int    `json:"decimals"`
+	} `json:"weth"`
+	ExtraVenues []struct {
 		Token  string `json:"token"`
 		Dex    string `json:"dex"`
 		Pool   string `json:"pool"`
@@ -163,6 +172,16 @@ func Load(allowlistPath, extraPath string) (*Config, error) {
 			Address:  allow.Quote.Address,
 			Decimals: allow.Quote.Decimals,
 		},
+	}
+	if extra.WETH != nil {
+		if extra.WETH.Address == "" || extra.WETH.Decimals == 0 {
+			return nil, errors.New("config: weth needs address and decimals")
+		}
+		cfg.WETH = &QuoteToken{
+			Symbol:   extra.WETH.Symbol,
+			Address:  extra.WETH.Address,
+			Decimals: extra.WETH.Decimals,
+		}
 	}
 
 	for _, t := range allow.Tokens {
