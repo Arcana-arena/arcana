@@ -20,10 +20,25 @@ import { ago, int, num, txShort, utc } from '@/lib/format';
 import { Tag } from '@/components/ds/primitives';
 import { REC_TONE, shortId, stepTone, units, type LPPosition, type LPVenueToken } from '@/lib/lp';
 
-export function ScrollRegion({ label, children }: { label: string; children: ReactNode }) {
+export function ScrollRegion({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: ReactNode;
+}) {
   return (
-    <div className="scroll-x" role="region" aria-label={label} tabIndex={0}>
-      {children}
+    <div className="lp-scroll">
+      {hint ? (
+        <div className="lp-scroll-hint" aria-hidden="true">
+          {hint}
+        </div>
+      ) : null}
+      <div className="scroll-x" role="region" aria-label={label} tabIndex={0}>
+        {children}
+      </div>
     </div>
   );
 }
@@ -98,7 +113,7 @@ export function PositionsTable({
   dense?: boolean;
 }) {
   return (
-    <ScrollRegion label="LP positions">
+    <ScrollRegion label="LP positions" hint="Scroll the table sideways for verdict and sync time.">
       <table className={`table ${dense ? 'table-dense' : ''}`} style={{ marginTop: 10 }}>
         <thead>
           <tr>
@@ -222,7 +237,7 @@ export type ActivityRow = {
 
 export function ActivityTable({ rows, label }: { rows: ActivityRow[]; label: string }) {
   return (
-    <ScrollRegion label={label}>
+    <ScrollRegion label={label} hint="Scroll the table sideways for status and transaction.">
       <table className="table" style={{ marginTop: 10 }}>
         <thead>
           <tr>

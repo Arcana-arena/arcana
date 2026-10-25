@@ -172,7 +172,7 @@ export default async function ArbitragePage() {
       </div>
 
       {/* ------------------------------------------------------------ positions */}
-      <div className="sec">
+      <div className="sec" style={{ paddingTop: 22 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
           <h2>Positions</h2>
           <span className="mono m2" style={{ fontSize: 12 }}>
@@ -193,7 +193,7 @@ export default async function ArbitragePage() {
       </div>
 
       {/* ------------------------------------------------------------- activity */}
-      <div className="sec">
+      <div className="sec" style={{ paddingTop: 22 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
           <h2>Activity</h2>
           <span className="mono m2" style={{ fontSize: 12 }}>

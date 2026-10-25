@@ -449,6 +449,20 @@ h2 { font-size: 22px; }
    arbitrage tables can be read on a laptop narrower than their content. */
 .scroll-x:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 
+/* On a phone the table is wider than the screen. The fade is not enough to
+   say so, and a reader who does not discover the swipe never sees the verdict
+   column. The hint exists only below 720px, where it is true. */
+.lp-scroll-hint { display: none; }
+@media (max-width: 720px) {
+  .lp-scroll-hint {
+    display: block;
+    margin-top: 8px;
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--ink-2);
+  }
+}
+
 /* --------------------------------------------------------------- arbitrage
    State strip: the facts a monitor page exists to convey, above the tables.
    Mechanism row: three one-sentence steps, side by side, no decoration. */
