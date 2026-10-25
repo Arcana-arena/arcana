@@ -184,6 +184,7 @@ for (const [name, path] of [
   ['leaderboard', '/leaderboard'],
   ['docs', '/docs/scoring'],
   ['marketplace', '/marketplace'],
+  ['arbitrage', '/arbitrage'],
   ['status', '/status'],
   ...(LISTING_ID ? [['listing', `/marketplace/${LISTING_ID}`]] : []),
   ...(SEASON_ID ? [['season', `/seasons/${SEASON_ID}`]] : []),

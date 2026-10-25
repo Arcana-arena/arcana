@@ -482,18 +482,18 @@ h2 { font-size: 22px; }
 .lp-steps p { margin: 6px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); }
 
 /* The range rail: bounds at the ends, the current tick marked between them.
-   Out-of-range and unread states are drawn, never only coloured — each one
-   carries its own caption and its own accessible name. */
+   No fill: a filled bar reads as progress through a task, and this is a price
+   standing still inside an interval. Out-of-range and unread states are drawn,
+   never only coloured — each one carries its own caption and accessible name. */
 .lp-range { min-width: 150px; }
 .lp-rail {
   position: relative;
-  height: 6px;
+  height: 8px;
   background: var(--color-neutral-300);
   border: 1px solid var(--color-divider);
 }
-.lp-rail-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--color-accent-300); }
 .lp-rail-mark { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--color-accent); }
-.lp-rail-out .lp-rail-fill { background: var(--amber-dim); }
+.lp-rail-out { background: var(--amber-dim); }
 .lp-rail-out .lp-rail-mark { background: var(--amber); }
 .lp-rail-unknown {
   background: repeating-linear-gradient(90deg, var(--color-neutral-300) 0 5px, transparent 5px 10px);

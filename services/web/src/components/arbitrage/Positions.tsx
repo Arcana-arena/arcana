@@ -71,7 +71,6 @@ export function RangeRail({
         aria-label={label}
         title={`ticks ${lower} … ${upper}, current ${current}`}
       >
-        <span className="lp-rail-fill" style={{ width: `${pct}%` }} />
         <span className="lp-rail-mark" style={{ left: `${pct}%` }} />
       </div>
       <span className="lp-rail-cap">{caption}</span>
@@ -104,17 +103,19 @@ export function PositionsTable({
         <thead>
           <tr>
             <th style={{ width: 165 }}>Pair</th>
-            {showAgent ? <th style={{ width: 100 }}>Agent</th> : null}
-            <th style={{ minWidth: 190 }}>Where the price sits</th>
+            {showAgent ? <th style={{ width: 92 }}>Agent</th> : null}
+            <th style={{ width: 232 }}>Where the price sits</th>
             <th style={{ width: 78 }}>In range</th>
-            <th style={{ width: 165 }}>Holds</th>
-            <th style={{ width: 190 }}>
+            <th className="r" style={{ width: 150 }}>
+              Holds
+            </th>
+            <th className="r" style={{ width: 190 }}>
               <span title="tokensOwed stored at the last position touch, a lower bound on the accrual. The position endpoint reports the exact number for one NFT at a time.">
                 Stored fees
               </span>
             </th>
-            <th style={{ width: 95 }}>Verdict</th>
-            <th style={{ width: 120 }}>Status</th>
+            <th style={{ width: 92 }}>Verdict</th>
+            <th style={{ width: 118 }}>Status</th>
           </tr>
         </thead>
         <tbody>
@@ -161,7 +162,7 @@ export function PositionsTable({
                     <Tag tone="amber">OUT</Tag>
                   )}
                 </td>
-                <td className="mono">
+                <td className="mono r">
                   {a0 === null && a1 === null ? (
                     <span className="m2">not read</span>
                   ) : (
@@ -172,12 +173,14 @@ export function PositionsTable({
                     </>
                   )}
                 </td>
-                <td className="mono">
+                <td className="mono r">
                   {f0 === null && f1 === null ? (
                     <span className="m2">not read</span>
                   ) : (
                     <>
-                      {num(f0, 4)} {t0.symbol} · {num(f1, 4)} {t1.symbol}
+                      {num(f0, 4)} {t0.symbol}
+                      <br />
+                      {num(f1, 4)} {t1.symbol}
                     </>
                   )}
                 </td>
