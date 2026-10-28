@@ -375,12 +375,19 @@ export class LeaderboardService {
       if (rows.length === 0) throw new NotFoundException(`Season ${seasonId} not found`);
       return rows[0];
     }
+    // DEFAULT RESOLVES TO A SEASON THAT ACTUALLY HAS LIVE AGENTS, not to the
+    // season whose fixtures were scored most recently. score_snapshots also
+    // carries verification fixtures (provenance='verification'), and fixtures
+    // are not agents: a season holding only them must not hijack the default
+    // board and render as "nobody is competing". Running seasons are preferred
+    // over ended ones, then the freshest live scores win.
     const rows = await this.db.query(
       `SELECT s.id::text, s.name, ${status}
          FROM seasons s
          JOIN score_snapshots ss ON ss.season_id = s.id
+         JOIN agents a ON a.id = ss.agent_id AND a.provenance = 'live'
         GROUP BY s.id, s.name, s.start_at, s.end_at
-        ORDER BY max(ss.ts) DESC
+        ORDER BY (now() >= s.start_at AND now() < s.end_at) DESC, max(ss.ts) DESC
         LIMIT 1`);
     if (rows.length === 0) {
       throw new NotFoundException({
